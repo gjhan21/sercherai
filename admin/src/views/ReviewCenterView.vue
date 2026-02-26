@@ -7,7 +7,7 @@ import {
   reviewTaskDecision,
   submitReviewTask
 } from "../api/admin";
-import { getSession } from "../lib/session";
+import { getAccessToken, getSession } from "../lib/session";
 
 const loading = ref(false);
 const metricsLoading = ref(false);
@@ -30,6 +30,10 @@ const batchRejectReason = ref("");
 const batchAssigning = ref(false);
 const batchApproving = ref(false);
 const batchRejecting = ref(false);
+const exportingFiltered = ref(false);
+const batchResultVisible = ref(false);
+const batchResultTitle = ref("");
+const batchResultRows = ref([]);
 const timerRefs = {
   clock: null,
   refresh: null
@@ -181,6 +185,116 @@ function setupTimers() {
     }
     refreshAll();
   }, 60 * 1000);
+}
+
+function normalizeErrorMessage(error, fallback) {
+  return error?.message || fallback || "操作失败";
+}
+
+function openBatchResultDialog(title, rows) {
+  batchResultTitle.value = title;
+  batchResultRows.value = rows;
+  batchResultVisible.value = true;
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  if (/[",\n]/.test(text)) {
+    return `"${text.replace(/"/g, "\"\"")}"`;
+  }
+  return text;
+}
+
+function triggerCSVDownload(content, fileName) {
+  const blob = new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+function buildCSVRows(items) {
+  const header = [
+    "id",
+    "module",
+    "target_id",
+    "submitter_id",
+    "reviewer_id",
+    "status",
+    "sla_label",
+    "sla_duration",
+    "submit_note",
+    "review_note",
+    "submitted_at",
+    "reviewed_at"
+  ];
+  const rows = items.map((item) => [
+    item.id || "",
+    item.module || "",
+    item.target_id || "",
+    item.submitter_id || "",
+    item.reviewer_id || "",
+    item.status || "",
+    slaLabel(item),
+    formatPendingDuration(item),
+    item.submit_note || "",
+    item.review_note || "",
+    item.submitted_at || "",
+    item.reviewed_at || ""
+  ]);
+  return [header, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
+}
+
+function exportCurrentPageCSV() {
+  const csv = buildCSVRows(displayTasks.value);
+  const fileName = `review_tasks_page_${new Date().toISOString().slice(0, 10)}.csv`;
+  triggerCSVDownload(csv, fileName);
+  message.value = `已导出当前页 CSV，共 ${displayTasks.value.length} 条`;
+}
+
+async function exportFilteredCSV() {
+  exportingFiltered.value = true;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    const params = new URLSearchParams();
+    if (filters.module) params.set("module", filters.module);
+    if (filters.status) params.set("status", filters.status);
+    if (filters.submitter_id.trim()) params.set("submitter_id", filters.submitter_id.trim());
+    if (filters.reviewer_id.trim()) params.set("reviewer_id", filters.reviewer_id.trim());
+    const baseURL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "");
+    const query = params.toString();
+    const requestURL = `${baseURL}/admin/workflow/reviews/export.csv${query ? `?${query}` : ""}`;
+    const headers = {};
+    const token = getAccessToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    const response = await fetch(requestURL, { method: "GET", headers });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `导出失败(${response.status})`);
+    }
+    const blob = await response.blob();
+    const blobURL = URL.createObjectURL(blob);
+    const fileName = `review_tasks_filtered_${new Date().toISOString().slice(0, 10)}.csv`;
+    const anchor = document.createElement("a");
+    anchor.href = blobURL;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(blobURL);
+    message.value = "已发起筛选结果 CSV 下载";
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "导出筛选结果失败");
+  } finally {
+    exportingFiltered.value = false;
+  }
 }
 
 async function fetchMetrics() {
@@ -368,17 +482,26 @@ async function handleBatchAssign() {
   batchAssigning.value = true;
   let success = 0;
   let failed = 0;
+  const resultRows = [];
   for (const task of selectedPendingRows.value) {
     try {
       await assignReviewTask(task.id, reviewerID);
       success += 1;
-    } catch {
+      resultRows.push({ id: task.id, action: "批量分配", result: "SUCCESS", reason: `已分配给 ${reviewerID}` });
+    } catch (error) {
       failed += 1;
+      resultRows.push({
+        id: task.id,
+        action: "批量分配",
+        result: "FAILED",
+        reason: normalizeErrorMessage(error, "分配失败")
+      });
     }
   }
   batchAssigning.value = false;
   await refreshAll();
   message.value = `批量分配完成：成功 ${success}，失败 ${failed}`;
+  openBatchResultDialog("批量分配结果", resultRows);
 }
 
 async function handleBatchApprove() {
@@ -392,21 +515,36 @@ async function handleBatchApprove() {
   let success = 0;
   let failed = 0;
   let skipped = 0;
+  const resultRows = [];
   for (const task of selectedPendingRows.value) {
     if (!canQuickDecision(task)) {
       skipped += 1;
+      resultRows.push({
+        id: task.id,
+        action: "批量通过",
+        result: "SKIPPED",
+        reason: "任务已分配给其他审核员"
+      });
       continue;
     }
     try {
       await reviewTaskDecision(task.id, "APPROVED", "");
       success += 1;
-    } catch {
+      resultRows.push({ id: task.id, action: "批量通过", result: "SUCCESS", reason: "审批通过" });
+    } catch (error) {
       failed += 1;
+      resultRows.push({
+        id: task.id,
+        action: "批量通过",
+        result: "FAILED",
+        reason: normalizeErrorMessage(error, "审批失败")
+      });
     }
   }
   batchApproving.value = false;
   await refreshAll();
   message.value = `批量通过完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}`;
+  openBatchResultDialog("批量通过结果", resultRows);
 }
 
 function openBatchRejectDialog() {
@@ -430,22 +568,37 @@ async function submitBatchReject() {
   let success = 0;
   let failed = 0;
   let skipped = 0;
+  const resultRows = [];
   for (const task of selectedPendingRows.value) {
     if (!canQuickDecision(task)) {
       skipped += 1;
+      resultRows.push({
+        id: task.id,
+        action: "批量驳回",
+        result: "SKIPPED",
+        reason: "任务已分配给其他审核员"
+      });
       continue;
     }
     try {
       await reviewTaskDecision(task.id, "REJECTED", note);
       success += 1;
-    } catch {
+      resultRows.push({ id: task.id, action: "批量驳回", result: "SUCCESS", reason: "已驳回" });
+    } catch (error) {
       failed += 1;
+      resultRows.push({
+        id: task.id,
+        action: "批量驳回",
+        result: "FAILED",
+        reason: normalizeErrorMessage(error, "驳回失败")
+      });
     }
   }
   batchRejecting.value = false;
   batchRejectDialogVisible.value = false;
   await refreshAll();
   message.value = `批量驳回完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}`;
+  openBatchResultDialog("批量驳回结果", resultRows);
 }
 
 async function handleDetailAssign() {
@@ -737,6 +890,8 @@ onBeforeUnmount(() => {
         <el-switch v-model="showOnlySLAWarning" inline-prompt active-text="只看超时" inactive-text="全部任务" />
         <el-switch v-model="autoRefreshEnabled" inline-prompt active-text="自动刷新" inactive-text="手动刷新" />
         <el-text type="info">SLA每30秒自动刷新，列表每60秒自动拉取</el-text>
+        <el-button :loading="exportingFiltered" @click="exportFilteredCSV">导出筛选CSV</el-button>
+        <el-button @click="exportCurrentPageCSV">导出当前页CSV</el-button>
         <el-button type="primary" plain @click="applyFilters">查询</el-button>
         <el-button @click="resetFilters">重置</el-button>
       </div>
@@ -934,6 +1089,24 @@ onBeforeUnmount(() => {
       <template #footer>
         <el-button @click="batchRejectDialogVisible = false">取消</el-button>
         <el-button type="danger" :loading="batchRejecting" @click="submitBatchReject">确认批量驳回</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="batchResultVisible" :title="batchResultTitle" width="760px" destroy-on-close>
+      <el-table :data="batchResultRows" border stripe max-height="360">
+        <el-table-column prop="id" label="任务ID" min-width="130" />
+        <el-table-column prop="action" label="动作" min-width="100" />
+        <el-table-column label="结果" min-width="110">
+          <template #default="{ row }">
+            <el-tag :type="row.result === 'SUCCESS' ? 'success' : row.result === 'SKIPPED' ? 'warning' : 'danger'">
+              {{ row.result }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="reason" label="说明" min-width="260" />
+      </el-table>
+      <template #footer>
+        <el-button type="primary" @click="batchResultVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
