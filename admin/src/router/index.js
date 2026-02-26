@@ -4,6 +4,7 @@ import DashboardView from "../views/DashboardView.vue";
 import DataSourcesView from "../views/DataSourcesView.vue";
 import LoginView from "../views/LoginView.vue";
 import NewsView from "../views/NewsView.vue";
+import ReviewCenterView from "../views/ReviewCenterView.vue";
 import UsersView from "../views/UsersView.vue";
 import WorkflowMessagesView from "../views/WorkflowMessagesView.vue";
 import { hasSession } from "../lib/session";
@@ -43,6 +44,11 @@ const routes = [
         path: "news",
         name: "news",
         component: NewsView
+      },
+      {
+        path: "review-center",
+        name: "review-center",
+        component: ReviewCenterView
       },
       {
         path: "workflow-messages",

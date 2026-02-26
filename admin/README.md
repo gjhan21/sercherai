@@ -6,6 +6,7 @@
 - 仪表盘（`/api/v1/admin/dashboard/overview`）
 - 用户管理（`/api/v1/admin/users*`）
 - 新闻管理（`/api/v1/admin/news*`）
+- 审核中心（`/api/v1/admin/workflow/reviews*`、`/api/v1/admin/workflow/metrics`）
 - 数据源管理与健康检查（`/api/v1/admin/data-sources*`）
 - 流程消息（`/api/v1/admin/workflow/messages*`）
 
@@ -30,4 +31,4 @@ npm run dev
 
 1. 启动后端（建议开启 `ALLOW_MOCK_LOGIN=true` 便于开发）
 2. 打开管理端，使用 Mock 登录（`admin_001` / `ADMIN`）
-3. 先联调「用户管理 / 新闻管理 / 数据源管理 / 流程消息」
+3. 先联调「用户管理 / 新闻管理 / 审核中心 / 数据源管理 / 流程消息」

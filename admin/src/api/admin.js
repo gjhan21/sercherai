@@ -111,6 +111,31 @@ export function listWorkflowMessages(params) {
   return http.get("/admin/workflow/messages", { params: buildParams(params) });
 }
 
+export function listReviewTasks(params) {
+  return http.get("/admin/workflow/reviews", { params: buildParams(params) });
+}
+
+export function getWorkflowMetrics(params) {
+  return http.get("/admin/workflow/metrics", { params: buildParams(params) });
+}
+
+export function submitReviewTask(payload) {
+  return http.post("/admin/workflow/reviews/submit", payload);
+}
+
+export function assignReviewTask(id, reviewerID) {
+  return http.put(`/admin/workflow/reviews/${encodeURIComponent(id)}/assign`, {
+    reviewer_id: reviewerID
+  });
+}
+
+export function reviewTaskDecision(id, status, reviewNote) {
+  return http.put(`/admin/workflow/reviews/${encodeURIComponent(id)}/decision`, {
+    status,
+    review_note: reviewNote
+  });
+}
+
 export function countUnreadWorkflowMessages(params) {
   return http.get("/admin/workflow/messages/unread-count", {
     params: buildParams(params)
