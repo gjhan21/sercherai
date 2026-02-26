@@ -49,6 +49,31 @@ type RewardRecord struct {
 	IssuedAt     string  `json:"issued_at"`
 }
 
+type UserProfile struct {
+	ID          string `json:"id"`
+	Phone       string `json:"phone"`
+	Email       string `json:"email,omitempty"`
+	KYCStatus   string `json:"kyc_status"`
+	MemberLevel string `json:"member_level"`
+}
+
+type Subscription struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Scope     string `json:"scope,omitempty"`
+	Frequency string `json:"frequency"`
+	Status    string `json:"status"`
+}
+
+type UserMessage struct {
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Content    string `json:"content,omitempty"`
+	Type       string `json:"type"`
+	ReadStatus string `json:"read_status"`
+	CreatedAt  string `json:"created_at"`
+}
+
 type MembershipQuota struct {
 	MemberLevel            string `json:"member_level"`
 	PeriodKey              string `json:"period_key"`
@@ -121,8 +146,44 @@ type ArbitrageOpportunity struct {
 	ContractB  string  `json:"contract_b"`
 	Spread     float64 `json:"spread"`
 	Percentile float64 `json:"percentile"`
-	RiskLevel  string  `json:"risk_level"`
+	ZScore     float64 `json:"z_score,omitempty"`
+	HalfLife   float64 `json:"half_life,omitempty"`
+	RiskLevel  string  `json:"risk_level,omitempty"`
 	Status     string  `json:"status"`
+}
+
+type ArbitrageRecommendation struct {
+	ID          string  `json:"id"`
+	Type        string  `json:"type"`
+	ContractA   string  `json:"contract_a"`
+	ContractB   string  `json:"contract_b"`
+	Spread      float64 `json:"spread"`
+	Percentile  float64 `json:"percentile"`
+	EntryPoint  float64 `json:"entry_point"`
+	ExitPoint   float64 `json:"exit_point"`
+	StopPoint   float64 `json:"stop_point"`
+	TriggerRule string  `json:"trigger_rule,omitempty"`
+	Status      string  `json:"status,omitempty"`
+	ValidTo     string  `json:"valid_to,omitempty"`
+}
+
+type FuturesReview struct {
+	ID          string  `json:"id"`
+	StrategyID  string  `json:"strategy_id"`
+	HitRate     float64 `json:"hit_rate"`
+	PnL         float64 `json:"pnl"`
+	MaxDrawdown float64 `json:"max_drawdown"`
+	ReviewDate  string  `json:"review_date"`
+}
+
+type MarketEvent struct {
+	ID          string `json:"id"`
+	EventType   string `json:"event_type"`
+	Symbol      string `json:"symbol"`
+	Summary     string `json:"summary"`
+	TriggerRule string `json:"trigger_rule"`
+	Source      string `json:"source,omitempty"`
+	CreatedAt   string `json:"created_at"`
 }
 
 type FuturesGuidance struct {
@@ -190,6 +251,29 @@ type StockRecommendationDetail struct {
 	TakeProfit     string  `json:"take_profit"`
 	StopLoss       string  `json:"stop_loss"`
 	RiskNote       string  `json:"risk_note"`
+}
+
+type RecommendationPerformancePoint struct {
+	Date   string  `json:"date"`
+	Return float64 `json:"return"`
+}
+
+type PublicHolding struct {
+	ID          string  `json:"id"`
+	Holder      string  `json:"holder"`
+	Symbol      string  `json:"symbol"`
+	Ratio       float64 `json:"ratio"`
+	DisclosedAt string  `json:"disclosed_at"`
+	Source      string  `json:"source"`
+}
+
+type PublicFuturesPosition struct {
+	ID            string  `json:"id"`
+	Contract      string  `json:"contract"`
+	LongPosition  float64 `json:"long_position"`
+	ShortPosition float64 `json:"short_position"`
+	DisclosedAt   string  `json:"disclosed_at"`
+	Source        string  `json:"source"`
 }
 
 type FuturesStrategy struct {
@@ -281,6 +365,27 @@ type VIPQuotaConfig struct {
 	Status             string `json:"status"`
 	EffectiveAt        string `json:"effective_at"`
 	UpdatedAt          string `json:"updated_at"`
+}
+
+type UserQuotaUsage struct {
+	UserID             string `json:"user_id"`
+	MemberLevel        string `json:"member_level"`
+	PeriodKey          string `json:"period_key"`
+	DocReadLimit       int    `json:"doc_read_limit"`
+	DocReadUsed        int    `json:"doc_read_used"`
+	NewsSubscribeLimit int    `json:"news_subscribe_limit"`
+	NewsSubscribeUsed  int    `json:"news_subscribe_used"`
+	UpdatedAt          string `json:"updated_at,omitempty"`
+}
+
+type DataSource struct {
+	ID         string                 `json:"id"`
+	SourceKey  string                 `json:"source_key"`
+	Name       string                 `json:"name"`
+	SourceType string                 `json:"source_type"`
+	Status     string                 `json:"status"`
+	Config     map[string]interface{} `json:"config,omitempty"`
+	UpdatedAt  string                 `json:"updated_at,omitempty"`
 }
 
 type SystemConfig struct {

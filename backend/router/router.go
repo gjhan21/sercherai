@@ -78,6 +78,11 @@ func Register(r *gin.Engine) {
 		user := v1.Group("/user")
 		user.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("USER", "ADMIN"))
 		{
+			user.GET("/profile", userGrowthHandler.GetUserProfile)
+			user.PUT("/profile", userGrowthHandler.UpdateUserProfile)
+			user.GET("/kyc/status", userGrowthHandler.GetKYCStatus)
+			user.POST("/kyc/submit", userGrowthHandler.SubmitKYC)
+
 			user.GET("/browse-history", userGrowthHandler.ListBrowseHistory)
 			user.DELETE("/browse-history/:id", userGrowthHandler.DeleteBrowseHistoryItem)
 			user.DELETE("/browse-history", userGrowthHandler.ClearBrowseHistory)
@@ -94,6 +99,21 @@ func Register(r *gin.Engine) {
 			user.POST("/reward-wallet/withdraw", userGrowthHandler.CreateWithdrawRequest)
 		}
 
+		subscriptions := v1.Group("/subscriptions")
+		subscriptions.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("USER", "ADMIN"))
+		{
+			subscriptions.GET("", userGrowthHandler.ListSubscriptions)
+			subscriptions.POST("", userGrowthHandler.CreateSubscription)
+			subscriptions.PUT("/:id", userGrowthHandler.UpdateSubscription)
+		}
+
+		messages := v1.Group("/messages")
+		messages.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("USER", "ADMIN"))
+		{
+			messages.GET("", userGrowthHandler.ListMessages)
+			messages.PUT("/:id/read", userGrowthHandler.ReadMessage)
+		}
+
 		membership := v1.Group("/membership")
 		membership.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("USER", "ADMIN"))
 		{
@@ -106,8 +126,12 @@ func Register(r *gin.Engine) {
 		futures := v1.Group("/futures")
 		futures.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("USER", "ADMIN"))
 		{
+			futures.GET("/arbitrage", userGrowthHandler.ListFuturesArbitrage)
+			futures.GET("/arbitrage/:id", userGrowthHandler.GetFuturesArbitrageDetail)
 			futures.GET("/arbitrage/opportunities", userGrowthHandler.ListArbitrageOpportunities)
 			futures.GET("/guidance/:contract", userGrowthHandler.GetFuturesGuidance)
+			futures.POST("/alerts", userGrowthHandler.CreateFuturesAlert)
+			futures.GET("/reviews", userGrowthHandler.ListFuturesReviews)
 			futures.GET("/strategies", userGrowthHandler.ListFuturesStrategies)
 			futures.GET("/strategies/:id", userGrowthHandler.GetFuturesStrategyDetail)
 		}
@@ -117,6 +141,7 @@ func Register(r *gin.Engine) {
 		{
 			stocks.GET("/recommendations", userGrowthHandler.ListStockRecommendations)
 			stocks.GET("/recommendations/:id", userGrowthHandler.GetStockRecommendationDetail)
+			stocks.GET("/recommendations/:id/performance", userGrowthHandler.GetStockRecommendationPerformance)
 		}
 
 		news := v1.Group("/news")
@@ -125,9 +150,23 @@ func Register(r *gin.Engine) {
 			news.GET("/categories", userGrowthHandler.ListNewsCategories)
 			news.GET("/articles", userGrowthHandler.ListNewsArticles)
 			news.GET("/articles/:id", userGrowthHandler.GetNewsArticleDetail)
+			news.GET("/articles/:id/attachments", userGrowthHandler.ListNewsAttachments)
 			news.GET("/attachments/:id/signed-url", userGrowthHandler.GetAttachmentSignedURL)
 		}
 		v1.GET("/news/attachments/:id/download", userGrowthHandler.DownloadAttachment)
+
+		public := v1.Group("/public")
+		{
+			public.GET("/holdings", userGrowthHandler.ListPublicHoldings)
+			public.GET("/futures-positions", userGrowthHandler.ListPublicFuturesPositions)
+		}
+
+		market := v1.Group("/market")
+		market.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("USER", "ADMIN"))
+		{
+			market.GET("/events", userGrowthHandler.ListMarketEvents)
+			market.GET("/events/:id", userGrowthHandler.GetMarketEventDetail)
+		}
 
 		payment := v1.Group("/payment")
 		payment.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("USER", "ADMIN"))
@@ -177,9 +216,18 @@ func Register(r *gin.Engine) {
 			adminNews.GET("/articles", adminGrowthHandler.ListNewsArticles)
 			adminNews.POST("/articles", adminGrowthHandler.CreateNewsArticle)
 			adminNews.PUT("/articles/:id", adminGrowthHandler.UpdateNewsArticle)
+			adminNews.PUT("/articles/:id/publish", adminGrowthHandler.PublishNewsArticle)
 
 			adminNews.GET("/articles/:id/attachments", adminGrowthHandler.ListNewsAttachments)
 			adminNews.POST("/articles/:id/attachments", adminGrowthHandler.CreateNewsAttachment)
+			adminNews.DELETE("/attachments/:id", adminGrowthHandler.DeleteNewsAttachment)
+		}
+
+		adminDataSources := v1.Group("/admin/data-sources")
+		adminDataSources.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("ADMIN"))
+		{
+			adminDataSources.GET("", adminGrowthHandler.ListDataSources)
+			adminDataSources.POST("", adminGrowthHandler.CreateDataSource)
 		}
 
 		adminStocks := v1.Group("/admin/stocks")
@@ -235,6 +283,9 @@ func Register(r *gin.Engine) {
 
 			adminMembership.GET("/quota-configs", adminGrowthHandler.ListVIPQuotaConfigs)
 			adminMembership.POST("/quota-configs", adminGrowthHandler.CreateVIPQuotaConfig)
+			adminMembership.PUT("/quota-configs/:id", adminGrowthHandler.UpdateVIPQuotaConfig)
+			adminMembership.GET("/user-quotas", adminGrowthHandler.ListUserQuotas)
+			adminMembership.PUT("/user-quotas/:user_id/adjust", adminGrowthHandler.AdjustUserQuota)
 		}
 
 		adminSystem := v1.Group("/admin/system")

@@ -84,6 +84,18 @@ type NewsAttachmentRequest struct {
 	MimeType string `json:"mime_type"`
 }
 
+type NewsPublishRequest struct {
+	Status string `json:"status" binding:"required,oneof=PUBLISHED"`
+}
+
+type DataSourceCreateRequest struct {
+	SourceKey  string                 `json:"source_key" binding:"required"`
+	Name       string                 `json:"name" binding:"required"`
+	SourceType string                 `json:"source_type" binding:"required"`
+	Status     string                 `json:"status" binding:"required,oneof=ACTIVE DISABLED"`
+	Config     map[string]interface{} `json:"config"`
+}
+
 type StockRecommendationRequest struct {
 	Symbol        string  `json:"symbol" binding:"required"`
 	Name          string  `json:"name" binding:"required"`
@@ -128,6 +140,32 @@ type UpdateUserKYCStatusRequest struct {
 	KYCStatus string `json:"kyc_status" binding:"required,oneof=PENDING APPROVED REJECTED"`
 }
 
+type UpdateUserProfileRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type KYCSubmitRequest struct {
+	RealName string `json:"real_name" binding:"required"`
+	IDNumber string `json:"id_number" binding:"required"`
+}
+
+type SubscriptionCreateRequest struct {
+	Type      string `json:"type" binding:"required,oneof=STOCK_RECO FUTURES_STRATEGY ARBITRAGE EVENT"`
+	Scope     string `json:"scope"`
+	Frequency string `json:"frequency" binding:"required,oneof=INSTANT DAILY WEEKLY"`
+}
+
+type SubscriptionUpdateRequest struct {
+	Frequency string `json:"frequency" binding:"required,oneof=INSTANT DAILY WEEKLY"`
+	Status    string `json:"status" binding:"required,oneof=ACTIVE PAUSED"`
+}
+
+type FuturesAlertRequest struct {
+	Contract  string  `json:"contract" binding:"required"`
+	AlertType string  `json:"alert_type" binding:"required,oneof=ENTRY EXIT STOP_LOSS"`
+	Threshold float64 `json:"threshold" binding:"required"`
+}
+
 type MembershipProductRequest struct {
 	Name         string  `json:"name" binding:"required"`
 	Price        float64 `json:"price" binding:"required,gt=0"`
@@ -156,6 +194,21 @@ type VIPQuotaConfigRequest struct {
 	ResetCycle         string `json:"reset_cycle" binding:"required,oneof=MONTHLY WEEKLY DAILY"`
 	Status             string `json:"status" binding:"required,oneof=ACTIVE DISABLED"`
 	EffectiveAt        string `json:"effective_at" binding:"required"`
+}
+
+type VIPQuotaConfigUpdateRequest struct {
+	DocReadLimit       int    `json:"doc_read_limit" binding:"required,gte=0"`
+	NewsSubscribeLimit int    `json:"news_subscribe_limit" binding:"required,gte=0"`
+	ResetCycle         string `json:"reset_cycle" binding:"required,oneof=MONTHLY WEEKLY DAILY"`
+	Status             string `json:"status" binding:"required,oneof=ACTIVE DISABLED"`
+	EffectiveAt        string `json:"effective_at" binding:"required"`
+}
+
+type UserQuotaAdjustRequest struct {
+	PeriodKey          string `json:"period_key" binding:"required"`
+	DocReadDelta       int    `json:"doc_read_delta"`
+	NewsSubscribeDelta int    `json:"news_subscribe_delta"`
+	Reason             string `json:"reason"`
 }
 
 type SystemConfigUpsertRequest struct {

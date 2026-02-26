@@ -14,6 +14,14 @@ type GrowthRepo interface {
 
 	ListInviteRecords(userID string, page int, pageSize int) ([]model.InviteRecord, int, error)
 	ListRewardRecords(userID string, page int, pageSize int) ([]model.RewardRecord, int, error)
+	GetUserProfile(userID string) (model.UserProfile, error)
+	UpdateUserProfileEmail(userID string, email string) error
+	SubmitUserKYC(userID string, realName string, idNumber string, provider string) (string, error)
+	ListSubscriptions(userID string, page int, pageSize int) ([]model.Subscription, int, error)
+	CreateSubscription(userID string, subType string, scope string, frequency string) (string, error)
+	UpdateSubscription(userID string, id string, frequency string, status string) error
+	ListMessages(userID string, page int, pageSize int) ([]model.UserMessage, int, error)
+	MarkMessageRead(userID string, id string) error
 	GetUserAccessProfile(userID string) (model.UserAccessProfile, error)
 	GetMembershipQuota(userID string) (model.MembershipQuota, error)
 	GetAttachmentFileInfo(userID string, attachmentID string) (model.AttachmentFileInfo, error)
@@ -21,8 +29,10 @@ type GrowthRepo interface {
 	ListNewsCategories(userID string) ([]model.NewsCategory, error)
 	ListNewsArticles(userID string, categoryID string, keyword string, page int, pageSize int) ([]model.NewsArticle, int, error)
 	GetNewsArticleDetail(userID string, articleID string) (model.NewsArticle, error)
+	ListNewsAttachments(userID string, articleID string) ([]model.NewsAttachment, error)
 	ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error)
 	GetStockRecommendationDetail(userID string, recoID string) (model.StockRecommendationDetail, error)
+	GetStockRecommendationPerformance(userID string, recoID string) ([]model.RecommendationPerformancePoint, error)
 	ListFuturesStrategies(userID string, contract string, status string, page int, pageSize int) ([]model.FuturesStrategy, int, error)
 	GetFuturesStrategyDetail(userID string, strategyID string) (model.FuturesStrategy, error)
 	ListMembershipProducts(status string, page int, pageSize int) ([]model.MembershipProduct, int, error)
@@ -33,7 +43,15 @@ type GrowthRepo interface {
 	CreateWithdrawRequest(userID string, amount float64) (string, error)
 	HandlePaymentCallback(channel string, orderNo string, channelTxnNo string, idempotencyKey string, sign string, signVerified bool) error
 	ListArbitrageOpportunities(typeFilter string, page int, pageSize int) ([]model.ArbitrageOpportunity, int, error)
+	ListFuturesArbitrage(typeFilter string, page int, pageSize int) ([]model.ArbitrageRecommendation, int, error)
+	GetFuturesArbitrageDetail(id string) (model.ArbitrageRecommendation, error)
+	CreateFuturesAlert(userID string, contract string, alertType string, threshold float64) (string, error)
+	ListFuturesReviews(page int, pageSize int) ([]model.FuturesReview, int, error)
+	ListMarketEvents(eventType string, page int, pageSize int) ([]model.MarketEvent, int, error)
+	GetMarketEventDetail(id string) (model.MarketEvent, error)
 	GetFuturesGuidance(contract string) (model.FuturesGuidance, error)
+	ListPublicHoldings(symbol string, page int, pageSize int) ([]model.PublicHolding, int, error)
+	ListPublicFuturesPositions(contract string, page int, pageSize int) ([]model.PublicFuturesPosition, int, error)
 
 	AdminListInviteRecords(status string, page int, pageSize int) ([]model.InviteRecord, int, error)
 	AdminListRewardRecords(status string, page int, pageSize int) ([]model.RewardRecord, int, error)
@@ -53,8 +71,10 @@ type GrowthRepo interface {
 	AdminListNewsArticles(status string, categoryID string, page int, pageSize int) ([]model.NewsArticle, int, error)
 	AdminCreateNewsArticle(categoryID string, title string, summary string, content string, visibility string, status string, authorID string) (string, error)
 	AdminUpdateNewsArticle(id string, categoryID string, title string, summary string, content string, visibility string, status string) error
+	AdminPublishNewsArticle(id string, status string) error
 	AdminCreateNewsAttachment(articleID string, fileName string, fileURL string, fileSize int64, mimeType string) (string, error)
 	AdminListNewsAttachments(articleID string) ([]model.NewsAttachment, error)
+	AdminDeleteNewsAttachment(id string) error
 	AdminListStockRecommendations(status string, page int, pageSize int) ([]model.StockRecommendation, int, error)
 	AdminCreateStockRecommendation(item model.StockRecommendation) (string, error)
 	AdminUpdateStockRecommendationStatus(id string, status string) error
@@ -77,6 +97,11 @@ type GrowthRepo interface {
 	AdminUpdateMembershipOrderStatus(id string, status string) error
 	AdminListVIPQuotaConfigs(memberLevel string, status string, page int, pageSize int) ([]model.VIPQuotaConfig, int, error)
 	AdminCreateVIPQuotaConfig(item model.VIPQuotaConfig) (string, error)
+	AdminUpdateVIPQuotaConfig(id string, item model.VIPQuotaConfig) error
+	AdminListUserQuotaUsages(userID string, periodKey string, page int, pageSize int) ([]model.UserQuotaUsage, int, error)
+	AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int) error
+	AdminListDataSources(page int, pageSize int) ([]model.DataSource, int, error)
+	AdminCreateDataSource(item model.DataSource) (string, error)
 	AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error)
 	AdminUpsertSystemConfig(configKey string, configValue string, description string, operator string) error
 	AdminListReviewTasks(module string, status string, submitterID string, reviewerID string, page int, pageSize int) ([]model.ReviewTask, int, error)

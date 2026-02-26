@@ -93,3 +93,39 @@ ON DUPLICATE KEY UPDATE threshold = VALUES(threshold), status = VALUES(status), 
 INSERT INTO risk_hit_logs (id, rule_code, user_id, event_id, risk_level, status, created_at)
 VALUES ('rhl_demo_001', 'DEVICE_DUP', 'u_demo_002', 'evt_demo_001', 'MEDIUM', 'PENDING_REVIEW', NOW())
 ON DUPLICATE KEY UPDATE risk_level = VALUES(risk_level), status = VALUES(status), created_at = VALUES(created_at);
+
+INSERT INTO subscriptions (id, user_id, type, scope, frequency, status)
+VALUES ('sub_demo_001', 'u_demo_001', 'STOCK_RECO', 'ALL', 'DAILY', 'ACTIVE')
+ON DUPLICATE KEY UPDATE frequency = VALUES(frequency), status = VALUES(status);
+
+INSERT INTO messages (id, user_id, title, content, type, read_status, created_at)
+VALUES ('msg_demo_001', 'u_demo_001', '系统通知', '示例消息内容', 'SYSTEM', 'UNREAD', NOW())
+ON DUPLICATE KEY UPDATE read_status = VALUES(read_status), created_at = VALUES(created_at);
+
+INSERT INTO market_events (id, event_type, symbol, summary, trigger_rule, source, created_at)
+VALUES ('me_demo_001', 'PRICE', 'RB2505', '价格突破关键区间', '突破120', 'demo', NOW())
+ON DUPLICATE KEY UPDATE summary = VALUES(summary), created_at = VALUES(created_at);
+
+INSERT INTO stock_recommendations (id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary, created_at)
+VALUES ('sr_demo_001', '600519.SH', '贵州茅台', 91.20, 'MEDIUM', '10%-15%', DATE_SUB(NOW(), INTERVAL 1 DAY), DATE_ADD(NOW(), INTERVAL 1 DAY), 'PUBLISHED', '基本面和资金流共振', NOW())
+ON DUPLICATE KEY UPDATE score = VALUES(score), risk_level = VALUES(risk_level), position_range = VALUES(position_range), valid_to = VALUES(valid_to), status = VALUES(status), reason_summary = VALUES(reason_summary);
+
+INSERT INTO stock_reco_details (reco_id, tech_score, fund_score, sentiment_score, money_flow_score, take_profit, stop_loss, risk_note)
+VALUES ('sr_demo_001', 88.00, 92.00, 85.00, 90.00, '上涨8%-12%分批止盈', '跌破关键支撑位止损', '注意市场系统性波动')
+ON DUPLICATE KEY UPDATE tech_score = VALUES(tech_score), fund_score = VALUES(fund_score), sentiment_score = VALUES(sentiment_score), money_flow_score = VALUES(money_flow_score), take_profit = VALUES(take_profit), stop_loss = VALUES(stop_loss), risk_note = VALUES(risk_note);
+
+INSERT INTO futures_strategies (id, contract, name, direction, risk_level, position_range, valid_from, valid_to, status, reason_summary)
+VALUES ('fs_demo_001', 'IF2603', '股指趋势跟踪', 'LONG', 'MEDIUM', '20%-30%', DATE_SUB(NOW(), INTERVAL 1 DAY), DATE_ADD(NOW(), INTERVAL 1 DAY), 'PUBLISHED', '趋势与量价结构一致')
+ON DUPLICATE KEY UPDATE direction = VALUES(direction), risk_level = VALUES(risk_level), position_range = VALUES(position_range), valid_to = VALUES(valid_to), status = VALUES(status), reason_summary = VALUES(reason_summary);
+
+INSERT INTO public_holdings (id, holder, symbol, ratio, disclosed_at, source)
+VALUES ('ph_demo_001', '某头部机构', '600519.SH', 2.356, NOW(), '交易所披露')
+ON DUPLICATE KEY UPDATE ratio = VALUES(ratio), disclosed_at = VALUES(disclosed_at), source = VALUES(source);
+
+INSERT INTO futures_positions_public (id, contract, long_position, short_position, disclosed_at, source)
+VALUES ('pfp_demo_001', 'RB2505', 10234.00, 9842.00, NOW(), '交易所持仓排名')
+ON DUPLICATE KEY UPDATE long_position = VALUES(long_position), short_position = VALUES(short_position), disclosed_at = VALUES(disclosed_at), source = VALUES(source);
+
+INSERT INTO system_configs (id, config_key, config_value, description, updated_by, updated_at)
+VALUES ('cfg_data_source_wind', 'data_source.wind', '{"name":"Wind","source_type":"MARKET","status":"ACTIVE","config":{"endpoint":"https://api.example.com/wind"}}', 'Wind 数据源', 'system', NOW())
+ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), description = VALUES(description), updated_at = VALUES(updated_at);

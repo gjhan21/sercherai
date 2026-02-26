@@ -2,7 +2,9 @@ package handler
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -255,6 +257,25 @@ func (h *AdminGrowthHandler) UpdateNewsArticle(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
+func (h *AdminGrowthHandler) PublishNewsArticle(c *gin.Context) {
+	id := c.Param("id")
+	var req dto.NewsPublishRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := h.service.AdminPublishNewsArticle(id, req.Status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "article not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "NEWS", "PUBLISH_ARTICLE", "NEWS_ARTICLE", id, "", req.Status, "")
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
 func (h *AdminGrowthHandler) CreateNewsAttachment(c *gin.Context) {
 	articleID := c.Param("id")
 	var req dto.NewsAttachmentRequest
@@ -278,6 +299,20 @@ func (h *AdminGrowthHandler) ListNewsAttachments(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
+}
+
+func (h *AdminGrowthHandler) DeleteNewsAttachment(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.service.AdminDeleteNewsAttachment(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40402, Message: "attachment not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "NEWS", "DELETE_ATTACHMENT", "NEWS_ATTACHMENT", id, "", "DELETED", "")
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
 func (h *AdminGrowthHandler) ListStockRecommendations(c *gin.Context) {
@@ -655,6 +690,103 @@ func (h *AdminGrowthHandler) CreateVIPQuotaConfig(c *gin.Context) {
 		return
 	}
 	h.writeOperationLog(c, "MEMBERSHIP", "CREATE_VIP_QUOTA_CONFIG", "VIP_QUOTA_CONFIG", id, "", req.MemberLevel, req.EffectiveAt)
+	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
+}
+
+func (h *AdminGrowthHandler) UpdateVIPQuotaConfig(c *gin.Context) {
+	id := c.Param("id")
+	var req dto.VIPQuotaConfigUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if _, err := time.Parse(time.RFC3339, req.EffectiveAt); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "effective_at must be RFC3339 format", Data: struct{}{}})
+		return
+	}
+	err := h.service.AdminUpdateVIPQuotaConfig(id, model.VIPQuotaConfig{
+		DocReadLimit:       req.DocReadLimit,
+		NewsSubscribeLimit: req.NewsSubscribeLimit,
+		ResetCycle:         req.ResetCycle,
+		Status:             req.Status,
+		EffectiveAt:        req.EffectiveAt,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "quota config not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MEMBERSHIP", "UPDATE_VIP_QUOTA_CONFIG", "VIP_QUOTA_CONFIG", id, "", req.Status, req.EffectiveAt)
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AdminGrowthHandler) ListUserQuotas(c *gin.Context) {
+	page, pageSize := parsePage(c)
+	userID := strings.TrimSpace(c.Query("user_id"))
+	periodKey := strings.TrimSpace(c.Query("period_key"))
+	items, total, err := h.service.AdminListUserQuotaUsages(userID, periodKey, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *AdminGrowthHandler) AdjustUserQuota(c *gin.Context) {
+	userID := c.Param("user_id")
+	var req dto.UserQuotaAdjustRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := h.service.AdminAdjustUserQuota(userID, req.PeriodKey, req.DocReadDelta, req.NewsSubscribeDelta); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "user not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	summary := fmt.Sprintf("period=%s,doc_delta=%d,news_delta=%d", req.PeriodKey, req.DocReadDelta, req.NewsSubscribeDelta)
+	h.writeOperationLog(c, "MEMBERSHIP", "ADJUST_USER_QUOTA", "USER_QUOTA", userID, "", summary, req.Reason)
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AdminGrowthHandler) ListDataSources(c *gin.Context) {
+	page, pageSize := parsePage(c)
+	items, total, err := h.service.AdminListDataSources(page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *AdminGrowthHandler) CreateDataSource(c *gin.Context) {
+	var req dto.DataSourceCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	id, err := h.service.AdminCreateDataSource(model.DataSource{
+		SourceKey:  req.SourceKey,
+		Name:       req.Name,
+		SourceType: req.SourceType,
+		Status:     req.Status,
+		Config:     req.Config,
+	})
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "exists") {
+			c.JSON(http.StatusConflict, dto.APIResponse{Code: 40901, Message: err.Error(), Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "SYSTEM", "CREATE_DATA_SOURCE", "DATA_SOURCE", id, "", req.Status, req.SourceKey)
 	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
 }
 

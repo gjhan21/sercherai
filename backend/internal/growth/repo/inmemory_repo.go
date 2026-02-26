@@ -66,6 +66,50 @@ func (r *InMemoryGrowthRepo) ListRewardRecords(userID string, page int, pageSize
 	return items, len(items), nil
 }
 
+func (r *InMemoryGrowthRepo) GetUserProfile(userID string) (model.UserProfile, error) {
+	return model.UserProfile{
+		ID:          userID,
+		Phone:       "13800000001",
+		Email:       "demo@sercherai.local",
+		KYCStatus:   "PENDING",
+		MemberLevel: "FREE",
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) UpdateUserProfileEmail(userID string, email string) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) SubmitUserKYC(userID string, realName string, idNumber string, provider string) (string, error) {
+	return "PENDING", nil
+}
+
+func (r *InMemoryGrowthRepo) ListSubscriptions(userID string, page int, pageSize int) ([]model.Subscription, int, error) {
+	items := []model.Subscription{
+		{ID: "sub_demo_001", Type: "STOCK_RECO", Scope: "ALL", Frequency: "DAILY", Status: "ACTIVE"},
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) CreateSubscription(userID string, subType string, scope string, frequency string) (string, error) {
+	return "sub_demo_002", nil
+}
+
+func (r *InMemoryGrowthRepo) UpdateSubscription(userID string, id string, frequency string, status string) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) ListMessages(userID string, page int, pageSize int) ([]model.UserMessage, int, error) {
+	items := []model.UserMessage{
+		{ID: "msg_demo_001", Title: "系统通知", Type: "SYSTEM", ReadStatus: "UNREAD", CreatedAt: "2026-02-25T08:30:00+08:00"},
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) MarkMessageRead(userID string, id string) error {
+	return nil
+}
+
 func (r *InMemoryGrowthRepo) GetUserAccessProfile(userID string) (model.UserAccessProfile, error) {
 	return model.UserAccessProfile{
 		UserID:      userID,
@@ -122,6 +166,12 @@ func (r *InMemoryGrowthRepo) GetNewsArticleDetail(userID string, articleID strin
 	}, nil
 }
 
+func (r *InMemoryGrowthRepo) ListNewsAttachments(userID string, articleID string) ([]model.NewsAttachment, error) {
+	return []model.NewsAttachment{
+		{ID: "att_001", ArticleID: articleID, FileName: "daily-note.pdf", FileURL: "https://example.com/files/daily-note.pdf", FileSize: 20480, MimeType: "application/pdf", CreatedAt: "2026-02-25T10:00:00+08:00"},
+	}, nil
+}
+
 func (r *InMemoryGrowthRepo) ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
 	items := []model.StockRecommendation{
 		{ID: "sr_001", Symbol: "600519.SH", Name: "贵州茅台", Score: 91.2, RiskLevel: "MEDIUM", PositionRange: "10%-15%", ValidFrom: "2026-02-25T09:00:00+08:00", ValidTo: "2026-02-26T15:00:00+08:00", Status: "PUBLISHED", ReasonSummary: "基本面和资金流共振"},
@@ -133,6 +183,14 @@ func (r *InMemoryGrowthRepo) GetStockRecommendationDetail(userID string, recoID 
 	return model.StockRecommendationDetail{
 		RecoID: recoID, TechScore: 88, FundScore: 92, SentimentScore: 85, MoneyFlowScore: 90,
 		TakeProfit: "上涨8%-12%分批止盈", StopLoss: "跌破关键支撑位止损", RiskNote: "注意市场系统性波动",
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) GetStockRecommendationPerformance(userID string, recoID string) ([]model.RecommendationPerformancePoint, error) {
+	return []model.RecommendationPerformancePoint{
+		{Date: "2026-02-24", Return: 0.012},
+		{Date: "2026-02-25", Return: 0.021},
+		{Date: "2026-02-26", Return: 0.018},
 	}, nil
 }
 
@@ -221,6 +279,70 @@ func (r *InMemoryGrowthRepo) ListArbitrageOpportunities(typeFilter string, page 
 	return items, len(items), nil
 }
 
+func (r *InMemoryGrowthRepo) ListFuturesArbitrage(typeFilter string, page int, pageSize int) ([]model.ArbitrageRecommendation, int, error) {
+	items := []model.ArbitrageRecommendation{
+		{
+			ID:         "arb_001",
+			Type:       "CALENDAR",
+			ContractA:  "RB2405",
+			ContractB:  "RB2409",
+			Spread:     110,
+			Percentile: 0.86,
+			EntryPoint: 120,
+			ExitPoint:  80,
+			StopPoint:  150,
+			Status:     "WATCH",
+		},
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) GetFuturesArbitrageDetail(id string) (model.ArbitrageRecommendation, error) {
+	return model.ArbitrageRecommendation{
+		ID:          id,
+		Type:        "CALENDAR",
+		ContractA:   "RB2405",
+		ContractB:   "RB2409",
+		Spread:      110,
+		Percentile:  0.86,
+		EntryPoint:  120,
+		ExitPoint:   80,
+		StopPoint:   150,
+		TriggerRule: "跨期价差回归",
+		Status:      "WATCH",
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) CreateFuturesAlert(userID string, contract string, alertType string, threshold float64) (string, error) {
+	return "fa_demo_001", nil
+}
+
+func (r *InMemoryGrowthRepo) ListFuturesReviews(page int, pageSize int) ([]model.FuturesReview, int, error) {
+	items := []model.FuturesReview{
+		{ID: "fr_demo_001", StrategyID: "fs_demo_001", HitRate: 0.62, PnL: 1.8, MaxDrawdown: 0.12, ReviewDate: "2026-02-24T00:00:00+08:00"},
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) ListMarketEvents(eventType string, page int, pageSize int) ([]model.MarketEvent, int, error) {
+	items := []model.MarketEvent{
+		{ID: "me_demo_001", EventType: "PRICE", Symbol: "RB2405", Summary: "价格突破关键区间", TriggerRule: "突破120", CreatedAt: "2026-02-25T09:00:00+08:00"},
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) GetMarketEventDetail(id string) (model.MarketEvent, error) {
+	return model.MarketEvent{
+		ID:          id,
+		EventType:   "PRICE",
+		Symbol:      "RB2405",
+		Summary:     "价格突破关键区间",
+		TriggerRule: "突破120",
+		Source:      "demo",
+		CreatedAt:   "2026-02-25T09:00:00+08:00",
+	}, nil
+}
+
 func (r *InMemoryGrowthRepo) GetFuturesGuidance(contract string) (model.FuturesGuidance, error) {
 	return model.FuturesGuidance{
 		Contract:          contract,
@@ -233,6 +355,20 @@ func (r *InMemoryGrowthRepo) GetFuturesGuidance(contract string) (model.FuturesG
 		InvalidCondition:  "相关性失效",
 		ValidTo:           "2026-03-01T15:00:00+08:00",
 	}, nil
+}
+
+func (r *InMemoryGrowthRepo) ListPublicHoldings(symbol string, page int, pageSize int) ([]model.PublicHolding, int, error) {
+	items := []model.PublicHolding{
+		{ID: "ph_001", Holder: "某头部机构", Symbol: "600519.SH", Ratio: 2.356, DisclosedAt: "2026-02-24T18:00:00+08:00", Source: "交易所披露"},
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) ListPublicFuturesPositions(contract string, page int, pageSize int) ([]model.PublicFuturesPosition, int, error) {
+	items := []model.PublicFuturesPosition{
+		{ID: "pfp_001", Contract: "RB2405", LongPosition: 10234, ShortPosition: 9842, DisclosedAt: "2026-02-24T18:00:00+08:00", Source: "交易所持仓排名"},
+	}
+	return items, len(items), nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListInviteRecords(status string, page int, pageSize int) ([]model.InviteRecord, int, error) {
@@ -327,6 +463,10 @@ func (r *InMemoryGrowthRepo) AdminUpdateNewsArticle(id string, categoryID string
 	return nil
 }
 
+func (r *InMemoryGrowthRepo) AdminPublishNewsArticle(id string, status string) error {
+	return nil
+}
+
 func (r *InMemoryGrowthRepo) AdminCreateNewsAttachment(articleID string, fileName string, fileURL string, fileSize int64, mimeType string) (string, error) {
 	return "att_new_001", nil
 }
@@ -335,6 +475,10 @@ func (r *InMemoryGrowthRepo) AdminListNewsAttachments(articleID string) ([]model
 	return []model.NewsAttachment{
 		{ID: "att_001", ArticleID: articleID, FileName: "daily-note.pdf", FileURL: "https://example.com/files/daily-note.pdf", FileSize: 20480, MimeType: "application/pdf", CreatedAt: "2026-02-25T10:00:00+08:00"},
 	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminDeleteNewsAttachment(id string) error {
+	return nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListStockRecommendations(status string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
@@ -463,6 +607,50 @@ func (r *InMemoryGrowthRepo) AdminListVIPQuotaConfigs(memberLevel string, status
 
 func (r *InMemoryGrowthRepo) AdminCreateVIPQuotaConfig(item model.VIPQuotaConfig) (string, error) {
 	return "vqc_new_001", nil
+}
+
+func (r *InMemoryGrowthRepo) AdminUpdateVIPQuotaConfig(id string, item model.VIPQuotaConfig) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) AdminListUserQuotaUsages(userID string, periodKey string, page int, pageSize int) ([]model.UserQuotaUsage, int, error) {
+	items := []model.UserQuotaUsage{
+		{
+			UserID:             "u_demo_001",
+			MemberLevel:        "VIP1",
+			PeriodKey:          "2026-02",
+			DocReadLimit:       100,
+			DocReadUsed:        24,
+			NewsSubscribeLimit: 50,
+			NewsSubscribeUsed:  12,
+		},
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) AdminListDataSources(page int, pageSize int) ([]model.DataSource, int, error) {
+	items := []model.DataSource{
+		{
+			ID:         "ds_001",
+			SourceKey:  "wind",
+			Name:       "Wind",
+			SourceType: "MARKET",
+			Status:     "ACTIVE",
+			Config: map[string]interface{}{
+				"endpoint": "https://api.example.com/wind",
+			},
+			UpdatedAt: "2026-02-26T09:00:00+08:00",
+		},
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminCreateDataSource(item model.DataSource) (string, error) {
+	return "ds_new_001", nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error) {

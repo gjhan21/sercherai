@@ -72,6 +72,80 @@ func (h *UserGrowthHandler) ClearBrowseHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
+func (h *UserGrowthHandler) GetUserProfile(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	profile, err := h.service.GetUserProfile(userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "user not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(profile))
+}
+
+func (h *UserGrowthHandler) UpdateUserProfile(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	var req dto.UpdateUserProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := h.service.UpdateUserProfileEmail(userID, req.Email); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *UserGrowthHandler) GetKYCStatus(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	profile, err := h.service.GetUserProfile(userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "user not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"kyc_status": profile.KYCStatus}))
+}
+
+func (h *UserGrowthHandler) SubmitKYC(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	var req dto.KYCSubmitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	status, err := h.service.SubmitUserKYC(userID, req.RealName, req.IDNumber, "MANUAL")
+	if err != nil {
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "approved") || strings.Contains(msg, "pending") {
+			c.JSON(http.StatusConflict, dto.APIResponse{Code: 40901, Message: err.Error(), Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"kyc_status": status}))
+}
+
 func (h *UserGrowthHandler) ListRechargeRecords(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
@@ -118,6 +192,91 @@ func (h *UserGrowthHandler) CreateShareLink(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *UserGrowthHandler) ListSubscriptions(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	page, pageSize := parsePage(c)
+	items, total, err := h.service.ListSubscriptions(userID, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *UserGrowthHandler) CreateSubscription(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	var req dto.SubscriptionCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	id, err := h.service.CreateSubscription(userID, req.Type, req.Scope, req.Frequency)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
+}
+
+func (h *UserGrowthHandler) UpdateSubscription(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	id := c.Param("id")
+	var req dto.SubscriptionUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := h.service.UpdateSubscription(userID, id, req.Frequency, req.Status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "subscription not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *UserGrowthHandler) ListMessages(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	page, pageSize := parsePage(c)
+	items, total, err := h.service.ListMessages(userID, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *UserGrowthHandler) ReadMessage(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	id := c.Param("id")
+	if err := h.service.MarkMessageRead(userID, id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "message not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
 func (h *UserGrowthHandler) ListInviteRecords(c *gin.Context) {
@@ -318,6 +477,24 @@ func (h *UserGrowthHandler) GetNewsArticleDetail(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
+func (h *UserGrowthHandler) ListNewsAttachments(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	articleID := c.Param("id")
+	items, err := h.service.ListNewsAttachments(userID, articleID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "article not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
+}
+
 func (h *UserGrowthHandler) GetRewardWallet(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
@@ -391,6 +568,55 @@ func (h *UserGrowthHandler) HandlePaymentCallback(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
+func (h *UserGrowthHandler) ListFuturesArbitrage(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	profile, ok := h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
+		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
+		return
+	}
+	page, pageSize := parsePage(c)
+	typeFilter := c.Query("type")
+	items, total, err := h.service.ListFuturesArbitrage(typeFilter, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *UserGrowthHandler) GetFuturesArbitrageDetail(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	profile, ok := h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
+		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
+		return
+	}
+	id := c.Param("id")
+	item, err := h.service.GetFuturesArbitrageDetail(id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "arbitrage not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
 func (h *UserGrowthHandler) ListArbitrageOpportunities(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
@@ -415,6 +641,54 @@ func (h *UserGrowthHandler) ListArbitrageOpportunities(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
+func (h *UserGrowthHandler) CreateFuturesAlert(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	profile, ok := h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
+		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
+		return
+	}
+	var req dto.FuturesAlertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	id, err := h.service.CreateFuturesAlert(userID, req.Contract, req.AlertType, req.Threshold)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
+}
+
+func (h *UserGrowthHandler) ListFuturesReviews(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	profile, ok := h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
+		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
+		return
+	}
+	page, pageSize := parsePage(c)
+	items, total, err := h.service.ListFuturesReviews(page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
 func (h *UserGrowthHandler) GetFuturesGuidance(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
@@ -431,6 +705,39 @@ func (h *UserGrowthHandler) GetFuturesGuidance(c *gin.Context) {
 	contract := c.Param("contract")
 	item, err := h.service.GetFuturesGuidance(contract)
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *UserGrowthHandler) ListMarketEvents(c *gin.Context) {
+	_, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	page, pageSize := parsePage(c)
+	eventType := strings.TrimSpace(c.Query("type"))
+	items, total, err := h.service.ListMarketEvents(eventType, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *UserGrowthHandler) GetMarketEventDetail(c *gin.Context) {
+	_, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	id := c.Param("id")
+	item, err := h.service.GetMarketEventDetail(id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "event not found", Data: struct{}{}})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
@@ -483,6 +790,54 @@ func (h *UserGrowthHandler) GetStockRecommendationDetail(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *UserGrowthHandler) GetStockRecommendationPerformance(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	profile, ok := h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
+		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
+		return
+	}
+	id := c.Param("id")
+	points, err := h.service.GetStockRecommendationPerformance(userID, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40403, Message: "stock recommendation not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"points": points}))
+}
+
+func (h *UserGrowthHandler) ListPublicHoldings(c *gin.Context) {
+	page, pageSize := parsePage(c)
+	symbol := strings.TrimSpace(c.Query("symbol"))
+	items, total, err := h.service.ListPublicHoldings(symbol, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *UserGrowthHandler) ListPublicFuturesPositions(c *gin.Context) {
+	page, pageSize := parsePage(c)
+	contract := strings.TrimSpace(c.Query("contract"))
+	items, total, err := h.service.ListPublicFuturesPositions(contract, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
 func (h *UserGrowthHandler) ListFuturesStrategies(c *gin.Context) {

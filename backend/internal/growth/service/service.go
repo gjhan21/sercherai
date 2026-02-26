@@ -14,6 +14,14 @@ type GrowthService interface {
 	CreateShareLink(userID string, channel string, expiredAt string) (model.ShareLink, error)
 	ListInviteRecords(userID string, page int, pageSize int) ([]model.InviteRecord, int, error)
 	ListRewardRecords(userID string, page int, pageSize int) ([]model.RewardRecord, int, error)
+	GetUserProfile(userID string) (model.UserProfile, error)
+	UpdateUserProfileEmail(userID string, email string) error
+	SubmitUserKYC(userID string, realName string, idNumber string, provider string) (string, error)
+	ListSubscriptions(userID string, page int, pageSize int) ([]model.Subscription, int, error)
+	CreateSubscription(userID string, subType string, scope string, frequency string) (string, error)
+	UpdateSubscription(userID string, id string, frequency string, status string) error
+	ListMessages(userID string, page int, pageSize int) ([]model.UserMessage, int, error)
+	MarkMessageRead(userID string, id string) error
 	GetUserAccessProfile(userID string) (model.UserAccessProfile, error)
 	GetMembershipQuota(userID string) (model.MembershipQuota, error)
 	GetAttachmentFileInfo(userID string, attachmentID string) (model.AttachmentFileInfo, error)
@@ -21,8 +29,10 @@ type GrowthService interface {
 	ListNewsCategories(userID string) ([]model.NewsCategory, error)
 	ListNewsArticles(userID string, categoryID string, keyword string, page int, pageSize int) ([]model.NewsArticle, int, error)
 	GetNewsArticleDetail(userID string, articleID string) (model.NewsArticle, error)
+	ListNewsAttachments(userID string, articleID string) ([]model.NewsAttachment, error)
 	ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error)
 	GetStockRecommendationDetail(userID string, recoID string) (model.StockRecommendationDetail, error)
+	GetStockRecommendationPerformance(userID string, recoID string) ([]model.RecommendationPerformancePoint, error)
 	ListFuturesStrategies(userID string, contract string, status string, page int, pageSize int) ([]model.FuturesStrategy, int, error)
 	GetFuturesStrategyDetail(userID string, strategyID string) (model.FuturesStrategy, error)
 	ListMembershipProducts(status string, page int, pageSize int) ([]model.MembershipProduct, int, error)
@@ -33,7 +43,15 @@ type GrowthService interface {
 	CreateWithdrawRequest(userID string, amount float64) (string, error)
 	HandlePaymentCallback(channel string, orderNo string, channelTxnNo string, idempotencyKey string, sign string, signVerified bool) error
 	ListArbitrageOpportunities(typeFilter string, page int, pageSize int) ([]model.ArbitrageOpportunity, int, error)
+	ListFuturesArbitrage(typeFilter string, page int, pageSize int) ([]model.ArbitrageRecommendation, int, error)
+	GetFuturesArbitrageDetail(id string) (model.ArbitrageRecommendation, error)
+	CreateFuturesAlert(userID string, contract string, alertType string, threshold float64) (string, error)
+	ListFuturesReviews(page int, pageSize int) ([]model.FuturesReview, int, error)
+	ListMarketEvents(eventType string, page int, pageSize int) ([]model.MarketEvent, int, error)
+	GetMarketEventDetail(id string) (model.MarketEvent, error)
 	GetFuturesGuidance(contract string) (model.FuturesGuidance, error)
+	ListPublicHoldings(symbol string, page int, pageSize int) ([]model.PublicHolding, int, error)
+	ListPublicFuturesPositions(contract string, page int, pageSize int) ([]model.PublicFuturesPosition, int, error)
 	AdminListInviteRecords(status string, page int, pageSize int) ([]model.InviteRecord, int, error)
 	AdminListRewardRecords(status string, page int, pageSize int) ([]model.RewardRecord, int, error)
 	AdminReviewRewardRecord(id string, status string, reason string) error
@@ -52,8 +70,10 @@ type GrowthService interface {
 	AdminListNewsArticles(status string, categoryID string, page int, pageSize int) ([]model.NewsArticle, int, error)
 	AdminCreateNewsArticle(categoryID string, title string, summary string, content string, visibility string, status string, authorID string) (string, error)
 	AdminUpdateNewsArticle(id string, categoryID string, title string, summary string, content string, visibility string, status string) error
+	AdminPublishNewsArticle(id string, status string) error
 	AdminCreateNewsAttachment(articleID string, fileName string, fileURL string, fileSize int64, mimeType string) (string, error)
 	AdminListNewsAttachments(articleID string) ([]model.NewsAttachment, error)
+	AdminDeleteNewsAttachment(id string) error
 	AdminListStockRecommendations(status string, page int, pageSize int) ([]model.StockRecommendation, int, error)
 	AdminCreateStockRecommendation(item model.StockRecommendation) (string, error)
 	AdminUpdateStockRecommendationStatus(id string, status string) error
@@ -76,6 +96,11 @@ type GrowthService interface {
 	AdminUpdateMembershipOrderStatus(id string, status string) error
 	AdminListVIPQuotaConfigs(memberLevel string, status string, page int, pageSize int) ([]model.VIPQuotaConfig, int, error)
 	AdminCreateVIPQuotaConfig(item model.VIPQuotaConfig) (string, error)
+	AdminUpdateVIPQuotaConfig(id string, item model.VIPQuotaConfig) error
+	AdminListUserQuotaUsages(userID string, periodKey string, page int, pageSize int) ([]model.UserQuotaUsage, int, error)
+	AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int) error
+	AdminListDataSources(page int, pageSize int) ([]model.DataSource, int, error)
+	AdminCreateDataSource(item model.DataSource) (string, error)
 	AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error)
 	AdminUpsertSystemConfig(configKey string, configValue string, description string, operator string) error
 	AdminListReviewTasks(module string, status string, submitterID string, reviewerID string, page int, pageSize int) ([]model.ReviewTask, int, error)
@@ -139,6 +164,38 @@ func (s *growthService) ListRewardRecords(userID string, page int, pageSize int)
 	return s.repo.ListRewardRecords(userID, page, pageSize)
 }
 
+func (s *growthService) GetUserProfile(userID string) (model.UserProfile, error) {
+	return s.repo.GetUserProfile(userID)
+}
+
+func (s *growthService) UpdateUserProfileEmail(userID string, email string) error {
+	return s.repo.UpdateUserProfileEmail(userID, email)
+}
+
+func (s *growthService) SubmitUserKYC(userID string, realName string, idNumber string, provider string) (string, error) {
+	return s.repo.SubmitUserKYC(userID, realName, idNumber, provider)
+}
+
+func (s *growthService) ListSubscriptions(userID string, page int, pageSize int) ([]model.Subscription, int, error) {
+	return s.repo.ListSubscriptions(userID, page, pageSize)
+}
+
+func (s *growthService) CreateSubscription(userID string, subType string, scope string, frequency string) (string, error) {
+	return s.repo.CreateSubscription(userID, subType, scope, frequency)
+}
+
+func (s *growthService) UpdateSubscription(userID string, id string, frequency string, status string) error {
+	return s.repo.UpdateSubscription(userID, id, frequency, status)
+}
+
+func (s *growthService) ListMessages(userID string, page int, pageSize int) ([]model.UserMessage, int, error) {
+	return s.repo.ListMessages(userID, page, pageSize)
+}
+
+func (s *growthService) MarkMessageRead(userID string, id string) error {
+	return s.repo.MarkMessageRead(userID, id)
+}
+
 func (s *growthService) GetUserAccessProfile(userID string) (model.UserAccessProfile, error) {
 	return s.repo.GetUserAccessProfile(userID)
 }
@@ -167,12 +224,20 @@ func (s *growthService) GetNewsArticleDetail(userID string, articleID string) (m
 	return s.repo.GetNewsArticleDetail(userID, articleID)
 }
 
+func (s *growthService) ListNewsAttachments(userID string, articleID string) ([]model.NewsAttachment, error) {
+	return s.repo.ListNewsAttachments(userID, articleID)
+}
+
 func (s *growthService) ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
 	return s.repo.ListStockRecommendations(userID, tradeDate, page, pageSize)
 }
 
 func (s *growthService) GetStockRecommendationDetail(userID string, recoID string) (model.StockRecommendationDetail, error) {
 	return s.repo.GetStockRecommendationDetail(userID, recoID)
+}
+
+func (s *growthService) GetStockRecommendationPerformance(userID string, recoID string) ([]model.RecommendationPerformancePoint, error) {
+	return s.repo.GetStockRecommendationPerformance(userID, recoID)
 }
 
 func (s *growthService) ListFuturesStrategies(userID string, contract string, status string, page int, pageSize int) ([]model.FuturesStrategy, int, error) {
@@ -215,8 +280,40 @@ func (s *growthService) ListArbitrageOpportunities(typeFilter string, page int, 
 	return s.repo.ListArbitrageOpportunities(typeFilter, page, pageSize)
 }
 
+func (s *growthService) ListFuturesArbitrage(typeFilter string, page int, pageSize int) ([]model.ArbitrageRecommendation, int, error) {
+	return s.repo.ListFuturesArbitrage(typeFilter, page, pageSize)
+}
+
+func (s *growthService) GetFuturesArbitrageDetail(id string) (model.ArbitrageRecommendation, error) {
+	return s.repo.GetFuturesArbitrageDetail(id)
+}
+
+func (s *growthService) CreateFuturesAlert(userID string, contract string, alertType string, threshold float64) (string, error) {
+	return s.repo.CreateFuturesAlert(userID, contract, alertType, threshold)
+}
+
+func (s *growthService) ListFuturesReviews(page int, pageSize int) ([]model.FuturesReview, int, error) {
+	return s.repo.ListFuturesReviews(page, pageSize)
+}
+
+func (s *growthService) ListMarketEvents(eventType string, page int, pageSize int) ([]model.MarketEvent, int, error) {
+	return s.repo.ListMarketEvents(eventType, page, pageSize)
+}
+
+func (s *growthService) GetMarketEventDetail(id string) (model.MarketEvent, error) {
+	return s.repo.GetMarketEventDetail(id)
+}
+
 func (s *growthService) GetFuturesGuidance(contract string) (model.FuturesGuidance, error) {
 	return s.repo.GetFuturesGuidance(contract)
+}
+
+func (s *growthService) ListPublicHoldings(symbol string, page int, pageSize int) ([]model.PublicHolding, int, error) {
+	return s.repo.ListPublicHoldings(symbol, page, pageSize)
+}
+
+func (s *growthService) ListPublicFuturesPositions(contract string, page int, pageSize int) ([]model.PublicFuturesPosition, int, error) {
+	return s.repo.ListPublicFuturesPositions(contract, page, pageSize)
 }
 
 func (s *growthService) AdminListInviteRecords(status string, page int, pageSize int) ([]model.InviteRecord, int, error) {
@@ -291,12 +388,20 @@ func (s *growthService) AdminUpdateNewsArticle(id string, categoryID string, tit
 	return s.repo.AdminUpdateNewsArticle(id, categoryID, title, summary, content, visibility, status)
 }
 
+func (s *growthService) AdminPublishNewsArticle(id string, status string) error {
+	return s.repo.AdminPublishNewsArticle(id, status)
+}
+
 func (s *growthService) AdminCreateNewsAttachment(articleID string, fileName string, fileURL string, fileSize int64, mimeType string) (string, error) {
 	return s.repo.AdminCreateNewsAttachment(articleID, fileName, fileURL, fileSize, mimeType)
 }
 
 func (s *growthService) AdminListNewsAttachments(articleID string) ([]model.NewsAttachment, error) {
 	return s.repo.AdminListNewsAttachments(articleID)
+}
+
+func (s *growthService) AdminDeleteNewsAttachment(id string) error {
+	return s.repo.AdminDeleteNewsAttachment(id)
 }
 
 func (s *growthService) AdminListStockRecommendations(status string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
@@ -385,6 +490,26 @@ func (s *growthService) AdminListVIPQuotaConfigs(memberLevel string, status stri
 
 func (s *growthService) AdminCreateVIPQuotaConfig(item model.VIPQuotaConfig) (string, error) {
 	return s.repo.AdminCreateVIPQuotaConfig(item)
+}
+
+func (s *growthService) AdminUpdateVIPQuotaConfig(id string, item model.VIPQuotaConfig) error {
+	return s.repo.AdminUpdateVIPQuotaConfig(id, item)
+}
+
+func (s *growthService) AdminListUserQuotaUsages(userID string, periodKey string, page int, pageSize int) ([]model.UserQuotaUsage, int, error) {
+	return s.repo.AdminListUserQuotaUsages(userID, periodKey, page, pageSize)
+}
+
+func (s *growthService) AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int) error {
+	return s.repo.AdminAdjustUserQuota(userID, periodKey, docReadDelta, newsSubscribeDelta)
+}
+
+func (s *growthService) AdminListDataSources(page int, pageSize int) ([]model.DataSource, int, error) {
+	return s.repo.AdminListDataSources(page, pageSize)
+}
+
+func (s *growthService) AdminCreateDataSource(item model.DataSource) (string, error) {
+	return s.repo.AdminCreateDataSource(item)
 }
 
 func (s *growthService) AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error) {

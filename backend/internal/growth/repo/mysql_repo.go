@@ -2,6 +2,7 @@ package repo
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -249,6 +250,160 @@ LIMIT ? OFFSET ?`, userID, pageSize, offset)
 	return items, total, nil
 }
 
+func (r *MySQLGrowthRepo) GetUserProfile(userID string) (model.UserProfile, error) {
+	var profile model.UserProfile
+	var email sql.NullString
+	err := r.db.QueryRow("SELECT id, phone, email, kyc_status, member_level FROM users WHERE id = ?", userID).Scan(
+		&profile.ID, &profile.Phone, &email, &profile.KYCStatus, &profile.MemberLevel,
+	)
+	if err != nil {
+		return model.UserProfile{}, err
+	}
+	if email.Valid {
+		profile.Email = email.String
+	}
+	return profile, nil
+}
+
+func (r *MySQLGrowthRepo) UpdateUserProfileEmail(userID string, email string) error {
+	_, err := r.db.Exec("UPDATE users SET email = ?, updated_at = ? WHERE id = ?", strings.TrimSpace(email), time.Now(), userID)
+	return err
+}
+
+func (r *MySQLGrowthRepo) SubmitUserKYC(userID string, realName string, idNumber string, provider string) (string, error) {
+	var status string
+	if err := r.db.QueryRow("SELECT kyc_status FROM users WHERE id = ?", userID).Scan(&status); err != nil {
+		return "", err
+	}
+	status = strings.ToUpper(strings.TrimSpace(status))
+	if status == "APPROVED" {
+		return "", errors.New("kyc already approved")
+	}
+	if status == "PENDING" {
+		return "", errors.New("kyc pending")
+	}
+
+	kycID := newID("kyc")
+	now := time.Now()
+	if provider == "" {
+		provider = "MANUAL"
+	}
+	_, err := r.db.Exec(`
+INSERT INTO kyc_records (id, user_id, real_name, id_number, provider, status, reason, submitted_at, reviewed_at)
+VALUES (?, ?, ?, ?, ?, 'PENDING', NULL, ?, NULL)`,
+		kycID, userID, realName, idNumber, provider, now,
+	)
+	if err != nil {
+		return "", err
+	}
+	if _, err := r.db.Exec("UPDATE users SET kyc_status = 'PENDING', updated_at = ? WHERE id = ?", now, userID); err != nil {
+		return "", err
+	}
+	return "PENDING", nil
+}
+
+func (r *MySQLGrowthRepo) ListSubscriptions(userID string, page int, pageSize int) ([]model.Subscription, int, error) {
+	offset := (page - 1) * pageSize
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM subscriptions WHERE user_id = ?", userID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.Query(`
+SELECT id, type, scope, frequency, status
+FROM subscriptions
+WHERE user_id = ?
+ORDER BY id DESC
+LIMIT ? OFFSET ?`, userID, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items := make([]model.Subscription, 0)
+	for rows.Next() {
+		var item model.Subscription
+		var scope sql.NullString
+		if err := rows.Scan(&item.ID, &item.Type, &scope, &item.Frequency, &item.Status); err != nil {
+			return nil, 0, err
+		}
+		if scope.Valid {
+			item.Scope = scope.String
+		}
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) CreateSubscription(userID string, subType string, scope string, frequency string) (string, error) {
+	id := newID("sub")
+	_, err := r.db.Exec(`
+INSERT INTO subscriptions (id, user_id, type, scope, frequency, status)
+VALUES (?, ?, ?, ?, ?, 'ACTIVE')`,
+		id, userID, strings.ToUpper(strings.TrimSpace(subType)), strings.TrimSpace(scope), strings.ToUpper(strings.TrimSpace(frequency)),
+	)
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func (r *MySQLGrowthRepo) UpdateSubscription(userID string, id string, frequency string, status string) error {
+	res, err := r.db.Exec(`
+UPDATE subscriptions
+SET frequency = ?, status = ?
+WHERE id = ? AND user_id = ?`,
+		strings.ToUpper(strings.TrimSpace(frequency)), strings.ToUpper(strings.TrimSpace(status)), id, userID,
+	)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) ListMessages(userID string, page int, pageSize int) ([]model.UserMessage, int, error) {
+	offset := (page - 1) * pageSize
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM messages WHERE user_id = ?", userID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.Query(`
+SELECT id, title, type, read_status, created_at
+FROM messages
+WHERE user_id = ?
+ORDER BY created_at DESC
+LIMIT ? OFFSET ?`, userID, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items := make([]model.UserMessage, 0)
+	for rows.Next() {
+		var item model.UserMessage
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.Title, &item.Type, &item.ReadStatus, &createdAt); err != nil {
+			return nil, 0, err
+		}
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) MarkMessageRead(userID string, id string) error {
+	res, err := r.db.Exec("UPDATE messages SET read_status = 'READ' WHERE id = ? AND user_id = ?", id, userID)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *MySQLGrowthRepo) GetUserAccessProfile(userID string) (model.UserAccessProfile, error) {
 	var profile model.UserAccessProfile
 	profile.UserID = userID
@@ -480,6 +635,52 @@ WHERE id = ? AND status = 'PUBLISHED'`
 	return item, nil
 }
 
+func (r *MySQLGrowthRepo) ListNewsAttachments(userID string, articleID string) ([]model.NewsAttachment, error) {
+	isVIP, err := r.isVIPUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	query := "SELECT COUNT(*) FROM news_articles WHERE id = ? AND status = 'PUBLISHED'"
+	args := []interface{}{articleID}
+	if !isVIP {
+		query += " AND visibility = 'PUBLIC'"
+	}
+	var articleCount int
+	if err := r.db.QueryRow(query, args...).Scan(&articleCount); err != nil {
+		return nil, err
+	}
+	if articleCount == 0 {
+		return nil, sql.ErrNoRows
+	}
+
+	rows, err := r.db.Query(`
+SELECT id, article_id, file_name, file_url, file_size, mime_type, created_at
+FROM news_attachments
+WHERE article_id = ?
+ORDER BY created_at DESC`, articleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.NewsAttachment, 0)
+	for rows.Next() {
+		var item model.NewsAttachment
+		var mimeType sql.NullString
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.ArticleID, &item.FileName, &item.FileURL, &item.FileSize, &mimeType, &createdAt); err != nil {
+			return nil, err
+		}
+		if mimeType.Valid {
+			item.MimeType = mimeType.String
+		}
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, nil
+}
+
 func (r *MySQLGrowthRepo) GetRewardWallet(userID string) (model.RewardWallet, error) {
 	var item model.RewardWallet
 	err := r.db.QueryRow(`
@@ -648,13 +849,227 @@ LIMIT ? OFFSET ?`
 	items := make([]model.ArbitrageOpportunity, 0)
 	for rows.Next() {
 		var item model.ArbitrageOpportunity
-		if err := rows.Scan(&item.ID, &item.Type, &item.ContractA, &item.ContractB, &item.Spread, &item.Percentile, &item.Status); err != nil {
+		var spread, percentile sql.NullFloat64
+		if err := rows.Scan(&item.ID, &item.Type, &item.ContractA, &item.ContractB, &spread, &percentile, &item.Status); err != nil {
 			return nil, 0, err
+		}
+		if spread.Valid {
+			item.Spread = spread.Float64
+		}
+		if percentile.Valid {
+			item.Percentile = percentile.Float64
 		}
 		item.RiskLevel = "MEDIUM"
 		items = append(items, item)
 	}
 	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) ListFuturesArbitrage(typeFilter string, page int, pageSize int) ([]model.ArbitrageRecommendation, int, error) {
+	offset := (page - 1) * pageSize
+	args := []interface{}{}
+	filter := ""
+	if typeFilter != "" {
+		filter = " WHERE type = ?"
+		args = append(args, typeFilter)
+	}
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM arbitrage_recos"+filter, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	query := `
+SELECT id, type, contract_a, contract_b, spread, percentile, entry_point, exit_point, stop_point, status
+FROM arbitrage_recos` + filter + `
+ORDER BY id DESC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items := make([]model.ArbitrageRecommendation, 0)
+	for rows.Next() {
+		var item model.ArbitrageRecommendation
+		var spread, percentile, entryPoint, exitPoint, stopPoint sql.NullFloat64
+		if err := rows.Scan(&item.ID, &item.Type, &item.ContractA, &item.ContractB, &spread, &percentile, &entryPoint, &exitPoint, &stopPoint, &item.Status); err != nil {
+			return nil, 0, err
+		}
+		if spread.Valid {
+			item.Spread = spread.Float64
+		}
+		if percentile.Valid {
+			item.Percentile = percentile.Float64
+		}
+		if entryPoint.Valid {
+			item.EntryPoint = entryPoint.Float64
+		}
+		if exitPoint.Valid {
+			item.ExitPoint = exitPoint.Float64
+		}
+		if stopPoint.Valid {
+			item.StopPoint = stopPoint.Float64
+		}
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) GetFuturesArbitrageDetail(id string) (model.ArbitrageRecommendation, error) {
+	var item model.ArbitrageRecommendation
+	var spread, percentile, entryPoint, exitPoint, stopPoint sql.NullFloat64
+	var triggerRule sql.NullString
+	err := r.db.QueryRow(`
+SELECT id, type, contract_a, contract_b, spread, percentile, entry_point, exit_point, stop_point, trigger_rule, status
+FROM arbitrage_recos
+WHERE id = ?
+LIMIT 1`, id).Scan(
+		&item.ID, &item.Type, &item.ContractA, &item.ContractB, &spread, &percentile,
+		&entryPoint, &exitPoint, &stopPoint, &triggerRule, &item.Status,
+	)
+	if err != nil {
+		return model.ArbitrageRecommendation{}, err
+	}
+	if spread.Valid {
+		item.Spread = spread.Float64
+	}
+	if percentile.Valid {
+		item.Percentile = percentile.Float64
+	}
+	if entryPoint.Valid {
+		item.EntryPoint = entryPoint.Float64
+	}
+	if exitPoint.Valid {
+		item.ExitPoint = exitPoint.Float64
+	}
+	if stopPoint.Valid {
+		item.StopPoint = stopPoint.Float64
+	}
+	if triggerRule.Valid {
+		item.TriggerRule = triggerRule.String
+	}
+	return item, nil
+}
+
+func (r *MySQLGrowthRepo) CreateFuturesAlert(userID string, contract string, alertType string, threshold float64) (string, error) {
+	id := newID("fa")
+	_, err := r.db.Exec(`
+INSERT INTO futures_alerts (id, user_id, contract, alert_type, threshold, status, created_at)
+VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?)`,
+		id, userID, strings.TrimSpace(contract), strings.ToUpper(strings.TrimSpace(alertType)), threshold, time.Now(),
+	)
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func (r *MySQLGrowthRepo) ListFuturesReviews(page int, pageSize int) ([]model.FuturesReview, int, error) {
+	offset := (page - 1) * pageSize
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM futures_reviews").Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.Query(`
+SELECT id, strategy_id, hit_rate, pnl, max_drawdown, review_date
+FROM futures_reviews
+ORDER BY review_date DESC, id DESC
+LIMIT ? OFFSET ?`, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items := make([]model.FuturesReview, 0)
+	for rows.Next() {
+		var item model.FuturesReview
+		var hitRate, pnl, maxDrawdown sql.NullFloat64
+		var reviewDate time.Time
+		if err := rows.Scan(&item.ID, &item.StrategyID, &hitRate, &pnl, &maxDrawdown, &reviewDate); err != nil {
+			return nil, 0, err
+		}
+		if hitRate.Valid {
+			item.HitRate = hitRate.Float64
+		}
+		if pnl.Valid {
+			item.PnL = pnl.Float64
+		}
+		if maxDrawdown.Valid {
+			item.MaxDrawdown = maxDrawdown.Float64
+		}
+		item.ReviewDate = reviewDate.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) ListMarketEvents(eventType string, page int, pageSize int) ([]model.MarketEvent, int, error) {
+	offset := (page - 1) * pageSize
+	args := []interface{}{}
+	filter := ""
+	if eventType != "" {
+		filter = " WHERE event_type = ?"
+		args = append(args, eventType)
+	}
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM market_events"+filter, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	query := `
+SELECT id, event_type, symbol, summary, trigger_rule, created_at
+FROM market_events` + filter + `
+ORDER BY created_at DESC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items := make([]model.MarketEvent, 0)
+	for rows.Next() {
+		var item model.MarketEvent
+		var summary, triggerRule sql.NullString
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.EventType, &item.Symbol, &summary, &triggerRule, &createdAt); err != nil {
+			return nil, 0, err
+		}
+		if summary.Valid {
+			item.Summary = summary.String
+		}
+		if triggerRule.Valid {
+			item.TriggerRule = triggerRule.String
+		}
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) GetMarketEventDetail(id string) (model.MarketEvent, error) {
+	var item model.MarketEvent
+	var createdAt time.Time
+	var summary, triggerRule, source sql.NullString
+	err := r.db.QueryRow(`
+SELECT id, event_type, symbol, summary, trigger_rule, source, created_at
+FROM market_events
+WHERE id = ?
+LIMIT 1`, id).Scan(
+		&item.ID, &item.EventType, &item.Symbol, &summary, &triggerRule, &source, &createdAt,
+	)
+	if err != nil {
+		return model.MarketEvent{}, err
+	}
+	if summary.Valid {
+		item.Summary = summary.String
+	}
+	if triggerRule.Valid {
+		item.TriggerRule = triggerRule.String
+	}
+	if source.Valid {
+		item.Source = source.String
+	}
+	item.CreatedAt = createdAt.Format(time.RFC3339)
+	return item, nil
 }
 
 func (r *MySQLGrowthRepo) GetFuturesGuidance(contract string) (model.FuturesGuidance, error) {
@@ -677,6 +1092,103 @@ LIMIT 1`, contract).Scan(
 	}
 	item.ValidTo = validTo.Format(time.RFC3339)
 	return item, nil
+}
+
+func (r *MySQLGrowthRepo) ListPublicHoldings(symbol string, page int, pageSize int) ([]model.PublicHolding, int, error) {
+	offset := (page - 1) * pageSize
+	args := []interface{}{}
+	filter := " WHERE 1=1"
+	if symbol != "" {
+		filter += " AND symbol = ?"
+		args = append(args, symbol)
+	}
+
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM public_holdings"+filter, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+SELECT id, holder, symbol, ratio, disclosed_at, source
+FROM public_holdings` + filter + `
+ORDER BY disclosed_at DESC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.PublicHolding, 0)
+	for rows.Next() {
+		var item model.PublicHolding
+		var ratio sql.NullFloat64
+		var source sql.NullString
+		var disclosedAt time.Time
+		if err := rows.Scan(&item.ID, &item.Holder, &item.Symbol, &ratio, &disclosedAt, &source); err != nil {
+			return nil, 0, err
+		}
+		if ratio.Valid {
+			item.Ratio = ratio.Float64
+		}
+		if source.Valid {
+			item.Source = source.String
+		}
+		item.DisclosedAt = disclosedAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) ListPublicFuturesPositions(contract string, page int, pageSize int) ([]model.PublicFuturesPosition, int, error) {
+	offset := (page - 1) * pageSize
+	args := []interface{}{}
+	filter := " WHERE 1=1"
+	if contract != "" {
+		filter += " AND contract = ?"
+		args = append(args, contract)
+	}
+
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM futures_positions_public"+filter, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+SELECT id, contract, long_position, short_position, disclosed_at, source
+FROM futures_positions_public` + filter + `
+ORDER BY disclosed_at DESC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.PublicFuturesPosition, 0)
+	for rows.Next() {
+		var item model.PublicFuturesPosition
+		var longPosition, shortPosition sql.NullFloat64
+		var source sql.NullString
+		var disclosedAt time.Time
+		if err := rows.Scan(&item.ID, &item.Contract, &longPosition, &shortPosition, &disclosedAt, &source); err != nil {
+			return nil, 0, err
+		}
+		if longPosition.Valid {
+			item.LongPosition = longPosition.Float64
+		}
+		if shortPosition.Valid {
+			item.ShortPosition = shortPosition.Float64
+		}
+		if source.Valid {
+			item.Source = source.String
+		}
+		item.DisclosedAt = disclosedAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, nil
 }
 
 func (r *MySQLGrowthRepo) AdminListInviteRecords(status string, page int, pageSize int) ([]model.InviteRecord, int, error) {
@@ -1016,6 +1528,24 @@ WHERE id = ?`, categoryID, title, summary, content, visibility, status, time.Now
 	return err
 }
 
+func (r *MySQLGrowthRepo) AdminPublishNewsArticle(id string, status string) error {
+	result, err := r.db.Exec(`
+UPDATE news_articles
+SET status = ?, published_at = ?, updated_at = ?
+WHERE id = ?`, status, time.Now(), time.Now(), id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *MySQLGrowthRepo) AdminCreateNewsAttachment(articleID string, fileName string, fileURL string, fileSize int64, mimeType string) (string, error) {
 	id := newID("att")
 	_, err := r.db.Exec(`
@@ -1054,6 +1584,21 @@ ORDER BY created_at DESC`, articleID)
 		items = append(items, item)
 	}
 	return items, nil
+}
+
+func (r *MySQLGrowthRepo) AdminDeleteNewsAttachment(id string) error {
+	result, err := r.db.Exec("DELETE FROM news_attachments WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *MySQLGrowthRepo) ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
@@ -1125,6 +1670,43 @@ WHERE reco_id = ?`, recoID).Scan(
 		item.RiskNote = riskNote.String
 	}
 	return item, nil
+}
+
+func (r *MySQLGrowthRepo) GetStockRecommendationPerformance(userID string, recoID string) ([]model.RecommendationPerformancePoint, error) {
+	var score sql.NullFloat64
+	var validFrom, validTo time.Time
+	err := r.db.QueryRow(`
+SELECT score, valid_from, valid_to
+FROM stock_recommendations
+WHERE id = ? AND status = 'PUBLISHED'`, recoID).Scan(&score, &validFrom, &validTo)
+	if err != nil {
+		return nil, err
+	}
+
+	base := 0.0
+	if score.Valid {
+		base = (score.Float64 - 50) / 100.0
+	}
+	points := make([]model.RecommendationPerformancePoint, 0, 5)
+	for day := 0; day < 5; day++ {
+		current := validFrom.AddDate(0, 0, day)
+		if current.After(validTo) {
+			break
+		}
+		value := base * (float64(day+1) / 5.0)
+		value = float64(int(value*10000)) / 10000
+		points = append(points, model.RecommendationPerformancePoint{
+			Date:   current.Format("2006-01-02"),
+			Return: value,
+		})
+	}
+	if len(points) == 0 {
+		points = append(points, model.RecommendationPerformancePoint{
+			Date:   validFrom.Format("2006-01-02"),
+			Return: base,
+		})
+	}
+	return points, nil
 }
 
 func (r *MySQLGrowthRepo) ListFuturesStrategies(userID string, contract string, status string, page int, pageSize int) ([]model.FuturesStrategy, int, error) {
@@ -1837,6 +2419,232 @@ func (r *MySQLGrowthRepo) AdminCreateVIPQuotaConfig(item model.VIPQuotaConfig) (
 INSERT INTO vip_quota_configs (id, member_level, doc_read_limit, news_subscribe_limit, reset_cycle, status, effective_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, item.MemberLevel, item.DocReadLimit, item.NewsSubscribeLimit, item.ResetCycle, item.Status, effectiveAt, time.Now(),
+	)
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func (r *MySQLGrowthRepo) AdminUpdateVIPQuotaConfig(id string, item model.VIPQuotaConfig) error {
+	effectiveAt, err := time.Parse(time.RFC3339, item.EffectiveAt)
+	if err != nil {
+		return err
+	}
+	result, err := r.db.Exec(`
+UPDATE vip_quota_configs
+SET doc_read_limit = ?, news_subscribe_limit = ?, reset_cycle = ?, status = ?, effective_at = ?, updated_at = ?
+WHERE id = ?`,
+		item.DocReadLimit, item.NewsSubscribeLimit, item.ResetCycle, item.Status, effectiveAt, time.Now(), id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) AdminListUserQuotaUsages(userID string, periodKey string, page int, pageSize int) ([]model.UserQuotaUsage, int, error) {
+	if strings.TrimSpace(periodKey) == "" {
+		periodKey = time.Now().Format("2006-01")
+	}
+	offset := (page - 1) * pageSize
+	filter := " WHERE 1=1"
+	countArgs := []interface{}{}
+	dataArgs := []interface{}{periodKey, periodKey}
+	if strings.TrimSpace(userID) != "" {
+		filter += " AND u.id = ?"
+		countArgs = append(countArgs, userID)
+		dataArgs = append(dataArgs, userID)
+	}
+
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM users u"+filter, countArgs...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+SELECT u.id, u.member_level, ?, COALESCE(vqc.doc_read_limit, 0), COALESCE(uqu.doc_read_used, 0),
+       COALESCE(vqc.news_subscribe_limit, 0), COALESCE(uqu.news_subscribe_used, 0), uqu.updated_at
+FROM users u
+LEFT JOIN user_quota_usages uqu ON uqu.user_id = u.id AND uqu.period_key = ?
+LEFT JOIN vip_quota_configs vqc ON vqc.id = (
+    SELECT v2.id
+    FROM vip_quota_configs v2
+    WHERE v2.member_level = u.member_level AND v2.status = 'ACTIVE'
+    ORDER BY v2.effective_at DESC
+    LIMIT 1
+)` + filter + `
+ORDER BY u.created_at DESC
+LIMIT ? OFFSET ?`
+	dataArgs = append(dataArgs, pageSize, offset)
+	rows, err := r.db.Query(query, dataArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.UserQuotaUsage, 0)
+	for rows.Next() {
+		var item model.UserQuotaUsage
+		var updatedAt sql.NullTime
+		if err := rows.Scan(
+			&item.UserID,
+			&item.MemberLevel,
+			&item.PeriodKey,
+			&item.DocReadLimit,
+			&item.DocReadUsed,
+			&item.NewsSubscribeLimit,
+			&item.NewsSubscribeUsed,
+			&updatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		if updatedAt.Valid {
+			item.UpdatedAt = updatedAt.Time.Format(time.RFC3339)
+		}
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int) error {
+	if strings.TrimSpace(periodKey) == "" {
+		return errors.New("period_key is required")
+	}
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	var memberLevel string
+	if err := tx.QueryRow("SELECT member_level FROM users WHERE id = ?", userID).Scan(&memberLevel); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	now := time.Now()
+	_, err = tx.Exec(`
+INSERT INTO user_quota_usages (id, user_id, member_level, period_key, doc_read_used, news_subscribe_used, updated_at)
+VALUES (?, ?, ?, ?, 0, 0, ?)
+ON DUPLICATE KEY UPDATE member_level = VALUES(member_level), updated_at = VALUES(updated_at)`,
+		newID("uqu"), userID, memberLevel, periodKey, now,
+	)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	_, err = tx.Exec(`
+UPDATE user_quota_usages
+SET doc_read_used = GREATEST(0, doc_read_used + ?),
+	news_subscribe_used = GREATEST(0, news_subscribe_used + ?),
+	updated_at = ?
+WHERE user_id = ? AND period_key = ?`,
+		docReadDelta, newsSubscribeDelta, now, userID, periodKey,
+	)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *MySQLGrowthRepo) AdminListDataSources(page int, pageSize int) ([]model.DataSource, int, error) {
+	offset := (page - 1) * pageSize
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM system_configs WHERE config_key LIKE 'data_source.%'").Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := r.db.Query(`
+SELECT id, config_key, config_value, description, updated_at
+FROM system_configs
+WHERE config_key LIKE 'data_source.%'
+ORDER BY updated_at DESC
+LIMIT ? OFFSET ?`, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.DataSource, 0)
+	for rows.Next() {
+		var id, configKey, configValue string
+		var desc sql.NullString
+		var updatedAt time.Time
+		if err := rows.Scan(&id, &configKey, &configValue, &desc, &updatedAt); err != nil {
+			return nil, 0, err
+		}
+		item := model.DataSource{
+			ID:         id,
+			SourceKey:  strings.TrimPrefix(configKey, "data_source."),
+			Name:       "",
+			SourceType: "",
+			Status:     "ACTIVE",
+			UpdatedAt:  updatedAt.Format(time.RFC3339),
+		}
+		var payload struct {
+			Name       string                 `json:"name"`
+			SourceType string                 `json:"source_type"`
+			Status     string                 `json:"status"`
+			Config     map[string]interface{} `json:"config"`
+		}
+		if err := json.Unmarshal([]byte(configValue), &payload); err == nil {
+			item.Name = payload.Name
+			item.SourceType = payload.SourceType
+			if strings.TrimSpace(payload.Status) != "" {
+				item.Status = payload.Status
+			}
+			item.Config = payload.Config
+		}
+		if item.Name == "" {
+			if desc.Valid {
+				item.Name = desc.String
+			} else {
+				item.Name = item.SourceKey
+			}
+		}
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) AdminCreateDataSource(item model.DataSource) (string, error) {
+	sourceKey := strings.TrimSpace(item.SourceKey)
+	if sourceKey == "" {
+		return "", errors.New("source_key is required")
+	}
+	configKey := "data_source." + sourceKey
+	var exists int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM system_configs WHERE config_key = ?", configKey).Scan(&exists); err != nil {
+		return "", err
+	}
+	if exists > 0 {
+		return "", errors.New("data source already exists")
+	}
+
+	payloadBytes, err := json.Marshal(map[string]interface{}{
+		"name":        item.Name,
+		"source_type": strings.ToUpper(strings.TrimSpace(item.SourceType)),
+		"status":      strings.ToUpper(strings.TrimSpace(item.Status)),
+		"config":      item.Config,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	id := newID("cfg")
+	_, err = r.db.Exec(`
+INSERT INTO system_configs (id, config_key, config_value, description, updated_by, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)`,
+		id, configKey, string(payloadBytes), item.Name, "admin", time.Now(),
 	)
 	if err != nil {
 		return "", err
