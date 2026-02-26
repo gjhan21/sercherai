@@ -12,6 +12,7 @@ const menus = [
   { name: "users", label: "用户管理", to: "/users" },
   { name: "news", label: "新闻管理", to: "/news" },
   { name: "review-center", label: "审核中心", to: "/review-center" },
+  { name: "system-jobs", label: "任务中心", to: "/system-jobs" },
   { name: "data-sources", label: "数据源管理", to: "/data-sources" },
   { name: "workflow-messages", label: "流程消息", to: "/workflow-messages" }
 ];

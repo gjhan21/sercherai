@@ -5,6 +5,7 @@ import DataSourcesView from "../views/DataSourcesView.vue";
 import LoginView from "../views/LoginView.vue";
 import NewsView from "../views/NewsView.vue";
 import ReviewCenterView from "../views/ReviewCenterView.vue";
+import SystemJobsView from "../views/SystemJobsView.vue";
 import UsersView from "../views/UsersView.vue";
 import WorkflowMessagesView from "../views/WorkflowMessagesView.vue";
 import { hasSession } from "../lib/session";
@@ -49,6 +50,11 @@ const routes = [
         path: "review-center",
         name: "review-center",
         component: ReviewCenterView
+      },
+      {
+        path: "system-jobs",
+        name: "system-jobs",
+        component: SystemJobsView
       },
       {
         path: "workflow-messages",

@@ -136,6 +136,38 @@ export function reviewTaskDecision(id, status, reviewNote) {
   });
 }
 
+export function listSchedulerJobDefinitions(params) {
+  return http.get("/admin/system/job-definitions", { params: buildParams(params) });
+}
+
+export function createSchedulerJobDefinition(payload) {
+  return http.post("/admin/system/job-definitions", payload);
+}
+
+export function updateSchedulerJobDefinition(id, payload) {
+  return http.put(`/admin/system/job-definitions/${encodeURIComponent(id)}`, payload);
+}
+
+export function updateSchedulerJobDefinitionStatus(id, status) {
+  return http.put(`/admin/system/job-definitions/${encodeURIComponent(id)}/status`, { status });
+}
+
+export function listSchedulerJobRuns(params) {
+  return http.get("/admin/system/job-runs", { params: buildParams(params) });
+}
+
+export function getSchedulerJobMetrics(params) {
+  return http.get("/admin/system/job-runs/metrics", { params: buildParams(params) });
+}
+
+export function triggerSchedulerJob(payload) {
+  return http.post("/admin/system/job-runs/trigger", payload);
+}
+
+export function retrySchedulerJobRun(id, payload) {
+  return http.post(`/admin/system/job-runs/${encodeURIComponent(id)}/retry`, payload);
+}
+
 export function countUnreadWorkflowMessages(params) {
   return http.get("/admin/workflow/messages/unread-count", {
     params: buildParams(params)
