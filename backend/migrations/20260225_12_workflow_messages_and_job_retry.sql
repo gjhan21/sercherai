@@ -18,6 +18,34 @@ CREATE TABLE IF NOT EXISTS workflow_messages (
   INDEX idx_event_created (event_type, created_at)
 );
 
-ALTER TABLE scheduler_job_runs
-  ADD COLUMN IF NOT EXISTS parent_run_id varchar(64) NULL AFTER id,
-  ADD COLUMN IF NOT EXISTS retry_count int NOT NULL DEFAULT 0 AFTER parent_run_id;
+SET @has_parent_run_id := (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'scheduler_job_runs'
+    AND COLUMN_NAME = 'parent_run_id'
+);
+SET @sql_parent := IF(
+  @has_parent_run_id = 0,
+  'ALTER TABLE scheduler_job_runs ADD COLUMN parent_run_id varchar(64) NULL AFTER id',
+  'SELECT 1'
+);
+PREPARE stmt_parent FROM @sql_parent;
+EXECUTE stmt_parent;
+DEALLOCATE PREPARE stmt_parent;
+
+SET @has_retry_count := (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'scheduler_job_runs'
+    AND COLUMN_NAME = 'retry_count'
+);
+SET @sql_retry := IF(
+  @has_retry_count = 0,
+  'ALTER TABLE scheduler_job_runs ADD COLUMN retry_count int NOT NULL DEFAULT 0 AFTER parent_run_id',
+  'SELECT 1'
+);
+PREPARE stmt_retry FROM @sql_retry;
+EXECUTE stmt_retry;
+DEALLOCATE PREPARE stmt_retry;
