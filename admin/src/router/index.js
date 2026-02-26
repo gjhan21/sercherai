@@ -1,14 +1,15 @@
 import { createRouter, createWebHistory } from "vue-router";
-import AppLayout from "../components/AppLayout.vue";
-import DashboardView from "../views/DashboardView.vue";
-import DataSourcesView from "../views/DataSourcesView.vue";
-import LoginView from "../views/LoginView.vue";
-import NewsView from "../views/NewsView.vue";
-import ReviewCenterView from "../views/ReviewCenterView.vue";
-import SystemJobsView from "../views/SystemJobsView.vue";
-import UsersView from "../views/UsersView.vue";
-import WorkflowMessagesView from "../views/WorkflowMessagesView.vue";
 import { hasSession } from "../lib/session";
+
+const AppLayout = () => import("../components/AppLayout.vue");
+const LoginView = () => import("../views/LoginView.vue");
+const DashboardView = () => import("../views/DashboardView.vue");
+const UsersView = () => import("../views/UsersView.vue");
+const NewsView = () => import("../views/NewsView.vue");
+const ReviewCenterView = () => import("../views/ReviewCenterView.vue");
+const SystemJobsView = () => import("../views/SystemJobsView.vue");
+const DataSourcesView = () => import("../views/DataSourcesView.vue");
+const WorkflowMessagesView = () => import("../views/WorkflowMessagesView.vue");
 
 const routes = [
   {

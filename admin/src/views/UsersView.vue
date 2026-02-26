@@ -123,19 +123,11 @@ function resetFilters() {
   fetchUsers();
 }
 
-function nextPage() {
-  if (page.value * pageSize.value >= total.value) {
+function handlePageChange(nextPage) {
+  if (nextPage === page.value) {
     return;
   }
-  page.value += 1;
-  fetchUsers();
-}
-
-function prevPage() {
-  if (page.value <= 1) {
-    return;
-  }
-  page.value -= 1;
+  page.value = nextPage;
   fetchUsers();
 }
 
@@ -149,97 +141,109 @@ onMounted(fetchUsers);
         <h1 class="page-title">用户管理</h1>
         <p class="muted">用户状态、实名状态、会员等级维护</p>
       </div>
-      <button class="btn" :disabled="loading" @click="fetchUsers">
-        {{ loading ? "刷新中..." : "刷新" }}
-      </button>
+      <el-button :loading="loading" @click="fetchUsers">刷新</el-button>
     </div>
 
-    <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
-    <div v-if="message" class="success-message">{{ message }}</div>
+    <el-alert
+      v-if="errorMessage"
+      :title="errorMessage"
+      type="error"
+      show-icon
+      style="margin-bottom: 12px"
+    />
+    <el-alert
+      v-if="message"
+      :title="message"
+      type="success"
+      show-icon
+      style="margin-bottom: 12px"
+    />
 
     <div class="card" style="margin-bottom: 12px">
       <div class="toolbar">
-        <select v-model="filters.status" class="select">
-          <option value="">全部用户状态</option>
-          <option value="ACTIVE">ACTIVE</option>
-          <option value="DISABLED">DISABLED</option>
-          <option value="BANNED">BANNED</option>
-        </select>
-        <select v-model="filters.kyc_status" class="select">
-          <option value="">全部 KYC 状态</option>
-          <option value="PENDING">PENDING</option>
-          <option value="APPROVED">APPROVED</option>
-          <option value="REJECTED">REJECTED</option>
-        </select>
-        <input v-model="filters.member_level" class="input" placeholder="会员等级，如 VIP1" />
-        <button class="btn" @click="applyFilters">查询</button>
-        <button class="btn" @click="resetFilters">重置</button>
+        <el-select v-model="filters.status" clearable placeholder="全部用户状态" style="width: 160px">
+          <el-option label="ACTIVE" value="ACTIVE" />
+          <el-option label="DISABLED" value="DISABLED" />
+          <el-option label="BANNED" value="BANNED" />
+        </el-select>
+        <el-select v-model="filters.kyc_status" clearable placeholder="全部 KYC 状态" style="width: 170px">
+          <el-option label="PENDING" value="PENDING" />
+          <el-option label="APPROVED" value="APPROVED" />
+          <el-option label="REJECTED" value="REJECTED" />
+        </el-select>
+        <el-input v-model="filters.member_level" clearable placeholder="会员等级，如 VIP1" style="width: 180px" />
+        <el-button type="primary" plain @click="applyFilters">查询</el-button>
+        <el-button @click="resetFilters">重置</el-button>
       </div>
     </div>
 
     <div class="card">
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>用户ID</th>
-              <th>手机号</th>
-              <th>邮箱</th>
-              <th>用户状态</th>
-              <th>KYC 状态</th>
-              <th>会员等级</th>
-              <th>创建时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="user in users" :key="user.id">
-              <td>{{ user.id }}</td>
-              <td>{{ user.phone }}</td>
-              <td>{{ user.email || "-" }}</td>
-              <td>
-                <div class="toolbar">
-                  <select v-model="draftStatusMap[user.id]" class="select">
-                    <option value="ACTIVE">ACTIVE</option>
-                    <option value="DISABLED">DISABLED</option>
-                    <option value="BANNED">BANNED</option>
-                  </select>
-                  <button class="btn" @click="handleUpdateStatus(user)">保存</button>
-                </div>
-              </td>
-              <td>
-                <div class="toolbar">
-                  <select v-model="draftKYCMap[user.id]" class="select">
-                    <option value="PENDING">PENDING</option>
-                    <option value="APPROVED">APPROVED</option>
-                    <option value="REJECTED">REJECTED</option>
-                  </select>
-                  <button class="btn" @click="handleUpdateKYC(user)">保存</button>
-                </div>
-              </td>
-              <td>
-                <div class="toolbar">
-                  <input v-model="draftLevelMap[user.id]" class="input" />
-                  <button class="btn" @click="handleUpdateMemberLevel(user)">保存</button>
-                </div>
-              </td>
-              <td>{{ user.created_at }}</td>
-            </tr>
-            <tr v-if="!loading && users.length === 0">
-              <td colspan="7" class="muted">暂无用户数据</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <el-table :data="users" border stripe v-loading="loading" empty-text="暂无用户数据">
+        <el-table-column prop="id" label="用户ID" min-width="160" />
+        <el-table-column prop="phone" label="手机号" min-width="130" />
+        <el-table-column label="邮箱" min-width="180">
+          <template #default="{ row }">
+            {{ row.email || "-" }}
+          </template>
+        </el-table-column>
+
+        <el-table-column label="用户状态" min-width="220">
+          <template #default="{ row }">
+            <div class="inline-actions">
+              <el-select v-model="draftStatusMap[row.id]" style="width: 120px">
+                <el-option label="ACTIVE" value="ACTIVE" />
+                <el-option label="DISABLED" value="DISABLED" />
+                <el-option label="BANNED" value="BANNED" />
+              </el-select>
+              <el-button size="small" @click="handleUpdateStatus(row)">保存</el-button>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="KYC 状态" min-width="220">
+          <template #default="{ row }">
+            <div class="inline-actions">
+              <el-select v-model="draftKYCMap[row.id]" style="width: 120px">
+                <el-option label="PENDING" value="PENDING" />
+                <el-option label="APPROVED" value="APPROVED" />
+                <el-option label="REJECTED" value="REJECTED" />
+              </el-select>
+              <el-button size="small" @click="handleUpdateKYC(row)">保存</el-button>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="会员等级" min-width="240">
+          <template #default="{ row }">
+            <div class="inline-actions">
+              <el-input v-model="draftLevelMap[row.id]" style="width: 120px" />
+              <el-button size="small" @click="handleUpdateMemberLevel(row)">保存</el-button>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="created_at" label="创建时间" min-width="180" />
+      </el-table>
 
       <div class="pagination">
-        <span>第 {{ page }} 页，共 {{ total }} 条</span>
-        <div class="toolbar">
-          <button class="btn" :disabled="page <= 1 || loading" @click="prevPage">上一页</button>
-          <button class="btn" :disabled="page * pageSize >= total || loading" @click="nextPage">
-            下一页
-          </button>
-        </div>
+        <el-text type="info">第 {{ page }} 页，共 {{ total }} 条</el-text>
+        <el-pagination
+          background
+          layout="prev, pager, next"
+          :current-page="page"
+          :page-size="pageSize"
+          :total="total"
+          @current-change="handlePageChange"
+        />
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+</style>

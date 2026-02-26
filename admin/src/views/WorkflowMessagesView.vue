@@ -97,19 +97,11 @@ function applyFilters() {
   fetchMessages();
 }
 
-function nextPage() {
-  if (page.value * pageSize.value >= total.value) {
+function handlePageChange(nextPage) {
+  if (nextPage === page.value) {
     return;
   }
-  page.value += 1;
-  fetchMessages();
-}
-
-function prevPage() {
-  if (page.value <= 1) {
-    return;
-  }
-  page.value -= 1;
+  page.value = nextPage;
   fetchMessages();
 }
 
@@ -122,83 +114,95 @@ onMounted(fetchMessages);
       <div>
         <h1 class="page-title">
           流程消息
-          <span class="badge">{{ unreadCount }}</span>
+          <el-badge :value="unreadCount" class="title-badge" />
         </h1>
         <p class="muted">查看审核/任务/数据源告警消息，并处理已读状态</p>
       </div>
       <div class="toolbar">
-        <button class="btn" :disabled="loading" @click="fetchMessages">刷新</button>
-        <button class="btn btn-primary" :disabled="loading" @click="markAllRead">全部标记已读</button>
+        <el-button :loading="loading" @click="fetchMessages">刷新</el-button>
+        <el-button type="primary" :loading="loading" @click="markAllRead">全部标记已读</el-button>
       </div>
     </div>
 
-    <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
-    <div v-if="message" class="success-message">{{ message }}</div>
+    <el-alert
+      v-if="errorMessage"
+      :title="errorMessage"
+      type="error"
+      show-icon
+      style="margin-bottom: 12px"
+    />
+    <el-alert
+      v-if="message"
+      :title="message"
+      type="success"
+      show-icon
+      style="margin-bottom: 12px"
+    />
 
     <div class="card" style="margin-bottom: 12px">
       <div class="toolbar">
-        <input v-model="filters.module" class="input" placeholder="模块，如 SYSTEM / STOCK" />
-        <input v-model="filters.event_type" class="input" placeholder="事件，如 DATA_SOURCE_UNHEALTHY" />
-        <select v-model="filters.is_read" class="select">
-          <option value="">全部状态</option>
-          <option value="false">未读</option>
-          <option value="true">已读</option>
-        </select>
-        <button class="btn" @click="applyFilters">查询</button>
-        <button class="btn" @click="resetFilters">重置</button>
+        <el-input v-model="filters.module" clearable placeholder="模块，如 SYSTEM / STOCK" style="width: 220px" />
+        <el-input
+          v-model="filters.event_type"
+          clearable
+          placeholder="事件，如 DATA_SOURCE_UNHEALTHY"
+          style="width: 260px"
+        />
+        <el-select v-model="filters.is_read" clearable placeholder="全部状态" style="width: 130px">
+          <el-option label="未读" value="false" />
+          <el-option label="已读" value="true" />
+        </el-select>
+        <el-button type="primary" plain @click="applyFilters">查询</el-button>
+        <el-button @click="resetFilters">重置</el-button>
       </div>
     </div>
 
     <div class="card">
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>事件</th>
-              <th>模块</th>
-              <th>标题</th>
-              <th>内容</th>
-              <th>接收人</th>
-              <th>状态</th>
-              <th>创建时间</th>
-              <th class="text-right">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in items" :key="item.id">
-              <td>{{ item.event_type }}</td>
-              <td>{{ item.module }}</td>
-              <td>{{ item.title }}</td>
-              <td>{{ item.content }}</td>
-              <td>{{ item.receiver_id || "-" }}</td>
-              <td>
-                <span class="status-tag" :class="item.is_read ? 'status-active' : 'status-disabled'">
-                  {{ item.is_read ? "已读" : "未读" }}
-                </span>
-              </td>
-              <td>{{ item.created_at }}</td>
-              <td class="text-right">
-                <button class="btn" @click="toggleRead(item)">
-                  {{ item.is_read ? "取消已读" : "标记已读" }}
-                </button>
-              </td>
-            </tr>
-            <tr v-if="!loading && items.length === 0">
-              <td colspan="8" class="muted">暂无流程消息</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <el-table :data="items" border stripe v-loading="loading" empty-text="暂无流程消息">
+        <el-table-column prop="event_type" label="事件" min-width="170" />
+        <el-table-column prop="module" label="模块" min-width="100" />
+        <el-table-column prop="title" label="标题" min-width="160" />
+        <el-table-column prop="content" label="内容" min-width="240" />
+        <el-table-column label="接收人" min-width="140">
+          <template #default="{ row }">
+            {{ row.receiver_id || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" min-width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.is_read ? 'success' : 'warning'">
+              {{ row.is_read ? "已读" : "未读" }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="创建时间" min-width="180" />
+        <el-table-column label="操作" min-width="140" align="right">
+          <template #default="{ row }">
+            <el-button size="small" @click="toggleRead(row)">
+              {{ row.is_read ? "取消已读" : "标记已读" }}
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
 
       <div class="pagination">
-        <span>第 {{ page }} 页，共 {{ total }} 条</span>
-        <div class="toolbar">
-          <button class="btn" :disabled="page <= 1 || loading" @click="prevPage">上一页</button>
-          <button class="btn" :disabled="page * pageSize >= total || loading" @click="nextPage">
-            下一页
-          </button>
-        </div>
+        <el-text type="info">第 {{ page }} 页，共 {{ total }} 条</el-text>
+        <el-pagination
+          background
+          layout="prev, pager, next"
+          :current-page="page"
+          :page-size="pageSize"
+          :total="total"
+          @current-change="handlePageChange"
+        />
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.title-badge {
+  margin-left: 8px;
+  vertical-align: middle;
+}
+</style>
