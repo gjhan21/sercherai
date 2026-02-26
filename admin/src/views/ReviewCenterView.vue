@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import {
   assignReviewTask,
   getWorkflowMetrics,
@@ -65,6 +65,63 @@ const moduleOptions = ["NEWS", "STOCK", "FUTURES"];
 const decisionOptions = ["APPROVED", "REJECTED"];
 const slaWarnHours = 24;
 const slaDangerHours = 48;
+const slaSortMode = ref("sla_desc");
+const showOnlySLAWarning = ref(false);
+
+const slaStats = computed(() => {
+  let pendingTotal = 0;
+  let warningCount = 0;
+  let dangerCount = 0;
+  tasks.value.forEach((task) => {
+    const hours = getPendingHours(task);
+    if (hours === null) {
+      return;
+    }
+    pendingTotal += 1;
+    if (hours >= slaDangerHours) {
+      dangerCount += 1;
+      return;
+    }
+    if (hours >= slaWarnHours) {
+      warningCount += 1;
+    }
+  });
+  return {
+    pendingTotal,
+    warningCount,
+    dangerCount,
+    normalCount: Math.max(0, pendingTotal - warningCount - dangerCount)
+  };
+});
+
+const displayTasks = computed(() => {
+  const source = [...tasks.value];
+  if (showOnlySLAWarning.value) {
+    return source
+      .filter((task) => {
+        const hours = getPendingHours(task);
+        return hours !== null && hours >= slaWarnHours;
+      })
+      .sort((a, b) => (getPendingHours(b) || 0) - (getPendingHours(a) || 0));
+  }
+  if (slaSortMode.value === "sla_desc") {
+    return source.sort((a, b) => {
+      const left = getPendingHours(a);
+      const right = getPendingHours(b);
+      const leftHours = left === null ? -1 : left;
+      const rightHours = right === null ? -1 : right;
+      return rightHours - leftHours;
+    });
+  }
+  return source;
+});
+
+const reviewEmptyText = computed(() => {
+  if (!showOnlySLAWarning.value) {
+    return "暂无审核任务";
+  }
+  return "当前页暂无超时/预警任务";
+});
 
 async function fetchMetrics() {
   metricsLoading.value = true;
@@ -391,6 +448,8 @@ function resetFilters() {
   filters.status = "";
   filters.submitter_id = "";
   filters.reviewer_id = "";
+  slaSortMode.value = "sla_desc";
+  showOnlySLAWarning.value = false;
   page.value = 1;
   refreshAll();
 }
@@ -461,6 +520,12 @@ onMounted(refreshAll);
           <div class="metric-value">{{ metrics.unread_messages || 0 }} / {{ metrics.total_messages || 0 }}</div>
         </div>
       </div>
+      <div class="sla-overview">
+        <el-tag type="success">SLA正常：{{ slaStats.normalCount }}</el-tag>
+        <el-tag type="warning">SLA预警：{{ slaStats.warningCount }}</el-tag>
+        <el-tag type="danger">SLA超时：{{ slaStats.dangerCount }}</el-tag>
+        <el-text type="info">当前页待审核总数：{{ slaStats.pendingTotal }}</el-text>
+      </div>
     </div>
 
     <div class="card" style="margin-bottom: 12px">
@@ -500,6 +565,11 @@ onMounted(refreshAll);
         </el-select>
         <el-input v-model="filters.submitter_id" clearable placeholder="submitter_id" style="width: 180px" />
         <el-input v-model="filters.reviewer_id" clearable placeholder="reviewer_id" style="width: 180px" />
+        <el-select v-model="slaSortMode" style="width: 160px">
+          <el-option label="默认排序" value="default" />
+          <el-option label="按SLA降序" value="sla_desc" />
+        </el-select>
+        <el-switch v-model="showOnlySLAWarning" inline-prompt active-text="只看超时" inactive-text="全部任务" />
         <el-button type="primary" plain @click="applyFilters">查询</el-button>
         <el-button @click="resetFilters">重置</el-button>
       </div>
@@ -507,11 +577,11 @@ onMounted(refreshAll);
 
     <div class="card">
       <el-table
-        :data="tasks"
+        :data="displayTasks"
         border
         stripe
         v-loading="loading"
-        empty-text="暂无审核任务"
+        :empty-text="reviewEmptyText"
         :row-class-name="reviewTableRowClassName"
       >
         <el-table-column prop="id" label="ID" min-width="130" />
@@ -589,7 +659,7 @@ onMounted(refreshAll);
       </el-table>
 
       <div class="pagination">
-        <el-text type="info">第 {{ page }} 页，共 {{ total }} 条</el-text>
+        <el-text type="info">第 {{ page }} 页，当前展示 {{ displayTasks.length }} 条，共 {{ total }} 条</el-text>
         <el-pagination
           background
           layout="prev, pager, next"
@@ -728,6 +798,14 @@ onMounted(refreshAll);
   margin-top: 6px;
   font-size: 24px;
   font-weight: 700;
+}
+
+.sla-overview {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .section-header {
