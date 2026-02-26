@@ -10,12 +10,15 @@ import {
   updateSchedulerJobDefinition,
   updateSchedulerJobDefinitionStatus
 } from "../api/admin";
+import { getAccessToken } from "../lib/session";
 
 const metricsLoading = ref(false);
 const defsLoading = ref(false);
 const runsLoading = ref(false);
+const exportingRuns = ref(false);
 const submittingDefinition = ref(false);
 const triggeringJob = ref(false);
+const copyingRunText = ref(false);
 
 const errorMessage = ref("");
 const message = ref("");
@@ -60,6 +63,8 @@ const runPage = ref(1);
 const runPageSize = ref(20);
 const runTotal = ref(0);
 const runs = ref([]);
+const runDetailVisible = ref(false);
+const currentRun = ref(null);
 
 const retrySimMap = ref({});
 const retrySummaryMap = ref({});
@@ -121,6 +126,141 @@ function cleanupPayload(raw) {
     payload[key] = value;
   });
   return payload;
+}
+
+function normalizeErrorMessage(error, fallback) {
+  return error?.message || fallback || "操作失败";
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  if (/[",\n]/.test(text)) {
+    return `"${text.replace(/"/g, "\"\"")}"`;
+  }
+  return text;
+}
+
+function triggerCSVDownload(content, fileName) {
+  const blob = new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+function buildRunCSVRows(items) {
+  const header = [
+    "id",
+    "parent_run_id",
+    "job_name",
+    "status",
+    "retry_count",
+    "trigger_source",
+    "started_at",
+    "finished_at",
+    "result_summary",
+    "error_message",
+    "operator_id"
+  ];
+  const rows = items.map((item) => [
+    item.id || "",
+    item.parent_run_id || "",
+    item.job_name || "",
+    item.status || "",
+    item.retry_count ?? "",
+    item.trigger_source || "",
+    item.started_at || "",
+    item.finished_at || "",
+    item.result_summary || "",
+    item.error_message || "",
+    item.operator_id || ""
+  ]);
+  return [header, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
+}
+
+function exportRunCurrentPageCSV() {
+  const csv = buildRunCSVRows(runs.value);
+  const fileName = `system_job_runs_page_${new Date().toISOString().slice(0, 10)}.csv`;
+  triggerCSVDownload(csv, fileName);
+  message.value = `已导出当前页运行记录 CSV，共 ${runs.value.length} 条`;
+}
+
+async function exportRunFilteredCSV() {
+  exportingRuns.value = true;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    const params = new URLSearchParams();
+    if (runFilters.job_name.trim()) params.set("job_name", runFilters.job_name.trim());
+    if (runFilters.status) params.set("status", runFilters.status);
+    const baseURL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "");
+    const query = params.toString();
+    const requestURL = `${baseURL}/admin/system/job-runs/export.csv${query ? `?${query}` : ""}`;
+    const headers = {};
+    const token = getAccessToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    const response = await fetch(requestURL, { method: "GET", headers });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `导出失败(${response.status})`);
+    }
+    const blob = await response.blob();
+    const blobURL = URL.createObjectURL(blob);
+    const fileName = `system_job_runs_filtered_${new Date().toISOString().slice(0, 10)}.csv`;
+    const anchor = document.createElement("a");
+    anchor.href = blobURL;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(blobURL);
+    message.value = "已发起筛选运行记录 CSV 下载";
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "导出运行记录失败");
+  } finally {
+    exportingRuns.value = false;
+  }
+}
+
+function openRunDetail(item) {
+  currentRun.value = item;
+  runDetailVisible.value = true;
+}
+
+async function copyRunField(label, value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    errorMessage.value = `${label}为空，无法复制`;
+    return;
+  }
+  copyingRunText.value = true;
+  errorMessage.value = "";
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+    message.value = `${label}已复制`;
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, `复制${label}失败`);
+  } finally {
+    copyingRunText.value = false;
+  }
 }
 
 async function fetchMetrics() {
@@ -514,6 +654,8 @@ onMounted(refreshAll);
         <el-select v-model="runFilters.status" clearable placeholder="全部状态" style="width: 150px">
           <el-option v-for="item in runStatusOptions" :key="item" :label="item" :value="item" />
         </el-select>
+        <el-button :loading="exportingRuns" @click="exportRunFilteredCSV">导出筛选CSV</el-button>
+        <el-button @click="exportRunCurrentPageCSV">导出当前页CSV</el-button>
         <el-button type="primary" plain @click="applyRunFilters">查询</el-button>
         <el-button @click="resetRunFilters">重置</el-button>
       </div>
@@ -541,17 +683,18 @@ onMounted(refreshAll);
         </el-table-column>
         <el-table-column label="result_summary" min-width="180">
           <template #default="{ row }">
-            {{ row.result_summary || "-" }}
+            <span class="run-preview">{{ row.result_summary || "-" }}</span>
           </template>
         </el-table-column>
         <el-table-column label="error_message" min-width="180">
           <template #default="{ row }">
-            {{ row.error_message || "-" }}
+            <span class="run-preview">{{ row.error_message || "-" }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="重跑" align="right" min-width="340">
+        <el-table-column label="重跑" align="right" min-width="430">
           <template #default="{ row }">
             <div class="inline-actions">
+              <el-button size="small" @click="openRunDetail(row)">详情</el-button>
               <el-select v-model="retrySimMap[row.id]" size="small" clearable placeholder="simulate" style="width: 110px">
                 <el-option v-for="item in simulateStatusOptions" :key="item" :label="item" :value="item" />
               </el-select>
@@ -575,6 +718,59 @@ onMounted(refreshAll);
         />
       </div>
     </div>
+
+    <el-drawer v-model="runDetailVisible" size="620px" destroy-on-close>
+      <template #header>
+        <div class="drawer-title">任务运行详情</div>
+      </template>
+      <template v-if="currentRun">
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item label="run_id">{{ currentRun.id || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="parent_run_id">{{ currentRun.parent_run_id || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="job_name">{{ currentRun.job_name || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="status">
+            <el-tag :type="statusTagType(currentRun.status)">{{ currentRun.status || "-" }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="trigger_source">{{ currentRun.trigger_source || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="retry_count">{{ currentRun.retry_count ?? "-" }}</el-descriptions-item>
+          <el-descriptions-item label="started_at">{{ currentRun.started_at || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="finished_at">{{ currentRun.finished_at || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="operator_id">{{ currentRun.operator_id || "-" }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div class="run-detail-block">
+          <div class="run-detail-title-row">
+            <h4>result_summary</h4>
+            <el-button
+              link
+              type="primary"
+              :disabled="!(currentRun.result_summary || '').trim()"
+              :loading="copyingRunText"
+              @click="copyRunField('result_summary', currentRun.result_summary)"
+            >
+              复制
+            </el-button>
+          </div>
+          <pre class="run-detail-pre">{{ currentRun.result_summary || "-" }}</pre>
+        </div>
+
+        <div class="run-detail-block">
+          <div class="run-detail-title-row">
+            <h4>error_message</h4>
+            <el-button
+              link
+              type="primary"
+              :disabled="!(currentRun.error_message || '').trim()"
+              :loading="copyingRunText"
+              @click="copyRunField('error_message', currentRun.error_message)"
+            >
+              复制
+            </el-button>
+          </div>
+          <pre class="run-detail-pre">{{ currentRun.error_message || "-" }}</pre>
+        </div>
+      </template>
+    </el-drawer>
 
     <el-dialog
       v-model="definitionFormVisible"
@@ -652,6 +848,51 @@ onMounted(refreshAll);
 
 .inline-actions--left {
   justify-content: flex-start;
+}
+
+.run-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.drawer-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.run-detail-block {
+  margin-top: 14px;
+}
+
+.run-detail-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.run-detail-title-row h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.run-detail-pre {
+  margin: 0;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #f8fafc;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 220px;
+  overflow: auto;
 }
 
 .dialog-grid {
