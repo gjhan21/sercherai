@@ -42,6 +42,9 @@ const submitForm = reactive({
   submit_note: ""
 });
 
+const moduleOptions = ["NEWS", "STOCK", "FUTURES"];
+const decisionOptions = ["APPROVED", "REJECTED"];
+
 const assignDraftMap = ref({});
 const decisionStatusMap = ref({});
 const decisionNoteMap = ref({});
@@ -152,7 +155,7 @@ async function handleAssign(task) {
 async function handleDecision(task) {
   const status = (decisionStatusMap.value[task.id] || "").trim();
   const note = (decisionNoteMap.value[task.id] || "").trim();
-  if (status !== "APPROVED" && status !== "REJECTED") {
+  if (!decisionOptions.includes(status)) {
     errorMessage.value = "审核结果必须为 APPROVED 或 REJECTED";
     return;
   }
@@ -181,20 +184,20 @@ function resetFilters() {
   refreshAll();
 }
 
-function nextPage() {
-  if (page.value * pageSize.value >= total.value) {
+function handlePageChange(nextPage) {
+  if (nextPage === page.value) {
     return;
   }
-  page.value += 1;
+  page.value = nextPage;
   fetchTasks();
 }
 
-function prevPage() {
-  if (page.value <= 1) {
-    return;
-  }
-  page.value -= 1;
-  fetchTasks();
+function statusTagType(status) {
+  const normalized = (status || "").toUpperCase();
+  if (normalized === "APPROVED") return "success";
+  if (normalized === "REJECTED") return "danger";
+  if (normalized === "PENDING") return "warning";
+  return "info";
 }
 
 onMounted(refreshAll);
@@ -207,149 +210,210 @@ onMounted(refreshAll);
         <h1 class="page-title">审核中心</h1>
         <p class="muted">提交审核、分配审核员、处理通过/驳回</p>
       </div>
-      <button class="btn" :disabled="loading || metricsLoading" @click="refreshAll">
-        {{ loading || metricsLoading ? "刷新中..." : "刷新" }}
-      </button>
+      <el-button :loading="loading || metricsLoading" @click="refreshAll">刷新</el-button>
     </div>
 
-    <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
-    <div v-if="message" class="success-message">{{ message }}</div>
+    <el-alert
+      v-if="errorMessage"
+      :title="errorMessage"
+      type="error"
+      show-icon
+      style="margin-bottom: 12px"
+    />
+    <el-alert
+      v-if="message"
+      :title="message"
+      type="success"
+      show-icon
+      style="margin-bottom: 12px"
+    />
 
-    <div class="grid grid-4" style="margin-bottom: 12px">
-      <div class="metric-card">
-        <div class="label">待审核任务</div>
-        <div class="value">{{ metrics.pending_reviews || 0 }}</div>
-      </div>
-      <div class="metric-card">
-        <div class="label">今日通过</div>
-        <div class="value">{{ metrics.approved_today || 0 }}</div>
-      </div>
-      <div class="metric-card">
-        <div class="label">今日驳回</div>
-        <div class="value">{{ metrics.rejected_today || 0 }}</div>
-      </div>
-      <div class="metric-card">
-        <div class="label">流程消息（未读/总）</div>
-        <div class="value">{{ metrics.unread_messages || 0 }} / {{ metrics.total_messages || 0 }}</div>
-      </div>
-    </div>
-
-    <div class="card" style="margin-bottom: 12px">
-      <h3 style="margin-top: 0">提交审核任务</h3>
-      <div class="form-grid">
-        <div class="form-item">
-          <label>模块</label>
-          <select v-model="submitForm.module" class="select">
-            <option value="NEWS">NEWS</option>
-            <option value="STOCK">STOCK</option>
-            <option value="FUTURES">FUTURES</option>
-          </select>
+    <div class="card" style="margin-bottom: 12px" v-loading="metricsLoading">
+      <div class="grid grid-4 metrics-grid">
+        <div class="metric-item">
+          <div class="metric-label">待审核任务</div>
+          <div class="metric-value">{{ metrics.pending_reviews || 0 }}</div>
         </div>
-        <div class="form-item">
-          <label>target_id</label>
-          <input v-model="submitForm.target_id" class="input" placeholder="如 news_001 / sr_001" />
+        <div class="metric-item">
+          <div class="metric-label">今日通过</div>
+          <div class="metric-value">{{ metrics.approved_today || 0 }}</div>
         </div>
-        <div class="form-item">
-          <label>reviewer_id（可选）</label>
-          <input v-model="submitForm.reviewer_id" class="input" placeholder="admin_002" />
+        <div class="metric-item">
+          <div class="metric-label">今日驳回</div>
+          <div class="metric-value">{{ metrics.rejected_today || 0 }}</div>
         </div>
-        <div class="form-item">
-          <label>提交备注</label>
-          <input v-model="submitForm.submit_note" class="input" placeholder="请在今日内完成审核" />
+        <div class="metric-item">
+          <div class="metric-label">流程消息（未读/总）</div>
+          <div class="metric-value">{{ metrics.unread_messages || 0 }} / {{ metrics.total_messages || 0 }}</div>
         </div>
-      </div>
-      <div class="form-actions">
-        <button class="btn btn-primary" :disabled="submitting" @click="handleSubmitReview">
-          {{ submitting ? "提交中..." : "提交审核任务" }}
-        </button>
       </div>
     </div>
 
     <div class="card" style="margin-bottom: 12px">
-      <div class="toolbar">
-        <select v-model="filters.module" class="select">
-          <option value="">全部模块</option>
-          <option value="NEWS">NEWS</option>
-          <option value="STOCK">STOCK</option>
-          <option value="FUTURES">FUTURES</option>
-        </select>
-        <select v-model="filters.status" class="select">
-          <option value="">全部状态</option>
-          <option value="PENDING">PENDING</option>
-          <option value="APPROVED">APPROVED</option>
-          <option value="REJECTED">REJECTED</option>
-        </select>
-        <input v-model="filters.submitter_id" class="input" placeholder="submitter_id" />
-        <input v-model="filters.reviewer_id" class="input" placeholder="reviewer_id" />
-        <button class="btn" @click="applyFilters">查询</button>
-        <button class="btn" @click="resetFilters">重置</button>
+      <div class="section-header">
+        <h3 style="margin: 0">提交审核任务</h3>
+      </div>
+      <el-form label-width="110px">
+        <div class="dialog-grid">
+          <el-form-item label="模块">
+            <el-select v-model="submitForm.module">
+              <el-option v-for="item in moduleOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="target_id" required>
+            <el-input v-model="submitForm.target_id" placeholder="如 news_001 / sr_001" />
+          </el-form-item>
+          <el-form-item label="reviewer_id">
+            <el-input v-model="submitForm.reviewer_id" placeholder="admin_002" />
+          </el-form-item>
+          <el-form-item label="提交备注">
+            <el-input v-model="submitForm.submit_note" placeholder="请在今日内完成审核" />
+          </el-form-item>
+        </div>
+      </el-form>
+      <el-button type="primary" :loading="submitting" @click="handleSubmitReview">提交审核任务</el-button>
+    </div>
+
+    <div class="card" style="margin-bottom: 12px">
+      <div class="toolbar" style="margin-bottom: 0">
+        <el-select v-model="filters.module" clearable placeholder="全部模块" style="width: 150px">
+          <el-option v-for="item in moduleOptions" :key="item" :label="item" :value="item" />
+        </el-select>
+        <el-select v-model="filters.status" clearable placeholder="全部状态" style="width: 150px">
+          <el-option label="PENDING" value="PENDING" />
+          <el-option label="APPROVED" value="APPROVED" />
+          <el-option label="REJECTED" value="REJECTED" />
+        </el-select>
+        <el-input v-model="filters.submitter_id" clearable placeholder="submitter_id" style="width: 180px" />
+        <el-input v-model="filters.reviewer_id" clearable placeholder="reviewer_id" style="width: 180px" />
+        <el-button type="primary" plain @click="applyFilters">查询</el-button>
+        <el-button @click="resetFilters">重置</el-button>
       </div>
     </div>
 
     <div class="card">
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>模块</th>
-              <th>目标ID</th>
-              <th>提交人</th>
-              <th>审核人</th>
-              <th>状态</th>
-              <th>提交备注</th>
-              <th>审核备注</th>
-              <th>提交时间</th>
-              <th>审核时间</th>
-              <th class="text-right">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="task in tasks" :key="task.id">
-              <td>{{ task.id }}</td>
-              <td>{{ task.module }}</td>
-              <td>{{ task.target_id }}</td>
-              <td>{{ task.submitter_id }}</td>
-              <td>{{ task.reviewer_id || "-" }}</td>
-              <td>{{ task.status }}</td>
-              <td>{{ task.submit_note || "-" }}</td>
-              <td>{{ task.review_note || "-" }}</td>
-              <td>{{ task.submitted_at }}</td>
-              <td>{{ task.reviewed_at || "-" }}</td>
-              <td class="text-right">
-                <template v-if="task.status === 'PENDING'">
-                  <div class="toolbar" style="justify-content: flex-end">
-                    <input v-model="assignDraftMap[task.id]" class="input" style="width: 120px" placeholder="reviewer_id" />
-                    <button class="btn" @click="handleAssign(task)">分配</button>
-                  </div>
-                  <div class="toolbar" style="justify-content: flex-end">
-                    <select v-model="decisionStatusMap[task.id]" class="select">
-                      <option value="APPROVED">APPROVED</option>
-                      <option value="REJECTED">REJECTED</option>
-                    </select>
-                    <input v-model="decisionNoteMap[task.id]" class="input" style="width: 150px" placeholder="review_note" />
-                    <button class="btn btn-primary" @click="handleDecision(task)">提交结论</button>
-                  </div>
-                </template>
-                <span v-else class="muted">已完成</span>
-              </td>
-            </tr>
-            <tr v-if="!loading && tasks.length === 0">
-              <td colspan="11" class="muted">暂无审核任务</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <el-table :data="tasks" border stripe v-loading="loading" empty-text="暂无审核任务">
+        <el-table-column prop="id" label="ID" min-width="130" />
+        <el-table-column prop="module" label="模块" min-width="100" />
+        <el-table-column prop="target_id" label="目标ID" min-width="130" />
+        <el-table-column prop="submitter_id" label="提交人" min-width="130" />
+        <el-table-column label="审核人" min-width="130">
+          <template #default="{ row }">
+            {{ row.reviewer_id || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" min-width="110">
+          <template #default="{ row }">
+            <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="提交备注" min-width="180">
+          <template #default="{ row }">
+            {{ row.submit_note || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="审核备注" min-width="180">
+          <template #default="{ row }">
+            {{ row.review_note || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="submitted_at" label="提交时间" min-width="180" />
+        <el-table-column label="审核时间" min-width="180">
+          <template #default="{ row }">
+            {{ row.reviewed_at || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" align="right" min-width="330">
+          <template #default="{ row }">
+            <div v-if="row.status === 'PENDING'" class="operation-block">
+              <div class="inline-actions">
+                <el-input v-model="assignDraftMap[row.id]" size="small" placeholder="reviewer_id" style="width: 130px" />
+                <el-button size="small" @click="handleAssign(row)">分配</el-button>
+              </div>
+              <div class="inline-actions">
+                <el-select v-model="decisionStatusMap[row.id]" size="small" style="width: 125px">
+                  <el-option label="APPROVED" value="APPROVED" />
+                  <el-option label="REJECTED" value="REJECTED" />
+                </el-select>
+                <el-input v-model="decisionNoteMap[row.id]" size="small" placeholder="review_note" style="width: 150px" />
+                <el-button size="small" type="primary" @click="handleDecision(row)">提交结论</el-button>
+              </div>
+            </div>
+            <el-text v-else type="info">已完成</el-text>
+          </template>
+        </el-table-column>
+      </el-table>
 
       <div class="pagination">
-        <span>第 {{ page }} 页，共 {{ total }} 条</span>
-        <div class="toolbar">
-          <button class="btn" :disabled="page <= 1 || loading" @click="prevPage">上一页</button>
-          <button class="btn" :disabled="page * pageSize >= total || loading" @click="nextPage">
-            下一页
-          </button>
-        </div>
+        <el-text type="info">第 {{ page }} 页，共 {{ total }} 条</el-text>
+        <el-pagination
+          background
+          layout="prev, pager, next"
+          :current-page="page"
+          :page-size="pageSize"
+          :total="total"
+          @current-change="handlePageChange"
+        />
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.metrics-grid {
+  gap: 12px;
+}
+
+.metric-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+
+.metric-label {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.metric-value {
+  margin-top: 6px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.operation-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inline-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0 12px;
+}
+
+:deep(.dialog-grid .el-form-item) {
+  margin-bottom: 14px;
+}
+
+:deep(.dialog-grid .el-select) {
+  width: 100%;
+}
+</style>
