@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, reactive, ref } from "vue";
+import { ElMessageBox } from "element-plus";
 import {
   createNewsArticle,
   createNewsAttachment,
@@ -16,6 +17,9 @@ import {
 const loadingCategories = ref(false);
 const loadingArticles = ref(false);
 const loadingAttachments = ref(false);
+const savingCategory = ref(false);
+const savingArticle = ref(false);
+const savingAttachment = ref(false);
 
 const errorMessage = ref("");
 const message = ref("");
@@ -64,6 +68,9 @@ const attachmentForm = reactive({
   mime_type: ""
 });
 
+const visibilityOptions = ["PUBLIC", "VIP"];
+const statusOptions = ["DRAFT", "PUBLISHED", "DISABLED"];
+
 function resetCategoryForm() {
   Object.assign(categoryForm, {
     id: "",
@@ -100,12 +107,15 @@ function resetAttachmentForm() {
 
 async function fetchCategories() {
   loadingCategories.value = true;
+  errorMessage.value = "";
   try {
     const data = await listNewsCategories({ page: 1, page_size: 200 });
     categories.value = data.items || [];
     if (!articleForm.category_id && categories.value.length > 0) {
       articleForm.category_id = categories.value[0].id;
     }
+  } catch (error) {
+    errorMessage.value = error.message || "加载新闻分类失败";
   } finally {
     loadingCategories.value = false;
   }
@@ -152,6 +162,7 @@ async function fetchAttachments(article) {
 }
 
 async function submitCategory() {
+  savingCategory.value = true;
   errorMessage.value = "";
   message.value = "";
   try {
@@ -177,10 +188,13 @@ async function submitCategory() {
     await fetchCategories();
   } catch (error) {
     errorMessage.value = error.message || "提交新闻分类失败";
+  } finally {
+    savingCategory.value = false;
   }
 }
 
 async function submitArticle() {
+  savingArticle.value = true;
   errorMessage.value = "";
   message.value = "";
   try {
@@ -207,6 +221,8 @@ async function submitArticle() {
     await fetchArticles();
   } catch (error) {
     errorMessage.value = error.message || "提交新闻文章失败";
+  } finally {
+    savingArticle.value = false;
   }
 }
 
@@ -227,6 +243,7 @@ async function submitAttachment() {
     errorMessage.value = "请先选择文章";
     return;
   }
+  savingAttachment.value = true;
   errorMessage.value = "";
   message.value = "";
   try {
@@ -245,13 +262,22 @@ async function submitAttachment() {
     await fetchAttachments(selectedArticle.value);
   } catch (error) {
     errorMessage.value = error.message || "添加附件失败";
+  } finally {
+    savingAttachment.value = false;
   }
 }
 
 async function handleDeleteAttachment(id) {
-  if (!window.confirm(`确认删除附件 ${id}？`)) {
+  try {
+    await ElMessageBox.confirm(`确认删除附件 ${id}？`, "删除确认", {
+      type: "warning",
+      confirmButtonText: "删除",
+      cancelButtonText: "取消"
+    });
+  } catch {
     return;
   }
+
   errorMessage.value = "";
   message.value = "";
   try {
@@ -312,25 +338,29 @@ function resetArticleFilters() {
   fetchArticles();
 }
 
-function nextArticlePage() {
-  if (articlePage.value * articlePageSize.value >= totalArticles.value) {
+function handleArticlePageChange(nextPage) {
+  if (nextPage === articlePage.value) {
     return;
   }
-  articlePage.value += 1;
-  fetchArticles();
-}
-
-function prevArticlePage() {
-  if (articlePage.value <= 1) {
-    return;
-  }
-  articlePage.value -= 1;
+  articlePage.value = nextPage;
   fetchArticles();
 }
 
 function resolveCategoryName(categoryID) {
   const found = categories.value.find((item) => item.id === categoryID);
   return found?.name || categoryID || "-";
+}
+
+function statusTagType(status) {
+  const normalized = (status || "").toUpperCase();
+  if (normalized === "PUBLISHED" || normalized === "ACTIVE") return "success";
+  if (normalized === "DISABLED" || normalized === "REJECTED") return "danger";
+  if (normalized === "DRAFT" || normalized === "PENDING") return "warning";
+  return "info";
+}
+
+function visibilityTagType(visibility) {
+  return visibility === "VIP" ? "danger" : "success";
 }
 
 onMounted(async () => {
@@ -351,285 +381,340 @@ onMounted(async () => {
         <p class="muted">分类管理、文章管理、发布与附件维护</p>
       </div>
       <div class="toolbar">
-        <button class="btn" :disabled="loadingCategories || loadingArticles" @click="fetchCategories">
-          刷新分类
-        </button>
-        <button class="btn" :disabled="loadingArticles" @click="fetchArticles">刷新文章</button>
+        <el-button :loading="loadingCategories" @click="fetchCategories">刷新分类</el-button>
+        <el-button :loading="loadingArticles" @click="fetchArticles">刷新文章</el-button>
       </div>
     </div>
 
-    <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
-    <div v-if="message" class="success-message">{{ message }}</div>
+    <el-alert
+      v-if="errorMessage"
+      :title="errorMessage"
+      type="error"
+      show-icon
+      style="margin-bottom: 12px"
+    />
+    <el-alert
+      v-if="message"
+      :title="message"
+      type="success"
+      show-icon
+      style="margin-bottom: 12px"
+    />
 
     <div class="card" style="margin-bottom: 12px">
-      <div class="page-header" style="margin-bottom: 10px">
+      <div class="section-header">
         <h3 style="margin: 0">新闻分类</h3>
-        <button class="btn btn-primary" @click="openCreateCategory">新增分类</button>
+        <el-button type="primary" @click="openCreateCategory">新增分类</el-button>
       </div>
 
-      <div v-if="categoryFormVisible" class="card" style="margin-bottom: 12px">
-        <div class="form-grid">
-          <div class="form-item">
-            <label>名称</label>
-            <input v-model="categoryForm.name" class="input" placeholder="资讯快讯" />
-          </div>
-          <div class="form-item">
-            <label>slug</label>
-            <input v-model="categoryForm.slug" class="input" placeholder="flash-news" />
-          </div>
-          <div class="form-item">
-            <label>排序</label>
-            <input v-model.number="categoryForm.sort" class="input" type="number" />
-          </div>
-          <div class="form-item">
-            <label>可见性</label>
-            <select v-model="categoryForm.visibility" class="select">
-              <option value="PUBLIC">PUBLIC</option>
-              <option value="VIP">VIP</option>
-            </select>
-          </div>
-          <div class="form-item">
-            <label>状态</label>
-            <select v-model="categoryForm.status" class="select">
-              <option value="DRAFT">DRAFT</option>
-              <option value="PUBLISHED">PUBLISHED</option>
-              <option value="DISABLED">DISABLED</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-primary" @click="submitCategory">
-            {{ categoryFormMode === "create" ? "创建分类" : "更新分类" }}
-          </button>
-          <button class="btn" @click="categoryFormVisible = false">取消</button>
-        </div>
-      </div>
-
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>名称</th>
-              <th>slug</th>
-              <th>排序</th>
-              <th>可见性</th>
-              <th>状态</th>
-              <th class="text-right">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="category in categories" :key="category.id">
-              <td>{{ category.id }}</td>
-              <td>{{ category.name }}</td>
-              <td>{{ category.slug }}</td>
-              <td>{{ category.sort }}</td>
-              <td>{{ category.visibility }}</td>
-              <td>{{ category.status }}</td>
-              <td class="text-right">
-                <button class="btn" @click="openEditCategory(category)">编辑</button>
-              </td>
-            </tr>
-            <tr v-if="!loadingCategories && categories.length === 0">
-              <td colspan="7" class="muted">暂无分类</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <el-table :data="categories" border stripe v-loading="loadingCategories" empty-text="暂无分类">
+        <el-table-column prop="id" label="ID" min-width="130" />
+        <el-table-column prop="name" label="名称" min-width="160" />
+        <el-table-column prop="slug" label="slug" min-width="140" />
+        <el-table-column prop="sort" label="排序" min-width="90" />
+        <el-table-column label="可见性" min-width="110">
+          <template #default="{ row }">
+            <el-tag :type="visibilityTagType(row.visibility)">{{ row.visibility }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" min-width="120">
+          <template #default="{ row }">
+            <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" align="right" min-width="120">
+          <template #default="{ row }">
+            <el-button size="small" @click="openEditCategory(row)">编辑</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </div>
 
     <div class="card" style="margin-bottom: 12px">
-      <div class="page-header" style="margin-bottom: 10px">
+      <div class="section-header">
         <h3 style="margin: 0">新闻文章</h3>
-        <button class="btn btn-primary" @click="openCreateArticle">新增文章</button>
+        <el-button type="primary" @click="openCreateArticle">新增文章</el-button>
       </div>
 
       <div class="toolbar" style="margin-bottom: 12px">
-        <select v-model="articleFilters.status" class="select">
-          <option value="">全部状态</option>
-          <option value="DRAFT">DRAFT</option>
-          <option value="PUBLISHED">PUBLISHED</option>
-          <option value="DISABLED">DISABLED</option>
-        </select>
-        <select v-model="articleFilters.category_id" class="select">
-          <option value="">全部分类</option>
-          <option v-for="category in categories" :key="category.id" :value="category.id">
-            {{ category.name }}
-          </option>
-        </select>
-        <button class="btn" @click="applyArticleFilters">查询</button>
-        <button class="btn" @click="resetArticleFilters">重置</button>
+        <el-select v-model="articleFilters.status" clearable placeholder="全部状态" style="width: 160px">
+          <el-option value="DRAFT" label="DRAFT" />
+          <el-option value="PUBLISHED" label="PUBLISHED" />
+          <el-option value="DISABLED" label="DISABLED" />
+        </el-select>
+        <el-select v-model="articleFilters.category_id" clearable placeholder="全部分类" style="width: 200px">
+          <el-option v-for="category in categories" :key="category.id" :label="category.name" :value="category.id" />
+        </el-select>
+        <el-button type="primary" plain @click="applyArticleFilters">查询</el-button>
+        <el-button @click="resetArticleFilters">重置</el-button>
       </div>
 
-      <div v-if="articleFormVisible" class="card" style="margin-bottom: 12px">
-        <div class="form-grid">
-          <div class="form-item">
-            <label>分类</label>
-            <select v-model="articleForm.category_id" class="select">
-              <option v-for="category in categories" :key="category.id" :value="category.id">
-                {{ category.name }}
-              </option>
-            </select>
-          </div>
-          <div class="form-item">
-            <label>标题</label>
-            <input v-model="articleForm.title" class="input" placeholder="请输入标题" />
-          </div>
-          <div class="form-item">
-            <label>摘要</label>
-            <input v-model="articleForm.summary" class="input" placeholder="请输入摘要" />
-          </div>
-          <div class="form-item">
-            <label>可见性</label>
-            <select v-model="articleForm.visibility" class="select">
-              <option value="PUBLIC">PUBLIC</option>
-              <option value="VIP">VIP</option>
-            </select>
-          </div>
-          <div class="form-item">
-            <label>状态</label>
-            <select v-model="articleForm.status" class="select">
-              <option value="DRAFT">DRAFT</option>
-              <option value="PUBLISHED">PUBLISHED</option>
-              <option value="DISABLED">DISABLED</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-item" style="margin-top: 10px">
-          <label>正文</label>
-          <textarea v-model="articleForm.content" class="textarea" rows="6" placeholder="请输入正文内容" />
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-primary" @click="submitArticle">
-            {{ articleFormMode === "create" ? "创建文章" : "更新文章" }}
-          </button>
-          <button class="btn" @click="articleFormVisible = false">取消</button>
-        </div>
-      </div>
-
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>分类</th>
-              <th>标题</th>
-              <th>可见性</th>
-              <th>状态</th>
-              <th>发布时间</th>
-              <th>作者</th>
-              <th class="text-right">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="article in articles" :key="article.id">
-              <td>{{ article.id }}</td>
-              <td>{{ resolveCategoryName(article.category_id) }}</td>
-              <td>
-                <div>{{ article.title }}</div>
-                <div class="muted">{{ article.summary || "-" }}</div>
-              </td>
-              <td>{{ article.visibility }}</td>
-              <td>{{ article.status }}</td>
-              <td>{{ article.published_at || "-" }}</td>
-              <td>{{ article.author_id || "-" }}</td>
-              <td class="text-right">
-                <div class="toolbar" style="justify-content: flex-end">
-                  <button class="btn" @click="openEditArticle(article)">编辑</button>
-                  <button class="btn" @click="handlePublishArticle(article)">发布</button>
-                  <button class="btn" @click="fetchAttachments(article)">附件</button>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="!loadingArticles && articles.length === 0">
-              <td colspan="8" class="muted">暂无文章</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <el-table :data="articles" border stripe v-loading="loadingArticles" empty-text="暂无文章">
+        <el-table-column prop="id" label="ID" min-width="130" />
+        <el-table-column label="分类" min-width="140">
+          <template #default="{ row }">
+            {{ resolveCategoryName(row.category_id) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="标题" min-width="260">
+          <template #default="{ row }">
+            <div class="article-title">{{ row.title }}</div>
+            <div class="article-summary">{{ row.summary || "-" }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="可见性" min-width="110">
+          <template #default="{ row }">
+            <el-tag :type="visibilityTagType(row.visibility)">{{ row.visibility }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" min-width="120">
+          <template #default="{ row }">
+            <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="published_at" label="发布时间" min-width="180">
+          <template #default="{ row }">
+            {{ row.published_at || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="author_id" label="作者" min-width="140">
+          <template #default="{ row }">
+            {{ row.author_id || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" align="right" min-width="230">
+          <template #default="{ row }">
+            <div class="inline-actions">
+              <el-button size="small" @click="openEditArticle(row)">编辑</el-button>
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                :disabled="row.status === 'PUBLISHED'"
+                @click="handlePublishArticle(row)"
+              >
+                发布
+              </el-button>
+              <el-button size="small" @click="fetchAttachments(row)">附件</el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
 
       <div class="pagination">
-        <span>第 {{ articlePage }} 页，共 {{ totalArticles }} 条</span>
-        <div class="toolbar">
-          <button class="btn" :disabled="articlePage <= 1 || loadingArticles" @click="prevArticlePage">
-            上一页
-          </button>
-          <button
-            class="btn"
-            :disabled="articlePage * articlePageSize >= totalArticles || loadingArticles"
-            @click="nextArticlePage"
-          >
-            下一页
-          </button>
-        </div>
+        <el-text type="info">第 {{ articlePage }} 页，共 {{ totalArticles }} 条</el-text>
+        <el-pagination
+          background
+          layout="prev, pager, next"
+          :current-page="articlePage"
+          :page-size="articlePageSize"
+          :total="totalArticles"
+          @current-change="handleArticlePageChange"
+        />
       </div>
     </div>
 
     <div class="card">
-      <div class="page-header" style="margin-bottom: 10px">
-        <h3 style="margin: 0">
-          附件管理 {{ selectedArticle ? `(文章: ${selectedArticle.id})` : "" }}
-        </h3>
+      <div class="section-header">
+        <h3 style="margin: 0">附件管理 {{ selectedArticle ? `(文章: ${selectedArticle.id})` : "" }}</h3>
+        <el-button v-if="selectedArticle" :loading="loadingAttachments" @click="fetchAttachments(selectedArticle)">
+          刷新附件
+        </el-button>
       </div>
 
-      <div v-if="selectedArticle" class="card" style="margin-bottom: 12px">
-        <div class="form-grid">
-          <div class="form-item">
-            <label>文件名</label>
-            <input v-model="attachmentForm.file_name" class="input" placeholder="report.pdf" />
+      <div v-if="selectedArticle" class="attachment-editor">
+        <el-form label-width="90px">
+          <div class="dialog-grid">
+            <el-form-item label="文件名" required>
+              <el-input v-model="attachmentForm.file_name" placeholder="report.pdf" />
+            </el-form-item>
+            <el-form-item label="文件URL" required>
+              <el-input v-model="attachmentForm.file_url" placeholder="https://example.com/report.pdf" />
+            </el-form-item>
+            <el-form-item label="文件大小" required>
+              <el-input-number v-model="attachmentForm.file_size" :min="1" :step="1024" controls-position="right" />
+            </el-form-item>
+            <el-form-item label="MIME Type">
+              <el-input v-model="attachmentForm.mime_type" placeholder="application/pdf" />
+            </el-form-item>
           </div>
-          <div class="form-item">
-            <label>文件URL</label>
-            <input v-model="attachmentForm.file_url" class="input" placeholder="https://example.com/report.pdf" />
-          </div>
-          <div class="form-item">
-            <label>文件大小(bytes)</label>
-            <input v-model.number="attachmentForm.file_size" class="input" type="number" min="1" />
-          </div>
-          <div class="form-item">
-            <label>MIME Type</label>
-            <input v-model="attachmentForm.mime_type" class="input" placeholder="application/pdf" />
-          </div>
+        </el-form>
+        <div class="toolbar" style="margin-bottom: 0">
+          <el-button type="primary" :loading="savingAttachment" @click="submitAttachment">新增附件</el-button>
+          <el-button @click="resetAttachmentForm">清空</el-button>
         </div>
-        <div class="form-actions">
-          <button class="btn btn-primary" @click="submitAttachment">新增附件</button>
-          <button class="btn" @click="resetAttachmentForm">清空</button>
-        </div>
       </div>
+      <el-empty v-else description="请在上方文章列表中点击“附件”选择文章" />
 
-      <div v-else class="hint">请在上方文章列表中点击“附件”选择文章。</div>
-
-      <div class="table-wrap" style="margin-top: 10px">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>文件名</th>
-              <th>URL</th>
-              <th>大小</th>
-              <th>MIME</th>
-              <th>创建时间</th>
-              <th class="text-right">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in attachments" :key="item.id">
-              <td>{{ item.id }}</td>
-              <td>{{ item.file_name }}</td>
-              <td>{{ item.file_url }}</td>
-              <td>{{ item.file_size }}</td>
-              <td>{{ item.mime_type || "-" }}</td>
-              <td>{{ item.created_at || "-" }}</td>
-              <td class="text-right">
-                <button class="btn btn-danger" @click="handleDeleteAttachment(item.id)">删除</button>
-              </td>
-            </tr>
-            <tr v-if="!loadingAttachments && attachments.length === 0">
-              <td colspan="7" class="muted">暂无附件</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <el-table
+        :data="attachments"
+        border
+        stripe
+        v-loading="loadingAttachments"
+        empty-text="暂无附件"
+        style="margin-top: 12px"
+      >
+        <el-table-column prop="id" label="ID" min-width="130" />
+        <el-table-column prop="file_name" label="文件名" min-width="150" />
+        <el-table-column prop="file_url" label="URL" min-width="220">
+          <template #default="{ row }">
+            <el-link :href="row.file_url" target="_blank" type="primary">{{ row.file_url }}</el-link>
+          </template>
+        </el-table-column>
+        <el-table-column prop="file_size" label="大小(bytes)" min-width="120" />
+        <el-table-column prop="mime_type" label="MIME" min-width="140">
+          <template #default="{ row }">
+            {{ row.mime_type || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="创建时间" min-width="180">
+          <template #default="{ row }">
+            {{ row.created_at || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" align="right" min-width="120">
+          <template #default="{ row }">
+            <el-button size="small" type="danger" plain @click="handleDeleteAttachment(row.id)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </div>
+
+    <el-dialog
+      v-model="categoryFormVisible"
+      :title="categoryFormMode === 'create' ? '新增新闻分类' : `编辑分类：${categoryForm.id}`"
+      width="620px"
+      destroy-on-close
+    >
+      <el-form label-width="96px">
+        <div class="dialog-grid">
+          <el-form-item label="名称" required>
+            <el-input v-model="categoryForm.name" placeholder="资讯快讯" />
+          </el-form-item>
+          <el-form-item label="slug" required>
+            <el-input v-model="categoryForm.slug" placeholder="flash-news" />
+          </el-form-item>
+          <el-form-item label="排序">
+            <el-input-number v-model="categoryForm.sort" :step="1" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="可见性">
+            <el-select v-model="categoryForm.visibility">
+              <el-option v-for="item in visibilityOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-select v-model="categoryForm.status">
+              <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+        </div>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="categoryFormVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingCategory" @click="submitCategory">
+          {{ categoryFormMode === "create" ? "创建分类" : "更新分类" }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="articleFormVisible"
+      :title="articleFormMode === 'create' ? '新增新闻文章' : `编辑文章：${articleForm.id}`"
+      width="860px"
+      destroy-on-close
+    >
+      <el-form label-width="90px">
+        <div class="dialog-grid">
+          <el-form-item label="分类" required>
+            <el-select v-model="articleForm.category_id" placeholder="请选择分类">
+              <el-option v-for="category in categories" :key="category.id" :label="category.name" :value="category.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="标题" required>
+            <el-input v-model="articleForm.title" placeholder="请输入标题" />
+          </el-form-item>
+          <el-form-item label="摘要">
+            <el-input v-model="articleForm.summary" placeholder="请输入摘要" />
+          </el-form-item>
+          <el-form-item label="可见性">
+            <el-select v-model="articleForm.visibility">
+              <el-option v-for="item in visibilityOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-select v-model="articleForm.status">
+              <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+        </div>
+        <el-form-item label="正文" required>
+          <el-input
+            v-model="articleForm.content"
+            type="textarea"
+            :rows="8"
+            resize="vertical"
+            placeholder="请输入正文内容"
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="articleFormVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingArticle" @click="submitArticle">
+          {{ articleFormMode === "create" ? "创建文章" : "更新文章" }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.article-title {
+  line-height: 1.4;
+}
+
+.article-summary {
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.inline-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.attachment-editor {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
+.dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0 12px;
+}
+
+:deep(.dialog-grid .el-form-item) {
+  margin-bottom: 14px;
+}
+
+:deep(.dialog-grid .el-select),
+:deep(.dialog-grid .el-input-number) {
+  width: 100%;
+}
+</style>
