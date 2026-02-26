@@ -15,6 +15,68 @@ export function getDashboardOverview() {
   return http.get("/admin/dashboard/overview");
 }
 
+export function listUsers(params) {
+  return http.get("/admin/users", { params: buildParams(params) });
+}
+
+export function updateUserStatus(id, status) {
+  return http.put(`/admin/users/${encodeURIComponent(id)}/status`, { status });
+}
+
+export function updateUserMemberLevel(id, memberLevel) {
+  return http.put(`/admin/users/${encodeURIComponent(id)}/member-level`, {
+    member_level: memberLevel
+  });
+}
+
+export function updateUserKYCStatus(id, kycStatus) {
+  return http.put(`/admin/users/${encodeURIComponent(id)}/kyc-status`, {
+    kyc_status: kycStatus
+  });
+}
+
+export function listNewsCategories(params) {
+  return http.get("/admin/news/categories", { params: buildParams(params) });
+}
+
+export function createNewsCategory(payload) {
+  return http.post("/admin/news/categories", payload);
+}
+
+export function updateNewsCategory(id, payload) {
+  return http.put(`/admin/news/categories/${encodeURIComponent(id)}`, payload);
+}
+
+export function listNewsArticles(params) {
+  return http.get("/admin/news/articles", { params: buildParams(params) });
+}
+
+export function createNewsArticle(payload) {
+  return http.post("/admin/news/articles", payload);
+}
+
+export function updateNewsArticle(id, payload) {
+  return http.put(`/admin/news/articles/${encodeURIComponent(id)}`, payload);
+}
+
+export function publishNewsArticle(id) {
+  return http.put(`/admin/news/articles/${encodeURIComponent(id)}/publish`, {
+    status: "PUBLISHED"
+  });
+}
+
+export function listNewsAttachments(articleID) {
+  return http.get(`/admin/news/articles/${encodeURIComponent(articleID)}/attachments`);
+}
+
+export function createNewsAttachment(articleID, payload) {
+  return http.post(`/admin/news/articles/${encodeURIComponent(articleID)}/attachments`, payload);
+}
+
+export function deleteNewsAttachment(id) {
+  return http.delete(`/admin/news/attachments/${encodeURIComponent(id)}`);
+}
+
 export function listDataSources(params) {
   return http.get("/admin/data-sources", { params: buildParams(params) });
 }
