@@ -30,6 +30,7 @@ const batchRejectReason = ref("");
 const batchAssigning = ref(false);
 const batchApproving = ref(false);
 const batchRejecting = ref(false);
+const retryingFailed = ref(false);
 const exportingFiltered = ref(false);
 const batchResultVisible = ref(false);
 const batchResultTitle = ref("");
@@ -147,6 +148,9 @@ const selectedPendingRows = computed(() =>
 const selectedPendingCount = computed(() => selectedPendingRows.value.length);
 const selectedEligibleDecisionRows = computed(() => selectedPendingRows.value.filter((task) => canQuickDecision(task)));
 const selectedBlockedCount = computed(() => Math.max(0, selectedPendingCount.value - selectedEligibleDecisionRows.value.length));
+const failedBatchRows = computed(() => batchResultRows.value.filter((row) => row.result === "FAILED"));
+const canBatchAssign = computed(() => selectedPendingCount.value > 0 && batchReviewerID.value.trim() !== "");
+const canBatchApprove = computed(() => selectedEligibleDecisionRows.value.length > 0);
 
 function clearSelection() {
   selectedRows.value = [];
@@ -487,12 +491,21 @@ async function handleBatchAssign() {
     try {
       await assignReviewTask(task.id, reviewerID);
       success += 1;
-      resultRows.push({ id: task.id, action: "批量分配", result: "SUCCESS", reason: `已分配给 ${reviewerID}` });
+      resultRows.push({
+        id: task.id,
+        action: "批量分配",
+        action_key: "ASSIGN",
+        reviewer_id: reviewerID,
+        result: "SUCCESS",
+        reason: `已分配给 ${reviewerID}`
+      });
     } catch (error) {
       failed += 1;
       resultRows.push({
         id: task.id,
         action: "批量分配",
+        action_key: "ASSIGN",
+        reviewer_id: reviewerID,
         result: "FAILED",
         reason: normalizeErrorMessage(error, "分配失败")
       });
@@ -522,6 +535,7 @@ async function handleBatchApprove() {
       resultRows.push({
         id: task.id,
         action: "批量通过",
+        action_key: "APPROVE",
         result: "SKIPPED",
         reason: "任务已分配给其他审核员"
       });
@@ -530,12 +544,19 @@ async function handleBatchApprove() {
     try {
       await reviewTaskDecision(task.id, "APPROVED", "");
       success += 1;
-      resultRows.push({ id: task.id, action: "批量通过", result: "SUCCESS", reason: "审批通过" });
+      resultRows.push({
+        id: task.id,
+        action: "批量通过",
+        action_key: "APPROVE",
+        result: "SUCCESS",
+        reason: "审批通过"
+      });
     } catch (error) {
       failed += 1;
       resultRows.push({
         id: task.id,
         action: "批量通过",
+        action_key: "APPROVE",
         result: "FAILED",
         reason: normalizeErrorMessage(error, "审批失败")
       });
@@ -575,6 +596,8 @@ async function submitBatchReject() {
       resultRows.push({
         id: task.id,
         action: "批量驳回",
+        action_key: "REJECT",
+        note,
         result: "SKIPPED",
         reason: "任务已分配给其他审核员"
       });
@@ -583,12 +606,21 @@ async function submitBatchReject() {
     try {
       await reviewTaskDecision(task.id, "REJECTED", note);
       success += 1;
-      resultRows.push({ id: task.id, action: "批量驳回", result: "SUCCESS", reason: "已驳回" });
+      resultRows.push({
+        id: task.id,
+        action: "批量驳回",
+        action_key: "REJECT",
+        note,
+        result: "SUCCESS",
+        reason: "已驳回"
+      });
     } catch (error) {
       failed += 1;
       resultRows.push({
         id: task.id,
         action: "批量驳回",
+        action_key: "REJECT",
+        note,
         result: "FAILED",
         reason: normalizeErrorMessage(error, "驳回失败")
       });
@@ -599,6 +631,64 @@ async function submitBatchReject() {
   await refreshAll();
   message.value = `批量驳回完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}`;
   openBatchResultDialog("批量驳回结果", resultRows);
+}
+
+async function executeBatchResultRow(row) {
+  const actionKey = (row.action_key || "").toUpperCase();
+  if (actionKey === "ASSIGN") {
+    const reviewerID = (row.reviewer_id || "").trim();
+    if (!reviewerID) {
+      throw new Error("缺少 reviewer_id");
+    }
+    await assignReviewTask(row.id, reviewerID);
+    return "分配成功";
+  }
+  if (actionKey === "APPROVE") {
+    await reviewTaskDecision(row.id, "APPROVED", "");
+    return "审批通过";
+  }
+  if (actionKey === "REJECT") {
+    const note = (row.note || "").trim() || "批量驳回";
+    await reviewTaskDecision(row.id, "REJECTED", note);
+    return "驳回成功";
+  }
+  throw new Error(`未知动作: ${actionKey || "-"}`);
+}
+
+async function retryFailedBatchRows() {
+  if (failedBatchRows.value.length <= 0) {
+    return;
+  }
+  retryingFailed.value = true;
+  errorMessage.value = "";
+  message.value = "";
+  let success = 0;
+  let failed = 0;
+  const retryRows = [];
+  for (const row of failedBatchRows.value) {
+    try {
+      const tip = await executeBatchResultRow(row);
+      success += 1;
+      retryRows.push({
+        ...row,
+        action: `${row.action}重试`,
+        result: "SUCCESS",
+        reason: tip
+      });
+    } catch (error) {
+      failed += 1;
+      retryRows.push({
+        ...row,
+        action: `${row.action}重试`,
+        result: "FAILED",
+        reason: normalizeErrorMessage(error, "重试失败")
+      });
+    }
+  }
+  retryingFailed.value = false;
+  await refreshAll();
+  message.value = `失败任务重试完成：成功 ${success}，失败 ${failed}`;
+  openBatchResultDialog("失败任务重试结果", retryRows);
 }
 
 async function handleDetailAssign() {
@@ -908,18 +998,20 @@ onBeforeUnmount(() => {
       </div>
       <div class="toolbar" style="margin-bottom: 0">
         <el-input v-model="batchReviewerID" placeholder="批量分配 reviewer_id" style="width: 220px" />
-        <el-button :loading="batchAssigning" :disabled="selectedPendingCount <= 0" @click="handleBatchAssign">
-          批量分配
-        </el-button>
-        <el-button
-          type="success"
-          plain
-          :loading="batchApproving"
-          :disabled="selectedEligibleDecisionRows.length <= 0"
-          @click="handleBatchApprove"
+        <el-popconfirm
+          title="确认按当前 reviewer_id 批量分配选中任务？"
+          width="260"
+          @confirm="handleBatchAssign"
         >
-          批量通过
-        </el-button>
+          <template #reference>
+            <el-button :loading="batchAssigning" :disabled="!canBatchAssign">批量分配</el-button>
+          </template>
+        </el-popconfirm>
+        <el-popconfirm title="确认批量通过可审批任务？" width="220" @confirm="handleBatchApprove">
+          <template #reference>
+            <el-button type="success" plain :loading="batchApproving" :disabled="!canBatchApprove">批量通过</el-button>
+          </template>
+        </el-popconfirm>
         <el-button
           type="danger"
           plain
@@ -1093,6 +1185,9 @@ onBeforeUnmount(() => {
     </el-dialog>
 
     <el-dialog v-model="batchResultVisible" :title="batchResultTitle" width="760px" destroy-on-close>
+      <div class="batch-result-summary">
+        <el-text type="info">总计 {{ batchResultRows.length }} 条，失败 {{ failedBatchRows.length }} 条</el-text>
+      </div>
       <el-table :data="batchResultRows" border stripe max-height="360">
         <el-table-column prop="id" label="任务ID" min-width="130" />
         <el-table-column prop="action" label="动作" min-width="100" />
@@ -1106,6 +1201,15 @@ onBeforeUnmount(() => {
         <el-table-column prop="reason" label="说明" min-width="260" />
       </el-table>
       <template #footer>
+        <el-button
+          type="warning"
+          plain
+          :disabled="failedBatchRows.length <= 0"
+          :loading="retryingFailed"
+          @click="retryFailedBatchRows"
+        >
+          重试失败任务
+        </el-button>
         <el-button type="primary" @click="batchResultVisible = false">关闭</el-button>
       </template>
     </el-dialog>
@@ -1261,6 +1365,10 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-weight: 600;
   color: #111827;
+}
+
+.batch-result-summary {
+  margin-bottom: 10px;
 }
 
 .drawer-title {
