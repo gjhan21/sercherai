@@ -31,6 +31,8 @@ type Config struct {
 	AllowJobSimulation         bool
 	AttachmentSigningSecret    string
 	AttachmentSigningTTLSecond int
+	AttachmentUploadDir        string
+	AttachmentUploadMaxMB      int
 	PaymentSigningSecret       string
 }
 
@@ -62,6 +64,8 @@ func Load() Config {
 		AllowJobSimulation:         getEnvBool("ALLOW_JOB_SIMULATION", appEnv != "production"),
 		AttachmentSigningSecret:    getEnv("ATTACHMENT_SIGNING_SECRET", ""),
 		AttachmentSigningTTLSecond: getEnvInt("ATTACHMENT_SIGNING_TTL_SECONDS", 300),
+		AttachmentUploadDir:        getEnv("ATTACHMENT_UPLOAD_DIR", "./uploads"),
+		AttachmentUploadMaxMB:      getEnvInt("ATTACHMENT_UPLOAD_MAX_MB", 20),
 		PaymentSigningSecret:       getEnv("PAYMENT_SIGNING_SECRET", ""),
 	}
 }

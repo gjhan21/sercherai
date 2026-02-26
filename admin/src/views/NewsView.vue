@@ -10,6 +10,7 @@ import {
   listNewsAttachments,
   listNewsCategories,
   publishNewsArticle,
+  uploadNewsAttachmentFile,
   updateNewsArticle,
   updateNewsCategory
 } from "../api/admin";
@@ -21,6 +22,7 @@ const loadingAttachments = ref(false);
 const savingCategory = ref(false);
 const savingArticle = ref(false);
 const savingAttachment = ref(false);
+const uploadingAttachmentFile = ref(false);
 
 const errorMessage = ref("");
 const message = ref("");
@@ -268,6 +270,41 @@ async function submitAttachment() {
   } finally {
     savingAttachment.value = false;
   }
+}
+
+async function handleAttachmentFileUpload(options) {
+  uploadingAttachmentFile.value = true;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    const formData = new FormData();
+    formData.append("file", options.file);
+    const data = await uploadNewsAttachmentFile(formData);
+    attachmentForm.file_name = data.file_name || options.file.name || "";
+    attachmentForm.file_url = data.file_url || "";
+    attachmentForm.file_size = Number(data.file_size) || options.file.size || 0;
+    attachmentForm.mime_type = data.mime_type || options.file.type || "";
+    message.value = `文件上传成功：${attachmentForm.file_name}`;
+    if (typeof options.onSuccess === "function") {
+      options.onSuccess(data);
+    }
+  } catch (error) {
+    errorMessage.value = error.message || "文件上传失败";
+    if (typeof options.onError === "function") {
+      options.onError(error);
+    }
+  } finally {
+    uploadingAttachmentFile.value = false;
+  }
+}
+
+function beforeAttachmentUpload(file) {
+  const maxSizeBytes = 20 * 1024 * 1024;
+  if (file.size > maxSizeBytes) {
+    errorMessage.value = "附件大小不能超过 20MB";
+    return false;
+  }
+  return true;
 }
 
 async function handleDeleteAttachment(id) {
@@ -544,11 +581,24 @@ onMounted(async () => {
       <div v-if="selectedArticle" class="attachment-editor">
         <el-form label-width="90px">
           <div class="dialog-grid">
+            <el-form-item label="选择文件" required>
+              <div class="upload-box">
+                <el-upload
+                  :show-file-list="false"
+                  :http-request="handleAttachmentFileUpload"
+                  :before-upload="beforeAttachmentUpload"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.png,.jpg,.jpeg,.webp"
+                >
+                  <el-button :loading="uploadingAttachmentFile">选择并上传</el-button>
+                </el-upload>
+                <el-text type="info">支持图片/文档，大小不超过 20MB</el-text>
+              </div>
+            </el-form-item>
             <el-form-item label="文件名" required>
-              <el-input v-model="attachmentForm.file_name" placeholder="report.pdf" />
+              <el-input v-model="attachmentForm.file_name" placeholder="上传后自动填充，可手动修改" />
             </el-form-item>
             <el-form-item label="文件URL" required>
-              <el-input v-model="attachmentForm.file_url" placeholder="https://example.com/report.pdf" />
+              <el-input v-model="attachmentForm.file_url" placeholder="上传后自动填充，可手动粘贴外链" />
             </el-form-item>
             <el-form-item label="文件大小" required>
               <el-input-number v-model="attachmentForm.file_size" :min="1" :step="1024" controls-position="right" />
@@ -559,7 +609,14 @@ onMounted(async () => {
           </div>
         </el-form>
         <div class="toolbar" style="margin-bottom: 0">
-          <el-button type="primary" :loading="savingAttachment" @click="submitAttachment">新增附件</el-button>
+          <el-button
+            type="primary"
+            :loading="savingAttachment"
+            :disabled="uploadingAttachmentFile"
+            @click="submitAttachment"
+          >
+            新增附件
+          </el-button>
           <el-button @click="resetAttachmentForm">清空</el-button>
         </div>
       </div>
@@ -766,6 +823,13 @@ onMounted(async () => {
   border: 1px solid #e5e7eb;
   border-radius: 10px;
   background: #f9fafb;
+}
+
+.upload-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .dialog-grid {

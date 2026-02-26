@@ -2,11 +2,17 @@ package handler
 
 import (
 	"bytes"
+	"crypto/rand"
 	"database/sql"
 	"encoding/csv"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +32,22 @@ type AdminGrowthHandler struct {
 
 func NewAdminGrowthHandler(service service.GrowthService, cfg config.Config) *AdminGrowthHandler {
 	return &AdminGrowthHandler{service: service, cfg: cfg}
+}
+
+var allowedNewsAttachmentMimePrefixes = []string{
+	"image/",
+	"text/",
+}
+
+var allowedNewsAttachmentMIMEs = map[string]struct{}{
+	"application/pdf":               {},
+	"application/msword":            {},
+	"application/vnd.ms-excel":      {},
+	"application/vnd.ms-powerpoint": {},
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   {},
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         {},
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": {},
+	"application/zip": {},
 }
 
 func (h *AdminGrowthHandler) ListInviteRecords(c *gin.Context) {
@@ -276,6 +298,113 @@ func (h *AdminGrowthHandler) PublishNewsArticle(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
+func (h *AdminGrowthHandler) UploadNewsAttachment(c *gin.Context) {
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "missing file", Data: struct{}{}})
+		return
+	}
+
+	originalName := sanitizeUploadFileName(fileHeader.Filename)
+	if originalName == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "invalid file name", Data: struct{}{}})
+		return
+	}
+
+	maxUploadMB := h.cfg.AttachmentUploadMaxMB
+	if maxUploadMB <= 0 {
+		maxUploadMB = 20
+	}
+	maxUploadBytes := int64(maxUploadMB) * 1024 * 1024
+	if fileHeader.Size <= 0 {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "file is empty", Data: struct{}{}})
+		return
+	}
+	if fileHeader.Size > maxUploadBytes {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{
+			Code:    40001,
+			Message: fmt.Sprintf("file exceeds %dMB", maxUploadMB),
+			Data:    struct{}{},
+		})
+		return
+	}
+
+	src, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: "open file failed", Data: struct{}{}})
+		return
+	}
+	defer src.Close()
+
+	header := make([]byte, 512)
+	n, readErr := io.ReadFull(src, header)
+	if readErr != nil && readErr != io.ErrUnexpectedEOF {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: "read file failed", Data: struct{}{}})
+		return
+	}
+	mimeType := http.DetectContentType(header[:n])
+	if !isAllowedNewsAttachmentMime(mimeType) {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{
+			Code:    40001,
+			Message: "unsupported file type",
+			Data:    struct{}{},
+		})
+		return
+	}
+	if _, err := src.Seek(0, io.SeekStart); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: "seek file failed", Data: struct{}{}})
+		return
+	}
+
+	uploadRoot := strings.TrimSpace(h.cfg.AttachmentUploadDir)
+	if uploadRoot == "" {
+		uploadRoot = "./uploads"
+	}
+	dateDir := time.Now().Format("20060102")
+	targetDir := filepath.Join(uploadRoot, "news", dateDir)
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: "create upload dir failed", Data: struct{}{}})
+		return
+	}
+
+	ext := resolveUploadExt(originalName, mimeType)
+	targetName := fmt.Sprintf("%d_%s%s", time.Now().UnixNano(), randomHex(4), ext)
+	targetPath := filepath.Join(targetDir, targetName)
+	dst, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: "create target file failed", Data: struct{}{}})
+		return
+	}
+	written, copyErr := io.Copy(dst, io.LimitReader(src, maxUploadBytes+1))
+	closeErr := dst.Close()
+	if copyErr != nil || closeErr != nil {
+		_ = os.Remove(targetPath)
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: "save file failed", Data: struct{}{}})
+		return
+	}
+	if written <= 0 || written > maxUploadBytes {
+		_ = os.Remove(targetPath)
+		c.JSON(http.StatusBadRequest, dto.APIResponse{
+			Code:    40001,
+			Message: fmt.Sprintf("file exceeds %dMB", maxUploadMB),
+			Data:    struct{}{},
+		})
+		return
+	}
+
+	publicPath := fmt.Sprintf("/uploads/news/%s/%s", dateDir, targetName)
+	fileURL := publicPath
+	if baseURL := strings.TrimRight(strings.TrimSpace(h.cfg.PublicBaseURL), "/"); baseURL != "" {
+		fileURL = baseURL + publicPath
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"file_name": originalName,
+		"file_url":  fileURL,
+		"file_size": written,
+		"mime_type": mimeType,
+	}))
+}
+
 func (h *AdminGrowthHandler) CreateNewsAttachment(c *gin.Context) {
 	articleID := c.Param("id")
 	var req dto.NewsAttachmentRequest
@@ -313,6 +442,52 @@ func (h *AdminGrowthHandler) DeleteNewsAttachment(c *gin.Context) {
 	}
 	h.writeOperationLog(c, "NEWS", "DELETE_ATTACHMENT", "NEWS_ATTACHMENT", id, "", "DELETED", "")
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func isAllowedNewsAttachmentMime(mimeType string) bool {
+	normalized := strings.TrimSpace(strings.ToLower(mimeType))
+	if normalized == "" {
+		return false
+	}
+	if _, ok := allowedNewsAttachmentMIMEs[normalized]; ok {
+		return true
+	}
+	for _, prefix := range allowedNewsAttachmentMimePrefixes {
+		if strings.HasPrefix(normalized, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveUploadExt(fileName string, mimeType string) string {
+	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(fileName)))
+	if ext != "" && len(ext) <= 10 {
+		return ext
+	}
+	if exts, err := mime.ExtensionsByType(mimeType); err == nil && len(exts) > 0 {
+		return strings.ToLower(exts[0])
+	}
+	return ".bin"
+}
+
+func sanitizeUploadFileName(fileName string) string {
+	name := strings.TrimSpace(filepath.Base(fileName))
+	if name == "" || name == "." || name == ".." {
+		return ""
+	}
+	return name
+}
+
+func randomHex(n int) string {
+	if n <= 0 {
+		n = 4
+	}
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 16)
+	}
+	return hex.EncodeToString(buf)
 }
 
 func (h *AdminGrowthHandler) ListStockRecommendations(c *gin.Context) {

@@ -73,6 +73,10 @@ export function createNewsAttachment(articleID, payload) {
   return http.post(`/admin/news/articles/${encodeURIComponent(articleID)}/attachments`, payload);
 }
 
+export function uploadNewsAttachmentFile(formData) {
+  return http.post("/admin/news/attachments/upload", formData);
+}
+
 export function deleteNewsAttachment(id) {
   return http.delete(`/admin/news/attachments/${encodeURIComponent(id)}`);
 }

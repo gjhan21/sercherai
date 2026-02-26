@@ -218,6 +218,7 @@ func Register(r *gin.Engine) {
 			adminNews.PUT("/articles/:id", adminGrowthHandler.UpdateNewsArticle)
 			adminNews.PUT("/articles/:id/publish", adminGrowthHandler.PublishNewsArticle)
 
+			adminNews.POST("/attachments/upload", adminGrowthHandler.UploadNewsAttachment)
 			adminNews.GET("/articles/:id/attachments", adminGrowthHandler.ListNewsAttachments)
 			adminNews.POST("/articles/:id/attachments", adminGrowthHandler.CreateNewsAttachment)
 			adminNews.DELETE("/attachments/:id", adminGrowthHandler.DeleteNewsAttachment)

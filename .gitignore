@@ -2,6 +2,7 @@
 backend/.gocache/
 backend/.gomodcache/
 backend/.gopath/
+backend/uploads/
 
 # Admin frontend
 admin/node_modules/
