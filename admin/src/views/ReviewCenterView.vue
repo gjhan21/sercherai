@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import {
   assignReviewTask,
   getWorkflowMetrics,
@@ -20,6 +20,20 @@ const page = ref(1);
 const pageSize = ref(20);
 const total = ref(0);
 const tasks = ref([]);
+const reviewTableRef = ref(null);
+const selectedRows = ref([]);
+const nowTick = ref(Date.now());
+const autoRefreshEnabled = ref(true);
+const batchReviewerID = ref("");
+const batchRejectDialogVisible = ref(false);
+const batchRejectReason = ref("");
+const batchAssigning = ref(false);
+const batchApproving = ref(false);
+const batchRejecting = ref(false);
+const timerRefs = {
+  clock: null,
+  refresh: null
+};
 
 const currentUserID = ref(getSession()?.userID || "");
 
@@ -123,6 +137,52 @@ const reviewEmptyText = computed(() => {
   return "当前页暂无超时/预警任务";
 });
 
+const selectedPendingRows = computed(() =>
+  selectedRows.value.filter((task) => (task.status || "").toUpperCase() === "PENDING")
+);
+const selectedPendingCount = computed(() => selectedPendingRows.value.length);
+const selectedEligibleDecisionRows = computed(() => selectedPendingRows.value.filter((task) => canQuickDecision(task)));
+const selectedBlockedCount = computed(() => Math.max(0, selectedPendingCount.value - selectedEligibleDecisionRows.value.length));
+
+function clearSelection() {
+  selectedRows.value = [];
+  nextTick(() => {
+    reviewTableRef.value?.clearSelection();
+  });
+}
+
+function handleSelectionChange(rows) {
+  selectedRows.value = rows || [];
+}
+
+function updateNowTick() {
+  nowTick.value = Date.now();
+}
+
+function clearTimers() {
+  if (timerRefs.clock) {
+    clearInterval(timerRefs.clock);
+    timerRefs.clock = null;
+  }
+  if (timerRefs.refresh) {
+    clearInterval(timerRefs.refresh);
+    timerRefs.refresh = null;
+  }
+}
+
+function setupTimers() {
+  clearTimers();
+  timerRefs.clock = setInterval(() => {
+    updateNowTick();
+  }, 30 * 1000);
+  timerRefs.refresh = setInterval(() => {
+    if (!autoRefreshEnabled.value || loading.value || metricsLoading.value) {
+      return;
+    }
+    refreshAll();
+  }, 60 * 1000);
+}
+
 async function fetchMetrics() {
   metricsLoading.value = true;
   try {
@@ -176,6 +236,8 @@ async function fetchTasks() {
 
 async function refreshAll() {
   await Promise.all([fetchMetrics(), fetchTasks()]);
+  clearSelection();
+  updateNowTick();
 }
 
 async function handleSubmitReview() {
@@ -291,6 +353,101 @@ async function submitQuickReject() {
   }
 }
 
+async function handleBatchAssign() {
+  const reviewerID = batchReviewerID.value.trim();
+  if (!reviewerID) {
+    errorMessage.value = "请先填写批量分配 reviewer_id";
+    return;
+  }
+  if (selectedPendingCount.value <= 0) {
+    errorMessage.value = "请先勾选待审核任务";
+    return;
+  }
+  errorMessage.value = "";
+  message.value = "";
+  batchAssigning.value = true;
+  let success = 0;
+  let failed = 0;
+  for (const task of selectedPendingRows.value) {
+    try {
+      await assignReviewTask(task.id, reviewerID);
+      success += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  batchAssigning.value = false;
+  await refreshAll();
+  message.value = `批量分配完成：成功 ${success}，失败 ${failed}`;
+}
+
+async function handleBatchApprove() {
+  if (selectedPendingCount.value <= 0) {
+    errorMessage.value = "请先勾选待审核任务";
+    return;
+  }
+  errorMessage.value = "";
+  message.value = "";
+  batchApproving.value = true;
+  let success = 0;
+  let failed = 0;
+  let skipped = 0;
+  for (const task of selectedPendingRows.value) {
+    if (!canQuickDecision(task)) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      await reviewTaskDecision(task.id, "APPROVED", "");
+      success += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  batchApproving.value = false;
+  await refreshAll();
+  message.value = `批量通过完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}`;
+}
+
+function openBatchRejectDialog() {
+  if (selectedPendingCount.value <= 0) {
+    errorMessage.value = "请先勾选待审核任务";
+    return;
+  }
+  batchRejectReason.value = "";
+  batchRejectDialogVisible.value = true;
+}
+
+async function submitBatchReject() {
+  const note = batchRejectReason.value.trim();
+  if (!note) {
+    errorMessage.value = "批量驳回必须填写原因";
+    return;
+  }
+  errorMessage.value = "";
+  message.value = "";
+  batchRejecting.value = true;
+  let success = 0;
+  let failed = 0;
+  let skipped = 0;
+  for (const task of selectedPendingRows.value) {
+    if (!canQuickDecision(task)) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      await reviewTaskDecision(task.id, "REJECTED", note);
+      success += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  batchRejecting.value = false;
+  batchRejectDialogVisible.value = false;
+  await refreshAll();
+  message.value = `批量驳回完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}`;
+}
+
 async function handleDetailAssign() {
   if (!currentTask.value?.id) {
     return;
@@ -377,7 +534,7 @@ function getPendingHours(task) {
   if (!submittedAt) {
     return null;
   }
-  return Math.max(0, (Date.now() - submittedAt.getTime()) / (1000 * 60 * 60));
+  return Math.max(0, (nowTick.value - submittedAt.getTime()) / (1000 * 60 * 60));
 }
 
 function formatPendingDuration(task) {
@@ -470,7 +627,15 @@ function statusTagType(status) {
   return "info";
 }
 
-onMounted(refreshAll);
+onMounted(() => {
+  refreshAll();
+  updateNowTick();
+  setupTimers();
+});
+
+onBeforeUnmount(() => {
+  clearTimers();
+});
 </script>
 
 <template>
@@ -570,20 +735,61 @@ onMounted(refreshAll);
           <el-option label="按SLA降序" value="sla_desc" />
         </el-select>
         <el-switch v-model="showOnlySLAWarning" inline-prompt active-text="只看超时" inactive-text="全部任务" />
+        <el-switch v-model="autoRefreshEnabled" inline-prompt active-text="自动刷新" inactive-text="手动刷新" />
+        <el-text type="info">SLA每30秒自动刷新，列表每60秒自动拉取</el-text>
         <el-button type="primary" plain @click="applyFilters">查询</el-button>
         <el-button @click="resetFilters">重置</el-button>
       </div>
     </div>
 
+    <div class="card" style="margin-bottom: 12px">
+      <div class="section-header">
+        <h3 style="margin: 0">批量操作</h3>
+        <el-text type="info">
+          已选 {{ selectedRows.length }} 条，待审核 {{ selectedPendingCount }} 条，可审批 {{
+            selectedEligibleDecisionRows.length
+          }} 条，受限 {{ selectedBlockedCount }} 条
+        </el-text>
+      </div>
+      <div class="toolbar" style="margin-bottom: 0">
+        <el-input v-model="batchReviewerID" placeholder="批量分配 reviewer_id" style="width: 220px" />
+        <el-button :loading="batchAssigning" :disabled="selectedPendingCount <= 0" @click="handleBatchAssign">
+          批量分配
+        </el-button>
+        <el-button
+          type="success"
+          plain
+          :loading="batchApproving"
+          :disabled="selectedEligibleDecisionRows.length <= 0"
+          @click="handleBatchApprove"
+        >
+          批量通过
+        </el-button>
+        <el-button
+          type="danger"
+          plain
+          :disabled="selectedEligibleDecisionRows.length <= 0"
+          @click="openBatchRejectDialog"
+        >
+          批量驳回
+        </el-button>
+        <el-button @click="clearSelection">清空勾选</el-button>
+      </div>
+    </div>
+
     <div class="card">
       <el-table
+        ref="reviewTableRef"
         :data="displayTasks"
+        row-key="id"
         border
         stripe
         v-loading="loading"
         :empty-text="reviewEmptyText"
         :row-class-name="reviewTableRowClassName"
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column type="selection" width="52" reserve-selection />
         <el-table-column prop="id" label="ID" min-width="130" />
         <el-table-column prop="module" label="模块" min-width="100" />
         <el-table-column prop="target_id" label="目标ID" min-width="130" />
@@ -698,6 +904,36 @@ onMounted(refreshAll);
       <template #footer>
         <el-button @click="rejectDialogVisible = false">取消</el-button>
         <el-button type="danger" :loading="rejectSubmitting" @click="submitQuickReject">确认驳回</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="batchRejectDialogVisible" title="批量驳回任务" width="560px" destroy-on-close>
+      <el-alert
+        title="会对已勾选且可审批的待审核任务批量执行驳回，请确认原因清晰。"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+      />
+      <el-form label-width="110px">
+        <el-form-item label="任务统计">
+          <el-text>待审核 {{ selectedPendingCount }} 条，可驳回 {{ selectedEligibleDecisionRows.length }} 条</el-text>
+        </el-form-item>
+        <el-form-item label="统一驳回原因" required>
+          <el-input
+            v-model="batchRejectReason"
+            type="textarea"
+            :rows="4"
+            maxlength="300"
+            show-word-limit
+            resize="vertical"
+            placeholder="请填写统一驳回原因，例如：材料不完整、校验不通过"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchRejectDialogVisible = false">取消</el-button>
+        <el-button type="danger" :loading="batchRejecting" @click="submitBatchReject">确认批量驳回</el-button>
       </template>
     </el-dialog>
 
