@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
-import { hasSession } from "../lib/session";
+import { hasPermission, hasSession } from "../lib/session";
 
 const AppLayout = () => import("../components/AppLayout.vue");
 const LoginView = () => import("../views/LoginView.vue");
@@ -16,6 +16,7 @@ const MarketCenterView = () => import("../views/MarketCenterView.vue");
 const RiskCenterView = () => import("../views/RiskCenterView.vue");
 const AuthSecurityView = () => import("../views/AuthSecurityView.vue");
 const SystemConfigsView = () => import("../views/SystemConfigsView.vue");
+const AdminAccessView = () => import("../views/AdminAccessView.vue");
 
 const routes = [
   {
@@ -36,67 +37,86 @@ const routes = [
       {
         path: "dashboard",
         name: "dashboard",
-        component: DashboardView
+        component: DashboardView,
+        meta: { permission: "dashboard.view" }
       },
       {
         path: "data-sources",
         name: "data-sources",
-        component: DataSourcesView
+        component: DataSourcesView,
+        meta: { permission: "data_source.view" }
       },
       {
         path: "users",
         name: "users",
-        component: UsersView
+        component: UsersView,
+        meta: { permission: "users.view" }
       },
       {
         path: "news",
         name: "news",
-        component: NewsView
+        component: NewsView,
+        meta: { permission: "news.view" }
       },
       {
         path: "review-center",
         name: "review-center",
-        component: ReviewCenterView
+        component: ReviewCenterView,
+        meta: { permission: "review.view" }
       },
       {
         path: "market-center",
         name: "market-center",
-        component: MarketCenterView
+        component: MarketCenterView,
+        meta: { permission: "market.view" }
       },
       {
         path: "membership-center",
         name: "membership-center",
-        component: MembershipCenterView
+        component: MembershipCenterView,
+        meta: { permission: "membership.view" }
       },
       {
         path: "risk-center",
         name: "risk-center",
-        component: RiskCenterView
+        component: RiskCenterView,
+        meta: { permission: "risk.view" }
       },
       {
         path: "system-jobs",
         name: "system-jobs",
-        component: SystemJobsView
+        component: SystemJobsView,
+        meta: { permission: "system_job.view" }
       },
       {
         path: "system-configs",
         name: "system-configs",
-        component: SystemConfigsView
+        component: SystemConfigsView,
+        meta: { permission: "system_config.view" }
       },
       {
         path: "auth-security",
         name: "auth-security",
-        component: AuthSecurityView
+        component: AuthSecurityView,
+        meta: { permission: "auth_security.view" }
       },
       {
         path: "workflow-messages",
         name: "workflow-messages",
-        component: WorkflowMessagesView
+        component: WorkflowMessagesView,
+        meta: { permission: "workflow.view" }
       },
       {
         path: "audit-logs",
         name: "audit-logs",
-        component: AuditLogsView
+        component: AuditLogsView,
+        meta: { permission: "audit.view" }
+      },
+      {
+        path: "admin-access",
+        name: "admin-access",
+        component: AdminAccessView,
+        meta: { permission: "access.view" }
       }
     ]
   },
@@ -118,6 +138,9 @@ router.beforeEach((to) => {
   }
   if (to.meta.requiresAuth && !authed) {
     return "/login";
+  }
+  if (to.meta.permission && !hasPermission(to.meta.permission)) {
+    return "/dashboard";
   }
   return true;
 });

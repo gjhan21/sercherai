@@ -176,6 +176,25 @@ curl "http://127.0.0.1:8080/api/v1/admin/auth/unlock-logs?page=1&page_size=20" \
   -H "Authorization: Bearer <admin_access_token>"
 ```
 
+Admin access control (RBAC):
+
+```bash
+curl "http://127.0.0.1:8080/api/v1/admin/access/me" \
+  -H "Authorization: Bearer <admin_access_token>"
+```
+
+```bash
+curl "http://127.0.0.1:8080/api/v1/admin/access/roles?page=1&page_size=20" \
+  -H "Authorization: Bearer <admin_access_token>"
+```
+
+```bash
+curl -X POST "http://127.0.0.1:8080/api/v1/admin/access/admin-users" \
+  -H "Authorization: Bearer <admin_access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"phone":"13800000012","password":"abc123456","status":"ACTIVE","role_ids":["role_ops_admin"]}'
+```
+
 ## News APIs
 
 User:

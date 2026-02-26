@@ -2,16 +2,17 @@
 import { reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { login, mockLogin } from "../api/auth";
+import { getAccessProfile } from "../api/admin";
 import { saveSession } from "../lib/session";
 
 const router = useRouter();
 const submitting = ref(false);
 const errorMessage = ref("");
-const mode = ref("mock");
+const mode = ref("password");
 
 const form = reactive({
-  phone: "",
-  password: "",
+  phone: "13800000000",
+  password: "abc123456",
   expire_seconds: 86400,
   user_id: "admin_001",
   role: "ADMIN"
@@ -21,23 +22,44 @@ async function handleSubmit() {
   errorMessage.value = "";
   submitting.value = true;
   try {
-    const payload =
-      mode.value === "password"
-        ? await login({
-            phone: form.phone.trim(),
-            password: form.password,
-            expire_seconds: form.expire_seconds
-          })
-        : await mockLogin({
-            user_id: form.user_id.trim(),
-            role: form.role,
-            expire_seconds: form.expire_seconds
-          });
+    let payload;
+    if (mode.value === "password") {
+      const phone = form.phone.trim();
+      const password = form.password;
+      if (!phone || !password) {
+        throw new Error("手机号和密码不能为空");
+      }
+      payload = await login({
+        phone,
+        password,
+        expire_seconds: form.expire_seconds
+      });
+    } else {
+      const userID = form.user_id.trim();
+      if (!userID) {
+        throw new Error("Mock 登录时用户 ID 不能为空");
+      }
+      payload = await mockLogin({
+        user_id: userID,
+        role: form.role,
+        expire_seconds: form.expire_seconds
+      });
+    }
 
     if ((payload.role || "").toUpperCase() !== "ADMIN") {
       throw new Error("当前账号不是 ADMIN 角色");
     }
-    saveSession(payload);
+    let accessProfile = { permission_codes: [], roles: [] };
+    try {
+      accessProfile = await getAccessProfile();
+    } catch (error) {
+      console.warn("load access profile failed:", error?.message || error);
+    }
+    saveSession({
+      ...payload,
+      permission_codes: accessProfile.permission_codes || [],
+      roles: accessProfile.roles || []
+    });
     await router.replace("/dashboard");
   } catch (error) {
     errorMessage.value = error.message || "登录失败";
@@ -63,11 +85,25 @@ async function handleSubmit() {
       <el-form label-position="top" @submit.prevent="handleSubmit">
         <template v-if="mode === 'password'">
           <el-form-item label="手机号">
-            <el-input v-model="form.phone" placeholder="13800000001" clearable />
+            <el-input v-model="form.phone" placeholder="13800000000" clearable />
           </el-form-item>
           <el-form-item label="密码">
             <el-input v-model="form.password" type="password" placeholder="请输入密码" show-password />
           </el-form-item>
+          <div class="quick-account">
+            <el-button text @click="() => ((form.phone = '13800000000'), (form.password = 'abc123456'))">
+              使用 admin_001
+            </el-button>
+            <el-button text @click="() => ((form.phone = '13800000010'), (form.password = 'abc123456'))">
+              使用 admin_002
+            </el-button>
+          </div>
+          <el-alert
+            title="开发测试账号：13800000000 / abc123456，13800000010 / abc123456"
+            type="info"
+            :closable="false"
+            class="login-hint"
+          />
         </template>
 
         <template v-else>
@@ -130,6 +166,14 @@ async function handleSubmit() {
 }
 
 .login-alert {
+  margin-bottom: 12px;
+}
+
+.quick-account {
+  margin-bottom: 12px;
+}
+
+.login-hint {
   margin-bottom: 12px;
 }
 

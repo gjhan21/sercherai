@@ -299,6 +299,55 @@ type AdminUser struct {
 	CreatedAt   string `json:"created_at"`
 }
 
+type AdminPermission struct {
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Module      string `json:"module"`
+	Action      string `json:"action"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+type AdminRole struct {
+	ID              string   `json:"id"`
+	RoleKey         string   `json:"role_key"`
+	RoleName        string   `json:"role_name"`
+	Description     string   `json:"description"`
+	Status          string   `json:"status"`
+	BuiltIn         bool     `json:"built_in"`
+	PermissionCodes []string `json:"permission_codes"`
+	UserCount       int      `json:"user_count"`
+	CreatedAt       string   `json:"created_at"`
+	UpdatedAt       string   `json:"updated_at"`
+}
+
+type AdminAccount struct {
+	ID        string   `json:"id"`
+	Phone     string   `json:"phone"`
+	Email     string   `json:"email"`
+	Status    string   `json:"status"`
+	RoleIDs   []string `json:"role_ids"`
+	RoleKeys  []string `json:"role_keys"`
+	RoleNames []string `json:"role_names"`
+	LastLogin string   `json:"last_login"`
+	CreatedAt string   `json:"created_at"`
+}
+
+type AdminRoleBrief struct {
+	ID       string `json:"id"`
+	RoleKey  string `json:"role_key"`
+	RoleName string `json:"role_name"`
+}
+
+type AdminAccessProfile struct {
+	UserID          string           `json:"user_id"`
+	Role            string           `json:"role"`
+	Roles           []AdminRoleBrief `json:"roles"`
+	PermissionCodes []string         `json:"permission_codes"`
+}
+
 type AdminDashboardOverview struct {
 	TotalUsers           int `json:"total_users"`
 	ActiveUsers          int `json:"active_users"`

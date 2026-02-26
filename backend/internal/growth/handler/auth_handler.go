@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"sercherai/backend/internal/growth/dto"
+	"sercherai/backend/internal/growth/model"
 	"sercherai/backend/internal/platform/auth"
 )
 
@@ -790,6 +791,687 @@ LIMIT ? OFFSET ?`
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
+func (h *AuthHandler) AdminGetAccessProfile(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
+		return
+	}
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	roleValue, _ := c.Get("role")
+	role, _ := roleValue.(string)
+	profile, err := h.loadAdminAccessProfile(userID, role)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(profile))
+}
+
+func (h *AuthHandler) AdminListPermissions(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
+		return
+	}
+	page, pageSize := parsePage(c)
+	offset := (page - 1) * pageSize
+	status := strings.ToUpper(strings.TrimSpace(c.Query("status")))
+	module := strings.ToUpper(strings.TrimSpace(c.Query("module")))
+	keyword := strings.TrimSpace(c.Query("keyword"))
+
+	filter := " WHERE 1=1"
+	args := make([]interface{}, 0)
+	if status != "" {
+		filter += " AND status = ?"
+		args = append(args, status)
+	}
+	if module != "" {
+		filter += " AND module = ?"
+		args = append(args, module)
+	}
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		filter += " AND (code LIKE ? OR name LIKE ?)"
+		args = append(args, like, like)
+	}
+
+	var total int
+	if err := h.db.QueryRow("SELECT COUNT(*) FROM rbac_permissions"+filter, args...).Scan(&total); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	query := `
+SELECT code, name, module, action, description, status, created_at, updated_at
+FROM rbac_permissions` + filter + `
+ORDER BY module ASC, code ASC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	defer rows.Close()
+
+	items := make([]model.AdminPermission, 0)
+	for rows.Next() {
+		var item model.AdminPermission
+		var description sql.NullString
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(
+			&item.Code,
+			&item.Name,
+			&item.Module,
+			&item.Action,
+			&description,
+			&item.Status,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+			return
+		}
+		if description.Valid {
+			item.Description = description.String
+		}
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		item.UpdatedAt = updatedAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"items":     items,
+		"page":      page,
+		"page_size": pageSize,
+		"total":     total,
+	}))
+}
+
+func (h *AuthHandler) AdminListRoles(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
+		return
+	}
+	page, pageSize := parsePage(c)
+	offset := (page - 1) * pageSize
+	status := strings.ToUpper(strings.TrimSpace(c.Query("status")))
+	keyword := strings.TrimSpace(c.Query("keyword"))
+
+	filter := " WHERE 1=1"
+	args := make([]interface{}, 0)
+	if status != "" {
+		filter += " AND r.status = ?"
+		args = append(args, status)
+	}
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		filter += " AND (r.role_key LIKE ? OR r.role_name LIKE ?)"
+		args = append(args, like, like)
+	}
+
+	var total int
+	if err := h.db.QueryRow("SELECT COUNT(*) FROM rbac_roles r"+filter, args...).Scan(&total); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	query := `
+SELECT
+  r.id,
+  r.role_key,
+  r.role_name,
+  r.description,
+  r.status,
+  r.built_in,
+  r.created_at,
+  r.updated_at,
+  (SELECT COUNT(*) FROM rbac_user_roles ur WHERE ur.role_id = r.id) AS user_count
+FROM rbac_roles r` + filter + `
+ORDER BY r.built_in DESC, r.role_key ASC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	defer rows.Close()
+
+	items := make([]model.AdminRole, 0)
+	roleIDs := make([]string, 0)
+	for rows.Next() {
+		var item model.AdminRole
+		var description sql.NullString
+		var createdAt, updatedAt time.Time
+		var builtIn int
+		if err := rows.Scan(
+			&item.ID,
+			&item.RoleKey,
+			&item.RoleName,
+			&description,
+			&item.Status,
+			&builtIn,
+			&createdAt,
+			&updatedAt,
+			&item.UserCount,
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+			return
+		}
+		if description.Valid {
+			item.Description = description.String
+		}
+		item.BuiltIn = builtIn == 1
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		item.UpdatedAt = updatedAt.Format(time.RFC3339)
+		items = append(items, item)
+		roleIDs = append(roleIDs, item.ID)
+	}
+
+	rolePermissionMap, err := h.loadRolePermissionCodes(roleIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	for i := range items {
+		items[i].PermissionCodes = rolePermissionMap[items[i].ID]
+	}
+
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"items":     items,
+		"page":      page,
+		"page_size": pageSize,
+		"total":     total,
+	}))
+}
+
+func (h *AuthHandler) AdminCreateRole(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
+		return
+	}
+	var req dto.AdminRoleUpsertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	roleKey := strings.ToUpper(strings.TrimSpace(req.RoleKey))
+	if roleKey == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "role_key required", Data: struct{}{}})
+		return
+	}
+	roleName := strings.TrimSpace(req.RoleName)
+	if roleName == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "role_name required", Data: struct{}{}})
+		return
+	}
+	status := strings.ToUpper(strings.TrimSpace(req.Status))
+	if status == "" {
+		status = "ACTIVE"
+	}
+	permissionCodes := normalizeCodeList(req.PermissionCodes, false)
+	if len(permissionCodes) == 0 {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "permission_codes required", Data: struct{}{}})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	defer tx.Rollback()
+
+	if err := h.assertPermissionsExistTx(tx, permissionCodes); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	roleID := newID("role")
+	now := time.Now()
+	_, err = tx.Exec(`
+INSERT INTO rbac_roles (id, role_key, role_name, description, status, built_in, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+		roleID,
+		roleKey,
+		roleName,
+		strings.TrimSpace(req.Description),
+		status,
+		now,
+		now,
+	)
+	if err != nil {
+		if isDuplicateEntry(err) {
+			c.JSON(http.StatusConflict, dto.APIResponse{Code: 40902, Message: "role_key already exists", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	if err := h.replaceRolePermissionsTx(tx, roleID, permissionCodes); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"id": roleID}))
+}
+
+func (h *AuthHandler) AdminUpdateRole(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
+		return
+	}
+	roleID := strings.TrimSpace(c.Param("id"))
+	if roleID == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "role id required", Data: struct{}{}})
+		return
+	}
+	var req dto.AdminRoleUpsertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	roleName := strings.TrimSpace(req.RoleName)
+	if roleName == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "role_name required", Data: struct{}{}})
+		return
+	}
+	status := strings.ToUpper(strings.TrimSpace(req.Status))
+	if status == "" {
+		status = "ACTIVE"
+	}
+	permissionCodes := normalizeCodeList(req.PermissionCodes, false)
+	if len(permissionCodes) == 0 {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "permission_codes required", Data: struct{}{}})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	defer tx.Rollback()
+
+	var roleKey string
+	var builtIn int
+	if err := tx.QueryRow("SELECT role_key, built_in FROM rbac_roles WHERE id = ? LIMIT 1", roleID).Scan(&roleKey, &builtIn); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40404, Message: "role not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if strings.EqualFold(roleKey, "SUPER_ADMIN") && status != "ACTIVE" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "SUPER_ADMIN must stay ACTIVE", Data: struct{}{}})
+		return
+	}
+	if err := h.assertPermissionsExistTx(tx, permissionCodes); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	_, err = tx.Exec(`
+UPDATE rbac_roles
+SET role_name = ?, description = ?, status = ?, updated_at = ?
+WHERE id = ?`,
+		roleName,
+		strings.TrimSpace(req.Description),
+		status,
+		time.Now(),
+		roleID,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := h.replaceRolePermissionsTx(tx, roleID, permissionCodes); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AuthHandler) AdminUpdateRoleStatus(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
+		return
+	}
+	roleID := strings.TrimSpace(c.Param("id"))
+	var req dto.AdminUpdateAccountStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	status := strings.ToUpper(strings.TrimSpace(req.Status))
+	var roleKey string
+	if err := h.db.QueryRow("SELECT role_key FROM rbac_roles WHERE id = ? LIMIT 1", roleID).Scan(&roleKey); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40404, Message: "role not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if strings.EqualFold(roleKey, "SUPER_ADMIN") && status != "ACTIVE" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "SUPER_ADMIN must stay ACTIVE", Data: struct{}{}})
+		return
+	}
+	if _, err := h.db.Exec("UPDATE rbac_roles SET status = ?, updated_at = ? WHERE id = ?", status, time.Now(), roleID); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AuthHandler) AdminListAdminUsers(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
+		return
+	}
+	page, pageSize := parsePage(c)
+	offset := (page - 1) * pageSize
+	status := strings.ToUpper(strings.TrimSpace(c.Query("status")))
+	keyword := strings.TrimSpace(c.Query("keyword"))
+	roleID := strings.TrimSpace(c.Query("role_id"))
+
+	filter := " WHERE (u.id LIKE 'admin_%' OR EXISTS (SELECT 1 FROM rbac_user_roles urx WHERE urx.user_id = u.id))"
+	args := make([]interface{}, 0)
+	if status != "" {
+		filter += " AND u.status = ?"
+		args = append(args, status)
+	}
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		filter += " AND (u.id LIKE ? OR u.phone LIKE ? OR u.email LIKE ?)"
+		args = append(args, like, like, like)
+	}
+	if roleID != "" {
+		filter += " AND EXISTS (SELECT 1 FROM rbac_user_roles urf WHERE urf.user_id = u.id AND urf.role_id = ?)"
+		args = append(args, roleID)
+	}
+
+	var total int
+	if err := h.db.QueryRow("SELECT COUNT(*) FROM users u"+filter, args...).Scan(&total); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	query := `
+SELECT u.id, u.phone, u.email, u.status, u.created_at
+FROM users u` + filter + `
+ORDER BY u.created_at DESC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	defer rows.Close()
+
+	items := make([]model.AdminAccount, 0)
+	userIDs := make([]string, 0)
+	for rows.Next() {
+		var item model.AdminAccount
+		var email sql.NullString
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.Phone, &email, &item.Status, &createdAt); err != nil {
+			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+			return
+		}
+		if email.Valid {
+			item.Email = email.String
+		}
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		items = append(items, item)
+		userIDs = append(userIDs, item.ID)
+	}
+
+	roleMap, err := h.loadUserRoleMap(userIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	lastLoginMap, err := h.loadUserLastLoginMap(userIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	for i := range items {
+		roleEntries := roleMap[items[i].ID]
+		items[i].RoleIDs = make([]string, 0, len(roleEntries))
+		items[i].RoleKeys = make([]string, 0, len(roleEntries))
+		items[i].RoleNames = make([]string, 0, len(roleEntries))
+		for _, roleEntry := range roleEntries {
+			items[i].RoleIDs = append(items[i].RoleIDs, roleEntry.ID)
+			items[i].RoleKeys = append(items[i].RoleKeys, roleEntry.RoleKey)
+			items[i].RoleNames = append(items[i].RoleNames, roleEntry.RoleName)
+		}
+		if lastLoginAt, exists := lastLoginMap[items[i].ID]; exists {
+			items[i].LastLogin = lastLoginAt
+		}
+	}
+
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"items":     items,
+		"page":      page,
+		"page_size": pageSize,
+		"total":     total,
+	}))
+}
+
+func (h *AuthHandler) AdminCreateAdminUser(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
+		return
+	}
+	var req dto.AdminCreateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	phone := strings.TrimSpace(req.Phone)
+	if phone == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "phone required", Data: struct{}{}})
+		return
+	}
+	roleIDs := normalizeCodeList(req.RoleIDs, false)
+	if len(roleIDs) == 0 {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "role_ids required", Data: struct{}{}})
+		return
+	}
+	status := strings.ToUpper(strings.TrimSpace(req.Status))
+	if status == "" {
+		status = "ACTIVE"
+	}
+	if exists, err := h.phoneExists(phone); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	} else if exists {
+		c.JSON(http.StatusConflict, dto.APIResponse{Code: 40902, Message: "phone already exists", Data: struct{}{}})
+		return
+	}
+
+	passwordHash, err := bcryptHash(req.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	defer tx.Rollback()
+
+	if err := h.assertRolesExistTx(tx, roleIDs); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	userID := fmt.Sprintf("admin_%d", time.Now().UnixNano())
+	now := time.Now()
+	_, err = tx.Exec(`
+INSERT INTO users (id, phone, email, password_hash, status, kyc_status, member_level, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, 'APPROVED', 'VIP3', ?, ?)`,
+		userID,
+		phone,
+		strings.TrimSpace(req.Email),
+		passwordHash,
+		status,
+		now,
+		now,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := h.replaceUserRolesTx(tx, userID, roleIDs); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"id": userID}))
+}
+
+func (h *AuthHandler) AdminUpdateAdminUserStatus(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
+		return
+	}
+	userID := strings.TrimSpace(c.Param("id"))
+	if !strings.HasPrefix(strings.ToLower(userID), "admin_") {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "admin user id required", Data: struct{}{}})
+		return
+	}
+	var req dto.AdminUpdateAccountStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	operatorID, _ := c.Get("user_id")
+	operator, _ := operatorID.(string)
+	if strings.EqualFold(operator, userID) && strings.ToUpper(req.Status) != "ACTIVE" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "cannot disable current account", Data: struct{}{}})
+		return
+	}
+	result, err := h.db.Exec("UPDATE users SET status = ?, updated_at = ? WHERE id = ?", strings.ToUpper(req.Status), time.Now(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40404, Message: "admin user not found", Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AuthHandler) AdminAssignAdminUserRoles(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
+		return
+	}
+	userID := strings.TrimSpace(c.Param("id"))
+	if !strings.HasPrefix(strings.ToLower(userID), "admin_") {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "admin user id required", Data: struct{}{}})
+		return
+	}
+	var req dto.AdminAssignRolesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	roleIDs := normalizeCodeList(req.RoleIDs, false)
+	if len(roleIDs) == 0 {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "role_ids required", Data: struct{}{}})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	defer tx.Rollback()
+
+	var exists int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM users WHERE id = ?", userID).Scan(&exists); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if exists == 0 {
+		c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40404, Message: "admin user not found", Data: struct{}{}})
+		return
+	}
+	if err := h.assertRolesExistTx(tx, roleIDs); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := h.replaceUserRolesTx(tx, userID, roleIDs); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AuthHandler) AdminResetAdminUserPassword(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
+		return
+	}
+	userID := strings.TrimSpace(c.Param("id"))
+	if !strings.HasPrefix(strings.ToLower(userID), "admin_") {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "admin user id required", Data: struct{}{}})
+		return
+	}
+	var req dto.AdminResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	passwordHash, err := bcryptHash(req.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	result, err := h.db.Exec("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", passwordHash, time.Now(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40404, Message: "admin user not found", Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
 func (h *AuthHandler) Me(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	role, _ := c.Get("role")
@@ -1046,6 +1728,278 @@ INSERT INTO auth_login_logs (id, user_id, phone, action, status, reason, ip, use
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		newID("alog"), userID, strings.TrimSpace(phone), strings.ToUpper(action), strings.ToUpper(status), reason, ip, userAgent, time.Now(),
 	)
+}
+
+func (h *AuthHandler) loadAdminAccessProfile(userID string, role string) (model.AdminAccessProfile, error) {
+	profile := model.AdminAccessProfile{
+		UserID:          userID,
+		Role:            strings.ToUpper(strings.TrimSpace(role)),
+		Roles:           make([]model.AdminRoleBrief, 0),
+		PermissionCodes: make([]string, 0),
+	}
+
+	roleRows, err := h.db.Query(`
+SELECT r.id, r.role_key, r.role_name
+FROM rbac_user_roles ur
+JOIN rbac_roles r ON r.id = ur.role_id
+WHERE ur.user_id = ? AND r.status = 'ACTIVE'
+ORDER BY r.role_key ASC`, userID)
+	if err != nil {
+		return model.AdminAccessProfile{}, err
+	}
+	defer roleRows.Close()
+	for roleRows.Next() {
+		var item model.AdminRoleBrief
+		if err := roleRows.Scan(&item.ID, &item.RoleKey, &item.RoleName); err != nil {
+			return model.AdminAccessProfile{}, err
+		}
+		profile.Roles = append(profile.Roles, item)
+	}
+
+	permissionRows, err := h.db.Query(`
+SELECT DISTINCT p.code
+FROM rbac_user_roles ur
+JOIN rbac_roles r ON r.id = ur.role_id
+JOIN rbac_role_permissions rp ON rp.role_id = r.id
+JOIN rbac_permissions p ON p.code = rp.permission_code
+WHERE ur.user_id = ? AND r.status = 'ACTIVE' AND p.status = 'ACTIVE'
+ORDER BY p.code ASC`, userID)
+	if err != nil {
+		return model.AdminAccessProfile{}, err
+	}
+	defer permissionRows.Close()
+	for permissionRows.Next() {
+		var code string
+		if err := permissionRows.Scan(&code); err != nil {
+			return model.AdminAccessProfile{}, err
+		}
+		profile.PermissionCodes = append(profile.PermissionCodes, code)
+	}
+	return profile, nil
+}
+
+func (h *AuthHandler) loadRolePermissionCodes(roleIDs []string) (map[string][]string, error) {
+	result := map[string][]string{}
+	if len(roleIDs) == 0 {
+		return result, nil
+	}
+	placeholders := sqlPlaceholders(len(roleIDs))
+	args := make([]interface{}, 0, len(roleIDs))
+	for _, roleID := range roleIDs {
+		args = append(args, roleID)
+	}
+	rows, err := h.db.Query(`
+SELECT role_id, permission_code
+FROM rbac_role_permissions
+WHERE role_id IN (`+placeholders+`)
+ORDER BY permission_code ASC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var roleID, permissionCode string
+		if err := rows.Scan(&roleID, &permissionCode); err != nil {
+			return nil, err
+		}
+		result[roleID] = append(result[roleID], permissionCode)
+	}
+	return result, nil
+}
+
+func (h *AuthHandler) loadUserRoleMap(userIDs []string) (map[string][]model.AdminRoleBrief, error) {
+	result := map[string][]model.AdminRoleBrief{}
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+	placeholders := sqlPlaceholders(len(userIDs))
+	args := make([]interface{}, 0, len(userIDs))
+	for _, userID := range userIDs {
+		args = append(args, userID)
+	}
+	rows, err := h.db.Query(`
+SELECT ur.user_id, r.id, r.role_key, r.role_name
+FROM rbac_user_roles ur
+JOIN rbac_roles r ON r.id = ur.role_id
+WHERE ur.user_id IN (`+placeholders+`)
+ORDER BY r.role_key ASC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var userID string
+		var role model.AdminRoleBrief
+		if err := rows.Scan(&userID, &role.ID, &role.RoleKey, &role.RoleName); err != nil {
+			return nil, err
+		}
+		result[userID] = append(result[userID], role)
+	}
+	return result, nil
+}
+
+func (h *AuthHandler) loadUserLastLoginMap(userIDs []string) (map[string]string, error) {
+	result := map[string]string{}
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+	placeholders := sqlPlaceholders(len(userIDs))
+	args := make([]interface{}, 0, len(userIDs))
+	for _, userID := range userIDs {
+		args = append(args, userID)
+	}
+	rows, err := h.db.Query(`
+SELECT user_id, MAX(created_at) AS last_login_at
+FROM auth_login_logs
+WHERE action = 'LOGIN' AND status = 'SUCCESS' AND user_id IN (`+placeholders+`)
+GROUP BY user_id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var userID string
+		var lastLogin time.Time
+		if err := rows.Scan(&userID, &lastLogin); err != nil {
+			return nil, err
+		}
+		result[userID] = lastLogin.Format(time.RFC3339)
+	}
+	return result, nil
+}
+
+func (h *AuthHandler) assertPermissionsExistTx(tx *sql.Tx, permissionCodes []string) error {
+	if len(permissionCodes) == 0 {
+		return errors.New("permission_codes required")
+	}
+	placeholders := sqlPlaceholders(len(permissionCodes))
+	args := make([]interface{}, 0, len(permissionCodes))
+	for _, code := range permissionCodes {
+		args = append(args, code)
+	}
+	var count int
+	err := tx.QueryRow(`
+SELECT COUNT(*)
+FROM rbac_permissions
+WHERE code IN (`+placeholders+`) AND status = 'ACTIVE'`, args...).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count != len(permissionCodes) {
+		return errors.New("invalid or inactive permission code")
+	}
+	return nil
+}
+
+func (h *AuthHandler) assertRolesExistTx(tx *sql.Tx, roleIDs []string) error {
+	if len(roleIDs) == 0 {
+		return errors.New("role_ids required")
+	}
+	placeholders := sqlPlaceholders(len(roleIDs))
+	args := make([]interface{}, 0, len(roleIDs))
+	for _, roleID := range roleIDs {
+		args = append(args, roleID)
+	}
+	var count int
+	err := tx.QueryRow(`
+SELECT COUNT(*)
+FROM rbac_roles
+WHERE id IN (`+placeholders+`) AND status = 'ACTIVE'`, args...).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count != len(roleIDs) {
+		return errors.New("invalid or inactive role id")
+	}
+	return nil
+}
+
+func (h *AuthHandler) replaceRolePermissionsTx(tx *sql.Tx, roleID string, permissionCodes []string) error {
+	if _, err := tx.Exec("DELETE FROM rbac_role_permissions WHERE role_id = ?", roleID); err != nil {
+		return err
+	}
+	if len(permissionCodes) == 0 {
+		return nil
+	}
+	now := time.Now()
+	stmt, err := tx.Prepare(`
+INSERT INTO rbac_role_permissions (role_id, permission_code, created_at)
+VALUES (?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, code := range permissionCodes {
+		if _, err := stmt.Exec(roleID, code, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *AuthHandler) replaceUserRolesTx(tx *sql.Tx, userID string, roleIDs []string) error {
+	if _, err := tx.Exec("DELETE FROM rbac_user_roles WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	if len(roleIDs) == 0 {
+		return nil
+	}
+	now := time.Now()
+	stmt, err := tx.Prepare(`
+INSERT INTO rbac_user_roles (user_id, role_id, created_at)
+VALUES (?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, roleID := range roleIDs {
+		if _, err := stmt.Exec(userID, roleID, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func normalizeCodeList(values []string, upper bool) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	items := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := strings.TrimSpace(value)
+		if upper {
+			normalized = strings.ToUpper(normalized)
+		}
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		items = append(items, normalized)
+	}
+	return items
+}
+
+func sqlPlaceholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	placeholders := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		placeholders = append(placeholders, "?")
+	}
+	return strings.Join(placeholders, ",")
+}
+
+func isDuplicateEntry(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "duplicate entry")
 }
 
 func verifyPassword(plain string, storedHash string) (bool, bool) {

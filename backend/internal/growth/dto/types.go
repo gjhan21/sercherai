@@ -315,6 +315,34 @@ type AuthUnlockRequest struct {
 	Reason string `json:"reason"`
 }
 
+type AdminCreateUserRequest struct {
+	Phone    string   `json:"phone" binding:"required"`
+	Password string   `json:"password" binding:"required,min=8"`
+	Email    string   `json:"email" binding:"omitempty,email"`
+	Status   string   `json:"status" binding:"omitempty,oneof=ACTIVE DISABLED"`
+	RoleIDs  []string `json:"role_ids" binding:"required,min=1,dive,required"`
+}
+
+type AdminUpdateAccountStatusRequest struct {
+	Status string `json:"status" binding:"required,oneof=ACTIVE DISABLED"`
+}
+
+type AdminAssignRolesRequest struct {
+	RoleIDs []string `json:"role_ids" binding:"required,min=1,dive,required"`
+}
+
+type AdminResetPasswordRequest struct {
+	Password string `json:"password" binding:"required,min=8"`
+}
+
+type AdminRoleUpsertRequest struct {
+	RoleKey         string   `json:"role_key"`
+	RoleName        string   `json:"role_name" binding:"required"`
+	Description     string   `json:"description"`
+	Status          string   `json:"status" binding:"required,oneof=ACTIVE DISABLED"`
+	PermissionCodes []string `json:"permission_codes" binding:"required,min=1,dive,required"`
+}
+
 type LoginResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token,omitempty"`

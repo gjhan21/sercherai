@@ -15,6 +15,54 @@ export function getDashboardOverview() {
   return http.get("/admin/dashboard/overview");
 }
 
+export function getAccessProfile() {
+  return http.get("/admin/access/me");
+}
+
+export function listAccessPermissions(params) {
+  return http.get("/admin/access/permissions", { params: buildParams(params) });
+}
+
+export function listAccessRoles(params) {
+  return http.get("/admin/access/roles", { params: buildParams(params) });
+}
+
+export function createAccessRole(payload) {
+  return http.post("/admin/access/roles", payload);
+}
+
+export function updateAccessRole(id, payload) {
+  return http.put(`/admin/access/roles/${encodeURIComponent(id)}`, payload);
+}
+
+export function updateAccessRoleStatus(id, status) {
+  return http.put(`/admin/access/roles/${encodeURIComponent(id)}/status`, { status });
+}
+
+export function listAdminAccounts(params) {
+  return http.get("/admin/access/admin-users", { params: buildParams(params) });
+}
+
+export function createAdminAccount(payload) {
+  return http.post("/admin/access/admin-users", payload);
+}
+
+export function updateAdminAccountStatus(id, status) {
+  return http.put(`/admin/access/admin-users/${encodeURIComponent(id)}/status`, { status });
+}
+
+export function assignAdminAccountRoles(id, roleIDs) {
+  return http.put(`/admin/access/admin-users/${encodeURIComponent(id)}/roles`, {
+    role_ids: roleIDs
+  });
+}
+
+export function resetAdminAccountPassword(id, password) {
+  return http.put(`/admin/access/admin-users/${encodeURIComponent(id)}/password`, {
+    password
+  });
+}
+
 export function listOperationLogs(params) {
   return http.get("/admin/audit/operation-logs", { params: buildParams(params) });
 }

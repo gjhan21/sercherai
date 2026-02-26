@@ -10,6 +10,7 @@
 - 任务中心（`/api/v1/admin/system/job-definitions*`、`/api/v1/admin/system/job-runs*`）
 - 数据源管理与健康检查（`/api/v1/admin/data-sources*`）
 - 流程消息（`/api/v1/admin/workflow/messages*`）
+- 管理员与权限管理（`/api/v1/admin/access/*`）
 
 ## 启动方式
 
@@ -30,6 +31,6 @@ npm run dev
 
 ## 联调建议
 
-1. 启动后端（建议开启 `ALLOW_MOCK_LOGIN=true` 便于开发）
-2. 打开管理端，使用 Mock 登录（`admin_001` / `ADMIN`）
-3. 先联调「用户管理 / 新闻管理 / 审核中心 / 任务中心 / 数据源管理 / 流程消息」
+1. 启动后端并连接真实 MySQL（管理员与权限模块依赖 RBAC 表）
+2. 打开管理端，优先使用密码登录（`13800000000 / abc123456`）
+3. 先联调「用户管理 / 新闻管理 / 审核中心 / 任务中心 / 数据源管理 / 流程消息 / 管理员与权限」
