@@ -1,0 +1,286 @@
+openapi: 3.0.3
+info:
+  title: SercherAI Admin API (Draft)
+  version: 0.1.0
+  description: Admin-side draft OpenAPI for backend/frontend integration.
+servers:
+  - url: http://127.0.0.1:8080
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    APIResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+        data:
+          nullable: true
+paths:
+  /api/v1/auth/login:
+    post:
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { type: string }
+                password: { type: string }
+              required: [phone, password]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+  /api/v1/admin/dashboard/overview:
+    get:
+      summary: Dashboard overview
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+  /api/v1/admin/users:
+    get:
+      summary: List users
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: kyc_status
+          schema: { type: string }
+        - in: query
+          name: member_level
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, default: 20, maximum: 200 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+  /api/v1/admin/users/export.csv:
+    get:
+      summary: Export users CSV
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: CSV
+          content:
+            text/csv:
+              schema:
+                type: string
+  /api/v1/admin/users/{id}/status:
+    put:
+      summary: Update user status
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [ACTIVE, DISABLED, BANNED] }
+              required: [status]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+  /api/v1/admin/auth/risk-config:
+    get:
+      summary: Get auth risk config
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+    put:
+      summary: Update auth risk config
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone_fail_threshold: { type: integer, minimum: 1 }
+                ip_fail_threshold: { type: integer, minimum: 1 }
+                ip_phone_threshold: { type: integer, minimum: 1 }
+                lock_seconds: { type: integer, minimum: 1 }
+              required: [phone_fail_threshold, ip_fail_threshold, ip_phone_threshold, lock_seconds]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+  /api/v1/admin/news/categories:
+    get:
+      summary: List news categories
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+    post:
+      summary: Create news category
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                slug: { type: string }
+                sort: { type: integer }
+                visibility: { type: string, enum: [PUBLIC, VIP] }
+                status: { type: string, enum: [PUBLISHED, DRAFT, DISABLED] }
+              required: [name, slug, visibility, status]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+  /api/v1/admin/stocks/recommendations/generate-daily:
+    post:
+      summary: Generate daily stock recommendations
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: trade_date
+          schema: { type: string, example: "2026-02-25" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+  /api/v1/admin/futures/strategies:
+    get:
+      summary: List futures strategies
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+    post:
+      summary: Create futures strategy
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contract: { type: string }
+                direction: { type: string }
+                risk_level: { type: string }
+                valid_from: { type: string }
+                valid_to: { type: string }
+                status: { type: string }
+              required: [contract, direction, risk_level, valid_from, valid_to, status]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+  /api/v1/admin/membership/products:
+    get:
+      summary: List membership products
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+    post:
+      summary: Create membership product
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                price: { type: number }
+                status: { type: string, enum: [ACTIVE, DISABLED] }
+              required: [name, price, status]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+  /api/v1/admin/membership/orders/export.csv:
+    get:
+      summary: Export membership orders CSV
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: CSV
+          content:
+            text/csv:
+              schema:
+                type: string
+  /api/v1/admin/audit/operation-logs:
+    get:
+      summary: List admin operation logs
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIResponse" }
+  /api/v1/admin/audit/operation-logs/export.csv:
+    get:
+      summary: Export admin operation logs CSV
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: CSV
+          content:
+            text/csv:
+              schema:
+                type: string

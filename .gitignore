@@ -1,0 +1,4 @@
+# Go build/cache artifacts
+backend/.gocache/
+backend/.gomodcache/
+backend/.gopath/
