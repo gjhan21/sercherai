@@ -15,6 +15,10 @@ export function getDashboardOverview() {
   return http.get("/admin/dashboard/overview");
 }
 
+export function listOperationLogs(params) {
+  return http.get("/admin/audit/operation-logs", { params: buildParams(params) });
+}
+
 export function listUsers(params) {
   return http.get("/admin/users", { params: buildParams(params) });
 }

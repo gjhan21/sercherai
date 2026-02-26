@@ -10,6 +10,7 @@ const ReviewCenterView = () => import("../views/ReviewCenterView.vue");
 const SystemJobsView = () => import("../views/SystemJobsView.vue");
 const DataSourcesView = () => import("../views/DataSourcesView.vue");
 const WorkflowMessagesView = () => import("../views/WorkflowMessagesView.vue");
+const AuditLogsView = () => import("../views/AuditLogsView.vue");
 
 const routes = [
   {
@@ -61,6 +62,11 @@ const routes = [
         path: "workflow-messages",
         name: "workflow-messages",
         component: WorkflowMessagesView
+      },
+      {
+        path: "audit-logs",
+        name: "audit-logs",
+        component: AuditLogsView
       }
     ]
   },
