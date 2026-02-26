@@ -844,6 +844,38 @@ func (h *AdminGrowthHandler) CheckDataSourceHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
+func (h *AdminGrowthHandler) ListDataSourceHealthLogs(c *gin.Context) {
+	sourceKey := strings.TrimSpace(c.Param("source_key"))
+	page, pageSize := parsePage(c)
+	items, total, err := h.service.AdminListDataSourceHealthLogs(sourceKey, page, pageSize)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "data source not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *AdminGrowthHandler) BatchCheckDataSourcesHealth(c *gin.Context) {
+	var req dto.DataSourceBatchHealthCheckRequest
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+			return
+		}
+	}
+	items, err := h.service.AdminBatchCheckDataSourceHealth(req.SourceKeys)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "SYSTEM", "BATCH_CHECK_DATA_SOURCE_HEALTH", "DATA_SOURCE", "BATCH", "", fmt.Sprintf("count=%d", len(items)), "")
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "count": len(items)}))
+}
+
 func (h *AdminGrowthHandler) ListSystemConfigs(c *gin.Context) {
 	page, pageSize := parsePage(c)
 	keyword := c.Query("keyword")

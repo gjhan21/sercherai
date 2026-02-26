@@ -104,6 +104,8 @@ type GrowthService interface {
 	AdminUpdateDataSource(sourceKey string, item model.DataSource) error
 	AdminDeleteDataSource(sourceKey string) error
 	AdminCheckDataSourceHealth(sourceKey string) (model.DataSourceHealthCheck, error)
+	AdminBatchCheckDataSourceHealth(sourceKeys []string) ([]model.DataSourceHealthCheck, error)
+	AdminListDataSourceHealthLogs(sourceKey string, page int, pageSize int) ([]model.DataSourceHealthLog, int, error)
 	AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error)
 	AdminUpsertSystemConfig(configKey string, configValue string, description string, operator string) error
 	AdminListReviewTasks(module string, status string, submitterID string, reviewerID string, page int, pageSize int) ([]model.ReviewTask, int, error)
@@ -525,6 +527,14 @@ func (s *growthService) AdminDeleteDataSource(sourceKey string) error {
 
 func (s *growthService) AdminCheckDataSourceHealth(sourceKey string) (model.DataSourceHealthCheck, error) {
 	return s.repo.AdminCheckDataSourceHealth(sourceKey)
+}
+
+func (s *growthService) AdminBatchCheckDataSourceHealth(sourceKeys []string) ([]model.DataSourceHealthCheck, error) {
+	return s.repo.AdminBatchCheckDataSourceHealth(sourceKeys)
+}
+
+func (s *growthService) AdminListDataSourceHealthLogs(sourceKey string, page int, pageSize int) ([]model.DataSourceHealthLog, int, error) {
+	return s.repo.AdminListDataSourceHealthLogs(sourceKey, page, pageSize)
 }
 
 func (s *growthService) AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error) {

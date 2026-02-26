@@ -593,6 +593,8 @@ POST /user/reward-wallet/withdraw
 - `PUT /admin/data-sources/{source_key}`
 - `DELETE /admin/data-sources/{source_key}`
 - `POST /admin/data-sources/{source_key}/health-check`
+- `GET /admin/data-sources/{source_key}/health-logs`
+- `POST /admin/data-sources/health-checks`
 - `POST /admin/news/categories`
 - `PUT /admin/news/categories/{id}`
 - `POST /admin/news/articles`

@@ -400,6 +400,8 @@
 - `PUT /api/v1/admin/data-sources/{source_key}`
 - `DELETE /api/v1/admin/data-sources/{source_key}`
 - `POST /api/v1/admin/data-sources/{source_key}/health-check`
+- `GET /api/v1/admin/data-sources/{source_key}/health-logs`
+- `POST /api/v1/admin/data-sources/health-checks`
 - `POST /api/v1/admin/news/categories`
 - `PUT /api/v1/admin/news/categories/{id}`
 - `POST /api/v1/admin/news/articles`

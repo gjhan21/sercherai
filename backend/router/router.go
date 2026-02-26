@@ -227,10 +227,12 @@ func Register(r *gin.Engine) {
 		adminDataSources.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("ADMIN"))
 		{
 			adminDataSources.GET("", adminGrowthHandler.ListDataSources)
+			adminDataSources.POST("/health-checks", adminGrowthHandler.BatchCheckDataSourcesHealth)
 			adminDataSources.POST("", adminGrowthHandler.CreateDataSource)
 			adminDataSources.PUT("/:source_key", adminGrowthHandler.UpdateDataSource)
 			adminDataSources.DELETE("/:source_key", adminGrowthHandler.DeleteDataSource)
 			adminDataSources.POST("/:source_key/health-check", adminGrowthHandler.CheckDataSourceHealth)
+			adminDataSources.GET("/:source_key/health-logs", adminGrowthHandler.ListDataSourceHealthLogs)
 		}
 
 		adminStocks := v1.Group("/admin/stocks")

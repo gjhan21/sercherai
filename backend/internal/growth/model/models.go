@@ -389,6 +389,19 @@ type DataSource struct {
 }
 
 type DataSourceHealthCheck struct {
+	SourceKey           string `json:"source_key"`
+	Status              string `json:"status"`
+	Reachable           bool   `json:"reachable"`
+	HTTPStatus          int    `json:"http_status,omitempty"`
+	LatencyMS           int64  `json:"latency_ms"`
+	Message             string `json:"message,omitempty"`
+	ConsecutiveFailures int    `json:"consecutive_failures,omitempty"`
+	AlertTriggered      bool   `json:"alert_triggered"`
+	CheckedAt           string `json:"checked_at"`
+}
+
+type DataSourceHealthLog struct {
+	ID         string `json:"id"`
 	SourceKey  string `json:"source_key"`
 	Status     string `json:"status"`
 	Reachable  bool   `json:"reachable"`

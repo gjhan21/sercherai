@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -2714,59 +2715,177 @@ func (r *MySQLGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model.Da
 	if err != nil {
 		return model.DataSourceHealthCheck{}, err
 	}
+	checkedAt := time.Now()
 	result := model.DataSourceHealthCheck{
 		SourceKey: item.SourceKey,
 		Status:    "UNKNOWN",
-		CheckedAt: time.Now().Format(time.RFC3339),
+		CheckedAt: checkedAt.Format(time.RFC3339),
 	}
 
 	if strings.ToUpper(strings.TrimSpace(item.Status)) != "ACTIVE" {
 		result.Message = "data source is disabled"
-		return result, nil
+	} else {
+		endpoint := strings.TrimSpace(fmt.Sprintf("%v", item.Config["endpoint"]))
+		if endpoint == "" {
+			result.Message = "endpoint not configured"
+		} else {
+			parsed, parseErr := url.Parse(endpoint)
+			if parseErr != nil || parsed.Scheme == "" || parsed.Host == "" {
+				result.Message = "invalid endpoint"
+			} else if parsed.Scheme != "http" && parsed.Scheme != "https" {
+				result.Message = "unsupported endpoint scheme"
+			} else {
+				client := &http.Client{Timeout: 3 * time.Second}
+				start := time.Now()
+				req, reqErr := http.NewRequest(http.MethodGet, endpoint, nil)
+				if reqErr != nil {
+					result.Message = reqErr.Error()
+				} else {
+					resp, callErr := client.Do(req)
+					result.LatencyMS = time.Since(start).Milliseconds()
+					if callErr != nil {
+						result.Status = "UNHEALTHY"
+						result.Reachable = false
+						result.Message = callErr.Error()
+					} else {
+						defer resp.Body.Close()
+						result.Reachable = true
+						result.HTTPStatus = resp.StatusCode
+						if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+							result.Status = "HEALTHY"
+							result.Message = "ok"
+						} else {
+							result.Status = "UNHEALTHY"
+							result.Message = resp.Status
+						}
+					}
+				}
+			}
+		}
 	}
 
-	endpoint := strings.TrimSpace(fmt.Sprintf("%v", item.Config["endpoint"]))
-	if endpoint == "" {
-		result.Message = "endpoint not configured"
-		return result, nil
+	if err := r.persistDataSourceHealthLog(result, checkedAt); err != nil {
+		return model.DataSourceHealthCheck{}, err
 	}
 
-	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		result.Message = "invalid endpoint"
-		return result, nil
+	if result.Status == "UNHEALTHY" {
+		consecutiveFailures, err := r.countConsecutiveDataSourceFailures(item.SourceKey, 50)
+		if err != nil {
+			return model.DataSourceHealthCheck{}, err
+		}
+		result.ConsecutiveFailures = consecutiveFailures
+		threshold := parseDataSourceFailThreshold(item.Config)
+		result.AlertTriggered = consecutiveFailures >= threshold
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		result.Message = "unsupported endpoint scheme"
-		return result, nil
-	}
-
-	client := &http.Client{Timeout: 3 * time.Second}
-	start := time.Now()
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		result.Message = err.Error()
-		return result, nil
-	}
-	resp, err := client.Do(req)
-	result.LatencyMS = time.Since(start).Milliseconds()
-	if err != nil {
-		result.Status = "UNHEALTHY"
-		result.Reachable = false
-		result.Message = err.Error()
-		return result, nil
-	}
-	defer resp.Body.Close()
-	result.Reachable = true
-	result.HTTPStatus = resp.StatusCode
-	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-		result.Status = "HEALTHY"
-		result.Message = "ok"
-		return result, nil
-	}
-	result.Status = "UNHEALTHY"
-	result.Message = resp.Status
 	return result, nil
+}
+
+func (r *MySQLGrowthRepo) AdminBatchCheckDataSourceHealth(sourceKeys []string) ([]model.DataSourceHealthCheck, error) {
+	targets := make([]string, 0)
+	seen := make(map[string]struct{})
+	if len(sourceKeys) == 0 {
+		rows, err := r.db.Query(`
+SELECT config_key
+FROM system_configs
+WHERE config_key LIKE 'data_source.%'
+ORDER BY updated_at DESC`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var configKey string
+			if err := rows.Scan(&configKey); err != nil {
+				return nil, err
+			}
+			sourceKey := strings.TrimSpace(strings.TrimPrefix(configKey, "data_source."))
+			if sourceKey == "" {
+				continue
+			}
+			if _, ok := seen[sourceKey]; ok {
+				continue
+			}
+			seen[sourceKey] = struct{}{}
+			targets = append(targets, sourceKey)
+		}
+	} else {
+		for _, sourceKey := range sourceKeys {
+			trimmed := strings.TrimSpace(sourceKey)
+			if trimmed == "" {
+				continue
+			}
+			if _, ok := seen[trimmed]; ok {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			targets = append(targets, trimmed)
+		}
+	}
+
+	items := make([]model.DataSourceHealthCheck, 0, len(targets))
+	for _, sourceKey := range targets {
+		item, err := r.AdminCheckDataSourceHealth(sourceKey)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				items = append(items, model.DataSourceHealthCheck{
+					SourceKey: sourceKey,
+					Status:    "UNKNOWN",
+					Message:   "data source not found",
+					CheckedAt: time.Now().Format(time.RFC3339),
+				})
+				continue
+			}
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (r *MySQLGrowthRepo) AdminListDataSourceHealthLogs(sourceKey string, page int, pageSize int) ([]model.DataSourceHealthLog, int, error) {
+	sourceKey = strings.TrimSpace(sourceKey)
+	if sourceKey == "" {
+		return nil, 0, sql.ErrNoRows
+	}
+	if _, err := r.getDataSourceBySourceKey(sourceKey); err != nil {
+		return nil, 0, err
+	}
+	offset := (page - 1) * pageSize
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM data_source_health_logs WHERE source_key = ?", sourceKey).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.Query(`
+SELECT id, source_key, status, reachable, http_status, latency_ms, message, checked_at
+FROM data_source_health_logs
+WHERE source_key = ?
+ORDER BY checked_at DESC, id DESC
+LIMIT ? OFFSET ?`, sourceKey, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items := make([]model.DataSourceHealthLog, 0)
+	for rows.Next() {
+		var item model.DataSourceHealthLog
+		var reachableInt int
+		var httpStatus sql.NullInt64
+		var message sql.NullString
+		var checkedAt time.Time
+		if err := rows.Scan(&item.ID, &item.SourceKey, &item.Status, &reachableInt, &httpStatus, &item.LatencyMS, &message, &checkedAt); err != nil {
+			return nil, 0, err
+		}
+		item.Reachable = reachableInt == 1
+		if httpStatus.Valid {
+			item.HTTPStatus = int(httpStatus.Int64)
+		}
+		if message.Valid {
+			item.Message = message.String
+		}
+		item.CheckedAt = checkedAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, nil
 }
 
 func (r *MySQLGrowthRepo) getDataSourceBySourceKey(sourceKey string) (model.DataSource, error) {
@@ -2817,6 +2936,94 @@ LIMIT 1`, configKey).Scan(&id, &configValue, &desc, &updatedAt)
 		}
 	}
 	return item, nil
+}
+
+func (r *MySQLGrowthRepo) persistDataSourceHealthLog(item model.DataSourceHealthCheck, checkedAt time.Time) error {
+	reachable := 0
+	if item.Reachable {
+		reachable = 1
+	}
+	httpStatus := interface{}(nil)
+	if item.HTTPStatus > 0 {
+		httpStatus = item.HTTPStatus
+	}
+	_, err := r.db.Exec(`
+INSERT INTO data_source_health_logs (id, source_key, status, reachable, http_status, latency_ms, message, checked_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		newID("dshl"),
+		item.SourceKey,
+		item.Status,
+		reachable,
+		httpStatus,
+		item.LatencyMS,
+		item.Message,
+		checkedAt,
+	)
+	return err
+}
+
+func (r *MySQLGrowthRepo) countConsecutiveDataSourceFailures(sourceKey string, limit int) (int, error) {
+	rows, err := r.db.Query(`
+SELECT status
+FROM data_source_health_logs
+WHERE source_key = ?
+ORDER BY checked_at DESC, id DESC
+LIMIT ?`, sourceKey, limit)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var status string
+		if err := rows.Scan(&status); err != nil {
+			return 0, err
+		}
+		if strings.ToUpper(strings.TrimSpace(status)) != "UNHEALTHY" {
+			break
+		}
+		count++
+	}
+	return count, nil
+}
+
+func parseDataSourceFailThreshold(config map[string]interface{}) int {
+	const defaultThreshold = 3
+	if config == nil {
+		return defaultThreshold
+	}
+	raw, ok := config["fail_threshold"]
+	if !ok {
+		return defaultThreshold
+	}
+	switch value := raw.(type) {
+	case int:
+		if value > 0 {
+			return value
+		}
+	case int32:
+		if value > 0 {
+			return int(value)
+		}
+	case int64:
+		if value > 0 {
+			return int(value)
+		}
+	case float32:
+		if value > 0 {
+			return int(value)
+		}
+	case float64:
+		if value > 0 {
+			return int(value)
+		}
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(value))
+		if err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return defaultThreshold
 }
 
 func (r *MySQLGrowthRepo) AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error) {

@@ -103,6 +103,10 @@ type DataSourceUpdateRequest struct {
 	Config     map[string]interface{} `json:"config"`
 }
 
+type DataSourceBatchHealthCheckRequest struct {
+	SourceKeys []string `json:"source_keys"`
+}
+
 type StockRecommendationRequest struct {
 	Symbol        string  `json:"symbol" binding:"required"`
 	Name          string  `json:"name" binding:"required"`

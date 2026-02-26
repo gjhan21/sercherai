@@ -681,13 +681,66 @@ func (r *InMemoryGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model
 		return model.DataSourceHealthCheck{}, sql.ErrNoRows
 	}
 	return model.DataSourceHealthCheck{
-		SourceKey: sourceKey,
-		Status:    "HEALTHY",
-		Reachable: true,
-		LatencyMS: 8,
-		Message:   "ok",
-		CheckedAt: time.Now().Format(time.RFC3339),
+		SourceKey:           sourceKey,
+		Status:              "HEALTHY",
+		Reachable:           true,
+		LatencyMS:           8,
+		Message:             "ok",
+		ConsecutiveFailures: 0,
+		AlertTriggered:      false,
+		CheckedAt:           time.Now().Format(time.RFC3339),
 	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminBatchCheckDataSourceHealth(sourceKeys []string) ([]model.DataSourceHealthCheck, error) {
+	targets := make([]string, 0)
+	if len(sourceKeys) == 0 {
+		targets = append(targets, "wind")
+	} else {
+		for _, key := range sourceKeys {
+			trimmed := strings.TrimSpace(key)
+			if trimmed != "" {
+				targets = append(targets, trimmed)
+			}
+		}
+	}
+	items := make([]model.DataSourceHealthCheck, 0, len(targets))
+	for _, key := range targets {
+		item, err := r.AdminCheckDataSourceHealth(key)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				items = append(items, model.DataSourceHealthCheck{
+					SourceKey: key,
+					Status:    "UNKNOWN",
+					Message:   "data source not found",
+					CheckedAt: time.Now().Format(time.RFC3339),
+				})
+				continue
+			}
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminListDataSourceHealthLogs(sourceKey string, page int, pageSize int) ([]model.DataSourceHealthLog, int, error) {
+	if strings.TrimSpace(sourceKey) == "" || (sourceKey != "wind" && sourceKey != "ds_new_001") {
+		return nil, 0, sql.ErrNoRows
+	}
+	items := []model.DataSourceHealthLog{
+		{
+			ID:         "dshl_001",
+			SourceKey:  sourceKey,
+			Status:     "HEALTHY",
+			Reachable:  true,
+			HTTPStatus: 200,
+			LatencyMS:  8,
+			Message:    "ok",
+			CheckedAt:  time.Now().Add(-2 * time.Minute).Format(time.RFC3339),
+		},
+	}
+	return items, len(items), nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error) {
