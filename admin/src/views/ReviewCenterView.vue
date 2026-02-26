@@ -35,6 +35,8 @@ const exportingFiltered = ref(false);
 const batchResultVisible = ref(false);
 const batchResultTitle = ref("");
 const batchResultRows = ref([]);
+const batchResultFilter = ref("all");
+const copyingFailedDetails = ref(false);
 const timerRefs = {
   clock: null,
   refresh: null
@@ -151,6 +153,38 @@ const selectedBlockedCount = computed(() => Math.max(0, selectedPendingCount.val
 const failedBatchRows = computed(() => batchResultRows.value.filter((row) => row.result === "FAILED"));
 const canBatchAssign = computed(() => selectedPendingCount.value > 0 && batchReviewerID.value.trim() !== "");
 const canBatchApprove = computed(() => selectedEligibleDecisionRows.value.length > 0);
+const batchResultStats = computed(() => {
+  const stats = {
+    total: batchResultRows.value.length,
+    success: 0,
+    failed: 0,
+    skipped: 0
+  };
+  batchResultRows.value.forEach((row) => {
+    const result = (row.result || "").toUpperCase();
+    if (result === "SUCCESS") {
+      stats.success += 1;
+      return;
+    }
+    if (result === "FAILED") {
+      stats.failed += 1;
+      return;
+    }
+    if (result === "SKIPPED") {
+      stats.skipped += 1;
+    }
+  });
+  return stats;
+});
+const displayBatchResultRows = computed(() => {
+  if (batchResultFilter.value === "failed") {
+    return batchResultRows.value.filter((row) => row.result === "FAILED");
+  }
+  if (batchResultFilter.value === "skipped") {
+    return batchResultRows.value.filter((row) => row.result === "SKIPPED");
+  }
+  return batchResultRows.value;
+});
 
 function clearSelection() {
   selectedRows.value = [];
@@ -198,7 +232,52 @@ function normalizeErrorMessage(error, fallback) {
 function openBatchResultDialog(title, rows) {
   batchResultTitle.value = title;
   batchResultRows.value = rows;
+  batchResultFilter.value = "all";
   batchResultVisible.value = true;
+}
+
+function buildFailedDetailsText() {
+  return failedBatchRows.value
+    .map((row) => {
+      return [
+        `任务ID=${row.id || "-"}`,
+        `动作=${row.action || "-"}`,
+        `结果=${row.result || "-"}`,
+        `原因=${row.reason || "-"}`
+      ].join(" | ");
+    })
+    .join("\n");
+}
+
+async function copyFailedDetails() {
+  if (failedBatchRows.value.length <= 0) {
+    return;
+  }
+  const text = buildFailedDetailsText();
+  if (!text) {
+    return;
+  }
+  copyingFailedDetails.value = true;
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+    message.value = `已复制失败明细，共 ${failedBatchRows.value.length} 条`;
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "复制失败明细失败");
+  } finally {
+    copyingFailedDetails.value = false;
+  }
 }
 
 function csvEscape(value) {
@@ -1186,9 +1265,26 @@ onBeforeUnmount(() => {
 
     <el-dialog v-model="batchResultVisible" :title="batchResultTitle" width="760px" destroy-on-close>
       <div class="batch-result-summary">
-        <el-text type="info">总计 {{ batchResultRows.length }} 条，失败 {{ failedBatchRows.length }} 条</el-text>
+        <el-tag type="success">成功 {{ batchResultStats.success }}</el-tag>
+        <el-tag type="danger">失败 {{ batchResultStats.failed }}</el-tag>
+        <el-tag type="warning">跳过 {{ batchResultStats.skipped }}</el-tag>
+        <el-text type="info">总计 {{ batchResultStats.total }} 条</el-text>
       </div>
-      <el-table :data="batchResultRows" border stripe max-height="360">
+      <div class="batch-result-toolbar">
+        <el-select v-model="batchResultFilter" style="width: 180px">
+          <el-option label="查看全部结果" value="all" />
+          <el-option label="仅看失败" value="failed" />
+          <el-option label="仅看跳过" value="skipped" />
+        </el-select>
+        <el-button
+          :disabled="failedBatchRows.length <= 0"
+          :loading="copyingFailedDetails"
+          @click="copyFailedDetails"
+        >
+          复制失败明细
+        </el-button>
+      </div>
+      <el-table :data="displayBatchResultRows" border stripe max-height="360" empty-text="当前筛选条件下暂无结果">
         <el-table-column prop="id" label="任务ID" min-width="130" />
         <el-table-column prop="action" label="动作" min-width="100" />
         <el-table-column label="结果" min-width="110">
@@ -1369,6 +1465,18 @@ onBeforeUnmount(() => {
 
 .batch-result-summary {
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.batch-result-toolbar {
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .drawer-title {
