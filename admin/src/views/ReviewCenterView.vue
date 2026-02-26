@@ -7,6 +7,7 @@ import {
   reviewTaskDecision,
   submitReviewTask
 } from "../api/admin";
+import { getSession } from "../lib/session";
 
 const loading = ref(false);
 const metricsLoading = ref(false);
@@ -19,6 +20,8 @@ const page = ref(1);
 const pageSize = ref(20);
 const total = ref(0);
 const tasks = ref([]);
+
+const currentUserID = ref(getSession()?.userID || "");
 
 const filters = reactive({
   module: "",
@@ -42,26 +45,20 @@ const submitForm = reactive({
   submit_note: ""
 });
 
+const detailVisible = ref(false);
+const currentTask = ref(null);
+const detailAssigning = ref(false);
+const detailDeciding = ref(false);
+const quickActionKey = ref("");
+
+const detailForm = reactive({
+  reviewer_id: "",
+  decision_status: "APPROVED",
+  decision_note: ""
+});
+
 const moduleOptions = ["NEWS", "STOCK", "FUTURES"];
 const decisionOptions = ["APPROVED", "REJECTED"];
-
-const assignDraftMap = ref({});
-const decisionStatusMap = ref({});
-const decisionNoteMap = ref({});
-
-function syncDrafts() {
-  const assignMap = {};
-  const statusMap = {};
-  const noteMap = {};
-  tasks.value.forEach((task) => {
-    assignMap[task.id] = task.reviewer_id || "";
-    statusMap[task.id] = "APPROVED";
-    noteMap[task.id] = "";
-  });
-  assignDraftMap.value = assignMap;
-  decisionStatusMap.value = statusMap;
-  decisionNoteMap.value = noteMap;
-}
 
 async function fetchMetrics() {
   metricsLoading.value = true;
@@ -81,6 +78,16 @@ async function fetchMetrics() {
   }
 }
 
+function syncCurrentTask() {
+  if (!currentTask.value?.id) {
+    return;
+  }
+  const found = tasks.value.find((task) => task.id === currentTask.value.id);
+  if (found) {
+    currentTask.value = found;
+  }
+}
+
 async function fetchTasks() {
   loading.value = true;
   errorMessage.value = "";
@@ -96,7 +103,7 @@ async function fetchTasks() {
     });
     tasks.value = data.items || [];
     total.value = data.total || 0;
-    syncDrafts();
+    syncCurrentTask();
   } catch (error) {
     errorMessage.value = error.message || "加载审核任务失败";
   } finally {
@@ -135,39 +142,112 @@ async function handleSubmitReview() {
   }
 }
 
-async function handleAssign(task) {
-  const reviewerID = (assignDraftMap.value[task.id] || "").trim();
-  if (!reviewerID) {
-    errorMessage.value = "reviewer_id 不能为空";
-    return;
-  }
-  errorMessage.value = "";
-  message.value = "";
-  try {
-    await assignReviewTask(task.id, reviewerID);
-    message.value = `任务 ${task.id} 已分配给 ${reviewerID}`;
-    await refreshAll();
-  } catch (error) {
-    errorMessage.value = error.message || "分配审核任务失败";
-  }
+function openTaskDetail(task) {
+  currentTask.value = { ...task };
+  detailForm.reviewer_id = task.reviewer_id || "";
+  detailForm.decision_status = "APPROVED";
+  detailForm.decision_note = task.review_note || "";
+  detailVisible.value = true;
 }
 
-async function handleDecision(task) {
-  const status = (decisionStatusMap.value[task.id] || "").trim();
-  const note = (decisionNoteMap.value[task.id] || "").trim();
+function canQuickDecision(task) {
+  if ((task.status || "").toUpperCase() !== "PENDING") {
+    return false;
+  }
+  const reviewerID = (task.reviewer_id || "").trim();
+  if (!reviewerID) {
+    return true;
+  }
+  return reviewerID === currentUserID.value;
+}
+
+function isQuickActionLoading(task, status) {
+  return quickActionKey.value === `${task.id}:${status}`;
+}
+
+async function handleQuickDecision(task, status) {
+  if (!canQuickDecision(task)) {
+    errorMessage.value = "任务已分配给其他审核员，请先在详情中重新分配";
+    return;
+  }
   if (!decisionOptions.includes(status)) {
     errorMessage.value = "审核结果必须为 APPROVED 或 REJECTED";
     return;
   }
   errorMessage.value = "";
   message.value = "";
+  quickActionKey.value = `${task.id}:${status}`;
   try {
+    const note = status === "REJECTED" ? "快速驳回" : "";
     await reviewTaskDecision(task.id, status, note);
-    message.value = `任务 ${task.id} 已 ${status}`;
+    message.value = `任务 ${task.id} 已${status === "APPROVED" ? "快速通过" : "快速驳回"}`;
+    await refreshAll();
+  } catch (error) {
+    errorMessage.value = error.message || "快捷审批失败";
+  } finally {
+    quickActionKey.value = "";
+  }
+}
+
+async function handleDetailAssign() {
+  if (!currentTask.value?.id) {
+    return;
+  }
+  const reviewerID = detailForm.reviewer_id.trim();
+  if (!reviewerID) {
+    errorMessage.value = "reviewer_id 不能为空";
+    return;
+  }
+  errorMessage.value = "";
+  message.value = "";
+  detailAssigning.value = true;
+  try {
+    await assignReviewTask(currentTask.value.id, reviewerID);
+    message.value = `任务 ${currentTask.value.id} 已分配给 ${reviewerID}`;
+    await refreshAll();
+    if (currentTask.value) {
+      currentTask.value.reviewer_id = reviewerID;
+    }
+  } catch (error) {
+    errorMessage.value = error.message || "分配审核任务失败";
+  } finally {
+    detailAssigning.value = false;
+  }
+}
+
+async function handleDetailDecision() {
+  if (!currentTask.value?.id) {
+    return;
+  }
+  const status = (detailForm.decision_status || "").trim();
+  const note = (detailForm.decision_note || "").trim();
+  if (!decisionOptions.includes(status)) {
+    errorMessage.value = "审核结果必须为 APPROVED 或 REJECTED";
+    return;
+  }
+  errorMessage.value = "";
+  message.value = "";
+  detailDeciding.value = true;
+  try {
+    await reviewTaskDecision(currentTask.value.id, status, note);
+    message.value = `任务 ${currentTask.value.id} 已 ${status}`;
     await refreshAll();
   } catch (error) {
     errorMessage.value = error.message || "提交审核结论失败";
+  } finally {
+    detailDeciding.value = false;
   }
+}
+
+function reviewerHint(task) {
+  const reviewerID = (task.reviewer_id || "").trim();
+  if (!reviewerID) {
+    return "未分配审核员";
+  }
+  if (reviewerID === currentUserID.value) {
+    return "当前任务分配给你";
+  }
+  return `当前任务分配给 ${reviewerID}`;
 }
 
 function applyFilters() {
@@ -210,7 +290,10 @@ onMounted(refreshAll);
         <h1 class="page-title">审核中心</h1>
         <p class="muted">提交审核、分配审核员、处理通过/驳回</p>
       </div>
-      <el-button :loading="loading || metricsLoading" @click="refreshAll">刷新</el-button>
+      <div class="toolbar" style="margin-bottom: 0">
+        <el-tag type="info">当前管理员：{{ currentUserID || "-" }}</el-tag>
+        <el-button :loading="loading || metricsLoading" @click="refreshAll">刷新</el-button>
+      </div>
     </div>
 
     <el-alert
@@ -323,21 +406,41 @@ onMounted(refreshAll);
             {{ row.reviewed_at || "-" }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" align="right" min-width="330">
+        <el-table-column label="操作" align="right" min-width="360">
           <template #default="{ row }">
-            <div v-if="row.status === 'PENDING'" class="operation-block">
-              <div class="inline-actions">
-                <el-input v-model="assignDraftMap[row.id]" size="small" placeholder="reviewer_id" style="width: 130px" />
-                <el-button size="small" @click="handleAssign(row)">分配</el-button>
-              </div>
-              <div class="inline-actions">
-                <el-select v-model="decisionStatusMap[row.id]" size="small" style="width: 125px">
-                  <el-option label="APPROVED" value="APPROVED" />
-                  <el-option label="REJECTED" value="REJECTED" />
-                </el-select>
-                <el-input v-model="decisionNoteMap[row.id]" size="small" placeholder="review_note" style="width: 150px" />
-                <el-button size="small" type="primary" @click="handleDecision(row)">提交结论</el-button>
-              </div>
+            <div class="operation-inline">
+              <el-button size="small" @click="openTaskDetail(row)">详情</el-button>
+              <el-button
+                v-if="row.status === 'PENDING'"
+                size="small"
+                type="success"
+                plain
+                :disabled="!canQuickDecision(row)"
+                :loading="isQuickActionLoading(row, 'APPROVED')"
+                @click="handleQuickDecision(row, 'APPROVED')"
+              >
+                快速通过
+              </el-button>
+              <el-popconfirm
+                v-if="row.status === 'PENDING'"
+                title="确认快速驳回该任务？"
+                @confirm="handleQuickDecision(row, 'REJECTED')"
+              >
+                <template #reference>
+                  <el-button
+                    size="small"
+                    type="danger"
+                    plain
+                    :disabled="!canQuickDecision(row)"
+                    :loading="isQuickActionLoading(row, 'REJECTED')"
+                  >
+                    快速驳回
+                  </el-button>
+                </template>
+              </el-popconfirm>
+            </div>
+            <div v-if="row.status === 'PENDING'" class="reviewer-hint">
+              {{ reviewerHint(row) }}
             </div>
             <el-text v-else type="info">已完成</el-text>
           </template>
@@ -356,6 +459,70 @@ onMounted(refreshAll);
         />
       </div>
     </div>
+
+    <el-drawer v-model="detailVisible" size="560px" destroy-on-close>
+      <template #header>
+        <div class="drawer-title">审核任务详情</div>
+      </template>
+
+      <template v-if="currentTask">
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item label="任务ID">{{ currentTask.id }}</el-descriptions-item>
+          <el-descriptions-item label="模块">{{ currentTask.module }}</el-descriptions-item>
+          <el-descriptions-item label="目标ID">{{ currentTask.target_id }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag :type="statusTagType(currentTask.status)">{{ currentTask.status }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="提交人">{{ currentTask.submitter_id || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="审核人">{{ currentTask.reviewer_id || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="提交备注">{{ currentTask.submit_note || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="审核备注">{{ currentTask.review_note || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="提交时间">{{ currentTask.submitted_at || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="审核时间">{{ currentTask.reviewed_at || "-" }}</el-descriptions-item>
+        </el-descriptions>
+
+        <template v-if="currentTask.status === 'PENDING'">
+          <div class="detail-section">
+            <div class="detail-section-title">分配审核员</div>
+            <div class="inline-actions inline-actions--left">
+              <el-input v-model="detailForm.reviewer_id" placeholder="reviewer_id" style="width: 220px" />
+              <el-button :loading="detailAssigning" @click="handleDetailAssign">保存分配</el-button>
+            </div>
+          </div>
+
+          <div class="detail-section">
+            <div class="detail-section-title">提交审核结论</div>
+            <el-form label-width="88px">
+              <el-form-item label="结论">
+                <el-radio-group v-model="detailForm.decision_status">
+                  <el-radio-button label="APPROVED">APPROVED</el-radio-button>
+                  <el-radio-button label="REJECTED">REJECTED</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <el-form-item label="备注">
+                <el-input
+                  v-model="detailForm.decision_note"
+                  type="textarea"
+                  :rows="4"
+                  resize="vertical"
+                  placeholder="可选，建议填写审核说明"
+                />
+              </el-form-item>
+            </el-form>
+            <el-button type="primary" :loading="detailDeciding" @click="handleDetailDecision">提交结论</el-button>
+          </div>
+        </template>
+
+        <el-alert
+          v-else
+          title="该任务已完成，不能再次分配或审批。"
+          type="info"
+          :closable="false"
+          show-icon
+          style="margin-top: 14px"
+        />
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -390,10 +557,36 @@ onMounted(refreshAll);
   margin-bottom: 10px;
 }
 
-.operation-block {
+.operation-inline {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reviewer-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.detail-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.detail-section-title {
+  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.drawer-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
 }
 
 .inline-actions {
@@ -401,6 +594,10 @@ onMounted(refreshAll);
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.inline-actions--left {
+  justify-content: flex-start;
 }
 
 .dialog-grid {
