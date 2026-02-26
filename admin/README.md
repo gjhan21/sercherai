@@ -1,6 +1,6 @@
 # SercherAI Admin
 
-管理端前端（Vue 3 + Vite）首版，已接入以下后端模块：
+管理端前端（Vue 3 + Vite + Element Plus）首版，已接入以下后端模块：
 
 - 登录鉴权（`/api/v1/auth/login`、`/api/v1/auth/mock-login`）
 - 仪表盘（`/api/v1/admin/dashboard/overview`）

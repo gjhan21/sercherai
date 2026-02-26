@@ -17,9 +17,7 @@ const menus = [
   { name: "workflow-messages", label: "流程消息", to: "/workflow-messages" }
 ];
 
-function isActive(menu) {
-  return route.name === menu.name;
-}
+const activeMenu = computed(() => route.path);
 
 function logout() {
   clearSession();
@@ -28,118 +26,93 @@ function logout() {
 </script>
 
 <template>
-  <div class="layout">
-    <aside class="sider">
+  <el-container class="layout-shell">
+    <el-aside class="layout-aside" width="230px">
       <div class="brand">SercherAI Admin</div>
-      <nav class="menu">
-        <router-link
-          v-for="menu in menus"
-          :key="menu.name"
-          :to="menu.to"
-          class="menu-item"
-          :class="{ 'menu-item-active': isActive(menu) }"
-        >
-          {{ menu.label }}
-        </router-link>
-      </nav>
-    </aside>
+      <el-scrollbar class="menu-scroll">
+        <el-menu :default-active="activeMenu" router class="side-menu">
+          <el-menu-item v-for="menu in menus" :key="menu.name" :index="menu.to">
+            {{ menu.label }}
+          </el-menu-item>
+        </el-menu>
+      </el-scrollbar>
+    </el-aside>
 
-    <div class="main">
-      <header class="topbar">
-        <div class="topbar-title">管理后台</div>
-        <div class="topbar-user">
-          <span class="muted">当前用户：{{ session?.userID || "-" }}</span>
-          <span class="status-tag status-active">{{ session?.role || "ADMIN" }}</span>
-          <button class="btn" @click="logout">退出登录</button>
+    <el-container>
+      <el-header class="layout-header">
+        <div class="header-title">管理后台</div>
+        <div class="header-actions">
+          <el-text type="info">当前用户：{{ session?.userID || "-" }}</el-text>
+          <el-tag type="success">{{ session?.role || "ADMIN" }}</el-tag>
+          <el-button plain @click="logout">退出登录</el-button>
         </div>
-      </header>
-      <router-view />
-    </div>
-  </div>
+      </el-header>
+
+      <el-main class="layout-main">
+        <router-view />
+      </el-main>
+    </el-container>
+  </el-container>
 </template>
 
 <style scoped>
-.layout {
+.layout-shell {
   min-height: 100vh;
-  display: grid;
-  grid-template-columns: 220px 1fr;
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
 }
 
-.sider {
-  background: #111827;
-  color: #f3f4f6;
-  border-right: 1px solid #1f2937;
-  padding: 12px;
+.layout-aside {
+  border-right: 1px solid #e4e7ed;
+  background: #ffffff;
+  box-shadow: 0 0 24px rgba(15, 23, 42, 0.06);
 }
 
 .brand {
-  font-size: 18px;
+  padding: 16px 16px 10px;
+  font-size: 19px;
   font-weight: 700;
-  padding: 10px 10px 14px;
+  letter-spacing: 0.2px;
+  color: #1f2937;
 }
 
-.menu {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.menu-scroll {
+  height: calc(100vh - 54px);
 }
 
-.menu-item {
-  border-radius: 8px;
-  padding: 10px;
-  color: #d1d5db;
-  font-size: 14px;
+.side-menu {
+  border-right: none;
 }
 
-.menu-item:hover {
-  background: #1f2937;
-  color: #f9fafb;
-}
-
-.menu-item-active {
-  background: #2563eb;
-  color: #fff;
-}
-
-.main {
-  min-width: 0;
-}
-
-.topbar {
+.layout-header {
   height: 56px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #fff;
-  padding: 0 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  padding: 0 18px;
 }
 
-.topbar-title {
+.header-title {
   font-size: 16px;
   font-weight: 600;
+  color: #111827;
 }
 
-.topbar-user {
+.header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
-@media (max-width: 900px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
+.layout-main {
+  padding: 0;
+}
 
-  .sider {
-    border-right: 0;
-    border-bottom: 1px solid #1f2937;
-  }
-
-  .menu {
-    flex-direction: row;
-    flex-wrap: wrap;
+@media (max-width: 960px) {
+  .layout-aside {
+    display: none;
   }
 }
 </style>

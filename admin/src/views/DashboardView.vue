@@ -59,20 +59,46 @@ onMounted(fetchOverview);
         <h1 class="page-title">仪表盘</h1>
         <p class="muted">后端概览指标与流程消息状态</p>
       </div>
-      <button class="btn btn-primary" :disabled="loading" @click="fetchOverview">
-        {{ loading ? "刷新中..." : "刷新" }}
-      </button>
+      <el-button type="primary" :loading="loading" @click="fetchOverview">刷新</el-button>
     </div>
 
-    <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
+    <el-alert
+      v-if="errorMessage"
+      :title="errorMessage"
+      type="error"
+      show-icon
+      style="margin-bottom: 12px"
+    />
 
-    <div class="grid grid-4">
-      <div v-for="item in cards" :key="item.label" class="metric-card">
-        <div class="label">{{ item.label }}</div>
-        <div class="value">{{ item.value ?? 0 }}</div>
-      </div>
-    </div>
+    <el-row :gutter="12">
+      <el-col
+        v-for="item in cards"
+        :key="item.label"
+        :xs="24"
+        :sm="12"
+        :md="8"
+        :lg="6"
+        style="margin-bottom: 12px"
+      >
+        <el-card shadow="hover" class="dashboard-card">
+          <div class="label">{{ item.label }}</div>
+          <el-statistic :value="item.value ?? 0" />
+        </el-card>
+      </el-col>
+    </el-row>
 
-    <p class="hint">最后刷新时间：{{ updatedAt || "-" }}</p>
+    <el-text type="info">最后刷新时间：{{ updatedAt || "-" }}</el-text>
   </div>
 </template>
+
+<style scoped>
+.dashboard-card {
+  border-radius: 12px;
+}
+
+.label {
+  margin-bottom: 4px;
+  color: #64748b;
+  font-size: 13px;
+}
+</style>
