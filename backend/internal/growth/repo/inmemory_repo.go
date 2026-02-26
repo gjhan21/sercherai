@@ -686,6 +686,8 @@ func (r *InMemoryGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model
 		Reachable:           true,
 		LatencyMS:           8,
 		Message:             "ok",
+		Attempts:            1,
+		MaxAttempts:         1,
 		ConsecutiveFailures: 0,
 		AlertTriggered:      false,
 		CheckedAt:           time.Now().Format(time.RFC3339),

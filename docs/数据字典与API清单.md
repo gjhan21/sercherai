@@ -402,6 +402,8 @@
 - `POST /api/v1/admin/data-sources/{source_key}/health-check`
 - `GET /api/v1/admin/data-sources/{source_key}/health-logs`
 - `POST /api/v1/admin/data-sources/health-checks`
+- 健康检查支持配置 `retry_times`、`retry_interval_ms`、`health_timeout_ms`、`fail_threshold`、`alert_receiver_id`
+- 连续失败达到阈值写入 `workflow_messages(event_type=DATA_SOURCE_UNHEALTHY)`，恢复后写入 `workflow_messages(event_type=DATA_SOURCE_RECOVERED)`
 - `POST /api/v1/admin/news/categories`
 - `PUT /api/v1/admin/news/categories/{id}`
 - `POST /api/v1/admin/news/articles`

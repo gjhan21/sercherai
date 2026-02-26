@@ -395,6 +395,9 @@ type DataSourceHealthCheck struct {
 	HTTPStatus          int    `json:"http_status,omitempty"`
 	LatencyMS           int64  `json:"latency_ms"`
 	Message             string `json:"message,omitempty"`
+	FailureCategory     string `json:"failure_category,omitempty"`
+	Attempts            int    `json:"attempts,omitempty"`
+	MaxAttempts         int    `json:"max_attempts,omitempty"`
 	ConsecutiveFailures int    `json:"consecutive_failures,omitempty"`
 	AlertTriggered      bool   `json:"alert_triggered"`
 	CheckedAt           string `json:"checked_at"`

@@ -617,3 +617,20 @@ POST /user/reward-wallet/withdraw
 - `PUT /admin/risk/hits/{id}/review`
 - `GET /admin/reward-wallet/withdraw-requests`
 - `PUT /admin/reward-wallet/withdraw-requests/{id}/review`
+
+**11.1 数据源健康检查增强说明**
+- `POST /admin/data-sources/{source_key}/health-check` 与 `POST /admin/data-sources/health-checks` 返回字段增加：
+  - `failure_category`：失败类型（如 `TIMEOUT` / `NETWORK_ERROR` / `HTTP_ERROR` / `CONFIG_ERROR`）
+  - `attempts`：本次实际探测次数
+  - `max_attempts`：本次最大探测次数（`retry_times + 1`）
+  - `consecutive_failures`：当前连续失败次数
+  - `alert_triggered`：是否触发连续失败阈值告警
+- 数据源 `config` 支持以下健康检查策略字段：
+  - `fail_threshold`：连续失败阈值，默认 `3`
+  - `retry_times`：失败重试次数，默认 `0`，最大 `5`
+  - `retry_interval_ms`：重试间隔毫秒，默认 `200`
+  - `health_timeout_ms`：单次超时毫秒，默认 `3000`
+  - `alert_receiver_id`：告警接收管理员，默认 `admin_001`
+- 告警落库规则：
+  - 当连续失败次数首次达到阈值时，写入 `workflow_messages`，`event_type=DATA_SOURCE_UNHEALTHY`
+  - 当数据源状态从 `UNHEALTHY` 恢复为 `HEALTHY` 时，写入 `workflow_messages`，`event_type=DATA_SOURCE_RECOVERED`

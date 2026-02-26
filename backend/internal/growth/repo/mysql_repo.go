@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -2721,43 +2722,46 @@ func (r *MySQLGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model.Da
 		Status:    "UNKNOWN",
 		CheckedAt: checkedAt.Format(time.RFC3339),
 	}
+	previousStatus, err := r.getLatestDataSourceHealthStatus(item.SourceKey)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return model.DataSourceHealthCheck{}, err
+	}
 
 	if strings.ToUpper(strings.TrimSpace(item.Status)) != "ACTIVE" {
 		result.Message = "data source is disabled"
+		result.FailureCategory = "DISABLED"
 	} else {
-		endpoint := strings.TrimSpace(fmt.Sprintf("%v", item.Config["endpoint"]))
+		endpoint := parseDataSourceStringConfig(item.Config, "endpoint")
 		if endpoint == "" {
 			result.Message = "endpoint not configured"
+			result.FailureCategory = "CONFIG_ERROR"
 		} else {
 			parsed, parseErr := url.Parse(endpoint)
 			if parseErr != nil || parsed.Scheme == "" || parsed.Host == "" {
 				result.Message = "invalid endpoint"
+				result.FailureCategory = "CONFIG_ERROR"
 			} else if parsed.Scheme != "http" && parsed.Scheme != "https" {
 				result.Message = "unsupported endpoint scheme"
+				result.FailureCategory = "CONFIG_ERROR"
 			} else {
-				client := &http.Client{Timeout: 3 * time.Second}
-				start := time.Now()
-				req, reqErr := http.NewRequest(http.MethodGet, endpoint, nil)
-				if reqErr != nil {
-					result.Message = reqErr.Error()
-				} else {
-					resp, callErr := client.Do(req)
-					result.LatencyMS = time.Since(start).Milliseconds()
-					if callErr != nil {
-						result.Status = "UNHEALTHY"
-						result.Reachable = false
-						result.Message = callErr.Error()
-					} else {
-						defer resp.Body.Close()
-						result.Reachable = true
-						result.HTTPStatus = resp.StatusCode
-						if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-							result.Status = "HEALTHY"
-							result.Message = "ok"
-						} else {
-							result.Status = "UNHEALTHY"
-							result.Message = resp.Status
-						}
+				timeoutMS := parseDataSourceTimeoutMS(item.Config)
+				retryTimes := parseDataSourceRetryTimes(item.Config)
+				retryIntervalMS := parseDataSourceRetryIntervalMS(item.Config)
+				result.MaxAttempts = retryTimes + 1
+				for attempt := 1; attempt <= result.MaxAttempts; attempt++ {
+					result.Attempts = attempt
+					attemptResult := performDataSourceHealthCheckAttempt(endpoint, timeoutMS)
+					result.Status = attemptResult.Status
+					result.Reachable = attemptResult.Reachable
+					result.HTTPStatus = attemptResult.HTTPStatus
+					result.LatencyMS = attemptResult.LatencyMS
+					result.Message = attemptResult.Message
+					result.FailureCategory = attemptResult.FailureCategory
+					if result.Status == "HEALTHY" || result.Status == "UNKNOWN" {
+						break
+					}
+					if attempt < result.MaxAttempts && retryIntervalMS > 0 {
+						time.Sleep(time.Duration(retryIntervalMS) * time.Millisecond)
 					}
 				}
 			}
@@ -2776,6 +2780,12 @@ func (r *MySQLGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model.Da
 		result.ConsecutiveFailures = consecutiveFailures
 		threshold := parseDataSourceFailThreshold(item.Config)
 		result.AlertTriggered = consecutiveFailures >= threshold
+		if result.AlertTriggered && consecutiveFailures == threshold {
+			r.createDataSourceHealthWorkflowMessage(item, result, "UNHEALTHY")
+		}
+	}
+	if result.Status == "HEALTHY" && previousStatus == "UNHEALTHY" {
+		r.createDataSourceHealthWorkflowMessage(item, result, "RECOVERED")
 	}
 	return result, nil
 }
@@ -2962,6 +2972,110 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 	return err
 }
 
+func (r *MySQLGrowthRepo) getLatestDataSourceHealthStatus(sourceKey string) (string, error) {
+	var status string
+	if err := r.db.QueryRow(`
+SELECT status
+FROM data_source_health_logs
+WHERE source_key = ?
+ORDER BY checked_at DESC, id DESC
+LIMIT 1`, sourceKey).Scan(&status); err != nil {
+		return "", err
+	}
+	return strings.ToUpper(strings.TrimSpace(status)), nil
+}
+
+func performDataSourceHealthCheckAttempt(endpoint string, timeoutMS int) model.DataSourceHealthCheck {
+	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+	start := time.Now()
+	req, reqErr := http.NewRequest(http.MethodGet, endpoint, nil)
+	if reqErr != nil {
+		return model.DataSourceHealthCheck{
+			Status:          "UNKNOWN",
+			Message:         reqErr.Error(),
+			FailureCategory: "REQUEST_ERROR",
+		}
+	}
+	resp, callErr := client.Do(req)
+	latency := time.Since(start).Milliseconds()
+	if callErr != nil {
+		return model.DataSourceHealthCheck{
+			Status:          "UNHEALTHY",
+			Reachable:       false,
+			LatencyMS:       latency,
+			Message:         callErr.Error(),
+			FailureCategory: classifyDataSourceRequestError(callErr),
+		}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		return model.DataSourceHealthCheck{
+			Status:     "HEALTHY",
+			Reachable:  true,
+			HTTPStatus: resp.StatusCode,
+			LatencyMS:  latency,
+			Message:    "ok",
+		}
+	}
+	return model.DataSourceHealthCheck{
+		Status:          "UNHEALTHY",
+		Reachable:       true,
+		HTTPStatus:      resp.StatusCode,
+		LatencyMS:       latency,
+		Message:         resp.Status,
+		FailureCategory: "HTTP_ERROR",
+	}
+}
+
+func classifyDataSourceRequestError(err error) string {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "TIMEOUT"
+	}
+	errorText := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(errorText, "connection refused"),
+		strings.Contains(errorText, "no such host"),
+		strings.Contains(errorText, "dial tcp"),
+		strings.Contains(errorText, "i/o timeout"):
+		return "NETWORK_ERROR"
+	default:
+		return "REQUEST_ERROR"
+	}
+}
+
+func (r *MySQLGrowthRepo) createDataSourceHealthWorkflowMessage(source model.DataSource, check model.DataSourceHealthCheck, event string) {
+	receiverID := parseDataSourceAlertReceiverID(source.Config)
+	if strings.TrimSpace(receiverID) == "" {
+		return
+	}
+	switch strings.ToUpper(strings.TrimSpace(event)) {
+	case "UNHEALTHY":
+		threshold := parseDataSourceFailThreshold(source.Config)
+		_ = r.AdminCreateWorkflowMessage(
+			"",
+			source.SourceKey,
+			"SYSTEM",
+			receiverID,
+			"system",
+			"DATA_SOURCE_UNHEALTHY",
+			"数据源健康告警",
+			fmt.Sprintf("数据源 %s 连续失败 %d 次（阈值 %d），最近状态：%s", source.SourceKey, check.ConsecutiveFailures, threshold, check.Message),
+		)
+	case "RECOVERED":
+		_ = r.AdminCreateWorkflowMessage(
+			"",
+			source.SourceKey,
+			"SYSTEM",
+			receiverID,
+			"system",
+			"DATA_SOURCE_RECOVERED",
+			"数据源恢复通知",
+			fmt.Sprintf("数据源 %s 已恢复，最近耗时 %dms", source.SourceKey, check.LatencyMS),
+		)
+	}
+}
+
 func (r *MySQLGrowthRepo) countConsecutiveDataSourceFailures(sourceKey string, limit int) (int, error) {
 	rows, err := r.db.Query(`
 SELECT status
@@ -2988,42 +3102,98 @@ LIMIT ?`, sourceKey, limit)
 }
 
 func parseDataSourceFailThreshold(config map[string]interface{}) int {
-	const defaultThreshold = 3
+	return parseDataSourceIntConfig(config, "fail_threshold", 3, 1, 20)
+}
+
+func parseDataSourceTimeoutMS(config map[string]interface{}) int {
+	return parseDataSourceIntConfig(config, "health_timeout_ms", 3000, 500, 15000)
+}
+
+func parseDataSourceRetryTimes(config map[string]interface{}) int {
+	return parseDataSourceIntConfig(config, "retry_times", 0, 0, 5)
+}
+
+func parseDataSourceRetryIntervalMS(config map[string]interface{}) int {
+	return parseDataSourceIntConfig(config, "retry_interval_ms", 200, 0, 10000)
+}
+
+func parseDataSourceAlertReceiverID(config map[string]interface{}) string {
+	if receiverID := parseDataSourceStringConfig(config, "alert_receiver_id", "receiver_id"); receiverID != "" {
+		return receiverID
+	}
+	return "admin_001"
+}
+
+func parseDataSourceStringConfig(config map[string]interface{}, keys ...string) string {
 	if config == nil {
-		return defaultThreshold
+		return ""
 	}
-	raw, ok := config["fail_threshold"]
+	for _, key := range keys {
+		raw, ok := config[key]
+		if !ok || raw == nil {
+			continue
+		}
+		switch value := raw.(type) {
+		case string:
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				return trimmed
+			}
+		default:
+			text := strings.TrimSpace(fmt.Sprintf("%v", value))
+			if text != "" && text != "<nil>" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func parseDataSourceIntConfig(config map[string]interface{}, key string, defaultValue int, minValue int, maxValue int) int {
+	if config == nil {
+		return defaultValue
+	}
+	raw, ok := config[key]
 	if !ok {
-		return defaultThreshold
+		return defaultValue
 	}
+	value, ok := parseFlexibleInt(raw)
+	if !ok {
+		return defaultValue
+	}
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func parseFlexibleInt(raw interface{}) (int, bool) {
 	switch value := raw.(type) {
 	case int:
-		if value > 0 {
-			return value
-		}
+		return value, true
+	case int8:
+		return int(value), true
+	case int16:
+		return int(value), true
 	case int32:
-		if value > 0 {
-			return int(value)
-		}
+		return int(value), true
 	case int64:
-		if value > 0 {
-			return int(value)
-		}
+		return int(value), true
 	case float32:
-		if value > 0 {
-			return int(value)
-		}
+		return int(value), true
 	case float64:
-		if value > 0 {
-			return int(value)
-		}
+		return int(value), true
 	case string:
 		parsed, err := strconv.Atoi(strings.TrimSpace(value))
-		if err == nil && parsed > 0 {
-			return parsed
+		if err != nil {
+			return 0, false
 		}
+		return parsed, true
+	default:
+		return 0, false
 	}
-	return defaultThreshold
 }
 
 func (r *MySQLGrowthRepo) AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error) {
