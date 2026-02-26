@@ -13,6 +13,7 @@ import {
   updateNewsArticle,
   updateNewsCategory
 } from "../api/admin";
+import RichTextEditor from "../components/RichTextEditor.vue";
 
 const loadingCategories = ref(false);
 const loadingArticles = ref(false);
@@ -58,6 +59,8 @@ const articleForm = reactive({
   visibility: "PUBLIC",
   status: "DRAFT"
 });
+const previewVisible = ref(false);
+const previewArticle = ref(null);
 
 const selectedArticle = ref(null);
 const attachments = ref([]);
@@ -202,11 +205,11 @@ async function submitArticle() {
       category_id: articleForm.category_id,
       title: articleForm.title.trim(),
       summary: articleForm.summary.trim(),
-      content: articleForm.content.trim(),
+      content: articleForm.content,
       visibility: articleForm.visibility,
       status: articleForm.status
     };
-    if (!payload.category_id || !payload.title || !payload.content) {
+    if (!payload.category_id || !payload.title || !extractPlainText(payload.content)) {
       throw new Error("分类、标题、正文不能为空");
     }
     if (articleFormMode.value === "create") {
@@ -326,6 +329,11 @@ function openEditArticle(article) {
   articleFormVisible.value = true;
 }
 
+function openPreviewArticle(article) {
+  previewArticle.value = article;
+  previewVisible.value = true;
+}
+
 function applyArticleFilters() {
   articlePage.value = 1;
   fetchArticles();
@@ -361,6 +369,16 @@ function statusTagType(status) {
 
 function visibilityTagType(visibility) {
   return visibility === "VIP" ? "danger" : "success";
+}
+
+function extractPlainText(content) {
+  return (content || "")
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 onMounted(async () => {
@@ -486,6 +504,7 @@ onMounted(async () => {
           <template #default="{ row }">
             <div class="inline-actions">
               <el-button size="small" @click="openEditArticle(row)">编辑</el-button>
+              <el-button size="small" @click="openPreviewArticle(row)">预览</el-button>
               <el-button
                 size="small"
                 type="primary"
@@ -649,13 +668,10 @@ onMounted(async () => {
           </el-form-item>
         </div>
         <el-form-item label="正文" required>
-          <el-input
-            v-model="articleForm.content"
-            type="textarea"
-            :rows="8"
-            resize="vertical"
-            placeholder="请输入正文内容"
-          />
+          <RichTextEditor v-model="articleForm.content" placeholder="请输入正文内容" :min-height="280" />
+        </el-form-item>
+        <el-form-item>
+          <el-text type="info">正文纯文本长度：{{ extractPlainText(articleForm.content).length }} 字</el-text>
         </el-form-item>
       </el-form>
 
@@ -666,6 +682,20 @@ onMounted(async () => {
         </el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="previewVisible" title="文章预览" size="55%">
+      <template v-if="previewArticle">
+        <div class="preview-meta">
+          <div><span>标题：</span>{{ previewArticle.title || "-" }}</div>
+          <div><span>分类：</span>{{ resolveCategoryName(previewArticle.category_id) }}</div>
+          <div><span>状态：</span>{{ previewArticle.status || "-" }}</div>
+          <div><span>可见性：</span>{{ previewArticle.visibility || "-" }}</div>
+          <div><span>发布时间：</span>{{ previewArticle.published_at || "-" }}</div>
+        </div>
+        <el-divider />
+        <div class="preview-body" v-html="previewArticle.content || '<p>暂无正文</p>'" />
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -693,6 +723,41 @@ onMounted(async () => {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.preview-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px 14px;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.preview-meta span {
+  color: #111827;
+  font-weight: 600;
+}
+
+.preview-body {
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.preview-body :deep(h1),
+.preview-body :deep(h2),
+.preview-body :deep(h3),
+.preview-body :deep(h4) {
+  margin: 14px 0 10px;
+}
+
+.preview-body :deep(p) {
+  margin: 10px 0;
+}
+
+.preview-body :deep(ul),
+.preview-body :deep(ol) {
+  margin: 10px 0;
+  padding-left: 18px;
 }
 
 .attachment-editor {
