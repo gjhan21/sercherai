@@ -10,9 +10,14 @@ const session = computed(() => getSession());
 const menus = [
   { name: "dashboard", label: "仪表盘", to: "/dashboard" },
   { name: "users", label: "用户管理", to: "/users" },
+  { name: "membership-center", label: "会员中心", to: "/membership-center" },
   { name: "news", label: "新闻管理", to: "/news" },
+  { name: "market-center", label: "策略中心", to: "/market-center" },
   { name: "review-center", label: "审核中心", to: "/review-center" },
+  { name: "risk-center", label: "风控中心", to: "/risk-center" },
   { name: "audit-logs", label: "操作日志", to: "/audit-logs" },
+  { name: "auth-security", label: "安全中心", to: "/auth-security" },
+  { name: "system-configs", label: "系统配置", to: "/system-configs" },
   { name: "system-jobs", label: "任务中心", to: "/system-jobs" },
   { name: "data-sources", label: "数据源管理", to: "/data-sources" },
   { name: "workflow-messages", label: "流程消息", to: "/workflow-messages" }

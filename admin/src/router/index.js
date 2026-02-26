@@ -11,6 +11,11 @@ const SystemJobsView = () => import("../views/SystemJobsView.vue");
 const DataSourcesView = () => import("../views/DataSourcesView.vue");
 const WorkflowMessagesView = () => import("../views/WorkflowMessagesView.vue");
 const AuditLogsView = () => import("../views/AuditLogsView.vue");
+const MembershipCenterView = () => import("../views/MembershipCenterView.vue");
+const MarketCenterView = () => import("../views/MarketCenterView.vue");
+const RiskCenterView = () => import("../views/RiskCenterView.vue");
+const AuthSecurityView = () => import("../views/AuthSecurityView.vue");
+const SystemConfigsView = () => import("../views/SystemConfigsView.vue");
 
 const routes = [
   {
@@ -54,9 +59,34 @@ const routes = [
         component: ReviewCenterView
       },
       {
+        path: "market-center",
+        name: "market-center",
+        component: MarketCenterView
+      },
+      {
+        path: "membership-center",
+        name: "membership-center",
+        component: MembershipCenterView
+      },
+      {
+        path: "risk-center",
+        name: "risk-center",
+        component: RiskCenterView
+      },
+      {
         path: "system-jobs",
         name: "system-jobs",
         component: SystemJobsView
+      },
+      {
+        path: "system-configs",
+        name: "system-configs",
+        component: SystemConfigsView
+      },
+      {
+        path: "auth-security",
+        name: "auth-security",
+        component: AuthSecurityView
       },
       {
         path: "workflow-messages",

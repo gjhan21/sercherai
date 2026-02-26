@@ -191,3 +191,172 @@ export function updateWorkflowMessageRead(id, isRead) {
 export function bulkReadWorkflowMessages(payload) {
   return http.put("/admin/workflow/messages/read-all", payload);
 }
+
+export function listInviteRecords(params) {
+  return http.get("/admin/growth/invite-records", { params: buildParams(params) });
+}
+
+export function listRewardRecords(params) {
+  return http.get("/admin/growth/reward-records", { params: buildParams(params) });
+}
+
+export function reviewRewardRecord(id, status, reason = "") {
+  return http.put(`/admin/growth/reward-records/${encodeURIComponent(id)}/review`, {
+    status,
+    reason
+  });
+}
+
+export function listReconciliation(params) {
+  return http.get("/admin/payment/reconciliation", { params: buildParams(params) });
+}
+
+export function retryReconciliation(batchID) {
+  return http.post(`/admin/payment/reconciliation/${encodeURIComponent(batchID)}/retry`);
+}
+
+export function listRiskRules() {
+  return http.get("/admin/risk/rules");
+}
+
+export function createRiskRule(payload) {
+  return http.post("/admin/risk/rules", payload);
+}
+
+export function updateRiskRule(id, payload) {
+  return http.put(`/admin/risk/rules/${encodeURIComponent(id)}`, payload);
+}
+
+export function listRiskHits(params) {
+  return http.get("/admin/risk/hits", { params: buildParams(params) });
+}
+
+export function reviewRiskHit(id, status, reason = "") {
+  return http.put(`/admin/risk/hits/${encodeURIComponent(id)}/review`, {
+    status,
+    reason
+  });
+}
+
+export function listWithdrawRequests(params) {
+  return http.get("/admin/reward-wallet/withdraw-requests", {
+    params: buildParams(params)
+  });
+}
+
+export function reviewWithdrawRequest(id, status, reason = "") {
+  return http.put(`/admin/reward-wallet/withdraw-requests/${encodeURIComponent(id)}/review`, {
+    status,
+    reason
+  });
+}
+
+export function listStockRecommendations(params) {
+  return http.get("/admin/stocks/recommendations", { params: buildParams(params) });
+}
+
+export function createStockRecommendation(payload) {
+  return http.post("/admin/stocks/recommendations", payload);
+}
+
+export function updateStockRecommendationStatus(id, status) {
+  return http.put(`/admin/stocks/recommendations/${encodeURIComponent(id)}/status`, {
+    status
+  });
+}
+
+export function generateDailyStockRecommendations(tradeDate = "") {
+  return http.post("/admin/stocks/recommendations/generate-daily", null, {
+    params: buildParams({ trade_date: tradeDate })
+  });
+}
+
+export function listFuturesStrategies(params) {
+  return http.get("/admin/futures/strategies", { params: buildParams(params) });
+}
+
+export function createFuturesStrategy(payload) {
+  return http.post("/admin/futures/strategies", payload);
+}
+
+export function updateFuturesStrategyStatus(id, status) {
+  return http.put(`/admin/futures/strategies/${encodeURIComponent(id)}/status`, {
+    status
+  });
+}
+
+export function listMembershipProducts(params) {
+  return http.get("/admin/membership/products", { params: buildParams(params) });
+}
+
+export function createMembershipProduct(payload) {
+  return http.post("/admin/membership/products", payload);
+}
+
+export function updateMembershipProductStatus(id, status) {
+  return http.put(`/admin/membership/products/${encodeURIComponent(id)}/status`, {
+    status
+  });
+}
+
+export function listMembershipOrders(params) {
+  return http.get("/admin/membership/orders", { params: buildParams(params) });
+}
+
+export function updateMembershipOrderStatus(id, status) {
+  return http.put(`/admin/membership/orders/${encodeURIComponent(id)}/status`, {
+    status
+  });
+}
+
+export function listVIPQuotaConfigs(params) {
+  return http.get("/admin/membership/quota-configs", { params: buildParams(params) });
+}
+
+export function createVIPQuotaConfig(payload) {
+  return http.post("/admin/membership/quota-configs", payload);
+}
+
+export function updateVIPQuotaConfig(id, payload) {
+  return http.put(`/admin/membership/quota-configs/${encodeURIComponent(id)}`, payload);
+}
+
+export function listUserQuotas(params) {
+  return http.get("/admin/membership/user-quotas", { params: buildParams(params) });
+}
+
+export function adjustUserQuota(userID, payload) {
+  return http.put(`/admin/membership/user-quotas/${encodeURIComponent(userID)}/adjust`, payload);
+}
+
+export function listSystemConfigs(params) {
+  return http.get("/admin/system/configs", { params: buildParams(params) });
+}
+
+export function upsertSystemConfig(payload) {
+  return http.put("/admin/system/configs", payload);
+}
+
+export function listAuthLoginLogs(params) {
+  return http.get("/admin/auth/login-logs", { params: buildParams(params) });
+}
+
+export function getAuthRiskConfig() {
+  return http.get("/admin/auth/risk-config");
+}
+
+export function updateAuthRiskConfig(payload) {
+  return http.put("/admin/auth/risk-config", payload);
+}
+
+export function listAuthRiskConfigLogs(params) {
+  return http.get("/admin/auth/risk-config-logs", { params: buildParams(params) });
+}
+
+export function unlockAuthRiskState(payload) {
+  return http.post("/admin/auth/unlock", payload);
+}
+
+export function listAuthUnlockLogs(params) {
+  return http.get("/admin/auth/unlock-logs", { params: buildParams(params) });
+}
