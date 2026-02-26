@@ -50,6 +50,10 @@ const currentTask = ref(null);
 const detailAssigning = ref(false);
 const detailDeciding = ref(false);
 const quickActionKey = ref("");
+const rejectDialogVisible = ref(false);
+const rejectTask = ref(null);
+const rejectReason = ref("");
+const rejectSubmitting = ref(false);
 
 const detailForm = reactive({
   reviewer_id: "",
@@ -59,6 +63,8 @@ const detailForm = reactive({
 
 const moduleOptions = ["NEWS", "STOCK", "FUTURES"];
 const decisionOptions = ["APPROVED", "REJECTED"];
+const slaWarnHours = 24;
+const slaDangerHours = 48;
 
 async function fetchMetrics() {
   metricsLoading.value = true;
@@ -165,27 +171,66 @@ function isQuickActionLoading(task, status) {
   return quickActionKey.value === `${task.id}:${status}`;
 }
 
-async function handleQuickDecision(task, status) {
+async function handleQuickDecision(task, status, note = "") {
   if (!canQuickDecision(task)) {
     errorMessage.value = "任务已分配给其他审核员，请先在详情中重新分配";
-    return;
+    return false;
   }
   if (!decisionOptions.includes(status)) {
     errorMessage.value = "审核结果必须为 APPROVED 或 REJECTED";
-    return;
+    return false;
+  }
+  const normalizedNote = (note || "").trim();
+  if (status === "REJECTED" && !normalizedNote) {
+    errorMessage.value = "快速驳回必须填写原因";
+    return false;
   }
   errorMessage.value = "";
   message.value = "";
   quickActionKey.value = `${task.id}:${status}`;
   try {
-    const note = status === "REJECTED" ? "快速驳回" : "";
-    await reviewTaskDecision(task.id, status, note);
+    await reviewTaskDecision(task.id, status, normalizedNote);
     message.value = `任务 ${task.id} 已${status === "APPROVED" ? "快速通过" : "快速驳回"}`;
     await refreshAll();
+    return true;
   } catch (error) {
     errorMessage.value = error.message || "快捷审批失败";
+    return false;
   } finally {
     quickActionKey.value = "";
+  }
+}
+
+function openQuickReject(task) {
+  if (!canQuickDecision(task)) {
+    errorMessage.value = "任务已分配给其他审核员，请先在详情中重新分配";
+    return;
+  }
+  rejectTask.value = task;
+  rejectReason.value = "";
+  rejectDialogVisible.value = true;
+}
+
+async function submitQuickReject() {
+  if (!rejectTask.value?.id) {
+    return;
+  }
+  const note = rejectReason.value.trim();
+  if (!note) {
+    errorMessage.value = "请填写驳回原因";
+    return;
+  }
+  rejectSubmitting.value = true;
+  try {
+    const ok = await handleQuickDecision(rejectTask.value, "REJECTED", note);
+    if (!ok) {
+      return;
+    }
+    rejectDialogVisible.value = false;
+    rejectTask.value = null;
+    rejectReason.value = "";
+  } finally {
+    rejectSubmitting.value = false;
   }
 }
 
@@ -225,6 +270,10 @@ async function handleDetailDecision() {
     errorMessage.value = "审核结果必须为 APPROVED 或 REJECTED";
     return;
   }
+  if (status === "REJECTED" && !note) {
+    errorMessage.value = "驳回必须填写审核备注";
+    return;
+  }
   errorMessage.value = "";
   message.value = "";
   detailDeciding.value = true;
@@ -248,6 +297,88 @@ function reviewerHint(task) {
     return "当前任务分配给你";
   }
   return `当前任务分配给 ${reviewerID}`;
+}
+
+function parseTaskDateTime(value) {
+  const raw = (value || "").trim();
+  if (!raw) {
+    return null;
+  }
+  const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+}
+
+function getPendingHours(task) {
+  if ((task.status || "").toUpperCase() !== "PENDING") {
+    return null;
+  }
+  const submittedAt = parseTaskDateTime(task.submitted_at);
+  if (!submittedAt) {
+    return null;
+  }
+  return Math.max(0, (Date.now() - submittedAt.getTime()) / (1000 * 60 * 60));
+}
+
+function formatPendingDuration(task) {
+  const hours = getPendingHours(task);
+  if (hours === null) {
+    return "-";
+  }
+  if (hours < 1) {
+    return "<1h";
+  }
+  if (hours < 24) {
+    return `${Math.floor(hours)}h`;
+  }
+  const days = Math.floor(hours / 24);
+  const remainHours = Math.floor(hours % 24);
+  return `${days}d ${remainHours}h`;
+}
+
+function slaTagType(task) {
+  const hours = getPendingHours(task);
+  if (hours === null) {
+    return "info";
+  }
+  if (hours >= slaDangerHours) {
+    return "danger";
+  }
+  if (hours >= slaWarnHours) {
+    return "warning";
+  }
+  return "success";
+}
+
+function slaLabel(task) {
+  const hours = getPendingHours(task);
+  if (hours === null) {
+    return "-";
+  }
+  if (hours >= slaDangerHours) {
+    return "超时严重";
+  }
+  if (hours >= slaWarnHours) {
+    return "即将超时";
+  }
+  return "正常";
+}
+
+function reviewTableRowClassName({ row }) {
+  const hours = getPendingHours(row);
+  if (hours === null) {
+    return "";
+  }
+  if (hours >= slaDangerHours) {
+    return "row-sla-danger";
+  }
+  if (hours >= slaWarnHours) {
+    return "row-sla-warning";
+  }
+  return "";
 }
 
 function applyFilters() {
@@ -375,7 +506,14 @@ onMounted(refreshAll);
     </div>
 
     <div class="card">
-      <el-table :data="tasks" border stripe v-loading="loading" empty-text="暂无审核任务">
+      <el-table
+        :data="tasks"
+        border
+        stripe
+        v-loading="loading"
+        empty-text="暂无审核任务"
+        :row-class-name="reviewTableRowClassName"
+      >
         <el-table-column prop="id" label="ID" min-width="130" />
         <el-table-column prop="module" label="模块" min-width="100" />
         <el-table-column prop="target_id" label="目标ID" min-width="130" />
@@ -388,6 +526,15 @@ onMounted(refreshAll);
         <el-table-column label="状态" min-width="110">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="SLA" min-width="140">
+          <template #default="{ row }">
+            <template v-if="row.status === 'PENDING'">
+              <el-tag :type="slaTagType(row)">{{ slaLabel(row) }}</el-tag>
+              <div class="sla-sub">{{ formatPendingDuration(row) }}</div>
+            </template>
+            <el-text v-else type="info">-</el-text>
           </template>
         </el-table-column>
         <el-table-column label="提交备注" min-width="180">
@@ -417,27 +564,21 @@ onMounted(refreshAll);
                 plain
                 :disabled="!canQuickDecision(row)"
                 :loading="isQuickActionLoading(row, 'APPROVED')"
-                @click="handleQuickDecision(row, 'APPROVED')"
+                @click="handleQuickDecision(row, 'APPROVED', '')"
               >
                 快速通过
               </el-button>
-              <el-popconfirm
+              <el-button
                 v-if="row.status === 'PENDING'"
-                title="确认快速驳回该任务？"
-                @confirm="handleQuickDecision(row, 'REJECTED')"
+                size="small"
+                type="danger"
+                plain
+                :disabled="!canQuickDecision(row)"
+                :loading="isQuickActionLoading(row, 'REJECTED')"
+                @click="openQuickReject(row)"
               >
-                <template #reference>
-                  <el-button
-                    size="small"
-                    type="danger"
-                    plain
-                    :disabled="!canQuickDecision(row)"
-                    :loading="isQuickActionLoading(row, 'REJECTED')"
-                  >
-                    快速驳回
-                  </el-button>
-                </template>
-              </el-popconfirm>
+                快速驳回
+              </el-button>
             </div>
             <div v-if="row.status === 'PENDING'" class="reviewer-hint">
               {{ reviewerHint(row) }}
@@ -460,6 +601,36 @@ onMounted(refreshAll);
       </div>
     </div>
 
+    <el-dialog v-model="rejectDialogVisible" title="快速驳回任务" width="520px" destroy-on-close>
+      <el-alert
+        title="快速驳回会立即将任务状态置为 REJECTED，请填写明确原因。"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+      />
+      <el-form label-width="80px">
+        <el-form-item label="任务ID">
+          <el-text>{{ rejectTask?.id || "-" }}</el-text>
+        </el-form-item>
+        <el-form-item label="驳回原因" required>
+          <el-input
+            v-model="rejectReason"
+            type="textarea"
+            :rows="4"
+            maxlength="300"
+            show-word-limit
+            resize="vertical"
+            placeholder="请填写具体驳回原因，例如：证据不足、字段缺失、内容不合规"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="rejectDialogVisible = false">取消</el-button>
+        <el-button type="danger" :loading="rejectSubmitting" @click="submitQuickReject">确认驳回</el-button>
+      </template>
+    </el-dialog>
+
     <el-drawer v-model="detailVisible" size="560px" destroy-on-close>
       <template #header>
         <div class="drawer-title">审核任务详情</div>
@@ -472,6 +643,13 @@ onMounted(refreshAll);
           <el-descriptions-item label="目标ID">{{ currentTask.target_id }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="statusTagType(currentTask.status)">{{ currentTask.status }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="SLA">
+            <template v-if="(currentTask.status || '').toUpperCase() === 'PENDING'">
+              <el-tag :type="slaTagType(currentTask)">{{ slaLabel(currentTask) }}</el-tag>
+              <span class="sla-inline">{{ formatPendingDuration(currentTask) }}</span>
+            </template>
+            <template v-else>-</template>
           </el-descriptions-item>
           <el-descriptions-item label="提交人">{{ currentTask.submitter_id || "-" }}</el-descriptions-item>
           <el-descriptions-item label="审核人">{{ currentTask.reviewer_id || "-" }}</el-descriptions-item>
@@ -504,11 +682,14 @@ onMounted(refreshAll);
                   v-model="detailForm.decision_note"
                   type="textarea"
                   :rows="4"
+                  maxlength="300"
+                  show-word-limit
                   resize="vertical"
-                  placeholder="可选，建议填写审核说明"
+                  placeholder="若驳回则必填，建议填写审核说明"
                 />
               </el-form-item>
             </el-form>
+            <el-text type="info">当结论为 REJECTED 时，备注为必填。</el-text>
             <el-button type="primary" :loading="detailDeciding" @click="handleDetailDecision">提交结论</el-button>
           </div>
         </template>
@@ -564,6 +745,18 @@ onMounted(refreshAll);
   gap: 8px;
 }
 
+.sla-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.sla-inline {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
 .reviewer-hint {
   margin-top: 6px;
   font-size: 12px;
@@ -612,5 +805,13 @@ onMounted(refreshAll);
 
 :deep(.dialog-grid .el-select) {
   width: 100%;
+}
+
+:deep(.row-sla-warning > td.el-table__cell) {
+  background: #fff7e6 !important;
+}
+
+:deep(.row-sla-danger > td.el-table__cell) {
+  background: #fff1f0 !important;
 }
 </style>
