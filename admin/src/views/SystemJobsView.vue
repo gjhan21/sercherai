@@ -73,6 +73,11 @@ const triggerForm = reactive({
   error_message: ""
 });
 
+const moduleOptions = ["STOCK", "FUTURES", "NEWS", "SYSTEM"];
+const definitionStatusOptions = ["ACTIVE", "DISABLED"];
+const runStatusOptions = ["RUNNING", "SUCCESS", "FAILED"];
+const simulateStatusOptions = ["SUCCESS", "FAILED"];
+
 function resetDefinitionForm() {
   Object.assign(definitionForm, {
     id: "",
@@ -303,19 +308,11 @@ function resetDefinitionFilters() {
   fetchDefinitions();
 }
 
-function nextDefinitionPage() {
-  if (definitionPage.value * definitionPageSize.value >= definitionTotal.value) {
+function handleDefinitionPageChange(nextPage) {
+  if (nextPage === definitionPage.value) {
     return;
   }
-  definitionPage.value += 1;
-  fetchDefinitions();
-}
-
-function prevDefinitionPage() {
-  if (definitionPage.value <= 1) {
-    return;
-  }
-  definitionPage.value -= 1;
+  definitionPage.value = nextPage;
   fetchDefinitions();
 }
 
@@ -331,20 +328,20 @@ function resetRunFilters() {
   fetchRuns();
 }
 
-function nextRunPage() {
-  if (runPage.value * runPageSize.value >= runTotal.value) {
+function handleRunPageChange(nextPage) {
+  if (nextPage === runPage.value) {
     return;
   }
-  runPage.value += 1;
+  runPage.value = nextPage;
   fetchRuns();
 }
 
-function prevRunPage() {
-  if (runPage.value <= 1) {
-    return;
-  }
-  runPage.value -= 1;
-  fetchRuns();
+function statusTagType(status) {
+  const normalized = (status || "").toUpperCase();
+  if (normalized === "SUCCESS" || normalized === "ACTIVE") return "success";
+  if (normalized === "FAILED" || normalized === "DISABLED") return "danger";
+  if (normalized === "RUNNING") return "warning";
+  return "info";
 }
 
 onMounted(refreshAll);
@@ -357,279 +354,317 @@ onMounted(refreshAll);
         <h1 class="page-title">系统任务中心</h1>
         <p class="muted">管理定时任务定义、运行记录、触发与重跑</p>
       </div>
-      <button class="btn" :disabled="defsLoading || runsLoading || metricsLoading" @click="refreshAll">
-        {{ defsLoading || runsLoading || metricsLoading ? "刷新中..." : "刷新全部" }}
-      </button>
+      <el-button :loading="defsLoading || runsLoading || metricsLoading" @click="refreshAll">刷新全部</el-button>
     </div>
 
-    <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
-    <div v-if="message" class="success-message">{{ message }}</div>
+    <el-alert
+      v-if="errorMessage"
+      :title="errorMessage"
+      type="error"
+      show-icon
+      style="margin-bottom: 12px"
+    />
+    <el-alert
+      v-if="message"
+      :title="message"
+      type="success"
+      show-icon
+      style="margin-bottom: 12px"
+    />
 
     <div class="card" style="margin-bottom: 12px">
       <div class="toolbar">
-        <input v-model="metricFilter.job_name" class="input" placeholder="指标按 job_name 过滤（可选）" />
-        <button class="btn" :disabled="metricsLoading" @click="fetchMetrics">
-          {{ metricsLoading ? "加载中..." : "刷新指标" }}
-        </button>
+        <el-input v-model="metricFilter.job_name" clearable placeholder="指标按 job_name 过滤（可选）" style="width: 260px" />
+        <el-button :loading="metricsLoading" @click="fetchMetrics">刷新指标</el-button>
       </div>
-      <div class="grid grid-4">
-        <div class="metric-card">
-          <div class="label">今日总运行</div>
-          <div class="value">{{ metrics.today_total || 0 }}</div>
+      <div class="grid grid-4" v-loading="metricsLoading">
+        <div class="metric-item">
+          <div class="metric-label">今日总运行</div>
+          <div class="metric-value">{{ metrics.today_total || 0 }}</div>
         </div>
-        <div class="metric-card">
-          <div class="label">今日成功</div>
-          <div class="value">{{ metrics.today_success || 0 }}</div>
+        <div class="metric-item">
+          <div class="metric-label">今日成功</div>
+          <div class="metric-value">{{ metrics.today_success || 0 }}</div>
         </div>
-        <div class="metric-card">
-          <div class="label">今日失败</div>
-          <div class="value">{{ metrics.today_failed || 0 }}</div>
+        <div class="metric-item">
+          <div class="metric-label">今日失败</div>
+          <div class="metric-value">{{ metrics.today_failed || 0 }}</div>
         </div>
-        <div class="metric-card">
-          <div class="label">今日运行中</div>
-          <div class="value">{{ metrics.today_running || 0 }}</div>
+        <div class="metric-item">
+          <div class="metric-label">今日运行中</div>
+          <div class="metric-value">{{ metrics.today_running || 0 }}</div>
         </div>
       </div>
     </div>
 
     <div class="card" style="margin-bottom: 12px">
-      <h3 style="margin-top: 0">手动触发任务</h3>
-      <div class="form-grid">
-        <div class="form-item">
-          <label>job_name</label>
-          <input v-model="triggerForm.job_name" class="input" placeholder="daily_stock_recommendation" />
-        </div>
-        <div class="form-item">
-          <label>trigger_source</label>
-          <select v-model="triggerForm.trigger_source" class="select">
-            <option value="MANUAL">MANUAL</option>
-            <option value="SYSTEM">SYSTEM</option>
-          </select>
-        </div>
-        <div class="form-item">
-          <label>simulate_status（可选）</label>
-          <select v-model="triggerForm.simulate_status" class="select">
-            <option value="">(空)</option>
-            <option value="SUCCESS">SUCCESS</option>
-            <option value="FAILED">FAILED</option>
-          </select>
-        </div>
-        <div class="form-item">
-          <label>result_summary（可选）</label>
-          <input v-model="triggerForm.result_summary" class="input" placeholder="处理 120 条数据" />
-        </div>
-        <div class="form-item">
-          <label>error_message（可选）</label>
-          <input v-model="triggerForm.error_message" class="input" placeholder="模拟失败信息" />
-        </div>
+      <div class="section-header">
+        <h3 style="margin: 0">手动触发任务</h3>
       </div>
-      <div class="form-actions">
-        <button class="btn btn-primary" :disabled="triggeringJob" @click="submitTrigger">
-          {{ triggeringJob ? "触发中..." : "触发任务" }}
-        </button>
+      <el-form label-width="125px">
+        <div class="dialog-grid">
+          <el-form-item label="job_name" required>
+            <el-input v-model="triggerForm.job_name" placeholder="daily_stock_recommendation" />
+          </el-form-item>
+          <el-form-item label="trigger_source" required>
+            <el-select v-model="triggerForm.trigger_source">
+              <el-option label="MANUAL" value="MANUAL" />
+              <el-option label="SYSTEM" value="SYSTEM" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="simulate_status">
+            <el-select v-model="triggerForm.simulate_status" clearable placeholder="可选">
+              <el-option v-for="item in simulateStatusOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="result_summary">
+            <el-input v-model="triggerForm.result_summary" placeholder="处理 120 条数据" />
+          </el-form-item>
+          <el-form-item label="error_message">
+            <el-input v-model="triggerForm.error_message" placeholder="模拟失败信息" />
+          </el-form-item>
+        </div>
+      </el-form>
+      <div class="toolbar" style="margin-bottom: 8px">
+        <el-button type="primary" :loading="triggeringJob" @click="submitTrigger">触发任务</el-button>
       </div>
-      <p class="hint">
-        `simulate_status` 仅在后端开启 `ALLOW_JOB_SIMULATION=true` 时生效。
-      </p>
+      <el-alert
+        title="simulate_status 仅在后端开启 ALLOW_JOB_SIMULATION=true 时生效"
+        type="info"
+        :closable="false"
+        show-icon
+      />
     </div>
 
     <div class="card" style="margin-bottom: 12px">
-      <div class="page-header" style="margin-bottom: 10px">
+      <div class="section-header">
         <h3 style="margin: 0">任务定义</h3>
-        <button class="btn btn-primary" @click="openCreateDefinition">新增任务定义</button>
+        <el-button type="primary" @click="openCreateDefinition">新增任务定义</el-button>
       </div>
 
       <div class="toolbar">
-        <select v-model="definitionFilters.status" class="select">
-          <option value="">全部状态</option>
-          <option value="ACTIVE">ACTIVE</option>
-          <option value="DISABLED">DISABLED</option>
-        </select>
-        <select v-model="definitionFilters.module" class="select">
-          <option value="">全部模块</option>
-          <option value="STOCK">STOCK</option>
-          <option value="FUTURES">FUTURES</option>
-          <option value="NEWS">NEWS</option>
-          <option value="SYSTEM">SYSTEM</option>
-        </select>
-        <button class="btn" @click="applyDefinitionFilters">查询</button>
-        <button class="btn" @click="resetDefinitionFilters">重置</button>
+        <el-select v-model="definitionFilters.status" clearable placeholder="全部状态" style="width: 150px">
+          <el-option v-for="item in definitionStatusOptions" :key="item" :label="item" :value="item" />
+        </el-select>
+        <el-select v-model="definitionFilters.module" clearable placeholder="全部模块" style="width: 150px">
+          <el-option v-for="item in moduleOptions" :key="item" :label="item" :value="item" />
+        </el-select>
+        <el-button type="primary" plain @click="applyDefinitionFilters">查询</el-button>
+        <el-button @click="resetDefinitionFilters">重置</el-button>
       </div>
 
-      <div v-if="definitionFormVisible" class="card" style="margin: 12px 0">
-        <div class="form-grid">
-          <div class="form-item">
-            <label>job_name</label>
-            <input v-model="definitionForm.job_name" class="input" />
-          </div>
-          <div class="form-item">
-            <label>display_name</label>
-            <input v-model="definitionForm.display_name" class="input" />
-          </div>
-          <div class="form-item">
-            <label>module</label>
-            <select v-model="definitionForm.module" class="select">
-              <option value="STOCK">STOCK</option>
-              <option value="FUTURES">FUTURES</option>
-              <option value="NEWS">NEWS</option>
-              <option value="SYSTEM">SYSTEM</option>
-            </select>
-          </div>
-          <div class="form-item">
-            <label>cron_expr</label>
-            <input v-model="definitionForm.cron_expr" class="input" placeholder="0 0 9 * * *" />
-          </div>
-          <div class="form-item">
-            <label>status</label>
-            <select v-model="definitionForm.status" class="select">
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="DISABLED">DISABLED</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-primary" :disabled="submittingDefinition" @click="submitDefinition">
-            {{ submittingDefinition ? "提交中..." : definitionFormMode === "create" ? "创建" : "更新" }}
-          </button>
-          <button class="btn" :disabled="submittingDefinition" @click="definitionFormVisible = false">取消</button>
-        </div>
-      </div>
-
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>job_name</th>
-              <th>display_name</th>
-              <th>module</th>
-              <th>cron_expr</th>
-              <th>status</th>
-              <th>last_run_at</th>
-              <th>updated_by</th>
-              <th>updated_at</th>
-              <th class="text-right">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in definitions" :key="item.id">
-              <td>{{ item.id }}</td>
-              <td>{{ item.job_name }}</td>
-              <td>{{ item.display_name }}</td>
-              <td>{{ item.module }}</td>
-              <td>{{ item.cron_expr }}</td>
-              <td>
-                <div class="toolbar">
-                  <select v-model="definitionStatusMap[item.id]" class="select">
-                    <option value="ACTIVE">ACTIVE</option>
-                    <option value="DISABLED">DISABLED</option>
-                  </select>
-                  <button class="btn" @click="updateDefinitionStatus(item)">保存状态</button>
-                </div>
-              </td>
-              <td>{{ item.last_run_at || "-" }}</td>
-              <td>{{ item.updated_by || "-" }}</td>
-              <td>{{ item.updated_at || "-" }}</td>
-              <td class="text-right">
-                <button class="btn" @click="openEditDefinition(item)">编辑</button>
-              </td>
-            </tr>
-            <tr v-if="!defsLoading && definitions.length === 0">
-              <td colspan="10" class="muted">暂无任务定义</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <el-table :data="definitions" border stripe v-loading="defsLoading" empty-text="暂无任务定义">
+        <el-table-column prop="id" label="ID" min-width="120" />
+        <el-table-column prop="job_name" label="job_name" min-width="180" />
+        <el-table-column prop="display_name" label="display_name" min-width="150" />
+        <el-table-column prop="module" label="module" min-width="100" />
+        <el-table-column prop="cron_expr" label="cron_expr" min-width="180" />
+        <el-table-column label="status" min-width="220">
+          <template #default="{ row }">
+            <div class="inline-actions inline-actions--left">
+              <el-select v-model="definitionStatusMap[row.id]" size="small" style="width: 120px">
+                <el-option v-for="item in definitionStatusOptions" :key="item" :label="item" :value="item" />
+              </el-select>
+              <el-button size="small" @click="updateDefinitionStatus(row)">保存状态</el-button>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="last_run_at" min-width="180">
+          <template #default="{ row }">
+            {{ row.last_run_at || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="updated_by" min-width="130">
+          <template #default="{ row }">
+            {{ row.updated_by || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="updated_at" min-width="180">
+          <template #default="{ row }">
+            {{ row.updated_at || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" align="right" min-width="100">
+          <template #default="{ row }">
+            <el-button size="small" @click="openEditDefinition(row)">编辑</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
 
       <div class="pagination">
-        <span>第 {{ definitionPage }} 页，共 {{ definitionTotal }} 条</span>
-        <div class="toolbar">
-          <button class="btn" :disabled="definitionPage <= 1 || defsLoading" @click="prevDefinitionPage">
-            上一页
-          </button>
-          <button
-            class="btn"
-            :disabled="definitionPage * definitionPageSize >= definitionTotal || defsLoading"
-            @click="nextDefinitionPage"
-          >
-            下一页
-          </button>
-        </div>
+        <el-text type="info">第 {{ definitionPage }} 页，共 {{ definitionTotal }} 条</el-text>
+        <el-pagination
+          background
+          layout="prev, pager, next"
+          :current-page="definitionPage"
+          :page-size="definitionPageSize"
+          :total="definitionTotal"
+          @current-change="handleDefinitionPageChange"
+        />
       </div>
     </div>
 
     <div class="card">
-      <h3 style="margin-top: 0">运行记录</h3>
-      <div class="toolbar">
-        <input v-model="runFilters.job_name" class="input" placeholder="按 job_name 过滤" />
-        <select v-model="runFilters.status" class="select">
-          <option value="">全部状态</option>
-          <option value="RUNNING">RUNNING</option>
-          <option value="SUCCESS">SUCCESS</option>
-          <option value="FAILED">FAILED</option>
-        </select>
-        <button class="btn" @click="applyRunFilters">查询</button>
-        <button class="btn" @click="resetRunFilters">重置</button>
+      <div class="section-header">
+        <h3 style="margin: 0">运行记录</h3>
       </div>
 
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>run_id</th>
-              <th>parent_run_id</th>
-              <th>job_name</th>
-              <th>status</th>
-              <th>retry_count</th>
-              <th>trigger_source</th>
-              <th>started_at</th>
-              <th>finished_at</th>
-              <th>result_summary</th>
-              <th>error_message</th>
-              <th class="text-right">重跑</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in runs" :key="item.id">
-              <td>{{ item.id }}</td>
-              <td>{{ item.parent_run_id || "-" }}</td>
-              <td>{{ item.job_name }}</td>
-              <td>{{ item.status }}</td>
-              <td>{{ item.retry_count }}</td>
-              <td>{{ item.trigger_source }}</td>
-              <td>{{ item.started_at }}</td>
-              <td>{{ item.finished_at || "-" }}</td>
-              <td>{{ item.result_summary || "-" }}</td>
-              <td>{{ item.error_message || "-" }}</td>
-              <td class="text-right">
-                <div class="toolbar" style="justify-content: flex-end">
-                  <select v-model="retrySimMap[item.id]" class="select">
-                    <option value="">(空)</option>
-                    <option value="SUCCESS">SUCCESS</option>
-                    <option value="FAILED">FAILED</option>
-                  </select>
-                  <input v-model="retrySummaryMap[item.id]" class="input" style="width: 130px" placeholder="summary" />
-                  <input v-model="retryErrorMap[item.id]" class="input" style="width: 130px" placeholder="error" />
-                  <button class="btn btn-primary" @click="retryRun(item.id)">重跑</button>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="!runsLoading && runs.length === 0">
-              <td colspan="11" class="muted">暂无运行记录</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="toolbar">
+        <el-input v-model="runFilters.job_name" clearable placeholder="按 job_name 过滤" style="width: 220px" />
+        <el-select v-model="runFilters.status" clearable placeholder="全部状态" style="width: 150px">
+          <el-option v-for="item in runStatusOptions" :key="item" :label="item" :value="item" />
+        </el-select>
+        <el-button type="primary" plain @click="applyRunFilters">查询</el-button>
+        <el-button @click="resetRunFilters">重置</el-button>
       </div>
+
+      <el-table :data="runs" border stripe v-loading="runsLoading" empty-text="暂无运行记录">
+        <el-table-column prop="id" label="run_id" min-width="120" />
+        <el-table-column label="parent_run_id" min-width="130">
+          <template #default="{ row }">
+            {{ row.parent_run_id || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="job_name" label="job_name" min-width="170" />
+        <el-table-column label="status" min-width="110">
+          <template #default="{ row }">
+            <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="retry_count" label="retry_count" min-width="110" />
+        <el-table-column prop="trigger_source" label="trigger_source" min-width="120" />
+        <el-table-column prop="started_at" label="started_at" min-width="180" />
+        <el-table-column label="finished_at" min-width="180">
+          <template #default="{ row }">
+            {{ row.finished_at || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="result_summary" min-width="180">
+          <template #default="{ row }">
+            {{ row.result_summary || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="error_message" min-width="180">
+          <template #default="{ row }">
+            {{ row.error_message || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="重跑" align="right" min-width="340">
+          <template #default="{ row }">
+            <div class="inline-actions">
+              <el-select v-model="retrySimMap[row.id]" size="small" clearable placeholder="simulate" style="width: 110px">
+                <el-option v-for="item in simulateStatusOptions" :key="item" :label="item" :value="item" />
+              </el-select>
+              <el-input v-model="retrySummaryMap[row.id]" size="small" placeholder="summary" style="width: 120px" />
+              <el-input v-model="retryErrorMap[row.id]" size="small" placeholder="error" style="width: 120px" />
+              <el-button size="small" type="primary" @click="retryRun(row.id)">重跑</el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
 
       <div class="pagination">
-        <span>第 {{ runPage }} 页，共 {{ runTotal }} 条</span>
-        <div class="toolbar">
-          <button class="btn" :disabled="runPage <= 1 || runsLoading" @click="prevRunPage">上一页</button>
-          <button class="btn" :disabled="runPage * runPageSize >= runTotal || runsLoading" @click="nextRunPage">
-            下一页
-          </button>
-        </div>
+        <el-text type="info">第 {{ runPage }} 页，共 {{ runTotal }} 条</el-text>
+        <el-pagination
+          background
+          layout="prev, pager, next"
+          :current-page="runPage"
+          :page-size="runPageSize"
+          :total="runTotal"
+          @current-change="handleRunPageChange"
+        />
       </div>
     </div>
+
+    <el-dialog
+      v-model="definitionFormVisible"
+      :title="definitionFormMode === 'create' ? '新增任务定义' : `编辑任务定义：${definitionForm.id}`"
+      width="760px"
+      destroy-on-close
+    >
+      <el-form label-width="110px">
+        <div class="dialog-grid">
+          <el-form-item label="job_name" required>
+            <el-input v-model="definitionForm.job_name" />
+          </el-form-item>
+          <el-form-item label="display_name" required>
+            <el-input v-model="definitionForm.display_name" />
+          </el-form-item>
+          <el-form-item label="module">
+            <el-select v-model="definitionForm.module">
+              <el-option v-for="item in moduleOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="cron_expr" required>
+            <el-input v-model="definitionForm.cron_expr" placeholder="0 0 9 * * *" />
+          </el-form-item>
+          <el-form-item label="status">
+            <el-select v-model="definitionForm.status">
+              <el-option v-for="item in definitionStatusOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </el-form-item>
+        </div>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="definitionFormVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submittingDefinition" @click="submitDefinition">
+          {{ definitionFormMode === "create" ? "创建" : "更新" }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.metric-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+
+.metric-label {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.metric-value {
+  margin-top: 6px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.inline-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inline-actions--left {
+  justify-content: flex-start;
+}
+
+.dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0 12px;
+}
+
+:deep(.dialog-grid .el-form-item) {
+  margin-bottom: 14px;
+}
+
+:deep(.dialog-grid .el-select) {
+  width: 100%;
+}
+</style>
