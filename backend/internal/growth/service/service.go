@@ -101,6 +101,9 @@ type GrowthService interface {
 	AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int) error
 	AdminListDataSources(page int, pageSize int) ([]model.DataSource, int, error)
 	AdminCreateDataSource(item model.DataSource) (string, error)
+	AdminUpdateDataSource(sourceKey string, item model.DataSource) error
+	AdminDeleteDataSource(sourceKey string) error
+	AdminCheckDataSourceHealth(sourceKey string) (model.DataSourceHealthCheck, error)
 	AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error)
 	AdminUpsertSystemConfig(configKey string, configValue string, description string, operator string) error
 	AdminListReviewTasks(module string, status string, submitterID string, reviewerID string, page int, pageSize int) ([]model.ReviewTask, int, error)
@@ -510,6 +513,18 @@ func (s *growthService) AdminListDataSources(page int, pageSize int) ([]model.Da
 
 func (s *growthService) AdminCreateDataSource(item model.DataSource) (string, error) {
 	return s.repo.AdminCreateDataSource(item)
+}
+
+func (s *growthService) AdminUpdateDataSource(sourceKey string, item model.DataSource) error {
+	return s.repo.AdminUpdateDataSource(sourceKey, item)
+}
+
+func (s *growthService) AdminDeleteDataSource(sourceKey string) error {
+	return s.repo.AdminDeleteDataSource(sourceKey)
+}
+
+func (s *growthService) AdminCheckDataSourceHealth(sourceKey string) (model.DataSourceHealthCheck, error) {
+	return s.repo.AdminCheckDataSourceHealth(sourceKey)
 }
 
 func (s *growthService) AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error) {

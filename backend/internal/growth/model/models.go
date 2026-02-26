@@ -388,6 +388,16 @@ type DataSource struct {
 	UpdatedAt  string                 `json:"updated_at,omitempty"`
 }
 
+type DataSourceHealthCheck struct {
+	SourceKey  string `json:"source_key"`
+	Status     string `json:"status"`
+	Reachable  bool   `json:"reachable"`
+	HTTPStatus int    `json:"http_status,omitempty"`
+	LatencyMS  int64  `json:"latency_ms"`
+	Message    string `json:"message,omitempty"`
+	CheckedAt  string `json:"checked_at"`
+}
+
 type SystemConfig struct {
 	ID          string `json:"id"`
 	ConfigKey   string `json:"config_key"`

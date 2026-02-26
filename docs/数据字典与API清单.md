@@ -397,6 +397,9 @@
 - `PUT /api/v1/admin/kyc/{id}/review`
 - `GET /api/v1/admin/data-sources`
 - `POST /api/v1/admin/data-sources`
+- `PUT /api/v1/admin/data-sources/{source_key}`
+- `DELETE /api/v1/admin/data-sources/{source_key}`
+- `POST /api/v1/admin/data-sources/{source_key}/health-check`
 - `POST /api/v1/admin/news/categories`
 - `PUT /api/v1/admin/news/categories/{id}`
 - `POST /api/v1/admin/news/articles`

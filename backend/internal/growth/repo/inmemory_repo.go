@@ -1,7 +1,10 @@
 package repo
 
 import (
+	"database/sql"
 	"errors"
+	"strings"
+	"time"
 
 	"sercherai/backend/internal/growth/model"
 )
@@ -651,6 +654,40 @@ func (r *InMemoryGrowthRepo) AdminListDataSources(page int, pageSize int) ([]mod
 
 func (r *InMemoryGrowthRepo) AdminCreateDataSource(item model.DataSource) (string, error) {
 	return "ds_new_001", nil
+}
+
+func (r *InMemoryGrowthRepo) AdminUpdateDataSource(sourceKey string, item model.DataSource) error {
+	if strings.TrimSpace(sourceKey) == "" {
+		return sql.ErrNoRows
+	}
+	if sourceKey != "wind" && sourceKey != "ds_new_001" {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) AdminDeleteDataSource(sourceKey string) error {
+	if strings.TrimSpace(sourceKey) == "" {
+		return sql.ErrNoRows
+	}
+	if sourceKey != "wind" && sourceKey != "ds_new_001" {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model.DataSourceHealthCheck, error) {
+	if strings.TrimSpace(sourceKey) == "" || (sourceKey != "wind" && sourceKey != "ds_new_001") {
+		return model.DataSourceHealthCheck{}, sql.ErrNoRows
+	}
+	return model.DataSourceHealthCheck{
+		SourceKey: sourceKey,
+		Status:    "HEALTHY",
+		Reachable: true,
+		LatencyMS: 8,
+		Message:   "ok",
+		CheckedAt: time.Now().Format(time.RFC3339),
+	}, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error) {

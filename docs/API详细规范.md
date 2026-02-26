@@ -588,6 +588,11 @@ POST /user/reward-wallet/withdraw
 - `POST /admin/recommendations`
 - `PUT /admin/recommendations/{id}/publish`
 - `PUT /admin/kyc/{id}/review`
+- `GET /admin/data-sources`
+- `POST /admin/data-sources`
+- `PUT /admin/data-sources/{source_key}`
+- `DELETE /admin/data-sources/{source_key}`
+- `POST /admin/data-sources/{source_key}/health-check`
 - `POST /admin/news/categories`
 - `PUT /admin/news/categories/{id}`
 - `POST /admin/news/articles`

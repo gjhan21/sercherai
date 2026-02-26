@@ -96,6 +96,13 @@ type DataSourceCreateRequest struct {
 	Config     map[string]interface{} `json:"config"`
 }
 
+type DataSourceUpdateRequest struct {
+	Name       string                 `json:"name" binding:"required"`
+	SourceType string                 `json:"source_type" binding:"required"`
+	Status     string                 `json:"status" binding:"required,oneof=ACTIVE DISABLED"`
+	Config     map[string]interface{} `json:"config"`
+}
+
 type StockRecommendationRequest struct {
 	Symbol        string  `json:"symbol" binding:"required"`
 	Name          string  `json:"name" binding:"required"`

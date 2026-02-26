@@ -790,6 +790,60 @@ func (h *AdminGrowthHandler) CreateDataSource(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
 }
 
+func (h *AdminGrowthHandler) UpdateDataSource(c *gin.Context) {
+	sourceKey := strings.TrimSpace(c.Param("source_key"))
+	var req dto.DataSourceUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	err := h.service.AdminUpdateDataSource(sourceKey, model.DataSource{
+		Name:       req.Name,
+		SourceType: req.SourceType,
+		Status:     req.Status,
+		Config:     req.Config,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "data source not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "SYSTEM", "UPDATE_DATA_SOURCE", "DATA_SOURCE", sourceKey, "", req.Status, req.Name)
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AdminGrowthHandler) DeleteDataSource(c *gin.Context) {
+	sourceKey := strings.TrimSpace(c.Param("source_key"))
+	if err := h.service.AdminDeleteDataSource(sourceKey); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "data source not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "SYSTEM", "DELETE_DATA_SOURCE", "DATA_SOURCE", sourceKey, "", "DELETED", "")
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AdminGrowthHandler) CheckDataSourceHealth(c *gin.Context) {
+	sourceKey := strings.TrimSpace(c.Param("source_key"))
+	item, err := h.service.AdminCheckDataSourceHealth(sourceKey)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "data source not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "SYSTEM", "CHECK_DATA_SOURCE_HEALTH", "DATA_SOURCE", sourceKey, "", item.Status, item.Message)
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
 func (h *AdminGrowthHandler) ListSystemConfigs(c *gin.Context) {
 	page, pageSize := parsePage(c)
 	keyword := c.Query("keyword")

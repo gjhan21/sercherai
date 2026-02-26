@@ -102,6 +102,9 @@ type GrowthRepo interface {
 	AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int) error
 	AdminListDataSources(page int, pageSize int) ([]model.DataSource, int, error)
 	AdminCreateDataSource(item model.DataSource) (string, error)
+	AdminUpdateDataSource(sourceKey string, item model.DataSource) error
+	AdminDeleteDataSource(sourceKey string) error
+	AdminCheckDataSourceHealth(sourceKey string) (model.DataSourceHealthCheck, error)
 	AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error)
 	AdminUpsertSystemConfig(configKey string, configValue string, description string, operator string) error
 	AdminListReviewTasks(module string, status string, submitterID string, reviewerID string, page int, pageSize int) ([]model.ReviewTask, int, error)

@@ -228,6 +228,9 @@ func Register(r *gin.Engine) {
 		{
 			adminDataSources.GET("", adminGrowthHandler.ListDataSources)
 			adminDataSources.POST("", adminGrowthHandler.CreateDataSource)
+			adminDataSources.PUT("/:source_key", adminGrowthHandler.UpdateDataSource)
+			adminDataSources.DELETE("/:source_key", adminGrowthHandler.DeleteDataSource)
+			adminDataSources.POST("/:source_key/health-check", adminGrowthHandler.CheckDataSourceHealth)
 		}
 
 		adminStocks := v1.Group("/admin/stocks")

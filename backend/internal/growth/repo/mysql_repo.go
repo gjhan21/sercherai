@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -2650,6 +2652,171 @@ VALUES (?, ?, ?, ?, ?, ?)`,
 		return "", err
 	}
 	return id, nil
+}
+
+func (r *MySQLGrowthRepo) AdminUpdateDataSource(sourceKey string, item model.DataSource) error {
+	sourceKey = strings.TrimSpace(sourceKey)
+	if sourceKey == "" {
+		return sql.ErrNoRows
+	}
+	configKey := "data_source." + sourceKey
+	payloadBytes, err := json.Marshal(map[string]interface{}{
+		"name":        item.Name,
+		"source_type": strings.ToUpper(strings.TrimSpace(item.SourceType)),
+		"status":      strings.ToUpper(strings.TrimSpace(item.Status)),
+		"config":      item.Config,
+	})
+	if err != nil {
+		return err
+	}
+
+	result, err := r.db.Exec(`
+UPDATE system_configs
+SET config_value = ?, description = ?, updated_by = ?, updated_at = ?
+WHERE config_key = ?`,
+		string(payloadBytes), item.Name, "admin", time.Now(), configKey,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) AdminDeleteDataSource(sourceKey string) error {
+	sourceKey = strings.TrimSpace(sourceKey)
+	if sourceKey == "" {
+		return sql.ErrNoRows
+	}
+	configKey := "data_source." + sourceKey
+	result, err := r.db.Exec("DELETE FROM system_configs WHERE config_key = ?", configKey)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model.DataSourceHealthCheck, error) {
+	item, err := r.getDataSourceBySourceKey(sourceKey)
+	if err != nil {
+		return model.DataSourceHealthCheck{}, err
+	}
+	result := model.DataSourceHealthCheck{
+		SourceKey: item.SourceKey,
+		Status:    "UNKNOWN",
+		CheckedAt: time.Now().Format(time.RFC3339),
+	}
+
+	if strings.ToUpper(strings.TrimSpace(item.Status)) != "ACTIVE" {
+		result.Message = "data source is disabled"
+		return result, nil
+	}
+
+	endpoint := strings.TrimSpace(fmt.Sprintf("%v", item.Config["endpoint"]))
+	if endpoint == "" {
+		result.Message = "endpoint not configured"
+		return result, nil
+	}
+
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		result.Message = "invalid endpoint"
+		return result, nil
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		result.Message = "unsupported endpoint scheme"
+		return result, nil
+	}
+
+	client := &http.Client{Timeout: 3 * time.Second}
+	start := time.Now()
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		result.Message = err.Error()
+		return result, nil
+	}
+	resp, err := client.Do(req)
+	result.LatencyMS = time.Since(start).Milliseconds()
+	if err != nil {
+		result.Status = "UNHEALTHY"
+		result.Reachable = false
+		result.Message = err.Error()
+		return result, nil
+	}
+	defer resp.Body.Close()
+	result.Reachable = true
+	result.HTTPStatus = resp.StatusCode
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		result.Status = "HEALTHY"
+		result.Message = "ok"
+		return result, nil
+	}
+	result.Status = "UNHEALTHY"
+	result.Message = resp.Status
+	return result, nil
+}
+
+func (r *MySQLGrowthRepo) getDataSourceBySourceKey(sourceKey string) (model.DataSource, error) {
+	sourceKey = strings.TrimSpace(sourceKey)
+	if sourceKey == "" {
+		return model.DataSource{}, sql.ErrNoRows
+	}
+	configKey := "data_source." + sourceKey
+
+	var id, configValue string
+	var desc sql.NullString
+	var updatedAt time.Time
+	err := r.db.QueryRow(`
+SELECT id, config_value, description, updated_at
+FROM system_configs
+WHERE config_key = ?
+LIMIT 1`, configKey).Scan(&id, &configValue, &desc, &updatedAt)
+	if err != nil {
+		return model.DataSource{}, err
+	}
+	item := model.DataSource{
+		ID:         id,
+		SourceKey:  sourceKey,
+		Name:       "",
+		SourceType: "",
+		Status:     "ACTIVE",
+		UpdatedAt:  updatedAt.Format(time.RFC3339),
+	}
+	var payload struct {
+		Name       string                 `json:"name"`
+		SourceType string                 `json:"source_type"`
+		Status     string                 `json:"status"`
+		Config     map[string]interface{} `json:"config"`
+	}
+	if err := json.Unmarshal([]byte(configValue), &payload); err == nil {
+		item.Name = payload.Name
+		item.SourceType = payload.SourceType
+		if strings.TrimSpace(payload.Status) != "" {
+			item.Status = payload.Status
+		}
+		item.Config = payload.Config
+	}
+	if item.Name == "" {
+		if desc.Valid {
+			item.Name = desc.String
+		} else {
+			item.Name = sourceKey
+		}
+	}
+	return item, nil
 }
 
 func (r *MySQLGrowthRepo) AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error) {
