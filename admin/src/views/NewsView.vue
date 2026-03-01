@@ -6,6 +6,7 @@ import {
   createNewsAttachment,
   createNewsCategory,
   deleteNewsAttachment,
+  getNewsArticleDetail,
   listNewsArticles,
   listNewsAttachments,
   listNewsCategories,
@@ -19,10 +20,13 @@ import RichTextEditor from "../components/RichTextEditor.vue";
 const loadingCategories = ref(false);
 const loadingArticles = ref(false);
 const loadingAttachments = ref(false);
+const loadingArticleDetail = ref(false);
 const savingCategory = ref(false);
 const savingArticle = ref(false);
 const savingAttachment = ref(false);
 const uploadingAttachmentFile = ref(false);
+const uploadingCoverFile = ref(false);
+const uploadingArticleAttachment = ref(false);
 
 const errorMessage = ref("");
 const message = ref("");
@@ -58,11 +62,14 @@ const articleForm = reactive({
   title: "",
   summary: "",
   content: "",
+  cover_url: "",
   visibility: "PUBLIC",
   status: "DRAFT"
 });
+const articleAttachmentDrafts = ref([]);
 const previewVisible = ref(false);
 const previewArticle = ref(null);
+const previewAttachments = ref([]);
 
 const selectedArticle = ref(null);
 const attachments = ref([]);
@@ -95,9 +102,11 @@ function resetArticleForm() {
     title: "",
     summary: "",
     content: "",
+    cover_url: "",
     visibility: "PUBLIC",
     status: "DRAFT"
   });
+  articleAttachmentDrafts.value = [];
   articleFormMode.value = "create";
 }
 
@@ -166,6 +175,18 @@ async function fetchAttachments(article) {
   }
 }
 
+async function fetchArticleDetail(articleID) {
+  loadingArticleDetail.value = true;
+  try {
+    const data = await getNewsArticleDetail(articleID);
+    const article = data?.article || data || {};
+    const articleAttachments = Array.isArray(data?.attachments) ? data.attachments : [];
+    return { article, attachments: articleAttachments };
+  } finally {
+    loadingArticleDetail.value = false;
+  }
+}
+
 async function submitCategory() {
   savingCategory.value = true;
   errorMessage.value = "";
@@ -208,19 +229,35 @@ async function submitArticle() {
       title: articleForm.title.trim(),
       summary: articleForm.summary.trim(),
       content: articleForm.content,
+      cover_url: articleForm.cover_url.trim(),
       visibility: articleForm.visibility,
       status: articleForm.status
     };
     if (!payload.category_id || !payload.title || !extractPlainText(payload.content)) {
       throw new Error("分类、标题、正文不能为空");
     }
+    let articleID = articleForm.id;
     if (articleFormMode.value === "create") {
-      await createNewsArticle(payload);
-      message.value = "新闻文章创建成功";
+      const data = await createNewsArticle(payload);
+      articleID = data?.id || "";
+      if (!articleID) {
+        throw new Error("文章创建成功但未返回文章ID");
+      }
     } else {
       await updateNewsArticle(articleForm.id, payload);
-      message.value = "新闻文章更新成功";
+      articleID = articleForm.id;
     }
+
+    const attachResult = await attachDraftFilesToArticle(articleID);
+    if (attachResult.failures.length > 0) {
+      message.value = `${articleFormMode.value === "create" ? "新闻文章创建成功" : "新闻文章更新成功"}，附件成功 ${attachResult.successCount} 个，失败 ${attachResult.failures.length} 个`;
+      errorMessage.value = `附件上传失败：${attachResult.failures.join("、")}`;
+    } else if (attachResult.successCount > 0) {
+      message.value = `${articleFormMode.value === "create" ? "新闻文章创建成功" : "新闻文章更新成功"}，并已添加 ${attachResult.successCount} 个附件`;
+    } else {
+      message.value = articleFormMode.value === "create" ? "新闻文章创建成功" : "新闻文章更新成功";
+    }
+
     articleFormVisible.value = false;
     resetArticleForm();
     await fetchArticles();
@@ -298,10 +335,112 @@ async function handleAttachmentFileUpload(options) {
   }
 }
 
+async function handleCoverFileUpload(options) {
+  uploadingCoverFile.value = true;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    const formData = new FormData();
+    formData.append("file", options.file);
+    const data = await uploadNewsAttachmentFile(formData);
+    const fileURL = data.file_url || "";
+    if (!fileURL) {
+      throw new Error("封面上传成功但未返回地址");
+    }
+    articleForm.cover_url = fileURL;
+    message.value = "封面上传成功";
+    if (typeof options.onSuccess === "function") {
+      options.onSuccess(data);
+    }
+  } catch (error) {
+    errorMessage.value = error.message || "封面上传失败";
+    if (typeof options.onError === "function") {
+      options.onError(error);
+    }
+  } finally {
+    uploadingCoverFile.value = false;
+  }
+}
+
+function removeArticleDraftAttachment(index) {
+  if (index < 0 || index >= articleAttachmentDrafts.value.length) {
+    return;
+  }
+  articleAttachmentDrafts.value.splice(index, 1);
+}
+
+async function handleArticleDraftAttachmentUpload(options) {
+  uploadingArticleAttachment.value = true;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    const formData = new FormData();
+    formData.append("file", options.file);
+    const data = await uploadNewsAttachmentFile(formData);
+    const draft = {
+      uid: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      file_name: data.file_name || options.file.name || "",
+      file_url: data.file_url || "",
+      file_size: Number(data.file_size) || options.file.size || 0,
+      mime_type: data.mime_type || options.file.type || ""
+    };
+    if (!draft.file_name || !draft.file_url || draft.file_size <= 0) {
+      throw new Error("附件上传成功但返回信息不完整");
+    }
+    articleAttachmentDrafts.value = [...articleAttachmentDrafts.value, draft];
+    message.value = `附件已加入待提交：${draft.file_name}`;
+    if (typeof options.onSuccess === "function") {
+      options.onSuccess(data);
+    }
+  } catch (error) {
+    errorMessage.value = error.message || "附件上传失败";
+    if (typeof options.onError === "function") {
+      options.onError(error);
+    }
+  } finally {
+    uploadingArticleAttachment.value = false;
+  }
+}
+
+async function attachDraftFilesToArticle(articleID) {
+  if (!articleID || articleAttachmentDrafts.value.length === 0) {
+    return { successCount: 0, failures: [] };
+  }
+  const failures = [];
+  let successCount = 0;
+  for (const item of articleAttachmentDrafts.value) {
+    try {
+      await createNewsAttachment(articleID, {
+        file_name: item.file_name,
+        file_url: item.file_url,
+        file_size: Number(item.file_size) || 0,
+        mime_type: item.mime_type || ""
+      });
+      successCount += 1;
+    } catch (error) {
+      failures.push(item.file_name || item.file_url || "未命名附件");
+    }
+  }
+  return { successCount, failures };
+}
+
 function beforeAttachmentUpload(file) {
   const maxSizeBytes = 20 * 1024 * 1024;
   if (file.size > maxSizeBytes) {
     errorMessage.value = "附件大小不能超过 20MB";
+    return false;
+  }
+  return true;
+}
+
+function beforeCoverUpload(file) {
+  const maxSizeBytes = 5 * 1024 * 1024;
+  if (!String(file.type || "").startsWith("image/")) {
+    errorMessage.value = "封面仅支持图片文件";
+    return false;
+  }
+  if (file.size > maxSizeBytes) {
+    errorMessage.value = "封面大小不能超过 5MB";
     return false;
   }
   return true;
@@ -349,26 +488,46 @@ function openEditCategory(category) {
 
 function openCreateArticle() {
   resetArticleForm();
+  previewAttachments.value = [];
   articleFormVisible.value = true;
 }
 
-function openEditArticle(article) {
-  Object.assign(articleForm, {
-    id: article.id,
-    category_id: article.category_id || categories.value[0]?.id || "",
-    title: article.title || "",
-    summary: article.summary || "",
-    content: article.content || "",
-    visibility: article.visibility || "PUBLIC",
-    status: article.status || "DRAFT"
-  });
-  articleFormMode.value = "edit";
-  articleFormVisible.value = true;
+async function openEditArticle(article) {
+  errorMessage.value = "";
+  try {
+    const detailData = await fetchArticleDetail(article.id);
+    const detail = detailData.article || {};
+    const mergedArticle = { ...article, ...detail };
+    Object.assign(articleForm, {
+      id: mergedArticle.id,
+      category_id: mergedArticle.category_id || categories.value[0]?.id || "",
+      title: mergedArticle.title || "",
+      summary: mergedArticle.summary || "",
+      content: mergedArticle.content || "",
+      cover_url: mergedArticle.cover_url || "",
+      visibility: mergedArticle.visibility || "PUBLIC",
+      status: mergedArticle.status || "DRAFT"
+    });
+    selectedArticle.value = mergedArticle;
+    attachments.value = detailData.attachments || [];
+    articleAttachmentDrafts.value = [];
+    articleFormMode.value = "edit";
+    articleFormVisible.value = true;
+  } catch (error) {
+    errorMessage.value = error.message || "加载文章详情失败";
+  }
 }
 
-function openPreviewArticle(article) {
-  previewArticle.value = article;
-  previewVisible.value = true;
+async function openPreviewArticle(article) {
+  errorMessage.value = "";
+  try {
+    const detailData = await fetchArticleDetail(article.id);
+    previewArticle.value = { ...article, ...(detailData.article || {}) };
+    previewAttachments.value = detailData.attachments || [];
+    previewVisible.value = true;
+  } catch (error) {
+    errorMessage.value = error.message || "加载文章详情失败";
+  }
 }
 
 function applyArticleFilters() {
@@ -416,6 +575,20 @@ function extractPlainText(content) {
     .replace(/&nbsp;/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function formatFileSize(bytes) {
+  const size = Number(bytes || 0);
+  if (!Number.isFinite(size) || size <= 0) {
+    return "-";
+  }
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (size >= 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${size} B`;
 }
 
 onMounted(async () => {
@@ -511,10 +684,28 @@ onMounted(async () => {
             {{ resolveCategoryName(row.category_id) }}
           </template>
         </el-table-column>
+        <el-table-column label="封面" min-width="120">
+          <template #default="{ row }">
+            <el-image
+              v-if="row.cover_url"
+              :src="row.cover_url"
+              fit="cover"
+              class="cover-thumb"
+              :preview-src-list="[row.cover_url]"
+              preview-teleported
+            />
+            <span v-else class="muted">未设置</span>
+          </template>
+        </el-table-column>
         <el-table-column label="标题" min-width="260">
           <template #default="{ row }">
             <div class="article-title">{{ row.title }}</div>
             <div class="article-summary">{{ row.summary || "-" }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="附件数" min-width="90">
+          <template #default="{ row }">
+            {{ Number(row.attachment_count || 0) }}
           </template>
         </el-table-column>
         <el-table-column label="可见性" min-width="110">
@@ -551,7 +742,7 @@ onMounted(async () => {
               >
                 发布
               </el-button>
-              <el-button size="small" @click="fetchAttachments(row)">附件</el-button>
+              <el-button size="small" @click="fetchAttachments(row)">附件({{ Number(row.attachment_count || 0) }})</el-button>
             </div>
           </template>
         </el-table-column>
@@ -713,6 +904,71 @@ onMounted(async () => {
           <el-form-item label="摘要">
             <el-input v-model="articleForm.summary" placeholder="请输入摘要" />
           </el-form-item>
+          <el-form-item label="封面图">
+            <div class="cover-form-box">
+              <div class="cover-input-row">
+                <el-input v-model="articleForm.cover_url" placeholder="请输入封面 URL" />
+                <el-upload
+                  :show-file-list="false"
+                  :http-request="handleCoverFileUpload"
+                  :before-upload="beforeCoverUpload"
+                  accept="image/*"
+                >
+                  <el-button :loading="uploadingCoverFile">上传封面</el-button>
+                </el-upload>
+              </div>
+              <el-image
+                v-if="articleForm.cover_url"
+                :src="articleForm.cover_url"
+                fit="cover"
+                class="cover-preview"
+                :preview-src-list="[articleForm.cover_url]"
+                preview-teleported
+              />
+            </div>
+          </el-form-item>
+          <el-form-item label="文章附件">
+            <div class="article-attachment-box">
+              <div class="article-attachment-actions">
+                <el-upload
+                  :show-file-list="false"
+                  :http-request="handleArticleDraftAttachmentUpload"
+                  :before-upload="beforeAttachmentUpload"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.png,.jpg,.jpeg,.webp"
+                >
+                  <el-button :loading="uploadingArticleAttachment">上传并加入附件</el-button>
+                </el-upload>
+                <el-text type="info">支持图片/文档，单文件不超过 20MB</el-text>
+              </div>
+              <el-table
+                v-if="articleAttachmentDrafts.length"
+                :data="articleAttachmentDrafts"
+                border
+                stripe
+                size="small"
+                class="article-attachment-table"
+              >
+                <el-table-column prop="file_name" label="文件名" min-width="150" />
+                <el-table-column label="大小" width="100">
+                  <template #default="{ row }">
+                    {{ formatFileSize(row.file_size) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="mime_type" label="MIME" min-width="130">
+                  <template #default="{ row }">
+                    {{ row.mime_type || "-" }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="90">
+                  <template #default="{ $index }">
+                    <el-button size="small" type="danger" plain @click="removeArticleDraftAttachment($index)">
+                      移除
+                    </el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </el-form-item>
           <el-form-item label="可见性">
             <el-select v-model="articleForm.visibility">
               <el-option v-for="item in visibilityOptions" :key="item" :label="item" :value="item" />
@@ -734,7 +990,12 @@ onMounted(async () => {
 
       <template #footer>
         <el-button @click="articleFormVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingArticle" @click="submitArticle">
+        <el-button
+          type="primary"
+          :loading="savingArticle || loadingArticleDetail"
+          :disabled="uploadingCoverFile || uploadingArticleAttachment"
+          @click="submitArticle"
+        >
           {{ articleFormMode === "create" ? "创建文章" : "更新文章" }}
         </el-button>
       </template>
@@ -742,15 +1003,48 @@ onMounted(async () => {
 
     <el-drawer v-model="previewVisible" title="文章预览" size="55%">
       <template v-if="previewArticle">
+        <div v-if="previewArticle.cover_url" class="preview-cover">
+          <el-image
+            :src="previewArticle.cover_url"
+            fit="cover"
+            class="preview-cover-image"
+            :preview-src-list="[previewArticle.cover_url]"
+            preview-teleported
+          />
+        </div>
         <div class="preview-meta">
           <div><span>标题：</span>{{ previewArticle.title || "-" }}</div>
           <div><span>分类：</span>{{ resolveCategoryName(previewArticle.category_id) }}</div>
           <div><span>状态：</span>{{ previewArticle.status || "-" }}</div>
           <div><span>可见性：</span>{{ previewArticle.visibility || "-" }}</div>
           <div><span>发布时间：</span>{{ previewArticle.published_at || "-" }}</div>
+          <div><span>附件数：</span>{{ Number(previewArticle.attachment_count || previewAttachments.length || 0) }}</div>
         </div>
         <el-divider />
         <div class="preview-body" v-html="previewArticle.content || '<p>暂无正文</p>'" />
+        <el-divider />
+        <div class="preview-attachments">
+          <h4>附件列表</h4>
+          <el-empty v-if="previewAttachments.length === 0" description="暂无附件" :image-size="60" />
+          <el-table v-else :data="previewAttachments" border stripe>
+            <el-table-column prop="file_name" label="文件名" min-width="160" />
+            <el-table-column label="大小" width="120">
+              <template #default="{ row }">
+                {{ formatFileSize(row.file_size) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="mime_type" label="MIME" min-width="130">
+              <template #default="{ row }">
+                {{ row.mime_type || "-" }}
+              </template>
+            </el-table-column>
+            <el-table-column label="下载" min-width="200">
+              <template #default="{ row }">
+                <el-link :href="row.file_url" target="_blank" type="primary">打开附件</el-link>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
       </template>
     </el-drawer>
   </div>
@@ -773,6 +1067,51 @@ onMounted(async () => {
   margin-top: 2px;
   color: #6b7280;
   font-size: 12px;
+}
+
+.cover-thumb {
+  width: 84px;
+  height: 52px;
+  border-radius: 8px;
+}
+
+.cover-form-box {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.cover-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.cover-input-row .el-input {
+  flex: 1;
+}
+
+.cover-preview {
+  width: 180px;
+  height: 104px;
+  border-radius: 8px;
+}
+
+.article-attachment-box {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+}
+
+.article-attachment-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.article-attachment-table {
+  width: 100%;
 }
 
 .inline-actions {
@@ -798,6 +1137,20 @@ onMounted(async () => {
 .preview-body {
   line-height: 1.7;
   word-break: break-word;
+}
+
+.preview-cover {
+  margin-bottom: 12px;
+}
+
+.preview-cover-image {
+  width: 240px;
+  height: 140px;
+  border-radius: 10px;
+}
+
+.preview-attachments h4 {
+  margin: 0 0 10px;
 }
 
 .preview-body :deep(h1),
@@ -845,5 +1198,17 @@ onMounted(async () => {
 :deep(.dialog-grid .el-select),
 :deep(.dialog-grid .el-input-number) {
   width: 100%;
+}
+
+@media (max-width: 768px) {
+  .cover-input-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cover-preview {
+    width: 100%;
+    max-width: 260px;
+  }
 }
 </style>

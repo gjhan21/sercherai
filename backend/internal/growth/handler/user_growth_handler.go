@@ -6,8 +6,10 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -29,6 +31,19 @@ type UserGrowthHandler struct {
 
 func NewUserGrowthHandler(service service.GrowthService, cfg config.Config) *UserGrowthHandler {
 	return &UserGrowthHandler{service: service, cfg: cfg}
+}
+
+type yolkPayRuntimeConfig struct {
+	PaymentEnabled bool
+	Enabled        bool
+	PID            string
+	Key            string
+	Gateway        string
+	MAPIPath       string
+	NotifyURL      string
+	ReturnURL      string
+	PayType        string
+	Device         string
 }
 
 func (h *UserGrowthHandler) ListBrowseHistory(c *gin.Context) {
@@ -293,6 +308,19 @@ func (h *UserGrowthHandler) ListInviteRecords(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
+func (h *UserGrowthHandler) GetInviteSummary(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	summary, err := h.service.GetUserInviteSummary(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(summary))
+}
+
 func (h *UserGrowthHandler) ListRewardRecords(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
@@ -353,7 +381,119 @@ func (h *UserGrowthHandler) CreateMembershipOrder(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
+	if strings.EqualFold(strings.TrimSpace(req.PayChannel), "YOLKPAY") {
+		payload := membershipOrderToMap(order)
+		paymentAction, payErr := h.createYolkPayPaymentAction(c, order)
+		if payErr != nil {
+			payload["payment_initialized"] = false
+			payload["payment_error"] = payErr.Error()
+			c.JSON(http.StatusOK, dto.OK(payload))
+			return
+		}
+		payload["payment_initialized"] = true
+		payload["payment_action"] = paymentAction
+		c.JSON(http.StatusOK, dto.OK(payload))
+		return
+	}
 	c.JSON(http.StatusOK, dto.OK(order))
+}
+
+func membershipOrderToMap(order model.MembershipOrderAdmin) gin.H {
+	return gin.H{
+		"id":          order.ID,
+		"order_no":    order.OrderNo,
+		"user_id":     order.UserID,
+		"product_id":  order.ProductID,
+		"amount":      order.Amount,
+		"pay_channel": order.PayChannel,
+		"status":      order.Status,
+		"paid_at":     order.PaidAt,
+		"created_at":  order.CreatedAt,
+	}
+}
+
+func (h *UserGrowthHandler) createYolkPayPaymentAction(c *gin.Context, order model.MembershipOrderAdmin) (gin.H, error) {
+	cfg, err := h.resolveYolkPayConfig()
+	if err != nil {
+		return nil, fmt.Errorf("加载蛋黄支付配置失败: %w", err)
+	}
+	if !cfg.PaymentEnabled {
+		return nil, errors.New("payment.enabled 未开启")
+	}
+	if !cfg.Enabled {
+		return nil, errors.New("payment.channel.yolkpay.enabled 未开启")
+	}
+	if strings.TrimSpace(cfg.PID) == "" || strings.TrimSpace(cfg.Key) == "" {
+		return nil, errors.New("payment.channel.yolkpay.pid 或 key 未配置")
+	}
+
+	clientIP := strings.TrimSpace(c.ClientIP())
+	if clientIP == "" || clientIP == "::1" || clientIP == "0:0:0:0:0:0:0:1" {
+		clientIP = "127.0.0.1"
+	}
+	params := map[string]string{
+		"pid":          strings.TrimSpace(cfg.PID),
+		"type":         strings.TrimSpace(cfg.PayType),
+		"out_trade_no": strings.TrimSpace(order.OrderNo),
+		"notify_url":   strings.TrimSpace(cfg.NotifyURL),
+		"return_url":   strings.TrimSpace(cfg.ReturnURL),
+		"name":         fmt.Sprintf("会员订阅-%s", strings.TrimSpace(order.OrderNo)),
+		"money":        fmt.Sprintf("%.2f", order.Amount),
+		"clientip":     clientIP,
+		"device":       strings.TrimSpace(cfg.Device),
+		"param":        strings.TrimSpace(order.UserID),
+	}
+	params["sign"] = buildYolkPaySign(params, cfg.Key)
+	params["sign_type"] = "MD5"
+
+	form := url.Values{}
+	for key, value := range params {
+		form.Set(key, value)
+	}
+	req, err := http.NewRequest(http.MethodPost, buildYolkPayGatewayURL(cfg.Gateway, cfg.MAPIPath), strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg := strings.TrimSpace(string(bodyBytes))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return nil, fmt.Errorf("蛋黄支付网关返回异常: %s", msg)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		return nil, fmt.Errorf("蛋黄支付返回解析失败: %w", err)
+	}
+	code := parseYolkPayCode(payload["code"])
+	msg := stringifyYolkPayValue(payload["msg"])
+	if code != 1 {
+		if msg == "" {
+			msg = "下单失败"
+		}
+		return nil, fmt.Errorf("蛋黄支付下单失败: %s", msg)
+	}
+	payURL := stringifyYolkPayValue(payload["payurl"])
+	qrCode := stringifyYolkPayValue(payload["qrcode"])
+	urlScheme := stringifyYolkPayValue(payload["urlscheme"])
+	tradeNo := stringifyYolkPayValue(payload["trade_no"])
+	return gin.H{
+		"channel":   "YOLKPAY",
+		"pay_url":   payURL,
+		"qrcode":    qrCode,
+		"urlscheme": urlScheme,
+		"trade_no":  tradeNo,
+		"raw":       payload,
+	}, nil
 }
 
 func (h *UserGrowthHandler) ListMembershipOrders(c *gin.Context) {
@@ -430,10 +570,7 @@ func (h *UserGrowthHandler) DownloadAttachment(c *gin.Context) {
 }
 
 func (h *UserGrowthHandler) ListNewsCategories(c *gin.Context) {
-	userID, ok := requireUserID(c)
-	if !ok {
-		return
-	}
+	userID := optionalUserID(c)
 	items, err := h.service.ListNewsCategories(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -443,10 +580,7 @@ func (h *UserGrowthHandler) ListNewsCategories(c *gin.Context) {
 }
 
 func (h *UserGrowthHandler) ListNewsArticles(c *gin.Context) {
-	userID, ok := requireUserID(c)
-	if !ok {
-		return
-	}
+	userID := optionalUserID(c)
 	page, pageSize := parsePage(c)
 	categoryID := c.Query("category_id")
 	keyword := c.Query("keyword")
@@ -460,10 +594,7 @@ func (h *UserGrowthHandler) ListNewsArticles(c *gin.Context) {
 }
 
 func (h *UserGrowthHandler) GetNewsArticleDetail(c *gin.Context) {
-	userID, ok := requireUserID(c)
-	if !ok {
-		return
-	}
+	userID := optionalUserID(c)
 	articleID := c.Param("id")
 	item, err := h.service.GetNewsArticleDetail(userID, articleID)
 	if err != nil {
@@ -478,10 +609,7 @@ func (h *UserGrowthHandler) GetNewsArticleDetail(c *gin.Context) {
 }
 
 func (h *UserGrowthHandler) ListNewsAttachments(c *gin.Context) {
-	userID, ok := requireUserID(c)
-	if !ok {
-		return
-	}
+	userID := optionalUserID(c)
 	articleID := c.Param("id")
 	items, err := h.service.ListNewsAttachments(userID, articleID)
 	if err != nil {
@@ -540,6 +668,56 @@ func (h *UserGrowthHandler) CreateWithdrawRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"withdraw_id": withdrawID}))
 }
 
+func (h *UserGrowthHandler) HandleYolkPayCallback(c *gin.Context) {
+	if err := c.Request.ParseForm(); err != nil {
+		c.String(http.StatusOK, "fail")
+		return
+	}
+	params := make(map[string]string, len(c.Request.Form))
+	for key, values := range c.Request.Form {
+		if len(values) == 0 {
+			continue
+		}
+		params[key] = strings.TrimSpace(values[0])
+	}
+	sign := strings.TrimSpace(params["sign"])
+	orderNo := strings.TrimSpace(params["out_trade_no"])
+	tradeNo := strings.TrimSpace(params["trade_no"])
+	tradeStatus := strings.ToUpper(strings.TrimSpace(params["trade_status"]))
+
+	cfg, err := h.resolveYolkPayConfig()
+	if err != nil || !cfg.Enabled || strings.TrimSpace(cfg.Key) == "" {
+		c.String(http.StatusOK, "fail")
+		return
+	}
+	if sign == "" || !verifyYolkPaySign(params, sign, cfg.Key) {
+		c.String(http.StatusOK, "fail")
+		return
+	}
+	if orderNo == "" {
+		c.String(http.StatusOK, "fail")
+		return
+	}
+	if tradeStatus != "TRADE_SUCCESS" {
+		c.String(http.StatusOK, "success")
+		return
+	}
+	idempotencyKey := "yolkpay:" + orderNo
+	if tradeNo != "" {
+		idempotencyKey = "yolkpay:" + tradeNo
+	}
+	err = h.service.HandlePaymentCallback("YOLKPAY", orderNo, tradeNo, idempotencyKey, sign, true)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+			c.String(http.StatusOK, "success")
+			return
+		}
+		c.String(http.StatusOK, "fail")
+		return
+	}
+	c.String(http.StatusOK, "success")
+}
+
 func (h *UserGrowthHandler) HandlePaymentCallback(c *gin.Context) {
 	channel := c.Param("channel")
 	var req dto.PaymentCallbackRequest
@@ -552,7 +730,13 @@ func (h *UserGrowthHandler) HandlePaymentCallback(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: err.Error(), Data: struct{}{}})
 		return
 	}
-	if !signVerified && strings.TrimSpace(h.cfg.PaymentSigningSecret) != "" {
+	requireSign := strings.TrimSpace(h.cfg.PaymentSigningSecret) != ""
+	if !requireSign {
+		if dbSecret, lookupErr := h.lookupSystemConfigValue(paymentSigningSecretConfigKey); lookupErr == nil && strings.TrimSpace(dbSecret) != "" {
+			requireSign = true
+		}
+	}
+	if !signVerified && requireSign {
 		c.JSON(http.StatusUnauthorized, dto.APIResponse{Code: 40103, Message: "invalid signature", Data: struct{}{}})
 		return
 	}
@@ -718,6 +902,9 @@ func (h *UserGrowthHandler) ListMarketEvents(c *gin.Context) {
 	}
 	page, pageSize := parsePage(c)
 	eventType := strings.TrimSpace(c.Query("type"))
+	if eventType == "" {
+		eventType = strings.TrimSpace(c.Query("event_type"))
+	}
 	items, total, err := h.service.ListMarketEvents(eventType, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -818,6 +1005,32 @@ func (h *UserGrowthHandler) GetStockRecommendationPerformance(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"points": points}))
 }
 
+func (h *UserGrowthHandler) GetStockRecommendationInsight(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	profile, ok := h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
+		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
+		return
+	}
+	id := c.Param("id")
+	item, err := h.service.GetStockRecommendationInsight(userID, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40403, Message: "stock recommendation not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
 func (h *UserGrowthHandler) ListPublicHoldings(c *gin.Context) {
 	page, pageSize := parsePage(c)
 	symbol := strings.TrimSpace(c.Query("symbol"))
@@ -889,6 +1102,32 @@ func (h *UserGrowthHandler) GetFuturesStrategyDetail(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
+func (h *UserGrowthHandler) GetFuturesStrategyInsight(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	profile, ok := h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
+		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
+		return
+	}
+	id := c.Param("id")
+	item, err := h.service.GetFuturesStrategyInsight(userID, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40404, Message: "futures strategy not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
 func parsePage(c *gin.Context) (int, int) {
 	page := parseIntOrDefault(c.Query("page"), 1)
 	pageSize := parseIntOrDefault(c.Query("page_size"), 20)
@@ -907,6 +1146,15 @@ func parseIntOrDefault(s string, def int) int {
 		return def
 	}
 	return v
+}
+
+func optionalUserID(c *gin.Context) string {
+	if v, ok := c.Get("user_id"); ok {
+		if uid, castOK := v.(string); castOK && strings.TrimSpace(uid) != "" {
+			return uid
+		}
+	}
+	return ""
 }
 
 func requireUserID(c *gin.Context) (string, bool) {
@@ -987,8 +1235,82 @@ func (h *UserGrowthHandler) verifyAttachmentToken(token string) (attachmentID st
 	return fields[0], fields[1], exp, true
 }
 
+func (h *UserGrowthHandler) loadSystemConfigMap(keyword string) (map[string]string, error) {
+	items, _, err := h.service.AdminListSystemConfigs(keyword, 1, 400)
+	if err != nil {
+		return nil, err
+	}
+	configMap := make(map[string]string, len(items))
+	for _, item := range items {
+		key := strings.ToLower(strings.TrimSpace(item.ConfigKey))
+		if key == "" {
+			continue
+		}
+		configMap[key] = strings.TrimSpace(item.ConfigValue)
+	}
+	return configMap, nil
+}
+
+func (h *UserGrowthHandler) lookupSystemConfigValue(configKey string) (string, error) {
+	items, _, err := h.service.AdminListSystemConfigs(configKey, 1, 10)
+	if err != nil {
+		return "", err
+	}
+	target := strings.ToLower(strings.TrimSpace(configKey))
+	for _, item := range items {
+		if strings.ToLower(strings.TrimSpace(item.ConfigKey)) == target {
+			return strings.TrimSpace(item.ConfigValue), nil
+		}
+	}
+	return "", nil
+}
+
+func (h *UserGrowthHandler) resolveYolkPayConfig() (yolkPayRuntimeConfig, error) {
+	cfg := yolkPayRuntimeConfig{
+		PaymentEnabled: false,
+		Enabled:        false,
+		Gateway:        "https://www.yolkpay.net",
+		MAPIPath:       "/mapi.php",
+		PayType:        "airpay",
+		Device:         "pc",
+	}
+	configMap, err := h.loadSystemConfigMap("payment.")
+	if err != nil {
+		return cfg, err
+	}
+	cfg.PaymentEnabled = parseConfigBool(configMap[paymentEnabledConfigKey], cfg.PaymentEnabled)
+	cfg.Enabled = parseConfigBool(configMap[paymentChannelYolkPayEnabledConfigKey], cfg.Enabled)
+	cfg.PID = strings.TrimSpace(configMap[paymentChannelYolkPayPIDConfigKey])
+	cfg.Key = strings.TrimSpace(configMap[paymentChannelYolkPayKeyConfigKey])
+	if gateway := strings.TrimSpace(configMap[paymentChannelYolkPayGatewayConfigKey]); gateway != "" {
+		cfg.Gateway = gateway
+	}
+	if mapiPath := strings.TrimSpace(configMap[paymentChannelYolkPayMAPIPathConfigKey]); mapiPath != "" {
+		cfg.MAPIPath = mapiPath
+	}
+	cfg.NotifyURL = strings.TrimSpace(configMap[paymentChannelYolkPayNotifyURLConfigKey])
+	cfg.ReturnURL = strings.TrimSpace(configMap[paymentChannelYolkPayReturnURLConfigKey])
+	if payType := strings.TrimSpace(configMap[paymentChannelYolkPayPayTypeConfigKey]); payType != "" {
+		cfg.PayType = strings.ToLower(payType)
+	}
+	if device := strings.TrimSpace(configMap[paymentChannelYolkPayDeviceConfigKey]); device != "" {
+		cfg.Device = strings.ToLower(device)
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(h.cfg.PublicBaseURL), "/")
+	if cfg.NotifyURL == "" && baseURL != "" {
+		cfg.NotifyURL = baseURL + "/api/v1/payment/callbacks/yolkpay/notify"
+	}
+	if cfg.ReturnURL == "" && baseURL != "" {
+		cfg.ReturnURL = baseURL + "/payment/success"
+	}
+	return cfg, nil
+}
+
 func (h *UserGrowthHandler) verifyPaymentSignature(channel string, orderNo string, channelTxnNo string, idempotencyKey string, sign string) (bool, error) {
 	secret := strings.TrimSpace(h.cfg.PaymentSigningSecret)
+	if dbSecret, err := h.lookupSystemConfigValue(paymentSigningSecretConfigKey); err == nil && strings.TrimSpace(dbSecret) != "" {
+		secret = strings.TrimSpace(dbSecret)
+	}
 	if secret == "" {
 		if h.cfg.AppEnv == "production" {
 			return false, errors.New("payment signing secret not configured")

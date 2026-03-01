@@ -66,13 +66,14 @@ ON DUPLICATE KEY UPDATE
   status = VALUES(status),
   updated_at = VALUES(updated_at);
 
-INSERT INTO news_articles (id, category_id, title, summary, content, tags, visibility, status, published_at, author_id, created_at, updated_at)
+INSERT INTO news_articles (id, category_id, title, summary, content, cover_url, tags, visibility, status, published_at, author_id, created_at, updated_at)
 VALUES
-  ('article_demo_002', 'nc_demo_002', '量化策略周报', '示例周报摘要', '用于 admin 管理端联调的策略周报正文。', JSON_ARRAY('策略', '周报'), 'VIP', 'PUBLISHED', NOW(), 'admin_001', NOW(), NOW()),
-  ('article_demo_003', 'nc_demo_001', '热点快评', '待审核稿件', '该稿件用于审核中心待处理演示。', JSON_ARRAY('热点', '快评'), 'PUBLIC', 'DRAFT', NULL, 'admin_001', NOW(), NOW())
+  ('article_demo_002', 'nc_demo_002', '量化策略周报', '示例周报摘要', '用于 admin 管理端联调的策略周报正文。', 'https://images.unsplash.com/photo-1556157382-97eda2d62296?auto=format&fit=crop&w=1200&q=80', JSON_ARRAY('策略', '周报'), 'VIP', 'PUBLISHED', NOW(), 'admin_001', NOW(), NOW()),
+  ('article_demo_003', 'nc_demo_001', '热点快评', '待审核稿件', '该稿件用于审核中心待处理演示。', 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=1200&q=80', JSON_ARRAY('热点', '快评'), 'PUBLIC', 'DRAFT', NULL, 'admin_001', NOW(), NOW())
 ON DUPLICATE KEY UPDATE
   summary = VALUES(summary),
   content = VALUES(content),
+  cover_url = VALUES(cover_url),
   status = VALUES(status),
   updated_at = VALUES(updated_at);
 

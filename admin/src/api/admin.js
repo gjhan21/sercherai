@@ -71,6 +71,23 @@ export function listUsers(params) {
   return http.get("/admin/users", { params: buildParams(params) });
 }
 
+export function getUserSourceSummary(params) {
+  return http.get("/admin/users/source-summary", { params: buildParams(params) });
+}
+
+export function getUserCenterOverview(id, params) {
+  return http.get(`/admin/users/${encodeURIComponent(id)}/center-overview`, {
+    params: buildParams(params)
+  });
+}
+
+export function updateUserSubscription(userID, subscriptionID, payload) {
+  return http.put(
+    `/admin/users/${encodeURIComponent(userID)}/subscriptions/${encodeURIComponent(subscriptionID)}`,
+    payload
+  );
+}
+
 export function updateUserStatus(id, status) {
   return http.put(`/admin/users/${encodeURIComponent(id)}/status`, { status });
 }
@@ -87,6 +104,30 @@ export function updateUserKYCStatus(id, kycStatus) {
   });
 }
 
+export function listBrowseHistories(params) {
+  return http.get("/admin/users/browse-histories", { params: buildParams(params) });
+}
+
+export function getBrowseHistorySummary() {
+  return http.get("/admin/users/browse-histories/summary");
+}
+
+export function getBrowseHistoryTrend(params) {
+  return http.get("/admin/users/browse-histories/trend", { params: buildParams(params) });
+}
+
+export function listBrowseUserSegments(params) {
+  return http.get("/admin/users/browse-histories/segments", { params: buildParams(params) });
+}
+
+export function listUserMessages(params) {
+  return http.get("/admin/users/messages", { params: buildParams(params) });
+}
+
+export function createUserMessages(payload) {
+  return http.post("/admin/users/messages", payload);
+}
+
 export function listNewsCategories(params) {
   return http.get("/admin/news/categories", { params: buildParams(params) });
 }
@@ -101,6 +142,10 @@ export function updateNewsCategory(id, payload) {
 
 export function listNewsArticles(params) {
   return http.get("/admin/news/articles", { params: buildParams(params) });
+}
+
+export function getNewsArticleDetail(id) {
+  return http.get(`/admin/news/articles/${encodeURIComponent(id)}`);
 }
 
 export function createNewsArticle(payload) {
@@ -196,6 +241,10 @@ export function listSchedulerJobDefinitions(params) {
   return http.get("/admin/system/job-definitions", { params: buildParams(params) });
 }
 
+export function listSupportedSchedulerJobs(params) {
+  return http.get("/admin/system/job-definitions/supported", { params: buildParams(params) });
+}
+
 export function createSchedulerJobDefinition(payload) {
   return http.post("/admin/system/job-definitions", payload);
 }
@@ -208,8 +257,18 @@ export function updateSchedulerJobDefinitionStatus(id, status) {
   return http.put(`/admin/system/job-definitions/${encodeURIComponent(id)}/status`, { status });
 }
 
+export function deleteSchedulerJobDefinition(id) {
+  return http.delete(`/admin/system/job-definitions/${encodeURIComponent(id)}`);
+}
+
 export function listSchedulerJobRuns(params) {
   return http.get("/admin/system/job-runs", { params: buildParams(params) });
+}
+
+export function listNewsSyncRunDetails(runID, params) {
+  return http.get(`/admin/system/job-runs/${encodeURIComponent(runID)}/news-sync-details`, {
+    params: buildParams(params)
+  });
 }
 
 export function getSchedulerJobMetrics(params) {
@@ -222,6 +281,10 @@ export function triggerSchedulerJob(payload) {
 
 export function retrySchedulerJobRun(id, payload) {
   return http.post(`/admin/system/job-runs/${encodeURIComponent(id)}/retry`, payload);
+}
+
+export function retryNewsSyncItem(id, payload) {
+  return http.post(`/admin/system/job-runs/${encodeURIComponent(id)}/retry-news-sync-item`, payload);
 }
 
 export function countUnreadWorkflowMessages(params) {
@@ -313,6 +376,18 @@ export function updateStockRecommendationStatus(id, status) {
   });
 }
 
+export function syncStockQuotes(payload) {
+  return http.post("/admin/stocks/quotes/sync", payload);
+}
+
+export function listQuantTopStocks(params) {
+  return http.get("/admin/stocks/quant/top", { params: buildParams(params) });
+}
+
+export function listQuantEvaluation(params) {
+  return http.get("/admin/stocks/quant/evaluation", { params: buildParams(params) });
+}
+
 export function generateDailyStockRecommendations(tradeDate = "") {
   return http.post("/admin/stocks/recommendations/generate-daily", null, {
     params: buildParams({ trade_date: tradeDate })
@@ -333,12 +408,28 @@ export function updateFuturesStrategyStatus(id, status) {
   });
 }
 
+export function listMarketEvents(params) {
+  return http.get("/admin/market/events", { params: buildParams(params) });
+}
+
+export function createMarketEvent(payload) {
+  return http.post("/admin/market/events", payload);
+}
+
+export function updateMarketEvent(id, payload) {
+  return http.put(`/admin/market/events/${encodeURIComponent(id)}`, payload);
+}
+
 export function listMembershipProducts(params) {
   return http.get("/admin/membership/products", { params: buildParams(params) });
 }
 
 export function createMembershipProduct(payload) {
   return http.post("/admin/membership/products", payload);
+}
+
+export function updateMembershipProduct(id, payload) {
+  return http.put(`/admin/membership/products/${encodeURIComponent(id)}`, payload);
 }
 
 export function updateMembershipProductStatus(id, status) {
@@ -383,6 +474,14 @@ export function listSystemConfigs(params) {
 
 export function upsertSystemConfig(payload) {
   return http.put("/admin/system/configs", payload);
+}
+
+export function testOSSQiniuConfig() {
+  return http.post("/admin/system/configs/oss/qiniu/test");
+}
+
+export function testPaymentYolkPayConfig() {
+  return http.post("/admin/system/configs/payment/yolkpay/test");
 }
 
 export function listAuthLoginLogs(params) {

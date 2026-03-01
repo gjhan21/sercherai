@@ -1,13 +1,21 @@
 package repo
 
 import (
+	"bytes"
+	"crypto/sha1"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -26,26 +34,57 @@ func NewMySQLGrowthRepo(db *sql.DB, redisClient *redis.Client) *MySQLGrowthRepo 
 	return &MySQLGrowthRepo{db: db, redis: redisClient}
 }
 
+func normalizeInviteLinkURL(rawURL string, inviteCode string) string {
+	trimmed := strings.TrimSpace(rawURL)
+	code := strings.TrimSpace(inviteCode)
+	if code == "" {
+		return trimmed
+	}
+	if trimmed == "" {
+		return "/invite/" + url.PathEscape(code)
+	}
+	lowerURL := strings.ToLower(trimmed)
+	if strings.Contains(lowerURL, "example.com/invite/") {
+		return "/invite/" + url.PathEscape(code)
+	}
+	return trimmed
+}
+
+func safeRatioValue(numerator int64, denominator int64) float64 {
+	if denominator <= 0 {
+		return 0
+	}
+	return float64(numerator) / float64(denominator)
+}
+
 func (r *MySQLGrowthRepo) ListBrowseHistory(userID string, contentType string, page int, pageSize int) ([]model.BrowseHistory, int, error) {
 	offset := (page - 1) * pageSize
 	args := []interface{}{userID}
 	filter := ""
 	if contentType != "" {
-		filter = " AND content_type = ?"
+		filter = " AND bh.content_type = ?"
 		args = append(args, contentType)
 	}
 
-	countQuery := "SELECT COUNT(*) FROM browse_histories WHERE user_id = ?" + filter
+	countQuery := "SELECT COUNT(*) FROM browse_histories bh WHERE bh.user_id = ?" + filter
 	var total int
 	if err := r.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	query := `
-SELECT id, content_type, content_id, source_page, viewed_at
-FROM browse_histories
-WHERE user_id = ?` + filter + `
-ORDER BY viewed_at DESC
+SELECT
+	bh.id,
+	bh.content_type,
+	bh.content_id,
+	COALESCE(NULLIF(na.title, ''), bh.content_id) AS title,
+	bh.source_page,
+	bh.viewed_at
+FROM browse_histories bh
+LEFT JOIN news_articles na
+	ON bh.content_type = 'NEWS' AND na.id = bh.content_id
+WHERE bh.user_id = ?` + filter + `
+ORDER BY bh.viewed_at DESC
 LIMIT ? OFFSET ?`
 	args = append(args, pageSize, offset)
 	rows, err := r.db.Query(query, args...)
@@ -58,10 +97,9 @@ LIMIT ? OFFSET ?`
 	for rows.Next() {
 		var item model.BrowseHistory
 		var viewedAt time.Time
-		if err := rows.Scan(&item.ID, &item.ContentType, &item.ContentID, &item.SourcePage, &viewedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.ContentType, &item.ContentID, &item.Title, &item.SourcePage, &viewedAt); err != nil {
 			return nil, 0, err
 		}
-		item.Title = item.ContentID
 		item.ViewedAt = viewedAt.Format(time.RFC3339)
 		items = append(items, item)
 	}
@@ -144,6 +182,7 @@ ORDER BY created_at DESC`, userID)
 		if err := rows.Scan(&item.ID, &item.InviteCode, &item.URL, &channel, &item.Status, &expiredAt); err != nil {
 			return nil, err
 		}
+		item.URL = normalizeInviteLinkURL(item.URL, item.InviteCode)
 		if channel.Valid {
 			item.Channel = channel.String
 		}
@@ -158,7 +197,7 @@ ORDER BY created_at DESC`, userID)
 func (r *MySQLGrowthRepo) CreateShareLink(userID string, channel string, expiredAt string) (model.ShareLink, error) {
 	id := newID("sl")
 	code := strings.ToUpper(newID("code"))
-	url := fmt.Sprintf("https://example.com/invite/%s", code)
+	shareURL := fmt.Sprintf("/invite/%s", url.PathEscape(code))
 	status := "ACTIVE"
 
 	var exp interface{} = nil
@@ -171,14 +210,14 @@ func (r *MySQLGrowthRepo) CreateShareLink(userID string, channel string, expired
 	_, err := r.db.Exec(`
 INSERT INTO invite_links (id, user_id, invite_code, url, channel, status, expired_at, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, userID, code, url, channel, status, exp, time.Now())
+		id, userID, code, shareURL, channel, status, exp, time.Now())
 	if err != nil {
 		return model.ShareLink{}, err
 	}
 	return model.ShareLink{
 		ID:         id,
 		InviteCode: code,
-		URL:        url,
+		URL:        shareURL,
 		Channel:    channel,
 		Status:     status,
 		ExpiredAt:  expiredAt,
@@ -193,7 +232,7 @@ func (r *MySQLGrowthRepo) ListInviteRecords(userID string, page int, pageSize in
 	}
 
 	rows, err := r.db.Query(`
-SELECT id, invitee_user_id, status, register_at, first_pay_at
+SELECT id, invitee_user_id, status, register_at, first_pay_at, risk_flag
 FROM invite_records
 WHERE inviter_user_id = ?
 ORDER BY register_at DESC
@@ -207,7 +246,8 @@ LIMIT ? OFFSET ?`, userID, pageSize, offset)
 	for rows.Next() {
 		var item model.InviteRecord
 		var registerAt, firstPayAt sql.NullTime
-		if err := rows.Scan(&item.ID, &item.InviteeUser, &item.Status, &registerAt, &firstPayAt); err != nil {
+		var riskFlag sql.NullString
+		if err := rows.Scan(&item.ID, &item.InviteeUser, &item.Status, &registerAt, &firstPayAt, &riskFlag); err != nil {
 			return nil, 0, err
 		}
 		if registerAt.Valid {
@@ -216,9 +256,77 @@ LIMIT ? OFFSET ?`, userID, pageSize, offset)
 		if firstPayAt.Valid {
 			item.FirstPayAt = firstPayAt.Time.Format(time.RFC3339)
 		}
+		if riskFlag.Valid {
+			item.RiskFlag = riskFlag.String
+		}
 		items = append(items, item)
 	}
 	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) GetUserInviteSummary(userID string) (model.InviteSummary, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return model.InviteSummary{}, sql.ErrNoRows
+	}
+
+	result := model.InviteSummary{}
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM invite_links WHERE user_id = ?", userID).Scan(&result.ShareLinkCount); err != nil {
+		return model.InviteSummary{}, err
+	}
+
+	var (
+		registeredCount        sql.NullInt64
+		firstPaidCount         sql.NullInt64
+		last7dRegisteredCount  sql.NullInt64
+		last7dFirstPaidCount   sql.NullInt64
+		last30dRegisteredCount sql.NullInt64
+		last30dFirstPaidCount  sql.NullInt64
+	)
+	err := r.db.QueryRow(`
+SELECT
+	SUM(CASE WHEN status IN ('REGISTERED', 'FIRST_PAID') THEN 1 ELSE 0 END) AS registered_count,
+	SUM(CASE WHEN status = 'FIRST_PAID' OR first_pay_at IS NOT NULL THEN 1 ELSE 0 END) AS first_paid_count,
+	SUM(CASE WHEN status IN ('REGISTERED', 'FIRST_PAID') AND register_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS last_7d_registered_count,
+	SUM(CASE WHEN status IN ('REGISTERED', 'FIRST_PAID') AND register_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND (status = 'FIRST_PAID' OR first_pay_at IS NOT NULL) THEN 1 ELSE 0 END) AS last_7d_first_paid_count,
+	SUM(CASE WHEN status IN ('REGISTERED', 'FIRST_PAID') AND register_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) AS last_30d_registered_count,
+	SUM(CASE WHEN status IN ('REGISTERED', 'FIRST_PAID') AND register_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND (status = 'FIRST_PAID' OR first_pay_at IS NOT NULL) THEN 1 ELSE 0 END) AS last_30d_first_paid_count
+FROM invite_records
+WHERE inviter_user_id = ?`, userID).Scan(
+		&registeredCount,
+		&firstPaidCount,
+		&last7dRegisteredCount,
+		&last7dFirstPaidCount,
+		&last30dRegisteredCount,
+		&last30dFirstPaidCount,
+	)
+	if err != nil {
+		return model.InviteSummary{}, err
+	}
+
+	if registeredCount.Valid {
+		result.RegisteredCount = int(registeredCount.Int64)
+	}
+	if firstPaidCount.Valid {
+		result.FirstPaidCount = int(firstPaidCount.Int64)
+	}
+	if last7dRegisteredCount.Valid {
+		result.Last7dRegisteredCount = int(last7dRegisteredCount.Int64)
+	}
+	if last7dFirstPaidCount.Valid {
+		result.Last7dFirstPaidCount = int(last7dFirstPaidCount.Int64)
+	}
+	if last30dRegisteredCount.Valid {
+		result.Last30dRegisteredCount = int(last30dRegisteredCount.Int64)
+	}
+	if last30dFirstPaidCount.Valid {
+		result.Last30dFirstPaidCount = int(last30dFirstPaidCount.Int64)
+	}
+
+	result.ConversionRate = safeRatioValue(int64(result.FirstPaidCount), int64(result.RegisteredCount))
+	result.Last7dConversionRate = safeRatioValue(int64(result.Last7dFirstPaidCount), int64(result.Last7dRegisteredCount))
+	result.Last30dConversionRate = safeRatioValue(int64(result.Last30dFirstPaidCount), int64(result.Last30dRegisteredCount))
+	return result, nil
 }
 
 func (r *MySQLGrowthRepo) ListRewardRecords(userID string, page int, pageSize int) ([]model.RewardRecord, int, error) {
@@ -257,14 +365,70 @@ LIMIT ? OFFSET ?`, userID, pageSize, offset)
 func (r *MySQLGrowthRepo) GetUserProfile(userID string) (model.UserProfile, error) {
 	var profile model.UserProfile
 	var email sql.NullString
-	err := r.db.QueryRow("SELECT id, phone, email, kyc_status, member_level FROM users WHERE id = ?", userID).Scan(
-		&profile.ID, &profile.Phone, &email, &profile.KYCStatus, &profile.MemberLevel,
+	var inviterUserID sql.NullString
+	var inviteCode sql.NullString
+	var inviteLinkID sql.NullString
+	var invitedAt sql.NullTime
+	var vipStartedAt sql.NullTime
+	var vipExpireAt sql.NullTime
+	var registrationSource string
+	err := r.db.QueryRow(`
+SELECT
+	u.id,
+	u.phone,
+	u.email,
+	u.kyc_status,
+	u.member_level,
+	u.vip_started_at,
+	u.vip_expire_at,
+	CASE WHEN ir.id IS NULL THEN 'DIRECT' ELSE 'INVITED' END AS registration_source,
+	ir.inviter_user_id,
+	il.invite_code,
+	ir.invite_link_id,
+	ir.register_at
+FROM users u
+LEFT JOIN invite_records ir ON ir.invitee_user_id = u.id
+LEFT JOIN invite_links il ON il.id = ir.invite_link_id
+WHERE u.id = ?
+LIMIT 1`, userID).Scan(
+		&profile.ID,
+		&profile.Phone,
+		&email,
+		&profile.KYCStatus,
+		&profile.MemberLevel,
+		&vipStartedAt,
+		&vipExpireAt,
+		&registrationSource,
+		&inviterUserID,
+		&inviteCode,
+		&inviteLinkID,
+		&invitedAt,
 	)
 	if err != nil {
 		return model.UserProfile{}, err
 	}
 	if email.Valid {
 		profile.Email = email.String
+	}
+	if vipStartedAt.Valid {
+		profile.VIPStartedAt = vipStartedAt.Time.Format(time.RFC3339)
+	}
+	if vipExpireAt.Valid {
+		profile.VIPExpireAt = vipExpireAt.Time.Format(time.RFC3339)
+	}
+	profile.VIPStatus, profile.VIPRemainingDays = resolveVIPStatusAndDays(profile.MemberLevel, vipExpireAt)
+	profile.RegistrationSource = registrationSource
+	if inviterUserID.Valid {
+		profile.InviterUserID = inviterUserID.String
+	}
+	if inviteCode.Valid {
+		profile.InviteCode = inviteCode.String
+	}
+	if inviteLinkID.Valid {
+		profile.InviteLinkID = inviteLinkID.String
+	}
+	if invitedAt.Valid {
+		profile.InvitedAt = invitedAt.Time.Format(time.RFC3339)
 	}
 	return profile, nil
 }
@@ -420,12 +584,30 @@ func (r *MySQLGrowthRepo) GetUserAccessProfile(userID string) (model.UserAccessP
 
 func (r *MySQLGrowthRepo) GetMembershipQuota(userID string) (model.MembershipQuota, error) {
 	var memberLevel string
-	if err := r.db.QueryRow("SELECT member_level FROM users WHERE id = ?", userID).Scan(&memberLevel); err != nil {
+	var vipExpireAt sql.NullTime
+	if err := r.db.QueryRow("SELECT member_level, vip_expire_at FROM users WHERE id = ?", userID).Scan(&memberLevel, &vipExpireAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			memberLevel = "FREE"
 		} else {
 			return model.MembershipQuota{}, err
 		}
+	}
+	memberLevel = strings.ToUpper(strings.TrimSpace(memberLevel))
+	if strings.HasPrefix(memberLevel, "VIP") && vipExpireAt.Valid && !vipExpireAt.Time.After(time.Now()) {
+		now := time.Now()
+		if _, err := r.db.Exec(`
+UPDATE users
+SET member_level = 'FREE',
+    vip_started_at = NULL,
+    vip_expire_at = NULL,
+    vip_remind_3d_at = NULL,
+    vip_remind_1d_at = NULL,
+    updated_at = ?
+WHERE id = ? AND member_level LIKE 'VIP%'`, now, userID); err != nil {
+			return model.MembershipQuota{}, err
+		}
+		memberLevel = "FREE"
+		vipExpireAt = sql.NullTime{}
 	}
 
 	now := time.Now()
@@ -487,6 +669,9 @@ WHERE user_id = ? AND period_key = ?`,
 		NewsSubscribeRemaining: remainingSub,
 		ResetCycle:             resetCycle,
 		ResetAt:                resetAt.Format(time.RFC3339),
+		VIPExpireAt:            formatNullTime(vipExpireAt),
+		VIPStatus:              vipStatusFromLevelAndExpire(memberLevel, vipExpireAt, now),
+		VIPRemainingDays:       vipRemainingDays(vipExpireAt, now),
 	}, nil
 }
 
@@ -543,16 +728,9 @@ ORDER BY sort ASC, created_at DESC`)
 
 func (r *MySQLGrowthRepo) ListNewsArticles(userID string, categoryID string, keyword string, page int, pageSize int) ([]model.NewsArticle, int, error) {
 	offset := (page - 1) * pageSize
-	isVIP, err := r.isVIPUser(userID)
-	if err != nil {
-		return nil, 0, err
-	}
 
 	args := []interface{}{}
 	filter := " WHERE status = 'PUBLISHED'"
-	if !isVIP {
-		filter += " AND visibility = 'PUBLIC'"
-	}
 	if categoryID != "" {
 		filter += " AND category_id = ?"
 		args = append(args, categoryID)
@@ -569,7 +747,7 @@ func (r *MySQLGrowthRepo) ListNewsArticles(userID string, categoryID string, key
 	}
 
 	query := `
-SELECT id, category_id, title, summary, visibility, status, published_at, author_id
+SELECT id, category_id, title, summary, cover_url, visibility, status, published_at, author_id
 FROM news_articles` + filter + `
 ORDER BY published_at DESC, created_at DESC
 LIMIT ? OFFSET ?`
@@ -583,13 +761,16 @@ LIMIT ? OFFSET ?`
 	items := make([]model.NewsArticle, 0)
 	for rows.Next() {
 		var item model.NewsArticle
-		var summary, authorID sql.NullString
+		var summary, coverURL, authorID sql.NullString
 		var publishedAt sql.NullTime
-		if err := rows.Scan(&item.ID, &item.CategoryID, &item.Title, &summary, &item.Visibility, &item.Status, &publishedAt, &authorID); err != nil {
+		if err := rows.Scan(&item.ID, &item.CategoryID, &item.Title, &summary, &coverURL, &item.Visibility, &item.Status, &publishedAt, &authorID); err != nil {
 			return nil, 0, err
 		}
 		if summary.Valid {
 			item.Summary = summary.String
+		}
+		if coverURL.Valid {
+			item.CoverURL = coverURL.String
 		}
 		if authorID.Valid {
 			item.AuthorID = authorID.String
@@ -608,7 +789,7 @@ func (r *MySQLGrowthRepo) GetNewsArticleDetail(userID string, articleID string) 
 		return model.NewsArticle{}, err
 	}
 	query := `
-SELECT id, category_id, title, summary, content, visibility, status, published_at, author_id
+SELECT id, category_id, title, summary, content, cover_url, visibility, status, published_at, author_id
 FROM news_articles
 WHERE id = ? AND status = 'PUBLISHED'`
 	args := []interface{}{articleID}
@@ -616,10 +797,10 @@ WHERE id = ? AND status = 'PUBLISHED'`
 		query += " AND visibility = 'PUBLIC'"
 	}
 	var item model.NewsArticle
-	var summary, content, authorID sql.NullString
+	var summary, content, coverURL, authorID sql.NullString
 	var publishedAt sql.NullTime
 	err = r.db.QueryRow(query, args...).Scan(
-		&item.ID, &item.CategoryID, &item.Title, &summary, &content, &item.Visibility, &item.Status, &publishedAt, &authorID,
+		&item.ID, &item.CategoryID, &item.Title, &summary, &content, &coverURL, &item.Visibility, &item.Status, &publishedAt, &authorID,
 	)
 	if err != nil {
 		return model.NewsArticle{}, err
@@ -630,12 +811,20 @@ WHERE id = ? AND status = 'PUBLISHED'`
 	if content.Valid {
 		item.Content = content.String
 	}
+	if coverURL.Valid {
+		item.CoverURL = coverURL.String
+	}
 	if authorID.Valid {
 		item.AuthorID = authorID.String
 	}
 	if publishedAt.Valid {
 		item.PublishedAt = publishedAt.Time.Format(time.RFC3339)
 	}
+	_, _ = r.db.Exec(`
+INSERT INTO browse_histories (id, user_id, content_type, content_id, source_page, viewed_at)
+VALUES (?, ?, 'NEWS', ?, '/news', ?)`,
+		newID("bh"), userID, articleID, time.Now(),
+	)
 	return item, nil
 }
 
@@ -791,9 +980,71 @@ WHERE id = ?`, now, strings.ToUpper(channel), now, orderID); err != nil {
 				return err
 			}
 			var memberLevel sql.NullString
-			if err := tx.QueryRow("SELECT member_level FROM membership_products WHERE id = ?", productID).Scan(&memberLevel); err == nil {
-				if memberLevel.Valid && strings.TrimSpace(memberLevel.String) != "" {
-					if _, err := tx.Exec("UPDATE users SET member_level = ?, updated_at = ? WHERE id = ?", memberLevel.String, now, userID); err != nil {
+			var durationDays sql.NullInt64
+			if err := tx.QueryRow(
+				"SELECT member_level, duration_days FROM membership_products WHERE id = ?",
+				productID,
+			).Scan(&memberLevel, &durationDays); err == nil {
+				level := strings.ToUpper(strings.TrimSpace(memberLevel.String))
+				days := int(durationDays.Int64)
+				if level != "" && days <= 0 {
+					days = 30
+				}
+				if level != "" {
+					var currentLevel string
+					var currentExpireAt sql.NullTime
+					if err := tx.QueryRow(
+						"SELECT member_level, vip_expire_at FROM users WHERE id = ? FOR UPDATE",
+						userID,
+					).Scan(&currentLevel, &currentExpireAt); err != nil {
+						_ = tx.Rollback()
+						return err
+					}
+					baseTime := now
+					if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(currentLevel)), "VIP") &&
+						currentExpireAt.Valid &&
+						currentExpireAt.Time.After(now) {
+						baseTime = currentExpireAt.Time
+					}
+					newExpireAt := baseTime
+					if days > 0 {
+						newExpireAt = baseTime.AddDate(0, 0, days)
+					}
+					startedAt := now
+					if _, err := tx.Exec(`
+UPDATE users
+SET member_level = ?,
+    vip_started_at = ?,
+    vip_expire_at = ?,
+    vip_remind_3d_at = NULL,
+    vip_remind_1d_at = NULL,
+    updated_at = ?
+WHERE id = ?`,
+						level,
+						startedAt,
+						newExpireAt,
+						now,
+						userID,
+					); err != nil {
+						_ = tx.Rollback()
+						return err
+					}
+					title := "VIP会员开通成功"
+					content := fmt.Sprintf(
+						"订单%s支付成功，会员等级已更新为%s，到期时间：%s。",
+						strings.TrimSpace(orderNo),
+						level,
+						newExpireAt.Format("2006-01-02 15:04:05"),
+					)
+					if _, err := tx.Exec(`
+INSERT INTO messages (id, user_id, title, content, type, read_status, created_at)
+VALUES (?, ?, ?, ?, 'SYSTEM', 'UNREAD', ?)`,
+						newID("msg"),
+						userID,
+						title,
+						content,
+						now,
+					); err != nil {
 						_ = tx.Rollback()
 						return err
 					}
@@ -1467,21 +1718,22 @@ func (r *MySQLGrowthRepo) AdminListNewsArticles(status string, categoryID string
 	args := []interface{}{}
 	filter := " WHERE 1=1"
 	if status != "" {
-		filter += " AND status = ?"
+		filter += " AND na.status = ?"
 		args = append(args, status)
 	}
 	if categoryID != "" {
-		filter += " AND category_id = ?"
+		filter += " AND na.category_id = ?"
 		args = append(args, categoryID)
 	}
 	var total int
-	if err := r.db.QueryRow("SELECT COUNT(*) FROM news_articles"+filter, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM news_articles na"+filter, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	query := `
-SELECT id, category_id, title, summary, visibility, status, published_at, author_id
-FROM news_articles` + filter + `
-ORDER BY created_at DESC
+SELECT na.id, na.category_id, na.title, na.summary, na.cover_url, na.visibility, na.status, na.published_at, na.author_id,
+  (SELECT COUNT(*) FROM news_attachments att WHERE att.article_id = na.id) AS attachment_count
+FROM news_articles na` + filter + `
+ORDER BY na.created_at DESC
 LIMIT ? OFFSET ?`
 	args = append(args, pageSize, offset)
 	rows, err := r.db.Query(query, args...)
@@ -1492,13 +1744,16 @@ LIMIT ? OFFSET ?`
 	items := make([]model.NewsArticle, 0)
 	for rows.Next() {
 		var item model.NewsArticle
-		var summary, authorID sql.NullString
+		var summary, coverURL, authorID sql.NullString
 		var publishedAt sql.NullTime
-		if err := rows.Scan(&item.ID, &item.CategoryID, &item.Title, &summary, &item.Visibility, &item.Status, &publishedAt, &authorID); err != nil {
+		if err := rows.Scan(&item.ID, &item.CategoryID, &item.Title, &summary, &coverURL, &item.Visibility, &item.Status, &publishedAt, &authorID, &item.AttachmentCount); err != nil {
 			return nil, 0, err
 		}
 		if summary.Valid {
 			item.Summary = summary.String
+		}
+		if coverURL.Valid {
+			item.CoverURL = coverURL.String
 		}
 		if authorID.Valid {
 			item.AuthorID = authorID.String
@@ -1511,12 +1766,45 @@ LIMIT ? OFFSET ?`
 	return items, total, nil
 }
 
-func (r *MySQLGrowthRepo) AdminCreateNewsArticle(categoryID string, title string, summary string, content string, visibility string, status string, authorID string) (string, error) {
+func (r *MySQLGrowthRepo) AdminGetNewsArticleDetail(id string) (model.NewsArticle, error) {
+	query := `
+SELECT na.id, na.category_id, na.title, na.summary, na.content, na.cover_url, na.visibility, na.status, na.published_at, na.author_id,
+  (SELECT COUNT(*) FROM news_attachments att WHERE att.article_id = na.id) AS attachment_count
+FROM news_articles na
+WHERE na.id = ?`
+	var item model.NewsArticle
+	var summary, content, coverURL, authorID sql.NullString
+	var publishedAt sql.NullTime
+	err := r.db.QueryRow(query, id).Scan(
+		&item.ID, &item.CategoryID, &item.Title, &summary, &content, &coverURL, &item.Visibility, &item.Status, &publishedAt, &authorID, &item.AttachmentCount,
+	)
+	if err != nil {
+		return model.NewsArticle{}, err
+	}
+	if summary.Valid {
+		item.Summary = summary.String
+	}
+	if content.Valid {
+		item.Content = content.String
+	}
+	if coverURL.Valid {
+		item.CoverURL = coverURL.String
+	}
+	if authorID.Valid {
+		item.AuthorID = authorID.String
+	}
+	if publishedAt.Valid {
+		item.PublishedAt = publishedAt.Time.Format(time.RFC3339)
+	}
+	return item, nil
+}
+
+func (r *MySQLGrowthRepo) AdminCreateNewsArticle(categoryID string, title string, summary string, content string, coverURL string, visibility string, status string, authorID string) (string, error) {
 	id := newID("na")
 	_, err := r.db.Exec(`
-INSERT INTO news_articles (id, category_id, title, summary, content, visibility, status, published_at, author_id, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, categoryID, title, summary, content, visibility, status, time.Now(), authorID, time.Now(), time.Now(),
+INSERT INTO news_articles (id, category_id, title, summary, content, cover_url, visibility, status, published_at, author_id, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, categoryID, title, summary, content, nullableString(coverURL), visibility, status, time.Now(), authorID, time.Now(), time.Now(),
 	)
 	if err != nil {
 		return "", err
@@ -1524,11 +1812,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	return id, nil
 }
 
-func (r *MySQLGrowthRepo) AdminUpdateNewsArticle(id string, categoryID string, title string, summary string, content string, visibility string, status string) error {
+func (r *MySQLGrowthRepo) AdminUpdateNewsArticle(id string, categoryID string, title string, summary string, content string, coverURL string, visibility string, status string) error {
 	_, err := r.db.Exec(`
 UPDATE news_articles
-SET category_id = ?, title = ?, summary = ?, content = ?, visibility = ?, status = ?, updated_at = ?
-WHERE id = ?`, categoryID, title, summary, content, visibility, status, time.Now(), id)
+SET category_id = ?, title = ?, summary = ?, content = ?, cover_url = ?, visibility = ?, status = ?, updated_at = ?
+WHERE id = ?`, categoryID, title, summary, content, nullableString(coverURL), visibility, status, time.Now(), id)
 	return err
 }
 
@@ -1605,10 +1893,2111 @@ func (r *MySQLGrowthRepo) AdminDeleteNewsAttachment(id string) error {
 	return nil
 }
 
+type docFastSyncRuntimeConfig struct {
+	Enabled       bool
+	BatchSize     int
+	SourceBaseURL string
+	AuthorID      string
+}
+
+type docFastSyncCategoryTarget struct {
+	CategoryID string
+	Visibility string
+}
+
+type docFastSourceArticle struct {
+	ID          int64
+	ChannelID   int64
+	Title       string
+	Image       string
+	Description string
+	PublishUnix int64
+	CreateUnix  int64
+	UpdateUnix  int64
+	Content     string
+	DownloadURL string
+}
+
+type docFastDownloadAttachment struct {
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	Password string `json:"password"`
+}
+
+type docFastAttachmentMeta struct {
+	FileName string
+	MimeType string
+	FileSize int64
+}
+
+const docFastSyncCheckpointKey = "doc_fast_news_incremental"
+const tushareNewsIncrementalJobName = "tushare_news_incremental"
+
+const (
+	tushareNewsCategoryBriefSlug        = "ts-news-brief"
+	tushareNewsCategoryMajorSlug        = "ts-news-major"
+	tushareNewsCategoryResearchSlug     = "ts-report-research"
+	tushareNewsCategoryForecastSlug     = "ts-report-forecast"
+	tushareNewsCategoryAnnouncementSlug = "ts-announcement"
+)
+
+const (
+	tushareSyncTypeNewsBrief    = "NEWS_BRIEF"
+	tushareSyncTypeNewsMajor    = "NEWS_MAJOR"
+	tushareSyncTypeResearch     = "RESEARCH_REPORT"
+	tushareSyncTypeForecast     = "REPORT_RC"
+	tushareSyncTypeAnnouncement = "ANNOUNCEMENT"
+)
+
+type tushareNewsSyncRuntimeConfig struct {
+	Enabled                  bool
+	BatchSize                int
+	TimeoutMS                int
+	AuthorID                 string
+	SyncTypes                []string
+	BriefSources             []string
+	MajorSources             []string
+	BriefLookbackHours       int
+	MajorLookbackHours       int
+	ResearchLookbackDays     int
+	ForecastLookbackDays     int
+	AnnouncementLookbackDays int
+	BriefVisibility          string
+	MajorVisibility          string
+	ResearchVisibility       string
+	ForecastVisibility       string
+	AnnouncementVisibility   string
+}
+
+type tushareNewsCategoryTarget struct {
+	CategoryID string
+	Visibility string
+}
+
+type tushareNewsCategoryTargets struct {
+	Brief        tushareNewsCategoryTarget
+	Major        tushareNewsCategoryTarget
+	Research     tushareNewsCategoryTarget
+	Forecast     tushareNewsCategoryTarget
+	Announcement tushareNewsCategoryTarget
+}
+
+type normalizedTushareSyncOptions struct {
+	BatchSize   int
+	SourceSet   map[string]struct{}
+	SymbolSet   map[string]struct{}
+	SyncTypeSet map[string]struct{}
+}
+
+type tushareNewsArticlePayload struct {
+	ID             string
+	CategoryID     string
+	Visibility     string
+	SyncType       string
+	Source         string
+	Symbol         string
+	Title          string
+	Summary        string
+	Content        string
+	PublishedAt    time.Time
+	AuthorID       string
+	AttachmentURL  string
+	AttachmentName string
+	AttachmentMime string
+}
+
+func (r *MySQLGrowthRepo) AdminSyncDocFastNewsIncremental(batchSize int) (string, error) {
+	runtime := r.resolveDocFastSyncRuntimeConfig(batchSize)
+	if !runtime.Enabled {
+		return "doc_fast incremental sync disabled", nil
+	}
+	categoryTargets, err := r.resolveDocFastSyncCategoryTargets()
+	if err != nil {
+		return "", err
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	rollbacked := false
+	defer func() {
+		if !rollbacked {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err := tx.Exec(`
+INSERT INTO news_sync_checkpoints
+	(sync_key, cursor_updated_at, cursor_source_id, last_status, synced_articles, synced_attachments, updated_at, created_at)
+VALUES
+	(?, 0, 0, 'IDLE', 0, 0, NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+	sync_key = VALUES(sync_key)`, docFastSyncCheckpointKey); err != nil {
+		rollbacked = true
+		_ = tx.Rollback()
+		r.markDocFastSyncFailed(err.Error())
+		return "", err
+	}
+
+	cursorUpdatedAt := int64(0)
+	cursorSourceID := int64(0)
+	if err := tx.QueryRow(`
+SELECT cursor_updated_at, cursor_source_id
+FROM news_sync_checkpoints
+WHERE sync_key = ?
+FOR UPDATE`, docFastSyncCheckpointKey).Scan(&cursorUpdatedAt, &cursorSourceID); err != nil {
+		rollbacked = true
+		_ = tx.Rollback()
+		r.markDocFastSyncFailed(err.Error())
+		return "", err
+	}
+
+	sourceItems, err := r.loadDocFastSourceArticlesForSync(tx, cursorUpdatedAt, cursorSourceID, runtime.BatchSize)
+	if err != nil {
+		rollbacked = true
+		_ = tx.Rollback()
+		r.markDocFastSyncFailed(err.Error())
+		return "", err
+	}
+
+	syncedArticles := 0
+	syncedAttachments := 0
+	nextCursorUpdatedAt := cursorUpdatedAt
+	nextCursorSourceID := cursorSourceID
+
+	for _, item := range sourceItems {
+		target, ok := categoryTargets[item.ChannelID]
+		if !ok || strings.TrimSpace(target.CategoryID) == "" {
+			continue
+		}
+		articleID := fmt.Sprintf("na_df_%d", item.ID)
+		title := truncateByRunes(normalizeUTF8Text(item.Title), 256)
+		if title == "" {
+			title = fmt.Sprintf("doc_fast_%d", item.ID)
+		}
+		summary := truncateByRunes(normalizeUTF8Text(item.Description), 512)
+		if summary == "" {
+			summary = title
+		}
+		content := normalizeUTF8Text(item.Content)
+		if content == "" {
+			content = title
+		}
+		content = strings.ToValidUTF8(content, "")
+
+		coverURL := normalizeDocFastAssetURL(runtime.SourceBaseURL, item.Image)
+		createdAt := fromUnixSecondOrNow(item.CreateUnix)
+		updatedAt := fromUnixSecondOrNow(item.UpdateUnix)
+		publishedAt := nullableUnixSecond(item.PublishUnix)
+		visibility := strings.ToUpper(strings.TrimSpace(target.Visibility))
+		if visibility == "" {
+			visibility = "PUBLIC"
+		}
+
+		_, err := tx.Exec(`
+INSERT INTO news_articles
+	(id, category_id, title, summary, content, cover_url, tags, visibility, status, published_at, author_id, created_at, updated_at)
+VALUES
+	(?, ?, ?, ?, ?, ?, ?, ?, 'PUBLISHED', ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+	category_id = VALUES(category_id),
+	title = VALUES(title),
+	summary = VALUES(summary),
+	content = VALUES(content),
+	cover_url = VALUES(cover_url),
+	visibility = VALUES(visibility),
+	status = VALUES(status),
+	published_at = VALUES(published_at),
+	author_id = VALUES(author_id),
+	updated_at = VALUES(updated_at)`,
+			articleID,
+			target.CategoryID,
+			title,
+			summary,
+			content,
+			nullableString(coverURL),
+			nil,
+			visibility,
+			publishedAt,
+			runtime.AuthorID,
+			createdAt,
+			updatedAt,
+		)
+		if err != nil {
+			rollbacked = true
+			_ = tx.Rollback()
+			r.markDocFastSyncFailed(err.Error())
+			return "", err
+		}
+		syncedArticles++
+
+		attachments := parseDocFastDownloadAttachments(item.DownloadURL)
+		for idx, att := range attachments {
+			normalizedURL := normalizeDocFastAssetURL(runtime.SourceBaseURL, att.URL)
+			if normalizedURL == "" {
+				continue
+			}
+			meta, metaErr := r.loadDocFastAttachmentMeta(tx, att.URL)
+			if metaErr != nil {
+				rollbacked = true
+				_ = tx.Rollback()
+				r.markDocFastSyncFailed(metaErr.Error())
+				return "", metaErr
+			}
+			fileName := normalizeUTF8Text(meta.FileName)
+			if fileName == "" {
+				fileName = inferDocFastAttachmentFileName(normalizedURL, title, idx+1)
+			}
+			fileName = truncateByRunes(fileName, 256)
+			if fileName == "" {
+				fileName = fmt.Sprintf("attachment_%d", idx+1)
+			}
+
+			mimeType := truncateByRunes(normalizeUTF8Text(meta.MimeType), 128)
+			attachmentID := fmt.Sprintf("nat_df_%d_%d", item.ID, idx+1)
+			_, err = tx.Exec(`
+INSERT INTO news_attachments
+	(id, article_id, file_name, file_url, file_size, mime_type, created_at)
+VALUES
+	(?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+	file_name = VALUES(file_name),
+	file_url = VALUES(file_url),
+	file_size = VALUES(file_size),
+	mime_type = VALUES(mime_type)`,
+				attachmentID,
+				articleID,
+				fileName,
+				truncateByRunes(normalizedURL, 512),
+				meta.FileSize,
+				nullableString(mimeType),
+				updatedAt,
+			)
+			if err != nil {
+				rollbacked = true
+				_ = tx.Rollback()
+				r.markDocFastSyncFailed(err.Error())
+				return "", err
+			}
+			syncedAttachments++
+		}
+
+		if item.UpdateUnix > nextCursorUpdatedAt || (item.UpdateUnix == nextCursorUpdatedAt && item.ID > nextCursorSourceID) {
+			nextCursorUpdatedAt = item.UpdateUnix
+			nextCursorSourceID = item.ID
+		}
+	}
+
+	now := time.Now()
+	_, err = tx.Exec(`
+UPDATE news_sync_checkpoints
+SET
+	cursor_updated_at = ?,
+	cursor_source_id = ?,
+	last_run_at = ?,
+	last_success_at = ?,
+	last_status = 'SUCCESS',
+	last_error = NULL,
+	synced_articles = synced_articles + ?,
+	synced_attachments = synced_attachments + ?,
+	updated_at = ?
+WHERE sync_key = ?`,
+		nextCursorUpdatedAt,
+		nextCursorSourceID,
+		now,
+		now,
+		syncedArticles,
+		syncedAttachments,
+		now,
+		docFastSyncCheckpointKey,
+	)
+	if err != nil {
+		rollbacked = true
+		_ = tx.Rollback()
+		r.markDocFastSyncFailed(err.Error())
+		return "", err
+	}
+
+	if err := tx.Commit(); err != nil {
+		rollbacked = true
+		_ = tx.Rollback()
+		r.markDocFastSyncFailed(err.Error())
+		return "", err
+	}
+	rollbacked = true
+
+	return fmt.Sprintf(
+		"synced_articles=%d synced_attachments=%d cursor_updated_at=%d cursor_source_id=%d batch=%d",
+		syncedArticles,
+		syncedAttachments,
+		nextCursorUpdatedAt,
+		nextCursorSourceID,
+		runtime.BatchSize,
+	), nil
+}
+
+func (r *MySQLGrowthRepo) resolveDocFastSyncRuntimeConfig(batchSize int) docFastSyncRuntimeConfig {
+	cfg := docFastSyncRuntimeConfig{
+		Enabled:       true,
+		BatchSize:     200,
+		SourceBaseURL: "https://img.cloudup518.top",
+		AuthorID:      "admin_001",
+	}
+	items, _, err := r.AdminListSystemConfigs("news.sync.doc_fast.", 1, 200)
+	if err == nil {
+		for _, item := range items {
+			key := strings.ToLower(strings.TrimSpace(item.ConfigKey))
+			value := strings.TrimSpace(item.ConfigValue)
+			switch key {
+			case "news.sync.doc_fast.enabled":
+				cfg.Enabled = parseRepoConfigBool(value, cfg.Enabled)
+			case "news.sync.doc_fast.batch_size":
+				cfg.BatchSize = parseRepoConfigInt(value, cfg.BatchSize)
+			case "news.sync.doc_fast.source_base_url":
+				if value != "" {
+					cfg.SourceBaseURL = value
+				}
+			case "news.sync.doc_fast.author_id":
+				if value != "" {
+					cfg.AuthorID = value
+				}
+			}
+		}
+	}
+	if batchSize > 0 {
+		cfg.BatchSize = batchSize
+	}
+	if cfg.BatchSize <= 0 {
+		cfg.BatchSize = 200
+	}
+	if cfg.BatchSize > 5000 {
+		cfg.BatchSize = 5000
+	}
+	cfg.SourceBaseURL = strings.TrimSpace(cfg.SourceBaseURL)
+	if cfg.SourceBaseURL == "" {
+		cfg.SourceBaseURL = "https://img.cloudup518.top"
+	}
+	if !strings.HasPrefix(strings.ToLower(cfg.SourceBaseURL), "http://") && !strings.HasPrefix(strings.ToLower(cfg.SourceBaseURL), "https://") {
+		cfg.SourceBaseURL = "https://" + strings.TrimLeft(cfg.SourceBaseURL, "/")
+	}
+	cfg.SourceBaseURL = strings.TrimRight(cfg.SourceBaseURL, "/")
+	cfg.AuthorID = strings.TrimSpace(cfg.AuthorID)
+	if cfg.AuthorID == "" {
+		cfg.AuthorID = "admin_001"
+	}
+	return cfg
+}
+
+func (r *MySQLGrowthRepo) resolveDocFastSyncCategoryTargets() (map[int64]docFastSyncCategoryTarget, error) {
+	rows, err := r.db.Query(`
+SELECT id, name, visibility
+FROM news_categories
+WHERE name IN ('国内研报', '海外研报', '期刊', '图书')
+ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type categoryInfo struct {
+		ID         string
+		Visibility string
+	}
+	byName := make(map[string]categoryInfo)
+	for rows.Next() {
+		var (
+			id         string
+			name       string
+			visibility string
+		)
+		if err := rows.Scan(&id, &name, &visibility); err != nil {
+			return nil, err
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, exists := byName[name]; exists {
+			continue
+		}
+		byName[name] = categoryInfo{
+			ID:         strings.TrimSpace(id),
+			Visibility: strings.ToUpper(strings.TrimSpace(visibility)),
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	required := []string{"国内研报", "海外研报", "期刊", "图书"}
+	missing := make([]string, 0)
+	for _, name := range required {
+		if _, ok := byName[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("missing target news categories: %s", strings.Join(missing, ","))
+	}
+
+	targets := map[int64]docFastSyncCategoryTarget{
+		13: {CategoryID: byName["国内研报"].ID, Visibility: byName["国内研报"].Visibility},
+		14: {CategoryID: byName["海外研报"].ID, Visibility: byName["海外研报"].Visibility},
+		26: {CategoryID: byName["期刊"].ID, Visibility: byName["期刊"].Visibility},
+		30: {CategoryID: byName["图书"].ID, Visibility: byName["图书"].Visibility},
+		31: {CategoryID: byName["图书"].ID, Visibility: byName["图书"].Visibility},
+		33: {CategoryID: byName["图书"].ID, Visibility: byName["图书"].Visibility},
+		34: {CategoryID: byName["图书"].ID, Visibility: byName["图书"].Visibility},
+	}
+	return targets, nil
+}
+
+func (r *MySQLGrowthRepo) loadDocFastSourceArticlesForSync(tx *sql.Tx, cursorUpdatedAt int64, cursorSourceID int64, limit int) ([]docFastSourceArticle, error) {
+	rows, err := tx.Query(`
+SELECT
+	a.id,
+	a.channel_id,
+	a.title,
+	a.image,
+	a.description,
+	COALESCE(a.publishtime, 0) AS publishtime,
+	COALESCE(a.createtime, 0) AS createtime,
+	COALESCE(a.updatetime, 0) AS updatetime,
+	COALESCE(ad.content, '') AS content,
+	COALESCE(ad.downloadurl, '') AS downloadurl
+FROM doc_fast.fa_cms_archives a
+LEFT JOIN doc_fast.fa_cms_addondownload ad ON ad.id = a.id
+WHERE
+	a.status = 'normal'
+	AND a.channel_id IN (13, 14, 26, 30, 31, 33, 34)
+	AND (
+		COALESCE(a.updatetime, 0) > ?
+		OR (COALESCE(a.updatetime, 0) = ? AND a.id > ?)
+	)
+ORDER BY COALESCE(a.updatetime, 0) ASC, a.id ASC
+LIMIT ?`, cursorUpdatedAt, cursorUpdatedAt, cursorSourceID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]docFastSourceArticle, 0, limit)
+	for rows.Next() {
+		var item docFastSourceArticle
+		if err := rows.Scan(
+			&item.ID,
+			&item.ChannelID,
+			&item.Title,
+			&item.Image,
+			&item.Description,
+			&item.PublishUnix,
+			&item.CreateUnix,
+			&item.UpdateUnix,
+			&item.Content,
+			&item.DownloadURL,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (r *MySQLGrowthRepo) loadDocFastAttachmentMeta(tx *sql.Tx, sourceURL string) (docFastAttachmentMeta, error) {
+	candidate := strings.TrimSpace(sourceURL)
+	if candidate == "" {
+		return docFastAttachmentMeta{}, nil
+	}
+	alt := candidate
+	if strings.HasPrefix(candidate, "/") {
+		alt = strings.TrimPrefix(candidate, "/")
+	} else {
+		alt = "/" + candidate
+	}
+	var (
+		fileName sql.NullString
+		mimeType sql.NullString
+		fileSize sql.NullInt64
+	)
+	err := tx.QueryRow(`
+SELECT filename, mimetype, filesize
+FROM doc_fast.fa_attachment
+WHERE url IN (?, ?)
+ORDER BY id DESC
+LIMIT 1`, candidate, alt).Scan(&fileName, &mimeType, &fileSize)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return docFastAttachmentMeta{}, nil
+		}
+		return docFastAttachmentMeta{}, err
+	}
+	result := docFastAttachmentMeta{}
+	if fileName.Valid {
+		result.FileName = fileName.String
+	}
+	if mimeType.Valid {
+		result.MimeType = mimeType.String
+	}
+	if fileSize.Valid {
+		result.FileSize = fileSize.Int64
+	}
+	return result, nil
+}
+
+func parseDocFastDownloadAttachments(raw string) []docFastDownloadAttachment {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return nil
+	}
+	items := make([]docFastDownloadAttachment, 0)
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		return nil
+	}
+	return items
+}
+
+func normalizeDocFastAssetURL(baseURL string, raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	lower := strings.ToLower(value)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return value
+	}
+	if strings.HasPrefix(value, "//") {
+		return "https:" + value
+	}
+	trimmedBase := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if trimmedBase == "" {
+		trimmedBase = "https://img.cloudup518.top"
+	}
+	if strings.HasPrefix(value, "/") {
+		return trimmedBase + value
+	}
+	return trimmedBase + "/" + strings.TrimLeft(value, "/")
+}
+
+func inferDocFastAttachmentFileName(fileURL string, title string, index int) string {
+	trimmedURL := strings.TrimSpace(fileURL)
+	base := path.Base(trimmedURL)
+	if base != "" && base != "." && base != "/" {
+		return base
+	}
+	cleanTitle := strings.TrimSpace(title)
+	if cleanTitle == "" {
+		cleanTitle = "attachment"
+	}
+	return fmt.Sprintf("%s_%d", cleanTitle, index)
+}
+
+func truncateByRunes(value string, size int) string {
+	if size <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= size {
+		return value
+	}
+	return string(runes[:size])
+}
+
+func normalizeUTF8Text(value string) string {
+	return strings.TrimSpace(strings.ToValidUTF8(value, ""))
+}
+
+func fromUnixSecondOrNow(value int64) time.Time {
+	if value > 0 {
+		return time.Unix(value, 0)
+	}
+	return time.Now()
+}
+
+func nullableUnixSecond(value int64) interface{} {
+	if value > 0 {
+		return time.Unix(value, 0)
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) markDocFastSyncFailed(errText string) {
+	now := time.Now()
+	_, _ = r.db.Exec(`
+UPDATE news_sync_checkpoints
+SET
+	last_run_at = ?,
+	last_status = 'FAILED',
+	last_error = ?,
+	updated_at = ?
+WHERE sync_key = ?`,
+		now,
+		truncateByRunes(normalizeUTF8Text(errText), 255),
+		now,
+		docFastSyncCheckpointKey,
+	)
+}
+
+func (r *MySQLGrowthRepo) AdminSyncTushareNewsIncremental(batchSize int) (string, error) {
+	summary, _, err := r.AdminSyncTushareNewsIncrementalWithOptions(model.TushareNewsSyncOptions{
+		BatchSize: batchSize,
+	})
+	return summary, err
+}
+
+func (r *MySQLGrowthRepo) AdminSyncTushareNewsIncrementalWithOptions(opts model.TushareNewsSyncOptions) (string, []model.NewsSyncRunDetail, error) {
+	normalizedOpts := normalizeTushareSyncOptions(opts)
+	runtime := r.resolveTushareNewsSyncRuntimeConfig(normalizedOpts.BatchSize)
+	if !runtime.Enabled {
+		return "tushare news incremental sync disabled", nil, nil
+	}
+	if len(normalizedOpts.SyncTypeSet) == 0 {
+		for _, syncType := range runtime.SyncTypes {
+			key := normalizeTushareSyncType(syncType)
+			if key == "" {
+				continue
+			}
+			normalizedOpts.SyncTypeSet[key] = struct{}{}
+		}
+	}
+	if err := r.ensureTushareNewsCategories(); err != nil {
+		return "", nil, err
+	}
+	targets, err := r.resolveTushareNewsCategoryTargets(runtime)
+	if err != nil {
+		return "", nil, err
+	}
+	token, err := r.resolveTushareTokenForNewsSync()
+	if err != nil {
+		return "", nil, err
+	}
+
+	now := time.Now()
+	mergedItems := make(map[string]tushareNewsArticlePayload)
+	fetchWarnings := make([]string, 0)
+	detailItems := make([]model.NewsSyncRunDetail, 0, 32)
+	counts := map[string]int{
+		"brief":        0,
+		"major":        0,
+		"research":     0,
+		"forecast":     0,
+		"announcement": 0,
+	}
+
+	mergeItems := func(counterKey string, items []tushareNewsArticlePayload, details []model.NewsSyncRunDetail) {
+		counts[counterKey] += len(items)
+		detailItems = append(detailItems, details...)
+		for _, item := range items {
+			if strings.TrimSpace(item.ID) == "" || strings.TrimSpace(item.CategoryID) == "" {
+				continue
+			}
+			existing, exists := mergedItems[item.ID]
+			if !exists || item.PublishedAt.After(existing.PublishedAt) {
+				mergedItems[item.ID] = item
+			}
+		}
+	}
+
+	if shouldSyncTushareType(normalizedOpts.SyncTypeSet, tushareSyncTypeNewsBrief) {
+		items, details, fetchErr := fetchTushareNewsBriefArticles(token, runtime, targets.Brief, now, normalizedOpts)
+		mergeItems("brief", items, details)
+		if fetchErr != nil {
+			fetchWarnings = append(fetchWarnings, fmt.Sprintf("news: %v", fetchErr))
+		}
+	}
+
+	if shouldSyncTushareType(normalizedOpts.SyncTypeSet, tushareSyncTypeNewsMajor) {
+		items, details, fetchErr := fetchTushareMajorNewsArticles(token, runtime, targets.Major, now, normalizedOpts)
+		mergeItems("major", items, details)
+		if fetchErr != nil {
+			fetchWarnings = append(fetchWarnings, fmt.Sprintf("major_news: %v", fetchErr))
+		}
+	}
+
+	if shouldSyncTushareType(normalizedOpts.SyncTypeSet, tushareSyncTypeResearch) {
+		items, details, fetchErr := fetchTushareResearchReportArticles(token, runtime, targets.Research, now, normalizedOpts)
+		mergeItems("research", items, details)
+		if fetchErr != nil {
+			fetchWarnings = append(fetchWarnings, fmt.Sprintf("research_report: %v", fetchErr))
+		}
+	}
+
+	if shouldSyncTushareType(normalizedOpts.SyncTypeSet, tushareSyncTypeForecast) {
+		items, details, fetchErr := fetchTushareForecastArticles(token, runtime, targets.Forecast, now, normalizedOpts)
+		mergeItems("forecast", items, details)
+		if fetchErr != nil {
+			fetchWarnings = append(fetchWarnings, fmt.Sprintf("report_rc: %v", fetchErr))
+		}
+	}
+
+	if shouldSyncTushareType(normalizedOpts.SyncTypeSet, tushareSyncTypeAnnouncement) {
+		items, details, fetchErr := fetchTushareAnnouncementArticles(token, runtime, targets.Announcement, now, normalizedOpts)
+		mergeItems("announcement", items, details)
+		if fetchErr != nil {
+			fetchWarnings = append(fetchWarnings, fmt.Sprintf("anns_d: %v", fetchErr))
+		}
+	}
+
+	readyItems := make([]tushareNewsArticlePayload, 0, len(mergedItems))
+	for _, item := range mergedItems {
+		readyItems = append(readyItems, item)
+	}
+
+	syncedArticles, syncedAttachments, err := r.upsertTushareNewsArticles(readyItems)
+	if err != nil {
+		return "", detailItems, err
+	}
+	applyTushareDetailUpsertCounts(detailItems, readyItems)
+
+	summary := fmt.Sprintf(
+		"brief=%d major=%d research=%d forecast=%d announcement=%d upserted=%d attachments=%d",
+		counts["brief"],
+		counts["major"],
+		counts["research"],
+		counts["forecast"],
+		counts["announcement"],
+		syncedArticles,
+		syncedAttachments,
+	)
+	if len(normalizedOpts.SourceSet) > 0 {
+		summary += fmt.Sprintf(" source_filter=%d", len(normalizedOpts.SourceSet))
+	}
+	if len(normalizedOpts.SymbolSet) > 0 {
+		summary += fmt.Sprintf(" symbol_filter=%d", len(normalizedOpts.SymbolSet))
+	}
+	if len(fetchWarnings) > 0 {
+		summary += " warnings=" + strings.Join(compactErrorMessages(fetchWarnings, 3), " | ")
+	}
+	if len(readyItems) == 0 && len(fetchWarnings) > 0 {
+		if onlyRateLimitMessages(fetchWarnings) {
+			summary += " rate_limited=true"
+			return summary, detailItems, nil
+		}
+		return summary, detailItems, errors.New(strings.Join(compactErrorMessages(fetchWarnings, 2), "; "))
+	}
+	return summary, detailItems, nil
+}
+
+func (r *MySQLGrowthRepo) resolveTushareNewsSyncRuntimeConfig(batchSize int) tushareNewsSyncRuntimeConfig {
+	cfg := tushareNewsSyncRuntimeConfig{
+		Enabled:                  true,
+		BatchSize:                200,
+		TimeoutMS:                12000,
+		AuthorID:                 "admin_001",
+		SyncTypes:                []string{tushareSyncTypeNewsBrief, tushareSyncTypeNewsMajor},
+		BriefSources:             []string{"cls", "yicai", "sina", "eastmoney"},
+		MajorSources:             []string{"新华网", "财联社", "第一财经", "新浪财经", "华尔街见闻"},
+		BriefLookbackHours:       8,
+		MajorLookbackHours:       24,
+		ResearchLookbackDays:     7,
+		ForecastLookbackDays:     7,
+		AnnouncementLookbackDays: 2,
+		BriefVisibility:          "PUBLIC",
+		MajorVisibility:          "PUBLIC",
+		ResearchVisibility:       "VIP",
+		ForecastVisibility:       "VIP",
+		AnnouncementVisibility:   "PUBLIC",
+	}
+
+	items, _, err := r.AdminListSystemConfigs("news.sync.tushare.", 1, 200)
+	if err == nil {
+		for _, item := range items {
+			key := strings.ToLower(strings.TrimSpace(item.ConfigKey))
+			value := strings.TrimSpace(item.ConfigValue)
+			switch key {
+			case "news.sync.tushare.enabled":
+				cfg.Enabled = parseRepoConfigBool(value, cfg.Enabled)
+			case "news.sync.tushare.batch_size":
+				cfg.BatchSize = parseRepoConfigInt(value, cfg.BatchSize)
+			case "news.sync.tushare.timeout_ms":
+				cfg.TimeoutMS = parseRepoConfigInt(value, cfg.TimeoutMS)
+			case "news.sync.tushare.author_id":
+				if value != "" {
+					cfg.AuthorID = value
+				}
+			case "news.sync.tushare.sync_types":
+				cfg.SyncTypes = splitTushareSyncTypeList(value, cfg.SyncTypes)
+			case "news.sync.tushare.sources.news_brief":
+				cfg.BriefSources = splitTushareSourceList(value, cfg.BriefSources)
+			case "news.sync.tushare.sources.news_major":
+				cfg.MajorSources = splitTushareSourceList(value, cfg.MajorSources)
+			case "news.sync.tushare.lookback_hours.news_brief":
+				cfg.BriefLookbackHours = parseRepoConfigInt(value, cfg.BriefLookbackHours)
+			case "news.sync.tushare.lookback_hours.news_major":
+				cfg.MajorLookbackHours = parseRepoConfigInt(value, cfg.MajorLookbackHours)
+			case "news.sync.tushare.lookback_days.research_report":
+				cfg.ResearchLookbackDays = parseRepoConfigInt(value, cfg.ResearchLookbackDays)
+			case "news.sync.tushare.lookback_days.report_rc":
+				cfg.ForecastLookbackDays = parseRepoConfigInt(value, cfg.ForecastLookbackDays)
+			case "news.sync.tushare.lookback_days.announcement":
+				cfg.AnnouncementLookbackDays = parseRepoConfigInt(value, cfg.AnnouncementLookbackDays)
+			case "news.sync.tushare.visibility.news_brief":
+				cfg.BriefVisibility = value
+			case "news.sync.tushare.visibility.news_major":
+				cfg.MajorVisibility = value
+			case "news.sync.tushare.visibility.research_report":
+				cfg.ResearchVisibility = value
+			case "news.sync.tushare.visibility.report_rc":
+				cfg.ForecastVisibility = value
+			case "news.sync.tushare.visibility.announcement":
+				cfg.AnnouncementVisibility = value
+			}
+		}
+	}
+
+	if batchSize > 0 {
+		cfg.BatchSize = batchSize
+	}
+	cfg.BatchSize = maxInt(20, minInt(cfg.BatchSize, 1000))
+	cfg.TimeoutMS = maxInt(2000, minInt(cfg.TimeoutMS, 30000))
+	cfg.BriefLookbackHours = maxInt(1, minInt(cfg.BriefLookbackHours, 72))
+	cfg.MajorLookbackHours = maxInt(1, minInt(cfg.MajorLookbackHours, 168))
+	cfg.ResearchLookbackDays = maxInt(1, minInt(cfg.ResearchLookbackDays, 60))
+	cfg.ForecastLookbackDays = maxInt(1, minInt(cfg.ForecastLookbackDays, 60))
+	cfg.AnnouncementLookbackDays = maxInt(1, minInt(cfg.AnnouncementLookbackDays, 30))
+	cfg.SyncTypes = splitTushareSyncTypeList(strings.Join(cfg.SyncTypes, ","), []string{tushareSyncTypeNewsBrief, tushareSyncTypeNewsMajor})
+	cfg.BriefSources = splitTushareSourceList(strings.Join(cfg.BriefSources, ","), []string{"cls", "yicai", "sina", "eastmoney"})
+	cfg.MajorSources = splitTushareSourceList(strings.Join(cfg.MajorSources, ","), []string{"新华网", "财联社", "第一财经", "新浪财经", "华尔街见闻"})
+	cfg.AuthorID = strings.TrimSpace(cfg.AuthorID)
+	if cfg.AuthorID == "" {
+		cfg.AuthorID = "admin_001"
+	}
+	cfg.BriefVisibility = normalizeTushareNewsVisibility(cfg.BriefVisibility)
+	cfg.MajorVisibility = normalizeTushareNewsVisibility(cfg.MajorVisibility)
+	cfg.ResearchVisibility = normalizeTushareNewsVisibility(cfg.ResearchVisibility)
+	cfg.ForecastVisibility = normalizeTushareNewsVisibility(cfg.ForecastVisibility)
+	cfg.AnnouncementVisibility = normalizeTushareNewsVisibility(cfg.AnnouncementVisibility)
+	return cfg
+}
+
+func (r *MySQLGrowthRepo) ensureTushareNewsCategories() error {
+	type categorySeed struct {
+		ID         string
+		Name       string
+		Slug       string
+		Sort       int
+		Visibility string
+	}
+	seeds := []categorySeed{
+		{ID: "nc_ts_news_brief", Name: "新闻快讯", Slug: tushareNewsCategoryBriefSlug, Sort: 210, Visibility: "PUBLIC"},
+		{ID: "nc_ts_news_major", Name: "新闻通讯", Slug: tushareNewsCategoryMajorSlug, Sort: 220, Visibility: "PUBLIC"},
+		{ID: "nc_ts_report_research", Name: "券商研报", Slug: tushareNewsCategoryResearchSlug, Sort: 230, Visibility: "VIP"},
+		{ID: "nc_ts_report_forecast", Name: "盈利预测", Slug: tushareNewsCategoryForecastSlug, Sort: 240, Visibility: "VIP"},
+		{ID: "nc_ts_announcement", Name: "上市公司公告", Slug: tushareNewsCategoryAnnouncementSlug, Sort: 250, Visibility: "PUBLIC"},
+	}
+	now := time.Now()
+	for _, seed := range seeds {
+		_, err := r.db.Exec(`
+INSERT INTO news_categories
+	(id, name, slug, sort, visibility, status, created_at, updated_at)
+SELECT
+	?, ?, ?, ?, ?, 'PUBLISHED', ?, ?
+WHERE NOT EXISTS (
+	SELECT 1 FROM news_categories WHERE slug = ?
+)`,
+			seed.ID,
+			seed.Name,
+			seed.Slug,
+			seed.Sort,
+			seed.Visibility,
+			now,
+			now,
+			seed.Slug,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) resolveTushareNewsCategoryTargets(runtime tushareNewsSyncRuntimeConfig) (tushareNewsCategoryTargets, error) {
+	rows, err := r.db.Query(`
+SELECT id, slug, visibility
+FROM news_categories
+WHERE slug IN (?, ?, ?, ?, ?)`,
+		tushareNewsCategoryBriefSlug,
+		tushareNewsCategoryMajorSlug,
+		tushareNewsCategoryResearchSlug,
+		tushareNewsCategoryForecastSlug,
+		tushareNewsCategoryAnnouncementSlug,
+	)
+	if err != nil {
+		return tushareNewsCategoryTargets{}, err
+	}
+	defer rows.Close()
+
+	bySlug := make(map[string]tushareNewsCategoryTarget)
+	for rows.Next() {
+		var (
+			id         string
+			slug       string
+			visibility string
+		)
+		if err := rows.Scan(&id, &slug, &visibility); err != nil {
+			return tushareNewsCategoryTargets{}, err
+		}
+		bySlug[strings.TrimSpace(slug)] = tushareNewsCategoryTarget{
+			CategoryID: strings.TrimSpace(id),
+			Visibility: normalizeTushareNewsVisibility(visibility),
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return tushareNewsCategoryTargets{}, err
+	}
+
+	missing := make([]string, 0)
+	requiredSlugs := []string{
+		tushareNewsCategoryBriefSlug,
+		tushareNewsCategoryMajorSlug,
+		tushareNewsCategoryResearchSlug,
+		tushareNewsCategoryForecastSlug,
+		tushareNewsCategoryAnnouncementSlug,
+	}
+	for _, slug := range requiredSlugs {
+		if _, ok := bySlug[slug]; !ok {
+			missing = append(missing, slug)
+		}
+	}
+	if len(missing) > 0 {
+		return tushareNewsCategoryTargets{}, fmt.Errorf("missing tushare news categories: %s", strings.Join(missing, ","))
+	}
+
+	targets := tushareNewsCategoryTargets{
+		Brief: tushareNewsCategoryTarget{
+			CategoryID: bySlug[tushareNewsCategoryBriefSlug].CategoryID,
+			Visibility: resolveTushareTargetVisibility(runtime.BriefVisibility, bySlug[tushareNewsCategoryBriefSlug].Visibility),
+		},
+		Major: tushareNewsCategoryTarget{
+			CategoryID: bySlug[tushareNewsCategoryMajorSlug].CategoryID,
+			Visibility: resolveTushareTargetVisibility(runtime.MajorVisibility, bySlug[tushareNewsCategoryMajorSlug].Visibility),
+		},
+		Research: tushareNewsCategoryTarget{
+			CategoryID: bySlug[tushareNewsCategoryResearchSlug].CategoryID,
+			Visibility: resolveTushareTargetVisibility(runtime.ResearchVisibility, bySlug[tushareNewsCategoryResearchSlug].Visibility),
+		},
+		Forecast: tushareNewsCategoryTarget{
+			CategoryID: bySlug[tushareNewsCategoryForecastSlug].CategoryID,
+			Visibility: resolveTushareTargetVisibility(runtime.ForecastVisibility, bySlug[tushareNewsCategoryForecastSlug].Visibility),
+		},
+		Announcement: tushareNewsCategoryTarget{
+			CategoryID: bySlug[tushareNewsCategoryAnnouncementSlug].CategoryID,
+			Visibility: resolveTushareTargetVisibility(runtime.AnnouncementVisibility, bySlug[tushareNewsCategoryAnnouncementSlug].Visibility),
+		},
+	}
+	return targets, nil
+}
+
+func (r *MySQLGrowthRepo) resolveTushareTokenForNewsSync() (string, error) {
+	item, err := r.getDataSourceBySourceKey("TUSHARE")
+	if err == nil {
+		if token := parseDataSourceStringConfig(item.Config, "token", "api_token", "tushare_token"); strings.TrimSpace(token) != "" {
+			return strings.TrimSpace(token), nil
+		}
+	}
+	if token := strings.TrimSpace(os.Getenv("TUSHARE_TOKEN")); token != "" {
+		return token, nil
+	}
+	return "", errors.New("tushare token not configured")
+}
+
+func (r *MySQLGrowthRepo) upsertTushareNewsArticles(items []tushareNewsArticlePayload) (int, int, error) {
+	if len(items) == 0 {
+		return 0, 0, nil
+	}
+	syncedArticles := 0
+	syncedAttachments := 0
+	now := time.Now()
+	for _, item := range items {
+		id := strings.TrimSpace(item.ID)
+		categoryID := strings.TrimSpace(item.CategoryID)
+		title := truncateByRunes(normalizeUTF8Text(item.Title), 256)
+		if id == "" || categoryID == "" || title == "" {
+			continue
+		}
+		summary := truncateByRunes(normalizeUTF8Text(item.Summary), 512)
+		if summary == "" {
+			summary = title
+		}
+		content := normalizeUTF8Text(item.Content)
+		if content == "" {
+			content = summary
+		}
+		visibility := normalizeTushareNewsVisibility(item.Visibility)
+		if visibility == "" {
+			visibility = "PUBLIC"
+		}
+		publishedAt := item.PublishedAt
+		if publishedAt.IsZero() {
+			publishedAt = now
+		}
+		authorID := strings.TrimSpace(item.AuthorID)
+		if authorID == "" {
+			authorID = "admin_001"
+		}
+
+		_, err := r.db.Exec(`
+INSERT INTO news_articles
+	(id, category_id, title, summary, content, cover_url, tags, visibility, status, published_at, author_id, created_at, updated_at)
+VALUES
+	(?, ?, ?, ?, ?, NULL, NULL, ?, 'PUBLISHED', ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+	category_id = VALUES(category_id),
+	title = VALUES(title),
+	summary = VALUES(summary),
+	content = VALUES(content),
+	visibility = VALUES(visibility),
+	status = VALUES(status),
+	published_at = VALUES(published_at),
+	author_id = VALUES(author_id),
+	updated_at = VALUES(updated_at)`,
+			id,
+			categoryID,
+			title,
+			summary,
+			content,
+			visibility,
+			publishedAt,
+			authorID,
+			now,
+			now,
+		)
+		if err != nil {
+			return syncedArticles, syncedAttachments, err
+		}
+		syncedArticles++
+
+		attachmentURL := strings.TrimSpace(item.AttachmentURL)
+		if attachmentURL == "" {
+			continue
+		}
+		attachmentID := buildTushareNewsAttachmentID("att", id+"|"+attachmentURL)
+		fileName := inferTushareAttachmentFileName(attachmentURL, item.AttachmentName, title)
+		mimeType := strings.TrimSpace(item.AttachmentMime)
+		if mimeType == "" {
+			mimeType = inferAttachmentMimeTypeFromFileName(fileName)
+		}
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		_, err = r.db.Exec(`
+INSERT INTO news_attachments
+	(id, article_id, file_name, file_url, file_size, mime_type, created_at)
+VALUES
+	(?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+	file_name = VALUES(file_name),
+	file_url = VALUES(file_url),
+	file_size = VALUES(file_size),
+	mime_type = VALUES(mime_type)`,
+			attachmentID,
+			id,
+			fileName,
+			truncateByRunes(attachmentURL, 512),
+			1,
+			mimeType,
+			now,
+		)
+		if err != nil {
+			return syncedArticles, syncedAttachments, err
+		}
+		syncedAttachments++
+	}
+	return syncedArticles, syncedAttachments, nil
+}
+
+func fetchTushareNewsBriefArticles(token string, runtime tushareNewsSyncRuntimeConfig, target tushareNewsCategoryTarget, now time.Time, opts normalizedTushareSyncOptions) ([]tushareNewsArticlePayload, []model.NewsSyncRunDetail, error) {
+	startAt := now.Add(-time.Duration(runtime.BriefLookbackHours) * time.Hour)
+	client := &http.Client{Timeout: time.Duration(runtime.TimeoutMS) * time.Millisecond}
+	limit := maxInt(50, minInt(runtime.BatchSize, 1000))
+	items := make([]tushareNewsArticlePayload, 0, limit)
+	details := make([]model.NewsSyncRunDetail, 0, maxInt(1, len(runtime.BriefSources)))
+	seen := make(map[string]struct{})
+	errs := make([]string, 0)
+
+	sources := filterTushareSources(runtime.BriefSources, opts.SourceSet)
+	if len(sources) == 0 {
+		return items, details, nil
+	}
+	for _, source := range sources {
+		source = strings.ToLower(strings.TrimSpace(source))
+		if source == "" {
+			continue
+		}
+		detail := newTushareSyncDetailDraft(tushareSyncTypeNewsBrief, source, "")
+		callStartedAt := time.Now()
+		params := map[string]string{
+			"src":        source,
+			"start_date": startAt.Format("2006-01-02 15:04:05"),
+			"end_date":   now.Format("2006-01-02 15:04:05"),
+			"limit":      strconv.Itoa(limit),
+		}
+		parsed, err := callTushareAPI(client, token, "news", params, "datetime,title,content,channels")
+		if err != nil && shouldRetryTushareWithoutFields(err) {
+			parsed, err = callTushareAPI(client, token, "news", params, "")
+		}
+		if err != nil {
+			rateLimited := isTushareRateLimitErrorText(err.Error())
+			detail.Status = "FAILED"
+			detail.FailedCount = 1
+			detail.ErrorText = truncateByRunes(err.Error(), 512)
+			if rateLimited {
+				detail.WarningText = "触发Tushare限频，已停止后续来源抓取"
+			}
+			detail.StartedAt = callStartedAt.Format(time.RFC3339)
+			detail.FinishedAt = time.Now().Format(time.RFC3339)
+			details = append(details, detail)
+			errs = append(errs, fmt.Sprintf("%s: %v", source, err))
+			if rateLimited {
+				break
+			}
+			continue
+		}
+		beforeCount := len(items)
+		fieldIndex := buildTushareFieldIndex(parsed.Data.Fields)
+		for _, row := range parsed.Data.Items {
+			datetimeText := firstTushareString(row, fieldIndex, "datetime")
+			contentText := firstTushareString(row, fieldIndex, "content")
+			title := firstTushareString(row, fieldIndex, "title")
+			channels := firstTushareString(row, fieldIndex, "channels")
+			if title == "" {
+				title = truncateByRunes(normalizeUTF8Text(contentText), 80)
+			}
+			title = normalizeUTF8Text(title)
+			contentText = normalizeUTF8Text(contentText)
+			if title == "" || contentText == "" {
+				continue
+			}
+			publishedAt := parseTushareDateTimeOr(datetimeText, now)
+			uniqueKey := fmt.Sprintf("brief|%s|%s|%s|%s", source, publishedAt.Format(time.RFC3339), title, channels)
+			id := buildTushareNewsArticleID("nb", uniqueKey)
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			if channels != "" {
+				contentText = fmt.Sprintf("频道：%s\n\n%s", channels, contentText)
+			}
+			items = append(items, tushareNewsArticlePayload{
+				ID:          id,
+				CategoryID:  target.CategoryID,
+				Visibility:  target.Visibility,
+				SyncType:    tushareSyncTypeNewsBrief,
+				Source:      source,
+				Title:       title,
+				Summary:     buildTushareNewsSummary(contentText, title),
+				Content:     contentText,
+				PublishedAt: publishedAt,
+				AuthorID:    runtime.AuthorID,
+			})
+		}
+		fetchedCount := len(items) - beforeCount
+		detail.Status = "SUCCESS"
+		detail.FetchedCount = fetchedCount
+		detail.StartedAt = callStartedAt.Format(time.RFC3339)
+		detail.FinishedAt = time.Now().Format(time.RFC3339)
+		details = append(details, detail)
+	}
+	if len(items) == 0 && len(errs) > 0 {
+		return nil, details, errors.New(strings.Join(compactErrorMessages(errs, 3), " | "))
+	}
+	return items, details, nil
+}
+
+func fetchTushareMajorNewsArticles(token string, runtime tushareNewsSyncRuntimeConfig, target tushareNewsCategoryTarget, now time.Time, opts normalizedTushareSyncOptions) ([]tushareNewsArticlePayload, []model.NewsSyncRunDetail, error) {
+	startAt := now.Add(-time.Duration(runtime.MajorLookbackHours) * time.Hour)
+	client := &http.Client{Timeout: time.Duration(runtime.TimeoutMS) * time.Millisecond}
+	limit := maxInt(50, minInt(runtime.BatchSize, 1000))
+	items := make([]tushareNewsArticlePayload, 0, limit)
+	details := make([]model.NewsSyncRunDetail, 0, maxInt(1, len(runtime.MajorSources)))
+	seen := make(map[string]struct{})
+	errs := make([]string, 0)
+
+	sources := runtime.MajorSources
+	if len(sources) == 0 {
+		sources = []string{""}
+	}
+	sources = filterTushareSources(sources, opts.SourceSet)
+	if len(sources) == 0 {
+		return items, details, nil
+	}
+
+	for _, source := range sources {
+		source = strings.TrimSpace(source)
+		detailSource := source
+		if detailSource == "" {
+			detailSource = "all"
+		}
+		detail := newTushareSyncDetailDraft(tushareSyncTypeNewsMajor, detailSource, "")
+		callStartedAt := time.Now()
+		params := map[string]string{
+			"start_date": startAt.Format("2006-01-02 15:04:05"),
+			"end_date":   now.Format("2006-01-02 15:04:05"),
+			"limit":      strconv.Itoa(limit),
+		}
+		if source != "" {
+			params["src"] = source
+		}
+		parsed, err := callTushareAPI(client, token, "major_news", params, "pub_time,src,title,content")
+		if err != nil && shouldRetryTushareWithoutFields(err) {
+			parsed, err = callTushareAPI(client, token, "major_news", params, "")
+		}
+		if err != nil {
+			rateLimited := isTushareRateLimitErrorText(err.Error())
+			detail.Status = "FAILED"
+			detail.FailedCount = 1
+			detail.ErrorText = truncateByRunes(err.Error(), 512)
+			if rateLimited {
+				detail.WarningText = "触发Tushare限频，已停止后续来源抓取"
+			}
+			detail.StartedAt = callStartedAt.Format(time.RFC3339)
+			detail.FinishedAt = time.Now().Format(time.RFC3339)
+			details = append(details, detail)
+			errs = append(errs, fmt.Sprintf("%s: %v", detailSource, err))
+			if rateLimited {
+				break
+			}
+			continue
+		}
+		beforeCount := len(items)
+		fieldIndex := buildTushareFieldIndex(parsed.Data.Fields)
+		for _, row := range parsed.Data.Items {
+			pubTimeText := firstTushareString(row, fieldIndex, "pub_time")
+			rowSource := firstTushareString(row, fieldIndex, "src")
+			title := firstTushareString(row, fieldIndex, "title")
+			contentText := firstTushareString(row, fieldIndex, "content")
+			title = normalizeUTF8Text(title)
+			contentText = normalizeUTF8Text(contentText)
+			if title == "" {
+				title = truncateByRunes(contentText, 80)
+			}
+			if title == "" || contentText == "" {
+				continue
+			}
+			publishedAt := parseTushareDateTimeOr(pubTimeText, now)
+			uniqueKey := fmt.Sprintf("major|%s|%s|%s", rowSource, publishedAt.Format(time.RFC3339), title)
+			id := buildTushareNewsArticleID("nm", uniqueKey)
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			resolvedSource := normalizeUTF8Text(rowSource)
+			if resolvedSource == "" {
+				resolvedSource = detailSource
+			}
+			if rowSource != "" {
+				contentText = fmt.Sprintf("来源：%s\n\n%s", rowSource, contentText)
+			}
+			items = append(items, tushareNewsArticlePayload{
+				ID:          id,
+				CategoryID:  target.CategoryID,
+				Visibility:  target.Visibility,
+				SyncType:    tushareSyncTypeNewsMajor,
+				Source:      resolvedSource,
+				Title:       title,
+				Summary:     buildTushareNewsSummary(contentText, title),
+				Content:     contentText,
+				PublishedAt: publishedAt,
+				AuthorID:    runtime.AuthorID,
+			})
+		}
+		fetchedCount := len(items) - beforeCount
+		detail.Status = "SUCCESS"
+		detail.FetchedCount = fetchedCount
+		detail.StartedAt = callStartedAt.Format(time.RFC3339)
+		detail.FinishedAt = time.Now().Format(time.RFC3339)
+		details = append(details, detail)
+	}
+	if len(items) == 0 && len(errs) > 0 {
+		return nil, details, errors.New(strings.Join(compactErrorMessages(errs, 3), " | "))
+	}
+	return items, details, nil
+}
+
+func fetchTushareResearchReportArticles(token string, runtime tushareNewsSyncRuntimeConfig, target tushareNewsCategoryTarget, now time.Time, opts normalizedTushareSyncOptions) ([]tushareNewsArticlePayload, []model.NewsSyncRunDetail, error) {
+	startDate := now.AddDate(0, 0, -runtime.ResearchLookbackDays).Format("20060102")
+	endDate := now.Format("20060102")
+	client := &http.Client{Timeout: time.Duration(runtime.TimeoutMS) * time.Millisecond}
+	callStartedAt := time.Now()
+	parsed, err := callTushareAPI(client, token, "research_report", map[string]string{
+		"start_date": startDate,
+		"end_date":   endDate,
+	}, "ts_code,name,report_date,title,report_type,classify,org_name,author_name,url,summary")
+	if err != nil && shouldRetryTushareWithoutFields(err) {
+		parsed, err = callTushareAPI(client, token, "research_report", map[string]string{
+			"start_date": startDate,
+			"end_date":   endDate,
+		}, "")
+	}
+	if err != nil {
+		detail := newTushareSyncDetailDraft(tushareSyncTypeResearch, "research_report", "")
+		detail.Status = "FAILED"
+		detail.FailedCount = 1
+		detail.ErrorText = truncateByRunes(err.Error(), 512)
+		detail.StartedAt = callStartedAt.Format(time.RFC3339)
+		detail.FinishedAt = time.Now().Format(time.RFC3339)
+		return nil, []model.NewsSyncRunDetail{detail}, err
+	}
+	fieldIndex := buildTushareFieldIndex(parsed.Data.Fields)
+	items := make([]tushareNewsArticlePayload, 0, len(parsed.Data.Items))
+	groupCount := make(map[string]int)
+	groupDetail := make(map[string]model.NewsSyncRunDetail)
+	seen := make(map[string]struct{})
+	for _, row := range parsed.Data.Items {
+		tsCode := firstTushareString(row, fieldIndex, "ts_code")
+		name := firstTushareString(row, fieldIndex, "name")
+		reportDateText := firstTushareString(row, fieldIndex, "report_date")
+		title := firstTushareString(row, fieldIndex, "title")
+		reportType := firstTushareString(row, fieldIndex, "report_type")
+		classify := firstTushareString(row, fieldIndex, "classify")
+		orgName := firstTushareString(row, fieldIndex, "org_name", "org")
+		authorName := firstTushareString(row, fieldIndex, "author_name", "author")
+		sourceURL := firstTushareString(row, fieldIndex, "url")
+		summary := firstTushareString(row, fieldIndex, "summary", "abstr")
+		resolvedSource := normalizeUTF8Text(orgName)
+		resolvedSymbol := normalizeTushareSymbol(tsCode)
+		if !matchTushareSourceFilter(opts.SourceSet, resolvedSource) {
+			continue
+		}
+		if !matchTushareSymbolFilter(opts.SymbolSet, resolvedSymbol) {
+			continue
+		}
+		title = normalizeUTF8Text(title)
+		if title == "" {
+			fallbackName := strings.TrimSpace(name)
+			if fallbackName == "" {
+				fallbackName = strings.TrimSpace(tsCode)
+			}
+			title = strings.TrimSpace(fallbackName + " 券商研报")
+		}
+		if title == "" {
+			continue
+		}
+		publishedAt := parseTushareDateTimeOr(reportDateText, now)
+		uniqueKey := fmt.Sprintf("research|%s|%s|%s|%s|%s", reportDateText, tsCode, title, orgName, sourceURL)
+		id := buildTushareNewsArticleID("rr", uniqueKey)
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		detailKey := buildNewsSyncDetailKey(tushareSyncTypeResearch, resolvedSource, resolvedSymbol)
+		groupCount[detailKey]++
+		if _, exists := groupDetail[detailKey]; !exists {
+			groupDetail[detailKey] = newTushareSyncDetailDraft(tushareSyncTypeResearch, resolvedSource, resolvedSymbol)
+		}
+		contentBuilder := make([]string, 0, 8)
+		contentBuilder = append(contentBuilder, fmt.Sprintf("股票：%s %s", strings.TrimSpace(tsCode), strings.TrimSpace(name)))
+		contentBuilder = append(contentBuilder, fmt.Sprintf("机构：%s", strings.TrimSpace(orgName)))
+		contentBuilder = append(contentBuilder, fmt.Sprintf("作者：%s", strings.TrimSpace(authorName)))
+		contentBuilder = append(contentBuilder, fmt.Sprintf("报告类型：%s", strings.TrimSpace(reportType)))
+		contentBuilder = append(contentBuilder, fmt.Sprintf("分类：%s", strings.TrimSpace(classify)))
+		if strings.TrimSpace(summary) != "" {
+			contentBuilder = append(contentBuilder, "", "摘要：", strings.TrimSpace(summary))
+		}
+		if strings.TrimSpace(sourceURL) != "" {
+			contentBuilder = append(contentBuilder, "", "原文链接：", strings.TrimSpace(sourceURL))
+		}
+		contentText := strings.Join(contentBuilder, "\n")
+		items = append(items, tushareNewsArticlePayload{
+			ID:             id,
+			CategoryID:     target.CategoryID,
+			Visibility:     target.Visibility,
+			SyncType:       tushareSyncTypeResearch,
+			Source:         resolvedSource,
+			Symbol:         resolvedSymbol,
+			Title:          title,
+			Summary:        buildTushareNewsSummary(summary, title),
+			Content:        contentText,
+			PublishedAt:    publishedAt,
+			AuthorID:       runtime.AuthorID,
+			AttachmentURL:  strings.TrimSpace(sourceURL),
+			AttachmentName: strings.TrimSpace(title) + ".pdf",
+			AttachmentMime: "application/pdf",
+		})
+	}
+	finishedAt := time.Now()
+	details := make([]model.NewsSyncRunDetail, 0, len(groupDetail))
+	for detailKey, draft := range groupDetail {
+		draft.Status = "SUCCESS"
+		draft.FetchedCount = groupCount[detailKey]
+		draft.StartedAt = callStartedAt.Format(time.RFC3339)
+		draft.FinishedAt = finishedAt.Format(time.RFC3339)
+		details = append(details, draft)
+	}
+	return items, details, nil
+}
+
+func fetchTushareForecastArticles(token string, runtime tushareNewsSyncRuntimeConfig, target tushareNewsCategoryTarget, now time.Time, opts normalizedTushareSyncOptions) ([]tushareNewsArticlePayload, []model.NewsSyncRunDetail, error) {
+	startDate := now.AddDate(0, 0, -runtime.ForecastLookbackDays).Format("20060102")
+	endDate := now.Format("20060102")
+	client := &http.Client{Timeout: time.Duration(runtime.TimeoutMS) * time.Millisecond}
+	callStartedAt := time.Now()
+	parsed, err := callTushareAPI(client, token, "report_rc", map[string]string{
+		"start_date": startDate,
+		"end_date":   endDate,
+	}, "report_date,ts_code,name,report_title,org_name,author_name,quarter,op_rt,eps,pe,max_price,min_price,create_time")
+	if err != nil && shouldRetryTushareWithoutFields(err) {
+		parsed, err = callTushareAPI(client, token, "report_rc", map[string]string{
+			"start_date": startDate,
+			"end_date":   endDate,
+		}, "")
+	}
+	if err != nil {
+		detail := newTushareSyncDetailDraft(tushareSyncTypeForecast, "report_rc", "")
+		detail.Status = "FAILED"
+		detail.FailedCount = 1
+		detail.ErrorText = truncateByRunes(err.Error(), 512)
+		detail.StartedAt = callStartedAt.Format(time.RFC3339)
+		detail.FinishedAt = time.Now().Format(time.RFC3339)
+		return nil, []model.NewsSyncRunDetail{detail}, err
+	}
+	fieldIndex := buildTushareFieldIndex(parsed.Data.Fields)
+	items := make([]tushareNewsArticlePayload, 0, len(parsed.Data.Items))
+	groupCount := make(map[string]int)
+	groupDetail := make(map[string]model.NewsSyncRunDetail)
+	seen := make(map[string]struct{})
+	for _, row := range parsed.Data.Items {
+		reportDateText := firstTushareString(row, fieldIndex, "report_date")
+		tsCode := firstTushareString(row, fieldIndex, "ts_code")
+		name := firstTushareString(row, fieldIndex, "name")
+		reportTitle := firstTushareString(row, fieldIndex, "report_title", "title")
+		orgName := firstTushareString(row, fieldIndex, "org_name")
+		authorName := firstTushareString(row, fieldIndex, "author_name")
+		quarter := firstTushareString(row, fieldIndex, "quarter")
+		opRT := firstTushareString(row, fieldIndex, "op_rt")
+		eps := firstTushareString(row, fieldIndex, "eps")
+		pe := firstTushareString(row, fieldIndex, "pe")
+		maxPrice := firstTushareString(row, fieldIndex, "max_price")
+		minPrice := firstTushareString(row, fieldIndex, "min_price")
+		createTime := firstTushareString(row, fieldIndex, "create_time")
+		resolvedSource := normalizeUTF8Text(orgName)
+		resolvedSymbol := normalizeTushareSymbol(tsCode)
+		if !matchTushareSourceFilter(opts.SourceSet, resolvedSource) {
+			continue
+		}
+		if !matchTushareSymbolFilter(opts.SymbolSet, resolvedSymbol) {
+			continue
+		}
+
+		reportTitle = normalizeUTF8Text(reportTitle)
+		if reportTitle == "" {
+			fallbackName := strings.TrimSpace(name)
+			if fallbackName == "" {
+				fallbackName = strings.TrimSpace(tsCode)
+			}
+			reportTitle = strings.TrimSpace(fallbackName + " 盈利预测")
+		}
+		if reportTitle == "" {
+			continue
+		}
+		publishedAt := parseTushareDateTimeOr(createTime, parseTushareDateTimeOr(reportDateText, now))
+		uniqueKey := fmt.Sprintf("forecast|%s|%s|%s|%s|%s", reportDateText, tsCode, orgName, authorName, reportTitle)
+		id := buildTushareNewsArticleID("rc", uniqueKey)
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		detailKey := buildNewsSyncDetailKey(tushareSyncTypeForecast, resolvedSource, resolvedSymbol)
+		groupCount[detailKey]++
+		if _, exists := groupDetail[detailKey]; !exists {
+			groupDetail[detailKey] = newTushareSyncDetailDraft(tushareSyncTypeForecast, resolvedSource, resolvedSymbol)
+		}
+		summaryParts := make([]string, 0, 4)
+		if strings.TrimSpace(orgName) != "" {
+			summaryParts = append(summaryParts, strings.TrimSpace(orgName))
+		}
+		if strings.TrimSpace(opRT) != "" {
+			summaryParts = append(summaryParts, "评级:"+strings.TrimSpace(opRT))
+		}
+		if strings.TrimSpace(eps) != "" {
+			summaryParts = append(summaryParts, "EPS:"+strings.TrimSpace(eps))
+		}
+		if strings.TrimSpace(pe) != "" {
+			summaryParts = append(summaryParts, "PE:"+strings.TrimSpace(pe))
+		}
+		summary := strings.Join(summaryParts, " ")
+		contentBuilder := []string{
+			fmt.Sprintf("股票：%s %s", strings.TrimSpace(tsCode), strings.TrimSpace(name)),
+			fmt.Sprintf("机构：%s", strings.TrimSpace(orgName)),
+			fmt.Sprintf("作者：%s", strings.TrimSpace(authorName)),
+			fmt.Sprintf("季度：%s", strings.TrimSpace(quarter)),
+			fmt.Sprintf("评级：%s", strings.TrimSpace(opRT)),
+			fmt.Sprintf("EPS：%s", strings.TrimSpace(eps)),
+			fmt.Sprintf("PE：%s", strings.TrimSpace(pe)),
+			fmt.Sprintf("目标价区间：%s - %s", strings.TrimSpace(minPrice), strings.TrimSpace(maxPrice)),
+		}
+		contentText := strings.Join(contentBuilder, "\n")
+		items = append(items, tushareNewsArticlePayload{
+			ID:          id,
+			CategoryID:  target.CategoryID,
+			Visibility:  target.Visibility,
+			SyncType:    tushareSyncTypeForecast,
+			Source:      resolvedSource,
+			Symbol:      resolvedSymbol,
+			Title:       reportTitle,
+			Summary:     buildTushareNewsSummary(summary, reportTitle),
+			Content:     contentText,
+			PublishedAt: publishedAt,
+			AuthorID:    runtime.AuthorID,
+		})
+	}
+	finishedAt := time.Now()
+	details := make([]model.NewsSyncRunDetail, 0, len(groupDetail))
+	for detailKey, draft := range groupDetail {
+		draft.Status = "SUCCESS"
+		draft.FetchedCount = groupCount[detailKey]
+		draft.StartedAt = callStartedAt.Format(time.RFC3339)
+		draft.FinishedAt = finishedAt.Format(time.RFC3339)
+		details = append(details, draft)
+	}
+	return items, details, nil
+}
+
+func fetchTushareAnnouncementArticles(token string, runtime tushareNewsSyncRuntimeConfig, target tushareNewsCategoryTarget, now time.Time, opts normalizedTushareSyncOptions) ([]tushareNewsArticlePayload, []model.NewsSyncRunDetail, error) {
+	startDate := now.AddDate(0, 0, -runtime.AnnouncementLookbackDays).Format("20060102")
+	endDate := now.Format("20060102")
+	client := &http.Client{Timeout: time.Duration(runtime.TimeoutMS) * time.Millisecond}
+	callStartedAt := time.Now()
+	parsed, err := callTushareAPI(client, token, "anns_d", map[string]string{
+		"start_date": startDate,
+		"end_date":   endDate,
+		"limit":      strconv.Itoa(maxInt(50, minInt(runtime.BatchSize, 2000))),
+	}, "ann_date,ts_code,name,title,url,rec_time")
+	if err != nil && shouldRetryTushareWithoutFields(err) {
+		parsed, err = callTushareAPI(client, token, "anns_d", map[string]string{
+			"start_date": startDate,
+			"end_date":   endDate,
+			"limit":      strconv.Itoa(maxInt(50, minInt(runtime.BatchSize, 2000))),
+		}, "")
+	}
+	if err != nil {
+		detail := newTushareSyncDetailDraft(tushareSyncTypeAnnouncement, "anns_d", "")
+		detail.Status = "FAILED"
+		detail.FailedCount = 1
+		detail.ErrorText = truncateByRunes(err.Error(), 512)
+		detail.StartedAt = callStartedAt.Format(time.RFC3339)
+		detail.FinishedAt = time.Now().Format(time.RFC3339)
+		return nil, []model.NewsSyncRunDetail{detail}, err
+	}
+	fieldIndex := buildTushareFieldIndex(parsed.Data.Fields)
+	items := make([]tushareNewsArticlePayload, 0, len(parsed.Data.Items))
+	groupCount := make(map[string]int)
+	groupDetail := make(map[string]model.NewsSyncRunDetail)
+	seen := make(map[string]struct{})
+	for _, row := range parsed.Data.Items {
+		annDate := firstTushareString(row, fieldIndex, "ann_date")
+		tsCode := firstTushareString(row, fieldIndex, "ts_code")
+		name := firstTushareString(row, fieldIndex, "name")
+		title := firstTushareString(row, fieldIndex, "title")
+		sourceURL := firstTushareString(row, fieldIndex, "url")
+		recTime := firstTushareString(row, fieldIndex, "rec_time")
+		resolvedSource := "交易所公告"
+		resolvedSymbol := normalizeTushareSymbol(tsCode)
+		if !matchTushareSourceFilter(opts.SourceSet, resolvedSource) {
+			continue
+		}
+		if !matchTushareSymbolFilter(opts.SymbolSet, resolvedSymbol) {
+			continue
+		}
+		title = normalizeUTF8Text(title)
+		if title == "" {
+			title = strings.TrimSpace(tsCode + " 上市公司公告")
+		}
+		if title == "" {
+			continue
+		}
+		publishedAt := parseTushareDateTimeOr(recTime, parseTushareDateTimeOr(annDate, now))
+		uniqueKey := fmt.Sprintf("announcement|%s|%s|%s|%s", annDate, tsCode, title, sourceURL)
+		id := buildTushareNewsArticleID("an", uniqueKey)
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		detailKey := buildNewsSyncDetailKey(tushareSyncTypeAnnouncement, resolvedSource, resolvedSymbol)
+		groupCount[detailKey]++
+		if _, exists := groupDetail[detailKey]; !exists {
+			groupDetail[detailKey] = newTushareSyncDetailDraft(tushareSyncTypeAnnouncement, resolvedSource, resolvedSymbol)
+		}
+		contentBuilder := []string{
+			fmt.Sprintf("股票：%s %s", strings.TrimSpace(tsCode), strings.TrimSpace(name)),
+			fmt.Sprintf("公告日期：%s", strings.TrimSpace(annDate)),
+			fmt.Sprintf("公告标题：%s", title),
+		}
+		if strings.TrimSpace(sourceURL) != "" {
+			contentBuilder = append(contentBuilder, "公告链接："+strings.TrimSpace(sourceURL))
+		}
+		contentText := strings.Join(contentBuilder, "\n")
+		items = append(items, tushareNewsArticlePayload{
+			ID:             id,
+			CategoryID:     target.CategoryID,
+			Visibility:     target.Visibility,
+			SyncType:       tushareSyncTypeAnnouncement,
+			Source:         resolvedSource,
+			Symbol:         resolvedSymbol,
+			Title:          title,
+			Summary:        buildTushareNewsSummary(contentText, title),
+			Content:        contentText,
+			PublishedAt:    publishedAt,
+			AuthorID:       runtime.AuthorID,
+			AttachmentURL:  strings.TrimSpace(sourceURL),
+			AttachmentName: title + ".html",
+			AttachmentMime: "text/html",
+		})
+	}
+	finishedAt := time.Now()
+	details := make([]model.NewsSyncRunDetail, 0, len(groupDetail))
+	for detailKey, draft := range groupDetail {
+		draft.Status = "SUCCESS"
+		draft.FetchedCount = groupCount[detailKey]
+		draft.StartedAt = callStartedAt.Format(time.RFC3339)
+		draft.FinishedAt = finishedAt.Format(time.RFC3339)
+		details = append(details, draft)
+	}
+	return items, details, nil
+}
+
+func buildTushareFieldIndex(fields []string) map[string]int {
+	fieldIndex := make(map[string]int, len(fields))
+	for index, field := range fields {
+		key := strings.ToLower(strings.TrimSpace(field))
+		if key == "" {
+			continue
+		}
+		fieldIndex[key] = index
+	}
+	return fieldIndex
+}
+
+func firstTushareString(row []interface{}, fieldIndex map[string]int, keys ...string) string {
+	for _, key := range keys {
+		lookupKey := strings.ToLower(strings.TrimSpace(key))
+		index, ok := fieldIndex[lookupKey]
+		if !ok || index < 0 || index >= len(row) {
+			continue
+		}
+		text := strings.TrimSpace(fmt.Sprintf("%v", row[index]))
+		if text == "" || text == "<nil>" {
+			continue
+		}
+		return text
+	}
+	return ""
+}
+
+func parseTushareDateTimeOr(raw string, fallback time.Time) time.Time {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return fallback
+	}
+	layouts := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02T15:04:05",
+		"20060102150405",
+		"2006-01-02",
+		"20060102",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.ParseInLocation(layout, text, time.Local); err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func parseDateTimeOrDefault(raw string, fallback time.Time) time.Time {
+	return parseTushareDateTimeOr(raw, fallback)
+}
+
+func buildTushareNewsSummary(content string, title string) string {
+	text := normalizeUTF8Text(content)
+	if text == "" {
+		return truncateByRunes(normalizeUTF8Text(title), 200)
+	}
+	return truncateByRunes(text, 200)
+}
+
+func splitTushareSourceList(raw string, defaults []string) []string {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return append([]string(nil), defaults...)
+	}
+	normalized := strings.NewReplacer("，", ",", "；", ",", ";", ",", "\n", ",", "\t", ",").Replace(text)
+	parts := strings.Split(normalized, ",")
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		item := strings.TrimSpace(part)
+		if item == "" {
+			continue
+		}
+		lookupKey := strings.ToLower(item)
+		if _, exists := seen[lookupKey]; exists {
+			continue
+		}
+		seen[lookupKey] = struct{}{}
+		result = append(result, item)
+	}
+	if len(result) == 0 {
+		return append([]string(nil), defaults...)
+	}
+	return result
+}
+
+func splitTushareSyncTypeList(raw string, defaults []string) []string {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return append([]string(nil), defaults...)
+	}
+	normalized := strings.NewReplacer("，", ",", "；", ",", ";", ",", "\n", ",", "\t", ",").Replace(text)
+	parts := strings.Split(normalized, ",")
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		syncType := normalizeTushareSyncType(part)
+		if syncType == "" {
+			continue
+		}
+		if _, exists := seen[syncType]; exists {
+			continue
+		}
+		seen[syncType] = struct{}{}
+		result = append(result, syncType)
+	}
+	if len(result) == 0 {
+		return append([]string(nil), defaults...)
+	}
+	return result
+}
+
+func normalizeTushareSyncOptions(opts model.TushareNewsSyncOptions) normalizedTushareSyncOptions {
+	normalized := normalizedTushareSyncOptions{
+		BatchSize:   opts.BatchSize,
+		SourceSet:   make(map[string]struct{}),
+		SymbolSet:   make(map[string]struct{}),
+		SyncTypeSet: make(map[string]struct{}),
+	}
+	if normalized.BatchSize < 0 {
+		normalized.BatchSize = 0
+	}
+	for _, source := range opts.Sources {
+		key := normalizeTushareSourceKey(source)
+		if key == "" {
+			continue
+		}
+		normalized.SourceSet[key] = struct{}{}
+	}
+	for _, symbol := range opts.Symbols {
+		key := normalizeTushareSymbol(symbol)
+		if key == "" {
+			continue
+		}
+		normalized.SymbolSet[key] = struct{}{}
+	}
+	for _, syncType := range opts.SyncTypes {
+		key := normalizeTushareSyncType(syncType)
+		if key == "" {
+			continue
+		}
+		normalized.SyncTypeSet[key] = struct{}{}
+	}
+	return normalized
+}
+
+func normalizeTushareSyncType(raw string) string {
+	normalized := strings.ToUpper(strings.TrimSpace(raw))
+	switch normalized {
+	case "NEWS", "NEWS_BRIEF", "BRIEF":
+		return tushareSyncTypeNewsBrief
+	case "MAJOR", "NEWS_MAJOR", "MAJOR_NEWS":
+		return tushareSyncTypeNewsMajor
+	case "RESEARCH", "RESEARCH_REPORT":
+		return tushareSyncTypeResearch
+	case "FORECAST", "REPORT_RC":
+		return tushareSyncTypeForecast
+	case "ANN", "ANNS", "ANNOUNCEMENT", "ANNS_D":
+		return tushareSyncTypeAnnouncement
+	default:
+		return ""
+	}
+}
+
+func shouldSyncTushareType(syncTypeSet map[string]struct{}, targetType string) bool {
+	if len(syncTypeSet) == 0 {
+		return true
+	}
+	_, ok := syncTypeSet[targetType]
+	return ok
+}
+
+func filterTushareSources(allSources []string, sourceSet map[string]struct{}) []string {
+	if len(allSources) == 0 {
+		return nil
+	}
+	if len(sourceSet) == 0 {
+		return append([]string(nil), allSources...)
+	}
+	result := make([]string, 0, len(allSources))
+	seen := make(map[string]struct{})
+	for _, source := range allSources {
+		normalized := normalizeTushareSourceKey(source)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := sourceSet[normalized]; !ok {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, source)
+	}
+	return result
+}
+
+func normalizeTushareSourceKey(raw string) string {
+	return strings.ToLower(normalizeUTF8Text(raw))
+}
+
+func normalizeTushareSymbol(raw string) string {
+	return strings.ToUpper(strings.TrimSpace(raw))
+}
+
+func matchTushareSourceFilter(sourceSet map[string]struct{}, source string) bool {
+	if len(sourceSet) == 0 {
+		return true
+	}
+	_, ok := sourceSet[normalizeTushareSourceKey(source)]
+	return ok
+}
+
+func matchTushareSymbolFilter(symbolSet map[string]struct{}, symbol string) bool {
+	if len(symbolSet) == 0 {
+		return true
+	}
+	_, ok := symbolSet[normalizeTushareSymbol(symbol)]
+	return ok
+}
+
+func newTushareSyncDetailDraft(syncType string, source string, symbol string) model.NewsSyncRunDetail {
+	return model.NewsSyncRunDetail{
+		JobName:   tushareNewsIncrementalJobName,
+		SyncType:  strings.ToUpper(strings.TrimSpace(syncType)),
+		Source:    truncateByRunes(normalizeUTF8Text(source), 128),
+		Symbol:    truncateByRunes(normalizeTushareSymbol(symbol), 32),
+		Status:    "SUCCESS",
+		StartedAt: time.Now().Format(time.RFC3339),
+	}
+}
+
+func buildNewsSyncDetailKey(syncType string, source string, symbol string) string {
+	return strings.ToUpper(strings.TrimSpace(syncType)) + "|" +
+		normalizeTushareSourceKey(source) + "|" +
+		normalizeTushareSymbol(symbol)
+}
+
+func applyTushareDetailUpsertCounts(details []model.NewsSyncRunDetail, items []tushareNewsArticlePayload) {
+	if len(details) == 0 || len(items) == 0 {
+		return
+	}
+	groupCounts := make(map[string]int, len(items))
+	for _, item := range items {
+		key := buildNewsSyncDetailKey(item.SyncType, item.Source, item.Symbol)
+		groupCounts[key]++
+	}
+	for idx := range details {
+		key := buildNewsSyncDetailKey(details[idx].SyncType, details[idx].Source, details[idx].Symbol)
+		if strings.EqualFold(details[idx].Status, "FAILED") {
+			if details[idx].FailedCount <= 0 {
+				details[idx].FailedCount = 1
+			}
+			continue
+		}
+		if upserted, ok := groupCounts[key]; ok {
+			details[idx].UpsertedCount = upserted
+			if details[idx].FetchedCount <= 0 {
+				details[idx].FetchedCount = upserted
+			}
+		}
+		if details[idx].FailedCount < 0 {
+			details[idx].FailedCount = 0
+		}
+		if details[idx].Status == "" {
+			details[idx].Status = "SUCCESS"
+		}
+	}
+}
+
+func normalizeTushareNewsVisibility(raw string) string {
+	value := strings.ToUpper(strings.TrimSpace(raw))
+	switch value {
+	case "PUBLIC", "VIP":
+		return value
+	default:
+		return ""
+	}
+}
+
+func resolveTushareTargetVisibility(preferred string, fallback string) string {
+	if value := normalizeTushareNewsVisibility(preferred); value != "" {
+		return value
+	}
+	if value := normalizeTushareNewsVisibility(fallback); value != "" {
+		return value
+	}
+	return "PUBLIC"
+}
+
+func buildTushareNewsArticleID(kind string, uniqueKey string) string {
+	return buildTushareStableID("na_ts_"+strings.ToLower(strings.TrimSpace(kind)), uniqueKey, 32)
+}
+
+func buildTushareNewsAttachmentID(kind string, uniqueKey string) string {
+	return buildTushareStableID("nat_ts_"+strings.ToLower(strings.TrimSpace(kind)), uniqueKey, 32)
+}
+
+func buildTushareStableID(prefix string, uniqueKey string, maxLen int) string {
+	normalizedPrefix := strings.ToLower(strings.TrimSpace(prefix))
+	if normalizedPrefix == "" {
+		normalizedPrefix = "ts"
+	}
+	if maxLen <= 0 {
+		maxLen = 32
+	}
+	if len(normalizedPrefix) >= maxLen-1 {
+		normalizedPrefix = normalizedPrefix[:maxLen-1]
+	}
+	hash := sha1.Sum([]byte(strings.TrimSpace(uniqueKey)))
+	hashText := hex.EncodeToString(hash[:])
+	available := maxLen - len(normalizedPrefix) - 1
+	if available <= 0 {
+		return normalizedPrefix
+	}
+	if available > len(hashText) {
+		available = len(hashText)
+	}
+	return normalizedPrefix + "_" + hashText[:available]
+}
+
+func inferTushareAttachmentFileName(fileURL string, preferredName string, title string) string {
+	if preferred := strings.TrimSpace(preferredName); preferred != "" {
+		return truncateByRunes(preferred, 256)
+	}
+	baseName := strings.TrimSpace(path.Base(strings.TrimSpace(fileURL)))
+	if baseName != "" && baseName != "." && baseName != "/" {
+		return truncateByRunes(baseName, 256)
+	}
+	cleanTitle := normalizeUTF8Text(title)
+	if cleanTitle == "" {
+		cleanTitle = "attachment"
+	}
+	return truncateByRunes(cleanTitle, 256)
+}
+
+func inferAttachmentMimeTypeFromFileName(fileName string) string {
+	ext := strings.ToLower(strings.TrimSpace(path.Ext(fileName)))
+	switch ext {
+	case ".pdf":
+		return "application/pdf"
+	case ".doc":
+		return "application/msword"
+	case ".docx":
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".xls":
+		return "application/vnd.ms-excel"
+	case ".xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	case ".ppt":
+		return "application/vnd.ms-powerpoint"
+	case ".pptx":
+		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	case ".txt":
+		return "text/plain"
+	case ".html", ".htm":
+		return "text/html"
+	case ".zip":
+		return "application/zip"
+	default:
+		return ""
+	}
+}
+
+func isTushareRateLimitErrorText(message string) bool {
+	text := strings.ToLower(normalizeUTF8Text(message))
+	if text == "" {
+		return false
+	}
+	keywords := []string{
+		"最多访问该接口",
+		"触发访问频次",
+		"请求过于频繁",
+		"rate limit",
+		"too many requests",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(text, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	if strings.Contains(text, "每分钟") && strings.Contains(text, "访问") {
+		return true
+	}
+	if strings.Contains(text, "每小时") && strings.Contains(text, "访问") {
+		return true
+	}
+	if strings.Contains(text, "每天") && strings.Contains(text, "访问") {
+		return true
+	}
+	return false
+}
+
+func shouldRetryTushareWithoutFields(err error) bool {
+	if err == nil {
+		return false
+	}
+	return !isTushareRateLimitErrorText(err.Error())
+}
+
+func onlyRateLimitMessages(messages []string) bool {
+	hasMessage := false
+	for _, message := range messages {
+		text := strings.TrimSpace(message)
+		if text == "" {
+			continue
+		}
+		hasMessage = true
+		if !isTushareRateLimitErrorText(text) {
+			return false
+		}
+	}
+	return hasMessage
+}
+
+func compactErrorMessages(messages []string, limit int) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(messages))
+	for _, message := range messages {
+		text := truncateByRunes(normalizeUTF8Text(message), 160)
+		if text == "" {
+			continue
+		}
+		if _, exists := seen[text]; exists {
+			continue
+		}
+		seen[text] = struct{}{}
+		result = append(result, text)
+		if limit > 0 && len(result) >= limit {
+			break
+		}
+	}
+	return result
+}
+
 func (r *MySQLGrowthRepo) ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
 	offset := (page - 1) * pageSize
 	args := []interface{}{}
-	filter := " WHERE status = 'PUBLISHED'"
+	filter := " WHERE status IN ('PUBLISHED', 'ACTIVE')"
 	if tradeDate != "" {
 		filter += " AND DATE(valid_from) = ?"
 		args = append(args, tradeDate)
@@ -1656,9 +4045,10 @@ func (r *MySQLGrowthRepo) GetStockRecommendationDetail(userID string, recoID str
 	var item model.StockRecommendationDetail
 	var takeProfit, stopLoss, riskNote sql.NullString
 	err := r.db.QueryRow(`
-SELECT reco_id, tech_score, fund_score, sentiment_score, money_flow_score, take_profit, stop_loss, risk_note
-FROM stock_reco_details
-WHERE reco_id = ?`, recoID).Scan(
+SELECT d.reco_id, d.tech_score, d.fund_score, d.sentiment_score, d.money_flow_score, d.take_profit, d.stop_loss, d.risk_note
+FROM stock_reco_details d
+JOIN stock_recommendations r ON r.id = d.reco_id
+WHERE d.reco_id = ? AND r.status IN ('PUBLISHED', 'ACTIVE')`, recoID).Scan(
 		&item.RecoID, &item.TechScore, &item.FundScore, &item.SentimentScore, &item.MoneyFlowScore, &takeProfit, &stopLoss, &riskNote,
 	)
 	if err != nil {
@@ -1682,7 +4072,7 @@ func (r *MySQLGrowthRepo) GetStockRecommendationPerformance(userID string, recoI
 	err := r.db.QueryRow(`
 SELECT score, valid_from, valid_to
 FROM stock_recommendations
-WHERE id = ? AND status = 'PUBLISHED'`, recoID).Scan(&score, &validFrom, &validTo)
+WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE')`, recoID).Scan(&score, &validFrom, &validTo)
 	if err != nil {
 		return nil, err
 	}
@@ -1713,6 +4103,442 @@ WHERE id = ? AND status = 'PUBLISHED'`, recoID).Scan(&score, &validFrom, &validT
 	return points, nil
 }
 
+func (r *MySQLGrowthRepo) GetStockRecommendationInsight(userID string, recoID string) (model.StockRecommendationInsight, error) {
+	var item model.StockRecommendation
+	var positionRange, reasonSummary sql.NullString
+	var validFrom, validTo time.Time
+	if err := r.db.QueryRow(`
+SELECT id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary
+FROM stock_recommendations
+WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE')`, recoID).Scan(
+		&item.ID, &item.Symbol, &item.Name, &item.Score, &item.RiskLevel, &positionRange, &validFrom, &validTo, &item.Status, &reasonSummary,
+	); err != nil {
+		return model.StockRecommendationInsight{}, err
+	}
+	if positionRange.Valid {
+		item.PositionRange = positionRange.String
+	}
+	if reasonSummary.Valid {
+		item.ReasonSummary = reasonSummary.String
+	}
+	item.ValidFrom = validFrom.Format(time.RFC3339)
+	item.ValidTo = validTo.Format(time.RFC3339)
+
+	detail, detailErr := r.GetStockRecommendationDetail(userID, recoID)
+	if detailErr != nil {
+		if errors.Is(detailErr, sql.ErrNoRows) {
+			detail = estimateStockRecoDetailByScore(recoID, item.Score)
+		} else {
+			return model.StockRecommendationInsight{}, detailErr
+		}
+	}
+	if detail.RecoID == "" {
+		detail.RecoID = recoID
+	}
+
+	performancePoints, err := r.GetStockRecommendationPerformance(userID, recoID)
+	if err != nil {
+		return model.StockRecommendationInsight{}, err
+	}
+	benchmarkPoints, benchmarkSymbol, benchmarkSource, err := r.buildBenchmarkSeries(performancePoints, validFrom, validTo)
+	if err != nil {
+		return model.StockRecommendationInsight{}, err
+	}
+	performanceStats := summarizeStockPerformance(performancePoints, benchmarkPoints, benchmarkSymbol, benchmarkSource)
+
+	scoreFramework := buildStockRecoScoreFramework(item.Score, detail)
+	relatedNews, err := r.listStockRelatedNews(item.Symbol, item.Name, validFrom, 6)
+	if err != nil {
+		return model.StockRecommendationInsight{}, err
+	}
+
+	return model.StockRecommendationInsight{
+		Recommendation:   item,
+		Detail:           detail,
+		ScoreFramework:   scoreFramework,
+		RelatedNews:      relatedNews,
+		Performance:      performancePoints,
+		Benchmark:        benchmarkPoints,
+		PerformanceStats: performanceStats,
+		GeneratedAt:      time.Now().Format(time.RFC3339),
+	}, nil
+}
+
+func estimateStockRecoDetailByScore(recoID string, totalScore float64) model.StockRecommendationDetail {
+	base := clampFloat(totalScore, 55, 98)
+	return model.StockRecommendationDetail{
+		RecoID:         recoID,
+		TechScore:      roundTo(clampFloat(base-2, 50, 99), 2),
+		FundScore:      roundTo(clampFloat(base+1, 50, 99), 2),
+		SentimentScore: roundTo(clampFloat(base-4, 50, 99), 2),
+		MoneyFlowScore: roundTo(clampFloat(base-1, 50, 99), 2),
+		TakeProfit:     "上涨 6%-10% 分批止盈",
+		StopLoss:       "跌破关键支撑位止损",
+		RiskNote:       "评分由推荐总分估算，建议结合盘中波动与仓位纪律执行。",
+	}
+}
+
+func buildStockRecoScoreFramework(totalScore float64, detail model.StockRecommendationDetail) model.StockRecommendationScoreFramework {
+	factors := []model.StockRecommendationFactorScore{
+		{Key: "tech", Label: "技术因子", Weight: 0.30, Score: detail.TechScore},
+		{Key: "fund", Label: "基本面因子", Weight: 0.30, Score: detail.FundScore},
+		{Key: "sentiment", Label: "情绪因子", Weight: 0.20, Score: detail.SentimentScore},
+		{Key: "flow", Label: "资金流因子", Weight: 0.20, Score: detail.MoneyFlowScore},
+	}
+	sumWeight := 0.0
+	weightedScore := 0.0
+	for index := range factors {
+		if factors[index].Score <= 0 {
+			continue
+		}
+		factors[index].Contribution = roundTo(factors[index].Weight*factors[index].Score, 2)
+		weightedScore += factors[index].Contribution
+		sumWeight += factors[index].Weight
+	}
+	if sumWeight > 0 {
+		weightedScore = weightedScore / sumWeight
+	}
+	weightedScore = roundTo(weightedScore, 2)
+	return model.StockRecommendationScoreFramework{
+		Method:        "growth-v1 (tech30 + fund30 + sentiment20 + flow20)",
+		TotalScore:    roundTo(totalScore, 2),
+		WeightedScore: weightedScore,
+		ScoreGap:      roundTo(totalScore-weightedScore, 2),
+		Factors:       factors,
+	}
+}
+
+func buildEstimatedBenchmark(points []model.RecommendationPerformancePoint) []model.RecommendationPerformancePoint {
+	result := make([]model.RecommendationPerformancePoint, 0, len(points))
+	for _, point := range points {
+		result = append(result, model.RecommendationPerformancePoint{
+			Date:   point.Date,
+			Return: roundTo(clampFloat(point.Return*0.55, -0.2, 0.2), 4),
+		})
+	}
+	return result
+}
+
+func (r *MySQLGrowthRepo) buildBenchmarkSeries(points []model.RecommendationPerformancePoint, validFrom time.Time, validTo time.Time) ([]model.RecommendationPerformancePoint, string, string, error) {
+	estimated := buildEstimatedBenchmark(points)
+	if len(points) == 0 {
+		return estimated, "000300.SH", "estimated: no strategy points", nil
+	}
+
+	startDate := validFrom
+	endDate := validTo
+	if startDate.IsZero() || endDate.IsZero() || endDate.Before(startDate) {
+		for index := range points {
+			ts, err := time.Parse("2006-01-02", points[index].Date)
+			if err != nil {
+				continue
+			}
+			if startDate.IsZero() || ts.Before(startDate) {
+				startDate = ts
+			}
+			if endDate.IsZero() || ts.After(endDate) {
+				endDate = ts
+			}
+		}
+	}
+	if startDate.IsZero() || endDate.IsZero() || endDate.Before(startDate) {
+		return estimated, "000300.SH", "estimated: invalid date range", nil
+	}
+
+	candidates := []struct {
+		Symbol string
+		Name   string
+	}{
+		{Symbol: "000300.SH", Name: "CSI300"},
+		{Symbol: "000905.SH", Name: "CSI500"},
+	}
+
+	rows, err := r.db.Query(`
+SELECT symbol, trade_date, close_price, prev_close_price
+FROM stock_market_quotes
+WHERE symbol IN (?, ?)
+  AND trade_date >= ?
+  AND trade_date <= ?
+ORDER BY symbol ASC, trade_date ASC`,
+		candidates[0].Symbol, candidates[1].Symbol, startDate, endDate,
+	)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return estimated, "000300.SH", "estimated: stock_market_quotes table missing", nil
+		}
+		return nil, "", "", err
+	}
+	defer rows.Close()
+
+	quoteMap := map[string]map[string]float64{
+		candidates[0].Symbol: {},
+		candidates[1].Symbol: {},
+	}
+	lastClose := map[string]float64{}
+	for rows.Next() {
+		var symbol string
+		var tradeDate time.Time
+		var closePrice, prevClosePrice sql.NullFloat64
+		if err := rows.Scan(&symbol, &tradeDate, &closePrice, &prevClosePrice); err != nil {
+			return nil, "", "", err
+		}
+		if !closePrice.Valid || closePrice.Float64 <= 0 {
+			continue
+		}
+		ret := math.NaN()
+		if prevClosePrice.Valid && prevClosePrice.Float64 > 0 {
+			ret = closePrice.Float64/prevClosePrice.Float64 - 1
+		} else if previous, exists := lastClose[symbol]; exists && previous > 0 {
+			ret = closePrice.Float64/previous - 1
+		}
+		lastClose[symbol] = closePrice.Float64
+		if !math.IsNaN(ret) {
+			dateKey := tradeDate.Format("2006-01-02")
+			quoteMap[symbol][dateKey] = roundTo(clampFloat(ret, -0.2, 0.2), 4)
+		}
+	}
+
+	perfDates := make([]string, 0, len(points))
+	for _, point := range points {
+		if point.Date == "" {
+			continue
+		}
+		dateKey := point.Date
+		if ts, err := time.Parse("2006-01-02", point.Date); err == nil {
+			dateKey = ts.Format("2006-01-02")
+		}
+		perfDates = append(perfDates, dateKey)
+	}
+
+	bestSymbol := candidates[0].Symbol
+	bestName := candidates[0].Name
+	bestCoverage := -1
+	for _, candidate := range candidates {
+		coverage := 0
+		for _, date := range perfDates {
+			if _, ok := quoteMap[candidate.Symbol][date]; ok {
+				coverage++
+			}
+		}
+		if coverage > bestCoverage {
+			bestCoverage = coverage
+			bestSymbol = candidate.Symbol
+			bestName = candidate.Name
+		}
+	}
+	if bestCoverage <= 0 {
+		return estimated, "000300.SH", "estimated: no benchmark quotes matched", nil
+	}
+
+	result := make([]model.RecommendationPerformancePoint, 0, len(points))
+	actualCount := 0
+	for index, point := range points {
+		dateKey := point.Date
+		if ts, err := time.Parse("2006-01-02", point.Date); err == nil {
+			dateKey = ts.Format("2006-01-02")
+		}
+		value := estimated[index].Return
+		if actual, ok := quoteMap[bestSymbol][dateKey]; ok {
+			value = actual
+			actualCount++
+		}
+		result = append(result, model.RecommendationPerformancePoint{
+			Date:   point.Date,
+			Return: value,
+		})
+	}
+
+	source := fmt.Sprintf("actual: %s (%d/%d points), missing filled by estimated", bestName, actualCount, len(points))
+	if actualCount == len(points) {
+		source = fmt.Sprintf("actual: %s", bestName)
+	}
+	return result, bestSymbol, source, nil
+}
+
+func summarizeStockPerformance(points []model.RecommendationPerformancePoint, benchmark []model.RecommendationPerformancePoint, benchmarkSymbol string, benchmarkSource string) model.StockRecommendationPerformanceSummary {
+	if len(points) == 0 {
+		return model.StockRecommendationPerformanceSummary{
+			BenchmarkSymbol: benchmarkSymbol,
+			BenchmarkSource: benchmarkSource,
+		}
+	}
+	sampleDays := len(points)
+	wins := 0
+	sumDaily := 0.0
+	curve := 1.0
+	peak := 1.0
+	maxDrawdown := 0.0
+	for _, point := range points {
+		if point.Return > 0 {
+			wins++
+		}
+		sumDaily += point.Return
+		curve *= 1 + point.Return
+		if curve > peak {
+			peak = curve
+		}
+		if peak > 0 {
+			dd := (peak - curve) / peak
+			if dd > maxDrawdown {
+				maxDrawdown = dd
+			}
+		}
+	}
+
+	benchmarkCurve := 1.0
+	for _, point := range benchmark {
+		benchmarkCurve *= 1 + point.Return
+	}
+
+	cumulative := curve - 1
+	benchmarkCumulative := benchmarkCurve - 1
+	return model.StockRecommendationPerformanceSummary{
+		SampleDays:                sampleDays,
+		WinRate:                   roundTo(float64(wins)/float64(sampleDays), 4),
+		AvgDailyReturn:            roundTo(sumDaily/float64(sampleDays), 4),
+		CumulativeReturn:          roundTo(cumulative, 4),
+		BenchmarkCumulativeReturn: roundTo(benchmarkCumulative, 4),
+		ExcessReturn:              roundTo(cumulative-benchmarkCumulative, 4),
+		MaxDrawdown:               roundTo(maxDrawdown, 4),
+		BenchmarkSymbol:           benchmarkSymbol,
+		BenchmarkSource:           benchmarkSource,
+	}
+}
+
+func (r *MySQLGrowthRepo) listStockRelatedNews(symbol string, name string, anchor time.Time, limit int) ([]model.StockRecommendationRelatedNews, error) {
+	keywords := buildStockNewsKeywords(symbol, name)
+	if len(keywords) == 0 {
+		return []model.StockRecommendationRelatedNews{}, nil
+	}
+	if limit <= 0 {
+		limit = 6
+	}
+	if anchor.IsZero() {
+		anchor = time.Now()
+	}
+	windowStart := anchor.AddDate(0, 0, -45)
+
+	conditions := make([]string, 0, len(keywords))
+	args := make([]interface{}, 0, 1+len(keywords)*3+1)
+	args = append(args, windowStart)
+	for _, keyword := range keywords {
+		conditions = append(conditions, "(na.title LIKE ? OR COALESCE(na.summary, '') LIKE ? OR COALESCE(na.content, '') LIKE ?)")
+		kw := "%" + keyword + "%"
+		args = append(args, kw, kw, kw)
+	}
+
+	query := `
+SELECT na.id, na.title, na.summary, nc.name AS source, na.visibility, na.published_at
+FROM news_articles na
+LEFT JOIN news_categories nc ON nc.id = na.category_id
+WHERE na.status = 'PUBLISHED'
+  AND na.published_at >= ?
+  AND (` + strings.Join(conditions, " OR ") + `)
+ORDER BY na.published_at DESC
+LIMIT ?`
+	args = append(args, limit*4)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.StockRecommendationRelatedNews, 0, limit)
+	for rows.Next() {
+		var item model.StockRecommendationRelatedNews
+		var summary, source sql.NullString
+		var publishedAt sql.NullTime
+		if err := rows.Scan(&item.ID, &item.Title, &summary, &source, &item.Visibility, &publishedAt); err != nil {
+			return nil, err
+		}
+		if summary.Valid {
+			item.Summary = truncateByRunes(normalizeUTF8Text(summary.String), 120)
+		}
+		if source.Valid {
+			item.Source = source.String
+		}
+		if item.Source == "" {
+			item.Source = "资讯中心"
+		}
+		if publishedAt.Valid {
+			item.PublishedAt = publishedAt.Time.Format(time.RFC3339)
+			item.RelevanceScore = scoreNewsRelevance(item.Title, item.Summary, keywords, publishedAt.Time, anchor)
+		} else {
+			item.RelevanceScore = scoreNewsRelevance(item.Title, item.Summary, keywords, time.Time{}, anchor)
+		}
+		items = append(items, item)
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].RelevanceScore == items[j].RelevanceScore {
+			return items[i].PublishedAt > items[j].PublishedAt
+		}
+		return items[i].RelevanceScore > items[j].RelevanceScore
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
+}
+
+func buildStockNewsKeywords(symbol string, name string) []string {
+	items := make([]string, 0, 4)
+	seen := make(map[string]struct{})
+	push := func(value string) {
+		key := strings.TrimSpace(value)
+		if key == "" {
+			return
+		}
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		items = append(items, key)
+	}
+
+	normalizedName := strings.TrimSpace(name)
+	push(normalizedName)
+
+	rawSymbol := strings.ToUpper(strings.TrimSpace(symbol))
+	push(rawSymbol)
+	if idx := strings.Index(rawSymbol, "."); idx > 0 {
+		push(rawSymbol[:idx])
+	}
+	return items
+}
+
+func scoreNewsRelevance(title string, summary string, keywords []string, publishedAt time.Time, anchor time.Time) float64 {
+	titleLower := strings.ToLower(title)
+	summaryLower := strings.ToLower(summary)
+	score := 0.0
+	for _, keyword := range keywords {
+		key := strings.ToLower(strings.TrimSpace(keyword))
+		if key == "" {
+			continue
+		}
+		if strings.Contains(titleLower, key) {
+			score += 0.45
+		}
+		if strings.Contains(summaryLower, key) {
+			score += 0.20
+		}
+	}
+
+	if !publishedAt.IsZero() {
+		diff := anchor.Sub(publishedAt)
+		if diff < 0 {
+			diff = -diff
+		}
+		hours := diff.Hours()
+		if hours <= 72 {
+			score += 0.2
+		} else if hours <= 168 {
+			score += 0.1
+		}
+	}
+	return roundTo(clampFloat(score, 0, 1), 4)
+}
+
 func (r *MySQLGrowthRepo) ListFuturesStrategies(userID string, contract string, status string, page int, pageSize int) ([]model.FuturesStrategy, int, error) {
 	offset := (page - 1) * pageSize
 	args := []interface{}{}
@@ -1725,7 +4551,7 @@ func (r *MySQLGrowthRepo) ListFuturesStrategies(userID string, contract string, 
 		filter += " AND status = ?"
 		args = append(args, status)
 	} else {
-		filter += " AND status = 'PUBLISHED'"
+		filter += " AND status IN ('PUBLISHED', 'ACTIVE')"
 	}
 	var total int
 	if err := r.db.QueryRow("SELECT COUNT(*) FROM futures_strategies"+filter, args...).Scan(&total); err != nil {
@@ -1791,6 +4617,631 @@ WHERE id = ?`, strategyID).Scan(
 	item.ValidFrom = validFrom.Format(time.RFC3339)
 	item.ValidTo = validTo.Format(time.RFC3339)
 	return item, nil
+}
+
+func (r *MySQLGrowthRepo) GetFuturesStrategyInsight(userID string, strategyID string) (model.FuturesStrategyInsight, error) {
+	strategy, err := r.GetFuturesStrategyDetail(userID, strategyID)
+	if err != nil {
+		return model.FuturesStrategyInsight{}, err
+	}
+
+	guidance, _ := r.getLatestFuturesGuidanceByContract(strategy.Contract)
+
+	validFrom, validTo := parseStrategyWindow(strategy.ValidFrom, strategy.ValidTo)
+	performance, statsFromReview, err := r.buildFuturesStrategyPerformance(strategyID, strategy.RiskLevel, validFrom, validTo)
+	if err != nil {
+		return model.FuturesStrategyInsight{}, err
+	}
+
+	benchmarkSymbol := futuresBenchmarkSymbolByContract(strategy.Contract)
+	benchmark, benchmarkSource, err := r.buildFuturesBenchmarkSeries(performance, benchmarkSymbol)
+	if err != nil {
+		return model.FuturesStrategyInsight{}, err
+	}
+	stats := summarizeFuturesPerformance(performance, benchmark, benchmarkSymbol, benchmarkSource, statsFromReview.MaxDrawdown)
+
+	relatedEvents, err := r.listFuturesRelatedEvents(strategy.Contract, 6)
+	if err != nil {
+		return model.FuturesStrategyInsight{}, err
+	}
+	anchor := validFrom
+	if anchor.IsZero() {
+		anchor = time.Now()
+	}
+	relatedNews, err := r.listStockRelatedNews(strategy.Contract, strategy.Name, anchor, 6)
+	if err != nil {
+		return model.FuturesStrategyInsight{}, err
+	}
+
+	scoreWeights := r.loadFuturesStrategyScoreWeights()
+	scoreFramework := buildFuturesScoreFramework(strategy, guidance, stats, relatedNews, relatedEvents, scoreWeights)
+	return model.FuturesStrategyInsight{
+		Strategy:         strategy,
+		Guidance:         guidance,
+		ScoreFramework:   scoreFramework,
+		RelatedNews:      relatedNews,
+		RelatedEvents:    relatedEvents,
+		Performance:      performance,
+		Benchmark:        benchmark,
+		PerformanceStats: stats,
+		GeneratedAt:      time.Now().Format(time.RFC3339),
+	}, nil
+}
+
+func (r *MySQLGrowthRepo) getLatestFuturesGuidanceByContract(contract string) (model.FuturesGuidance, error) {
+	var item model.FuturesGuidance
+	var entryRange, takeProfitRange, stopLossRange, invalidCondition sql.NullString
+	var validTo time.Time
+	err := r.db.QueryRow(`
+SELECT contract, guidance_direction, position_level, entry_range, take_profit_range, stop_loss_range, risk_level, invalid_condition, valid_to
+FROM futures_guidances
+WHERE contract = ?
+ORDER BY valid_to DESC
+LIMIT 1`, strings.TrimSpace(contract)).Scan(
+		&item.Contract, &item.GuidanceDirection, &item.PositionLevel, &entryRange, &takeProfitRange, &stopLossRange, &item.RiskLevel, &invalidCondition, &validTo,
+	)
+	if err != nil {
+		return model.FuturesGuidance{}, err
+	}
+	if entryRange.Valid {
+		item.EntryRange = entryRange.String
+	}
+	if takeProfitRange.Valid {
+		item.TakeProfitRange = takeProfitRange.String
+	}
+	if stopLossRange.Valid {
+		item.StopLossRange = stopLossRange.String
+	}
+	if invalidCondition.Valid {
+		item.InvalidCondition = invalidCondition.String
+	}
+	item.ValidTo = validTo.Format(time.RFC3339)
+	return item, nil
+}
+
+type futuresPerformanceBuildMeta struct {
+	MaxDrawdown float64
+}
+
+func (r *MySQLGrowthRepo) buildFuturesStrategyPerformance(strategyID string, riskLevel string, validFrom time.Time, validTo time.Time) ([]model.RecommendationPerformancePoint, futuresPerformanceBuildMeta, error) {
+	rows, err := r.db.Query(`
+SELECT review_date, pnl, max_drawdown
+FROM futures_reviews
+WHERE strategy_id = ?
+ORDER BY review_date ASC`, strategyID)
+	if err != nil {
+		if !isTableNotFoundError(err) {
+			return nil, futuresPerformanceBuildMeta{}, err
+		}
+		rows = nil
+	}
+
+	points := make([]model.RecommendationPerformancePoint, 0, 12)
+	meta := futuresPerformanceBuildMeta{}
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var reviewDate time.Time
+			var pnl, maxDrawdown sql.NullFloat64
+			if err := rows.Scan(&reviewDate, &pnl, &maxDrawdown); err != nil {
+				return nil, futuresPerformanceBuildMeta{}, err
+			}
+			value := normalizeFuturesPnLToReturn(pnl)
+			points = append(points, model.RecommendationPerformancePoint{
+				Date:   reviewDate.Format("2006-01-02"),
+				Return: roundTo(value, 4),
+			})
+			if maxDrawdown.Valid {
+				meta.MaxDrawdown = math.Max(meta.MaxDrawdown, math.Abs(maxDrawdown.Float64))
+			}
+		}
+	}
+
+	if len(points) > 0 {
+		return points, meta, nil
+	}
+	return estimateFuturesPerformanceByRisk(riskLevel, validFrom, validTo), meta, nil
+}
+
+func normalizeFuturesPnLToReturn(pnl sql.NullFloat64) float64 {
+	if !pnl.Valid {
+		return 0
+	}
+	value := pnl.Float64
+	if math.Abs(value) > 1.5 {
+		value = value / 100.0
+	}
+	return clampFloat(value, -0.3, 0.3)
+}
+
+func estimateFuturesPerformanceByRisk(riskLevel string, validFrom time.Time, validTo time.Time) []model.RecommendationPerformancePoint {
+	base := 0.009
+	switch strings.ToUpper(strings.TrimSpace(riskLevel)) {
+	case "LOW":
+		base = 0.006
+	case "HIGH":
+		base = 0.013
+	}
+
+	start := validFrom
+	if start.IsZero() {
+		start = time.Now().AddDate(0, 0, -4)
+	}
+	end := validTo
+	if end.IsZero() || end.Before(start) {
+		end = start.AddDate(0, 0, 4)
+	}
+
+	points := make([]model.RecommendationPerformancePoint, 0, 5)
+	current := start
+	for index := 0; index < 5; index++ {
+		if current.After(end) {
+			break
+		}
+		value := base * (0.8 + float64(index)*0.12)
+		if index == 2 {
+			value = -value * 0.45
+		}
+		points = append(points, model.RecommendationPerformancePoint{
+			Date:   current.Format("2006-01-02"),
+			Return: roundTo(clampFloat(value, -0.3, 0.3), 4),
+		})
+		current = current.AddDate(0, 0, 1)
+	}
+	if len(points) == 0 {
+		points = append(points, model.RecommendationPerformancePoint{
+			Date:   start.Format("2006-01-02"),
+			Return: roundTo(base, 4),
+		})
+	}
+	return points
+}
+
+func parseStrategyWindow(validFrom string, validTo string) (time.Time, time.Time) {
+	start, _ := time.Parse(time.RFC3339, strings.TrimSpace(validFrom))
+	end, _ := time.Parse(time.RFC3339, strings.TrimSpace(validTo))
+	return start, end
+}
+
+func futuresBenchmarkSymbolByContract(contract string) string {
+	source := strings.ToUpper(strings.TrimSpace(contract))
+	switch {
+	case strings.HasPrefix(source, "IF"):
+		return "000300.SH"
+	case strings.HasPrefix(source, "IC"):
+		return "000905.SH"
+	case strings.HasPrefix(source, "IH"):
+		return "000016.SH"
+	case strings.HasPrefix(source, "IM"):
+		return "000852.SH"
+	default:
+		return "000300.SH"
+	}
+}
+
+func (r *MySQLGrowthRepo) buildFuturesBenchmarkSeries(points []model.RecommendationPerformancePoint, benchmarkSymbol string) ([]model.RecommendationPerformancePoint, string, error) {
+	estimated := buildEstimatedBenchmark(points)
+	if len(points) == 0 {
+		return estimated, "estimated: no strategy points", nil
+	}
+	if benchmarkSymbol == "" {
+		return estimated, "estimated: benchmark symbol missing", nil
+	}
+
+	minDate, maxDate := "", ""
+	for _, point := range points {
+		dateKey := strings.TrimSpace(point.Date)
+		if dateKey == "" {
+			continue
+		}
+		if minDate == "" || dateKey < minDate {
+			minDate = dateKey
+		}
+		if maxDate == "" || dateKey > maxDate {
+			maxDate = dateKey
+		}
+	}
+	if minDate == "" || maxDate == "" {
+		return estimated, "estimated: invalid point dates", nil
+	}
+
+	rows, err := r.db.Query(`
+SELECT trade_date, close_price, prev_close_price
+FROM stock_market_quotes
+WHERE symbol = ?
+  AND trade_date >= ?
+  AND trade_date <= ?
+ORDER BY trade_date ASC`, benchmarkSymbol, minDate, maxDate)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return estimated, "estimated: stock_market_quotes table missing", nil
+		}
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	valueByDate := map[string]float64{}
+	lastClose := 0.0
+	for rows.Next() {
+		var tradeDate time.Time
+		var closePrice, prevClosePrice sql.NullFloat64
+		if err := rows.Scan(&tradeDate, &closePrice, &prevClosePrice); err != nil {
+			return nil, "", err
+		}
+		if !closePrice.Valid || closePrice.Float64 <= 0 {
+			continue
+		}
+		ret := math.NaN()
+		if prevClosePrice.Valid && prevClosePrice.Float64 > 0 {
+			ret = closePrice.Float64/prevClosePrice.Float64 - 1
+		} else if lastClose > 0 {
+			ret = closePrice.Float64/lastClose - 1
+		}
+		lastClose = closePrice.Float64
+		if !math.IsNaN(ret) {
+			valueByDate[tradeDate.Format("2006-01-02")] = roundTo(clampFloat(ret, -0.2, 0.2), 4)
+		}
+	}
+
+	result := make([]model.RecommendationPerformancePoint, 0, len(points))
+	actualCount := 0
+	for index, point := range points {
+		value := estimated[index].Return
+		if actual, ok := valueByDate[point.Date]; ok {
+			value = actual
+			actualCount++
+		}
+		result = append(result, model.RecommendationPerformancePoint{
+			Date:   point.Date,
+			Return: value,
+		})
+	}
+
+	if actualCount == 0 {
+		return result, "estimated: no benchmark quotes matched", nil
+	}
+	if actualCount < len(points) {
+		return result, fmt.Sprintf("actual mixed: %d/%d points from %s", actualCount, len(points), benchmarkSymbol), nil
+	}
+	return result, fmt.Sprintf("actual: %s", benchmarkSymbol), nil
+}
+
+func summarizeFuturesPerformance(points []model.RecommendationPerformancePoint, benchmark []model.RecommendationPerformancePoint, benchmarkSymbol string, benchmarkSource string, overrideMaxDrawdown float64) model.FuturesStrategyPerformanceSummary {
+	if len(points) == 0 {
+		return model.FuturesStrategyPerformanceSummary{
+			BenchmarkSymbol: benchmarkSymbol,
+			BenchmarkSource: benchmarkSource,
+		}
+	}
+
+	sampleDays := len(points)
+	positiveDays := 0
+	sumDaily := 0.0
+	curve := 1.0
+	peak := 1.0
+	maxDrawdown := 0.0
+	for _, point := range points {
+		if point.Return > 0 {
+			positiveDays++
+		}
+		sumDaily += point.Return
+		curve *= 1 + point.Return
+		if curve > peak {
+			peak = curve
+		}
+		if peak > 0 {
+			drawdown := (peak - curve) / peak
+			if drawdown > maxDrawdown {
+				maxDrawdown = drawdown
+			}
+		}
+	}
+	if overrideMaxDrawdown > 0 {
+		maxDrawdown = math.Max(maxDrawdown, clampFloat(overrideMaxDrawdown, 0, 0.99))
+	}
+
+	benchmarkCurve := 1.0
+	for _, point := range benchmark {
+		benchmarkCurve *= 1 + point.Return
+	}
+	cumulative := curve - 1
+	benchmarkCumulative := benchmarkCurve - 1
+	return model.FuturesStrategyPerformanceSummary{
+		SampleDays:                sampleDays,
+		WinRate:                   roundTo(float64(positiveDays)/float64(sampleDays), 4),
+		AvgDailyReturn:            roundTo(sumDaily/float64(sampleDays), 4),
+		CumulativeReturn:          roundTo(cumulative, 4),
+		BenchmarkCumulativeReturn: roundTo(benchmarkCumulative, 4),
+		ExcessReturn:              roundTo(cumulative-benchmarkCumulative, 4),
+		MaxDrawdown:               roundTo(maxDrawdown, 4),
+		BenchmarkSymbol:           benchmarkSymbol,
+		BenchmarkSource:           benchmarkSource,
+	}
+}
+
+func (r *MySQLGrowthRepo) listFuturesRelatedEvents(contract string, limit int) ([]model.MarketEvent, error) {
+	if limit <= 0 {
+		limit = 6
+	}
+	rows, err := r.db.Query(`
+SELECT id, event_type, symbol, summary, trigger_rule, source, created_at
+FROM market_events
+WHERE symbol = ? OR symbol = 'ALL'
+ORDER BY created_at DESC
+LIMIT ?`, strings.TrimSpace(contract), limit)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return []model.MarketEvent{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.MarketEvent, 0, limit)
+	for rows.Next() {
+		var item model.MarketEvent
+		var summary, triggerRule, source sql.NullString
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.EventType, &item.Symbol, &summary, &triggerRule, &source, &createdAt); err != nil {
+			return nil, err
+		}
+		if summary.Valid {
+			item.Summary = summary.String
+		}
+		if triggerRule.Valid {
+			item.TriggerRule = triggerRule.String
+		}
+		if source.Valid {
+			item.Source = source.String
+		}
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+const futuresStrategyScoreWeightsConfigKey = "futures.strategy.score_weights"
+
+var futuresStrategyScoreWeightKeys = []string{
+	"trend",
+	"structure",
+	"flow",
+	"risk",
+	"news",
+	"performance",
+}
+
+func defaultFuturesStrategyScoreWeights() map[string]float64 {
+	return map[string]float64{
+		"trend":       0.25,
+		"structure":   0.20,
+		"flow":        0.15,
+		"risk":        0.20,
+		"news":        0.10,
+		"performance": 0.10,
+	}
+}
+
+func normalizeFuturesStrategyScoreWeightKey(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "trend", "trend_factor":
+		return "trend"
+	case "structure", "structure_factor":
+		return "structure"
+	case "flow", "flow_factor", "event", "events":
+		return "flow"
+	case "risk", "risk_factor", "risk_control":
+		return "risk"
+	case "news", "news_factor":
+		return "news"
+	case "performance", "performance_factor", "perf":
+		return "performance"
+	default:
+		return ""
+	}
+}
+
+func normalizeFuturesStrategyScoreWeights(raw map[string]float64) map[string]float64 {
+	weights := defaultFuturesStrategyScoreWeights()
+	if raw == nil {
+		return weights
+	}
+	sum := 0.0
+	for _, key := range futuresStrategyScoreWeightKeys {
+		if value, ok := raw[key]; ok {
+			weights[key] = clampFloat(value, 0, 1)
+		}
+		sum += weights[key]
+	}
+	if sum <= 0 {
+		return defaultFuturesStrategyScoreWeights()
+	}
+	for _, key := range futuresStrategyScoreWeightKeys {
+		weights[key] = weights[key] / sum
+	}
+	return weights
+}
+
+func parseFloatFromInterface(value interface{}) (float64, bool) {
+	switch raw := value.(type) {
+	case float64:
+		if !math.IsNaN(raw) && !math.IsInf(raw, 0) {
+			return raw, true
+		}
+	case float32:
+		parsed := float64(raw)
+		if !math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
+			return parsed, true
+		}
+	case int:
+		return float64(raw), true
+	case int32:
+		return float64(raw), true
+	case int64:
+		return float64(raw), true
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
+func parseFuturesStrategyScoreWeights(raw string) (map[string]float64, bool) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return nil, false
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		return nil, false
+	}
+	weights := defaultFuturesStrategyScoreWeights()
+	hasAny := false
+	for key, value := range payload {
+		normalizedKey := normalizeFuturesStrategyScoreWeightKey(key)
+		if normalizedKey == "" {
+			continue
+		}
+		parsed, ok := parseFloatFromInterface(value)
+		if !ok {
+			continue
+		}
+		if parsed > 1 {
+			parsed = parsed / 100
+		}
+		weights[normalizedKey] = clampFloat(parsed, 0, 1)
+		hasAny = true
+	}
+	if !hasAny {
+		return nil, false
+	}
+	return normalizeFuturesStrategyScoreWeights(weights), true
+}
+
+func (r *MySQLGrowthRepo) loadFuturesStrategyScoreWeights() map[string]float64 {
+	defaults := defaultFuturesStrategyScoreWeights()
+	var configValue sql.NullString
+	err := r.db.QueryRow(`
+SELECT config_value
+FROM system_configs
+WHERE LOWER(config_key) = LOWER(?)
+ORDER BY updated_at DESC
+LIMIT 1`, futuresStrategyScoreWeightsConfigKey).Scan(&configValue)
+	if err != nil || !configValue.Valid {
+		return defaults
+	}
+	parsed, ok := parseFuturesStrategyScoreWeights(configValue.String)
+	if !ok {
+		return defaults
+	}
+	return parsed
+}
+
+func formatCompactPercent(value float64) string {
+	percent := roundTo(value*100, 1)
+	if math.Abs(percent-math.Round(percent)) < 0.05 {
+		return fmt.Sprintf("%.0f", math.Round(percent))
+	}
+	return fmt.Sprintf("%.1f", percent)
+}
+
+func futuresStrategyScoreMethod(weights map[string]float64) string {
+	return fmt.Sprintf(
+		"futures-v1 (trend%s + structure%s + flow%s + risk%s + news%s + performance%s)",
+		formatCompactPercent(weights["trend"]),
+		formatCompactPercent(weights["structure"]),
+		formatCompactPercent(weights["flow"]),
+		formatCompactPercent(weights["risk"]),
+		formatCompactPercent(weights["news"]),
+		formatCompactPercent(weights["performance"]),
+	)
+}
+
+func buildFuturesScoreFramework(strategy model.FuturesStrategy, guidance model.FuturesGuidance, stats model.FuturesStrategyPerformanceSummary, relatedNews []model.StockRecommendationRelatedNews, relatedEvents []model.MarketEvent, factorWeights map[string]float64) model.FuturesStrategyScoreFramework {
+	weights := normalizeFuturesStrategyScoreWeights(factorWeights)
+
+	trendScore := 68.0
+	if strings.EqualFold(strategy.Direction, "LONG") || strings.EqualFold(strategy.Direction, "SHORT") {
+		trendScore += 6
+	}
+	reasonText := strings.ToLower(strings.TrimSpace(strategy.ReasonSummary))
+	if strings.Contains(reasonText, "趋势") {
+		trendScore += 8
+	}
+	if strings.Contains(reasonText, "突破") {
+		trendScore += 5
+	}
+	trendScore = clampFloat(trendScore, 45, 96)
+
+	structureScore := 56.0
+	if guidance.EntryRange != "" {
+		structureScore += 12
+	}
+	if guidance.TakeProfitRange != "" {
+		structureScore += 10
+	}
+	if guidance.StopLossRange != "" {
+		structureScore += 10
+	}
+	if guidance.InvalidCondition != "" {
+		structureScore += 6
+	}
+	structureScore = clampFloat(structureScore, 40, 95)
+
+	eventScore := clampFloat(58+float64(len(relatedEvents))*5, 45, 90)
+
+	riskScore := 74.0
+	switch strings.ToUpper(strings.TrimSpace(strategy.RiskLevel)) {
+	case "LOW":
+		riskScore = 86
+	case "MEDIUM":
+		riskScore = 76
+	case "HIGH":
+		riskScore = 64
+	}
+
+	newsAvg := 0.0
+	for _, item := range relatedNews {
+		newsAvg += clampFloat(item.RelevanceScore, 0, 1)
+	}
+	if len(relatedNews) > 0 {
+		newsAvg = newsAvg / float64(len(relatedNews))
+	}
+	newsScore := clampFloat(55+newsAvg*35, 45, 92)
+
+	perfScore := clampFloat(50+stats.WinRate*25+stats.ExcessReturn*120, 40, 96)
+
+	factors := []model.FuturesStrategyFactorScore{
+		{Key: "trend", Label: "趋势因子", Weight: weights["trend"], Score: roundTo(trendScore, 2)},
+		{Key: "structure", Label: "结构因子", Weight: weights["structure"], Score: roundTo(structureScore, 2)},
+		{Key: "flow", Label: "资金与事件因子", Weight: weights["flow"], Score: roundTo(eventScore, 2)},
+		{Key: "risk", Label: "风险控制因子", Weight: weights["risk"], Score: roundTo(riskScore, 2)},
+		{Key: "news", Label: "资讯因子", Weight: weights["news"], Score: roundTo(newsScore, 2)},
+		{Key: "performance", Label: "绩效因子", Weight: weights["performance"], Score: roundTo(perfScore, 2)},
+	}
+
+	total := 0.0
+	weightSum := 0.0
+	for index := range factors {
+		factors[index].Contribution = roundTo(factors[index].Score*factors[index].Weight, 2)
+		total += factors[index].Contribution
+		weightSum += factors[index].Weight
+	}
+	weighted := total
+	if weightSum > 0 {
+		weighted = total / weightSum
+	}
+	weighted = roundTo(weighted, 2)
+	totalScore := roundTo(weighted+0.4, 2)
+	return model.FuturesStrategyScoreFramework{
+		Method:        futuresStrategyScoreMethod(weights),
+		TotalScore:    totalScore,
+		WeightedScore: weighted,
+		ScoreGap:      roundTo(totalScore-weighted, 2),
+		Factors:       factors,
+	}
 }
 
 func (r *MySQLGrowthRepo) ListMembershipProducts(status string, page int, pageSize int) ([]model.MembershipProduct, int, error) {
@@ -1916,6 +5367,103 @@ LIMIT ? OFFSET ?`
 	return items, total, nil
 }
 
+func (r *MySQLGrowthRepo) AdminListMarketEvents(eventType string, symbol string, page int, pageSize int) ([]model.MarketEvent, int, error) {
+	offset := (page - 1) * pageSize
+	args := []interface{}{}
+	filter := " WHERE 1=1"
+	trimmedType := strings.ToUpper(strings.TrimSpace(eventType))
+	trimmedSymbol := strings.ToUpper(strings.TrimSpace(symbol))
+	if trimmedType != "" {
+		filter += " AND event_type = ?"
+		args = append(args, trimmedType)
+	}
+	if trimmedSymbol != "" {
+		filter += " AND symbol LIKE ?"
+		args = append(args, "%"+trimmedSymbol+"%")
+	}
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM market_events"+filter, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	query := `
+SELECT id, event_type, symbol, summary, trigger_rule, source, created_at
+FROM market_events` + filter + `
+ORDER BY created_at DESC, id DESC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.MarketEvent, 0)
+	for rows.Next() {
+		var item model.MarketEvent
+		var summary, triggerRule, source sql.NullString
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.EventType, &item.Symbol, &summary, &triggerRule, &source, &createdAt); err != nil {
+			return nil, 0, err
+		}
+		if summary.Valid {
+			item.Summary = summary.String
+		}
+		if triggerRule.Valid {
+			item.TriggerRule = triggerRule.String
+		}
+		if source.Valid {
+			item.Source = source.String
+		}
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) AdminCreateMarketEvent(item model.MarketEvent) (string, error) {
+	id := newID("me")
+	_, err := r.db.Exec(`
+INSERT INTO market_events (id, event_type, symbol, summary, trigger_rule, source, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id,
+		strings.ToUpper(strings.TrimSpace(item.EventType)),
+		strings.ToUpper(strings.TrimSpace(item.Symbol)),
+		strings.TrimSpace(item.Summary),
+		strings.TrimSpace(item.TriggerRule),
+		strings.TrimSpace(item.Source),
+		time.Now(),
+	)
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func (r *MySQLGrowthRepo) AdminUpdateMarketEvent(id string, item model.MarketEvent) error {
+	result, err := r.db.Exec(`
+UPDATE market_events
+SET event_type = ?, symbol = ?, summary = ?, trigger_rule = ?, source = ?
+WHERE id = ?`,
+		strings.ToUpper(strings.TrimSpace(item.EventType)),
+		strings.ToUpper(strings.TrimSpace(item.Symbol)),
+		strings.TrimSpace(item.Summary),
+		strings.TrimSpace(item.TriggerRule),
+		strings.TrimSpace(item.Source),
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *MySQLGrowthRepo) AdminListStockRecommendations(status string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
 	offset := (page - 1) * pageSize
 	args := []interface{}{}
@@ -1962,11 +5510,11 @@ LIMIT ? OFFSET ?`
 
 func (r *MySQLGrowthRepo) AdminCreateStockRecommendation(item model.StockRecommendation) (string, error) {
 	id := newID("sr")
-	vf, err := time.Parse(time.RFC3339, item.ValidFrom)
+	vf, err := parseFlexibleDateTime(item.ValidFrom)
 	if err != nil {
 		return "", err
 	}
-	vt, err := time.Parse(time.RFC3339, item.ValidTo)
+	vt, err := parseFlexibleDateTime(item.ValidTo)
 	if err != nil {
 		return "", err
 	}
@@ -1986,6 +5534,502 @@ func (r *MySQLGrowthRepo) AdminUpdateStockRecommendationStatus(id string, status
 	return err
 }
 
+func (r *MySQLGrowthRepo) AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error) {
+	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
+	if sourceKey == "" {
+		sourceKey = "MOCK"
+	}
+	symbols = normalizeStockSymbolList(symbols)
+	if len(symbols) == 0 {
+		symbols = defaultMockStockSymbols()
+	}
+	if days <= 0 {
+		days = 120
+	}
+	if days > 365 {
+		days = 365
+	}
+
+	var (
+		quotes []model.StockMarketQuote
+		err    error
+	)
+	if sourceKey == "MOCK" {
+		quotes = buildMockStockQuotes(symbols, days, sourceKey)
+	} else {
+		dataSourceKey := strings.ToLower(sourceKey)
+		item, dsErr := r.getDataSourceBySourceKey(dataSourceKey)
+		if dsErr != nil {
+			item, dsErr = r.getDataSourceBySourceKey(sourceKey)
+		}
+
+		if sourceKey == "TUSHARE" {
+			timeoutMS := 12000
+			token := ""
+			if dsErr == nil {
+				timeoutMS = parseDataSourceTimeoutMS(item.Config)
+				token = parseDataSourceStringConfig(item.Config, "token", "api_token", "tushare_token")
+			}
+			if token == "" {
+				token = strings.TrimSpace(os.Getenv("TUSHARE_TOKEN"))
+			}
+			quotes, err = fetchStockQuotesFromTushare(token, sourceKey, symbols, days, timeoutMS)
+			if err != nil {
+				return 0, err
+			}
+			if len(quotes) > 0 {
+				if basics, fetchErr := fetchStockDailyBasicsFromTushare(token, sourceKey, symbols, days, timeoutMS); fetchErr == nil && len(basics) > 0 {
+					if _, upsertErr := r.upsertStockDailyBasics(basics); upsertErr != nil && !isTableNotFoundError(upsertErr) {
+						return 0, upsertErr
+					}
+				}
+				if flows, fetchErr := fetchStockMoneyflowsFromTushare(token, sourceKey, symbols, days, timeoutMS); fetchErr == nil && len(flows) > 0 {
+					if _, upsertErr := r.upsertStockMoneyflows(flows); upsertErr != nil && !isTableNotFoundError(upsertErr) {
+						return 0, upsertErr
+					}
+				}
+				if newsItems, fetchErr := fetchStockNewsFromTushare(token, sourceKey, symbols, minInt(days, 30), timeoutMS); fetchErr == nil && len(newsItems) > 0 {
+					if _, upsertErr := r.upsertStockNewsRaw(newsItems); upsertErr != nil && !isTableNotFoundError(upsertErr) {
+						return 0, upsertErr
+					}
+				}
+			}
+		} else {
+			if dsErr != nil {
+				return 0, dsErr
+			}
+			endpoint := parseDataSourceStringConfig(item.Config, "quotes_endpoint", "endpoint")
+			if endpoint == "" {
+				return 0, errors.New("quotes endpoint not configured")
+			}
+			timeoutMS := parseDataSourceTimeoutMS(item.Config)
+			quotes, err = fetchStockQuotesFromEndpoint(endpoint, sourceKey, symbols, days, timeoutMS)
+			if err != nil {
+				return 0, err
+			}
+		}
+	}
+	if len(quotes) == 0 {
+		return 0, nil
+	}
+	return r.upsertStockMarketQuotes(quotes)
+}
+
+func (r *MySQLGrowthRepo) AdminGetQuantTopStocks(limit int, lookbackDays int) ([]model.StockQuantScore, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if lookbackDays <= 0 {
+		lookbackDays = 120
+	}
+	if lookbackDays < 30 {
+		lookbackDays = 30
+	}
+	if lookbackDays > 365 {
+		lookbackDays = 365
+	}
+
+	sinceDate := time.Now().AddDate(0, 0, -(lookbackDays + 40))
+	quotesBySymbol, err := r.loadStockQuotesBySymbol(sinceDate)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.StockQuantScore, 0, len(quotesBySymbol))
+	for symbol, quotes := range quotesBySymbol {
+		item, ok := buildStockQuantScore(symbol, quotes)
+		if !ok {
+			continue
+		}
+		items = append(items, item)
+	}
+	if len(items) == 0 {
+		return []model.StockQuantScore{}, nil
+	}
+	dailyBasicMap, err := r.loadLatestStockDailyBasics(sinceDate)
+	if err != nil {
+		return nil, err
+	}
+	moneyflowMap, err := r.loadLatestStockMoneyflows(sinceDate)
+	if err != nil {
+		return nil, err
+	}
+	newsSignalMap, err := r.loadStockNewsSignals(time.Now().AddDate(0, 0, -14))
+	if err != nil {
+		return nil, err
+	}
+	for index := range items {
+		if basic, ok := dailyBasicMap[items[index].Symbol]; ok {
+			items[index].PeTTM = basic.PeTTM
+			items[index].PB = basic.PB
+			items[index].TurnoverRate = basic.TurnoverRate
+		}
+		if flow, ok := moneyflowMap[items[index].Symbol]; ok {
+			items[index].NetMFAmount = flow.NetMFAmount
+		}
+		if signal, ok := newsSignalMap[items[index].Symbol]; ok {
+			items[index].NewsHeat = signal.Heat
+			items[index].PositiveNewsRate = signal.PositiveRate
+		}
+	}
+
+	momentum5Range := buildMetricRange(items, func(item model.StockQuantScore) float64 { return item.Momentum5 })
+	momentum20Range := buildMetricRange(items, func(item model.StockQuantScore) float64 { return item.Momentum20 })
+	volatilityRange := buildMetricRange(items, func(item model.StockQuantScore) float64 { return item.Volatility20 })
+	volumeRatioRange := buildMetricRange(items, func(item model.StockQuantScore) float64 { return item.VolumeRatio })
+	drawdownRange := buildMetricRange(items, func(item model.StockQuantScore) float64 { return item.Drawdown20 })
+	trendRange := buildMetricRange(items, func(item model.StockQuantScore) float64 { return item.TrendStrength })
+	peRange := buildMetricRangeFromValues(extractPositiveValues(items, func(item model.StockQuantScore) float64 { return item.PeTTM }))
+	pbRange := buildMetricRangeFromValues(extractPositiveValues(items, func(item model.StockQuantScore) float64 { return item.PB }))
+	turnoverRateRange := buildMetricRangeFromValues(extractPositiveValues(items, func(item model.StockQuantScore) float64 { return item.TurnoverRate }))
+	netMoneyflowRange := buildMetricRange(items, func(item model.StockQuantScore) float64 { return item.NetMFAmount })
+	newsHeatRange := buildMetricRangeFromValues(extractPositiveValues(items, func(item model.StockQuantScore) float64 { return float64(item.NewsHeat) }))
+
+	for index := range items {
+		m5Norm := normalizeMetric(items[index].Momentum5, momentum5Range, false)
+		m20Norm := normalizeMetric(items[index].Momentum20, momentum20Range, false)
+		volNorm := normalizeMetric(items[index].Volatility20, volatilityRange, true)
+		volumeNorm := normalizeMetric(items[index].VolumeRatio, volumeRatioRange, false)
+		drawdownNorm := normalizeMetric(items[index].Drawdown20, drawdownRange, true)
+		trendNorm := normalizeMetric(items[index].TrendStrength, trendRange, false)
+		trendScore := (m5Norm*0.25 + m20Norm*0.30 + volNorm*0.15 + drawdownNorm*0.15 + trendNorm*0.15) * 100
+
+		netMoneyflowNorm := 0.5
+		if math.Abs(items[index].NetMFAmount) > 0.001 {
+			netMoneyflowNorm = normalizeMetric(items[index].NetMFAmount, netMoneyflowRange, false)
+		}
+		flowScore := (volumeNorm*0.42 + netMoneyflowNorm*0.58) * 100
+
+		peNorm := 0.48
+		if items[index].PeTTM > 0 {
+			peNorm = normalizeMetric(items[index].PeTTM, peRange, true)
+		}
+		pbNorm := 0.5
+		if items[index].PB > 0 {
+			pbNorm = normalizeMetric(items[index].PB, pbRange, true)
+		}
+		turnoverNorm := 0.45
+		if items[index].TurnoverRate > 0 {
+			turnoverNorm = normalizeMetric(items[index].TurnoverRate, turnoverRateRange, false)
+		}
+		valueScore := (peNorm*0.45 + pbNorm*0.25 + turnoverNorm*0.30) * 100
+
+		heatNorm := 0.45
+		if items[index].NewsHeat > 0 {
+			heatNorm = normalizeMetric(float64(items[index].NewsHeat), newsHeatRange, false)
+		}
+		positiveRate := items[index].PositiveNewsRate
+		if positiveRate <= 0 {
+			positiveRate = 0.5
+		}
+		newsScore := (heatNorm*0.45 + clampFloat(positiveRate, 0, 1)*0.55) * 100
+
+		score := trendScore*0.45 + flowScore*0.25 + valueScore*0.20 + newsScore*0.10
+		score -= quantRiskPenalty(items[index])
+		score = clampFloat(score, 0, 100)
+		items[index].TrendScore = roundTo(trendScore, 2)
+		items[index].FlowScore = roundTo(flowScore, 2)
+		items[index].ValueScore = roundTo(valueScore, 2)
+		items[index].NewsScore = roundTo(newsScore, 2)
+		items[index].Score = roundTo(score, 2)
+		items[index].Momentum5 = roundTo(items[index].Momentum5, 2)
+		items[index].Momentum20 = roundTo(items[index].Momentum20, 2)
+		items[index].Volatility20 = roundTo(items[index].Volatility20, 2)
+		items[index].VolumeRatio = roundTo(items[index].VolumeRatio, 2)
+		items[index].Drawdown20 = roundTo(items[index].Drawdown20, 2)
+		items[index].TrendStrength = roundTo(items[index].TrendStrength, 2)
+		items[index].NetMFAmount = roundTo(items[index].NetMFAmount, 2)
+		items[index].PeTTM = roundTo(items[index].PeTTM, 2)
+		items[index].PB = roundTo(items[index].PB, 2)
+		items[index].TurnoverRate = roundTo(items[index].TurnoverRate, 2)
+		items[index].PositiveNewsRate = roundTo(items[index].PositiveNewsRate, 4)
+		items[index].ClosePrice = roundTo(items[index].ClosePrice, 3)
+	}
+	filteredItems := make([]model.StockQuantScore, 0, len(items))
+	for _, item := range items {
+		if !passesQuantRiskGate(item) {
+			continue
+		}
+		filteredItems = append(filteredItems, item)
+	}
+	if len(filteredItems) == 0 {
+		filteredItems = items
+	}
+	items = filteredItems
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Score == items[j].Score {
+			if items[i].Momentum20 == items[j].Momentum20 {
+				return items[i].Symbol < items[j].Symbol
+			}
+			return items[i].Momentum20 > items[j].Momentum20
+		}
+		return items[i].Score > items[j].Score
+	})
+
+	if len(items) > limit {
+		items = selectDiversifiedQuantTop(items, limit)
+	}
+
+	symbols := make([]string, 0, len(items))
+	for _, item := range items {
+		symbols = append(symbols, item.Symbol)
+	}
+	nameMap, err := r.lookupStockNames(symbols)
+	if err != nil {
+		return nil, err
+	}
+	for index := range items {
+		items[index].Rank = index + 1
+		if name, ok := nameMap[items[index].Symbol]; ok && strings.TrimSpace(name) != "" {
+			items[index].Name = name
+		}
+		if strings.TrimSpace(items[index].Name) == "" {
+			items[index].Name = items[index].Symbol
+		}
+		items[index].Reasons = buildQuantReasons(items[index])
+		items[index].ReasonSummary = buildQuantReasonSummary(items[index])
+	}
+	if err := r.persistStockQuantSnapshots(items); err != nil && !isTableNotFoundError(err) {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+func (r *MySQLGrowthRepo) AdminGetQuantEvaluation(windowDays int, topN int) (model.StockQuantEvaluationSummary, []model.StockQuantEvaluationPoint, []model.StockQuantRiskPerformance, []model.StockQuantRotationPoint, error) {
+	if windowDays <= 0 {
+		windowDays = 60
+	}
+	if windowDays < 20 {
+		windowDays = 20
+	}
+	if windowDays > 365 {
+		windowDays = 365
+	}
+	if topN <= 0 {
+		topN = 10
+	}
+	if topN > 30 {
+		topN = 30
+	}
+	sinceDate := time.Now().AddDate(0, 0, -windowDays)
+	rankRows, err := r.db.Query(`
+SELECT trade_date, symbol, rank_no
+FROM stock_rank_daily
+WHERE trade_date >= ? AND rank_no <= ?
+ORDER BY trade_date ASC, rank_no ASC`, sinceDate.Format("2006-01-02"), topN)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return model.StockQuantEvaluationSummary{
+				WindowDays:  windowDays,
+				TopN:        topN,
+				GeneratedAt: time.Now().Format(time.RFC3339),
+			}, []model.StockQuantEvaluationPoint{}, []model.StockQuantRiskPerformance{}, []model.StockQuantRotationPoint{}, nil
+		}
+		return model.StockQuantEvaluationSummary{}, nil, nil, nil, err
+	}
+	defer rankRows.Close()
+
+	type rankItem struct {
+		TradeDate time.Time
+		Symbol    string
+		RankNo    int
+	}
+	ranks := make([]rankItem, 0, windowDays*topN)
+	for rankRows.Next() {
+		var (
+			item   rankItem
+			symbol string
+		)
+		if err := rankRows.Scan(&item.TradeDate, &symbol, &item.RankNo); err != nil {
+			return model.StockQuantEvaluationSummary{}, nil, nil, nil, err
+		}
+		item.Symbol = strings.ToUpper(strings.TrimSpace(symbol))
+		if item.Symbol == "" {
+			continue
+		}
+		ranks = append(ranks, item)
+	}
+	if len(ranks) == 0 {
+		return model.StockQuantEvaluationSummary{
+			WindowDays:  windowDays,
+			TopN:        topN,
+			GeneratedAt: time.Now().Format(time.RFC3339),
+		}, []model.StockQuantEvaluationPoint{}, []model.StockQuantRiskPerformance{}, []model.StockQuantRotationPoint{}, nil
+	}
+
+	quoteSince := sinceDate.AddDate(0, 0, -20)
+	quotesBySymbol, err := r.loadStockQuotesBySymbol(quoteSince)
+	if err != nil {
+		return model.StockQuantEvaluationSummary{}, nil, nil, nil, err
+	}
+	benchmarkSeries, err := r.loadBenchmarkQuoteSeries(quoteSince)
+	if err != nil {
+		return model.StockQuantEvaluationSummary{}, nil, nil, nil, err
+	}
+	riskLevelMap, err := r.loadQuantRiskLevelByDateSymbol(sinceDate, topN)
+	if err != nil {
+		return model.StockQuantEvaluationSummary{}, nil, nil, nil, err
+	}
+
+	type dayAggregate struct {
+		Sum5           float64
+		Cnt5           int
+		Hit5           int
+		Sum10          float64
+		Cnt10          int
+		Hit10          int
+		Benchmark5Sum  float64
+		Benchmark5Cnt  int
+		Benchmark10Sum float64
+		Benchmark10Cnt int
+	}
+	byDay := make(map[string]*dayAggregate)
+	riskAggMap := make(map[string]*quantRiskAggregate)
+	dayTopSymbols := make(map[string][]string)
+	dayTopSeen := make(map[string]map[string]struct{})
+	for _, item := range ranks {
+		symbolQuotes, ok := quotesBySymbol[item.Symbol]
+		if !ok || len(symbolQuotes) == 0 {
+			continue
+		}
+		dayKey := item.TradeDate.Format("2006-01-02")
+		if _, ok := dayTopSeen[dayKey]; !ok {
+			dayTopSeen[dayKey] = make(map[string]struct{}, topN)
+		}
+		if _, exists := dayTopSeen[dayKey][item.Symbol]; !exists {
+			dayTopSeen[dayKey][item.Symbol] = struct{}{}
+			dayTopSymbols[dayKey] = append(dayTopSymbols[dayKey], item.Symbol)
+		}
+
+		agg := byDay[dayKey]
+		if agg == nil {
+			agg = &dayAggregate{}
+			byDay[dayKey] = agg
+		}
+		riskLevel := resolveQuantRiskLevel(riskLevelMap[dayKey+"|"+item.Symbol])
+		riskAgg := riskAggMap[riskLevel]
+		if riskAgg == nil {
+			riskAgg = &quantRiskAggregate{}
+			riskAggMap[riskLevel] = riskAgg
+		}
+		if ret5, ok := calcForwardReturn(symbolQuotes, item.TradeDate, 5); ok {
+			agg.Sum5 += ret5
+			agg.Cnt5++
+			if ret5 > 0 {
+				agg.Hit5++
+			}
+			riskAgg.Sum5 += ret5
+			riskAgg.Cnt5++
+			if ret5 > 0 {
+				riskAgg.Hit5++
+			}
+		}
+		if ret10, ok := calcForwardReturn(symbolQuotes, item.TradeDate, 10); ok {
+			agg.Sum10 += ret10
+			agg.Cnt10++
+			if ret10 > 0 {
+				agg.Hit10++
+			}
+			riskAgg.Sum10 += ret10
+			riskAgg.Cnt10++
+			if ret10 > 0 {
+				riskAgg.Hit10++
+			}
+		}
+		if benchmark5, ok := calcForwardReturn(benchmarkSeries, item.TradeDate, 5); ok {
+			agg.Benchmark5Sum += benchmark5
+			agg.Benchmark5Cnt++
+		}
+		if benchmark10, ok := calcForwardReturn(benchmarkSeries, item.TradeDate, 10); ok {
+			agg.Benchmark10Sum += benchmark10
+			agg.Benchmark10Cnt++
+		}
+	}
+
+	tradeDates := make([]string, 0, len(byDay))
+	for day := range byDay {
+		tradeDates = append(tradeDates, day)
+	}
+	sort.Strings(tradeDates)
+	points := make([]model.StockQuantEvaluationPoint, 0, len(tradeDates))
+	summary := model.StockQuantEvaluationSummary{
+		WindowDays:  windowDays,
+		TopN:        topN,
+		GeneratedAt: time.Now().Format(time.RFC3339),
+	}
+	equityReturns5 := make([]float64, 0, len(tradeDates))
+	equityReturns10 := make([]float64, 0, len(tradeDates))
+	benchmarkReturns5 := make([]float64, 0, len(tradeDates))
+	benchmarkReturns10 := make([]float64, 0, len(tradeDates))
+	for _, tradeDate := range tradeDates {
+		agg := byDay[tradeDate]
+		point := model.StockQuantEvaluationPoint{TradeDate: tradeDate}
+		if agg.Cnt5 > 0 {
+			point.AvgReturn5 = roundTo(agg.Sum5/float64(agg.Cnt5), 4)
+			point.HitRate5 = roundTo(float64(agg.Hit5)/float64(agg.Cnt5), 4)
+			if agg.Benchmark5Cnt > 0 {
+				point.BenchmarkReturn = roundTo(agg.Benchmark5Sum/float64(agg.Benchmark5Cnt), 4)
+			}
+			point.SampleCount = agg.Cnt5
+			equityReturns5 = append(equityReturns5, point.AvgReturn5)
+			benchmarkReturns5 = append(benchmarkReturns5, point.BenchmarkReturn)
+			summary.AvgReturn5 += point.AvgReturn5
+			summary.HitRate5 += point.HitRate5
+			summary.SampleCount += agg.Cnt5
+		}
+		if agg.Cnt10 > 0 {
+			point.AvgReturn10 = roundTo(agg.Sum10/float64(agg.Cnt10), 4)
+			point.HitRate10 = roundTo(float64(agg.Hit10)/float64(agg.Cnt10), 4)
+			equityReturns10 = append(equityReturns10, point.AvgReturn10)
+			if agg.Benchmark10Cnt > 0 {
+				point.BenchmarkReturn10 = roundTo(agg.Benchmark10Sum/float64(agg.Benchmark10Cnt), 4)
+				benchmarkReturns10 = append(benchmarkReturns10, point.BenchmarkReturn10)
+			}
+			summary.AvgReturn10 += point.AvgReturn10
+			summary.HitRate10 += point.HitRate10
+		}
+		points = append(points, point)
+	}
+	summary.SampleDays = len(points)
+	if len(points) > 0 {
+		if len(equityReturns5) > 0 {
+			summary.AvgReturn5 = roundTo(summary.AvgReturn5/float64(len(equityReturns5)), 4)
+			summary.HitRate5 = roundTo(summary.HitRate5/float64(len(equityReturns5)), 4)
+		}
+		if len(equityReturns10) > 0 {
+			summary.AvgReturn10 = roundTo(summary.AvgReturn10/float64(len(equityReturns10)), 4)
+			summary.HitRate10 = roundTo(summary.HitRate10/float64(len(equityReturns10)), 4)
+		}
+		summary.MaxDrawdown5 = roundTo(calcMaxDrawdownFromReturns(equityReturns5), 4)
+		summary.MaxDrawdown10 = roundTo(calcMaxDrawdownFromReturns(equityReturns10), 4)
+		summary.BenchmarkAvgReturn5 = roundTo(avgFloat(benchmarkReturns5), 4)
+		summary.BenchmarkAvgReturn10 = roundTo(avgFloat(benchmarkReturns10), 4)
+	}
+	cum5 := 1.0
+	cumBench5 := 1.0
+	cum10 := 1.0
+	cumBench10 := 1.0
+	for index := range points {
+		cum5 *= 1 + points[index].AvgReturn5
+		cumBench5 *= 1 + points[index].BenchmarkReturn
+		points[index].CumulativeReturn5 = roundTo(cum5-1, 4)
+		points[index].CumulativeBenchmark5 = roundTo(cumBench5-1, 4)
+		points[index].CumulativeExcess5 = roundTo(points[index].CumulativeReturn5-points[index].CumulativeBenchmark5, 4)
+		cum10 *= 1 + points[index].AvgReturn10
+		cumBench10 *= 1 + points[index].BenchmarkReturn10
+		points[index].CumulativeReturn10 = roundTo(cum10-1, 4)
+		points[index].CumulativeBenchmark10 = roundTo(cumBench10-1, 4)
+		points[index].CumulativeExcess10 = roundTo(points[index].CumulativeReturn10-points[index].CumulativeBenchmark10, 4)
+	}
+	riskItems := buildQuantRiskPerformanceItems(riskAggMap)
+	rotationItems := buildQuantRotationItems(tradeDates, dayTopSymbols)
+	return summary, points, riskItems, rotationItems, nil
+}
+
 func (r *MySQLGrowthRepo) AdminGenerateDailyStockRecommendations(tradeDate string) (int, error) {
 	if tradeDate == "" {
 		tradeDate = time.Now().Format("2006-01-02")
@@ -1995,26 +6039,29 @@ func (r *MySQLGrowthRepo) AdminGenerateDailyStockRecommendations(tradeDate strin
 		return 0, err
 	}
 	end := start.Add(24 * time.Hour)
-	samples := []model.StockRecommendation{
-		{Symbol: "600519.SH", Name: "贵州茅台", Score: 91.1, RiskLevel: "MEDIUM", PositionRange: "10%-15%", Status: "PUBLISHED", ReasonSummary: "龙头估值修复"},
-		{Symbol: "601318.SH", Name: "中国平安", Score: 88.4, RiskLevel: "MEDIUM", PositionRange: "8%-12%", Status: "PUBLISHED", ReasonSummary: "估值低位"},
-		{Symbol: "600036.SH", Name: "招商银行", Score: 86.8, RiskLevel: "LOW", PositionRange: "8%-10%", Status: "PUBLISHED", ReasonSummary: "基本面稳健"},
-		{Symbol: "600276.SH", Name: "恒瑞医药", Score: 84.5, RiskLevel: "MEDIUM", PositionRange: "6%-10%", Status: "PUBLISHED", ReasonSummary: "创新药预期"},
-		{Symbol: "601012.SH", Name: "隆基绿能", Score: 83.2, RiskLevel: "HIGH", PositionRange: "5%-8%", Status: "PUBLISHED", ReasonSummary: "景气拐点博弈"},
-		{Symbol: "000333.SZ", Name: "美的集团", Score: 82.1, RiskLevel: "LOW", PositionRange: "6%-10%", Status: "PUBLISHED", ReasonSummary: "外需改善"},
-		{Symbol: "300750.SZ", Name: "宁德时代", Score: 87.5, RiskLevel: "MEDIUM", PositionRange: "8%-12%", Status: "PUBLISHED", ReasonSummary: "产业链回暖"},
-		{Symbol: "002594.SZ", Name: "比亚迪", Score: 85.3, RiskLevel: "MEDIUM", PositionRange: "7%-11%", Status: "PUBLISHED", ReasonSummary: "销量韧性"},
-		{Symbol: "688981.SH", Name: "中芯国际", Score: 80.8, RiskLevel: "HIGH", PositionRange: "5%-8%", Status: "PUBLISHED", ReasonSummary: "国产替代"},
-		{Symbol: "601888.SH", Name: "中国中免", Score: 79.9, RiskLevel: "HIGH", PositionRange: "4%-7%", Status: "PUBLISHED", ReasonSummary: "消费复苏博弈"},
+	quantItems, quantErr := r.AdminGetQuantTopStocks(10, 180)
+	candidates := buildDailyStockCandidatesFromQuant(quantItems, start, end)
+	if quantErr != nil || len(candidates) == 0 {
+		candidates = buildDefaultDailyStockCandidates(start, end)
 	}
 
 	count := 0
-	for _, s := range samples {
+	for _, candidate := range candidates {
 		id := newID("sr")
 		_, err := r.db.Exec(`
 INSERT INTO stock_recommendations (id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, s.Symbol, s.Name, s.Score, s.RiskLevel, s.PositionRange, start, end, s.Status, s.ReasonSummary, time.Now(),
+			id,
+			candidate.Symbol,
+			candidate.Name,
+			candidate.Score,
+			candidate.RiskLevel,
+			candidate.PositionRange,
+			candidate.ValidFrom,
+			candidate.ValidTo,
+			candidate.Status,
+			candidate.ReasonSummary,
+			time.Now(),
 		)
 		if err != nil {
 			return count, err
@@ -2023,7 +6070,14 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 INSERT INTO stock_reco_details (reco_id, tech_score, fund_score, sentiment_score, money_flow_score, take_profit, stop_loss, risk_note)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE tech_score=VALUES(tech_score), fund_score=VALUES(fund_score), sentiment_score=VALUES(sentiment_score), money_flow_score=VALUES(money_flow_score), take_profit=VALUES(take_profit), stop_loss=VALUES(stop_loss), risk_note=VALUES(risk_note)`,
-			id, s.Score-3, s.Score-1, s.Score-5, s.Score-2, "上涨8%-12%分批止盈", "跌破关键位止损", "仅供参考，不构成投资建议",
+			id,
+			candidate.TechScore,
+			candidate.FundScore,
+			candidate.SentimentScore,
+			candidate.MoneyFlowScore,
+			candidate.TakeProfit,
+			candidate.StopLoss,
+			candidate.RiskNote,
 		)
 		count++
 	}
@@ -2061,16 +6115,67 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 }
 
 func (r *MySQLGrowthRepo) AdminListFuturesStrategies(status string, contract string, page int, pageSize int) ([]model.FuturesStrategy, int, error) {
-	return r.ListFuturesStrategies("u_admin", contract, status, page, pageSize)
+	offset := (page - 1) * pageSize
+	args := []interface{}{}
+	filter := " WHERE 1=1"
+	contract = strings.TrimSpace(contract)
+	status = strings.TrimSpace(status)
+	if contract != "" {
+		filter += " AND contract = ?"
+		args = append(args, contract)
+	}
+	if status != "" {
+		filter += " AND status = ?"
+		args = append(args, status)
+	}
+
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM futures_strategies"+filter, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	query := `
+SELECT id, contract, name, direction, risk_level, position_range, valid_from, valid_to, status, reason_summary
+FROM futures_strategies` + filter + `
+ORDER BY valid_from DESC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.FuturesStrategy, 0)
+	for rows.Next() {
+		var item model.FuturesStrategy
+		var name, positionRange, reasonSummary sql.NullString
+		var validFrom, validTo time.Time
+		if err := rows.Scan(&item.ID, &item.Contract, &name, &item.Direction, &item.RiskLevel, &positionRange, &validFrom, &validTo, &item.Status, &reasonSummary); err != nil {
+			return nil, 0, err
+		}
+		if name.Valid {
+			item.Name = name.String
+		}
+		if positionRange.Valid {
+			item.PositionRange = positionRange.String
+		}
+		if reasonSummary.Valid {
+			item.ReasonSummary = reasonSummary.String
+		}
+		item.ValidFrom = validFrom.Format(time.RFC3339)
+		item.ValidTo = validTo.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, nil
 }
 
 func (r *MySQLGrowthRepo) AdminCreateFuturesStrategy(item model.FuturesStrategy) (string, error) {
 	id := newID("fs")
-	vf, err := time.Parse(time.RFC3339, item.ValidFrom)
+	vf, err := parseFlexibleDateTime(item.ValidFrom)
 	if err != nil {
 		return "", err
 	}
-	vt, err := time.Parse(time.RFC3339, item.ValidTo)
+	vt, err := parseFlexibleDateTime(item.ValidTo)
 	if err != nil {
 		return "", err
 	}
@@ -2090,30 +6195,431 @@ func (r *MySQLGrowthRepo) AdminUpdateFuturesStrategyStatus(id string, status str
 	return err
 }
 
-func (r *MySQLGrowthRepo) AdminListUsers(status string, kycStatus string, memberLevel string, page int, pageSize int) ([]model.AdminUser, int, error) {
+func (r *MySQLGrowthRepo) AdminListBrowseHistories(userID string, contentType string, keyword string, page int, pageSize int) ([]model.AdminBrowseHistory, int, error) {
+	offset := (page - 1) * pageSize
+	filter := " WHERE 1=1"
+	args := []interface{}{}
+
+	userID = strings.TrimSpace(userID)
+	if userID != "" {
+		filter += " AND bh.user_id = ?"
+		args = append(args, userID)
+	}
+
+	contentType = strings.ToUpper(strings.TrimSpace(contentType))
+	if contentType != "" {
+		filter += " AND bh.content_type = ?"
+		args = append(args, contentType)
+	}
+
+	keyword = strings.TrimSpace(keyword)
+	if keyword != "" {
+		kw := "%" + keyword + "%"
+		filter += " AND (bh.content_id LIKE ? OR na.title LIKE ? OR u.phone LIKE ?)"
+		args = append(args, kw, kw, kw)
+	}
+
+	countQuery := `
+SELECT COUNT(*)
+FROM browse_histories bh
+LEFT JOIN users u ON u.id = bh.user_id
+LEFT JOIN news_articles na ON bh.content_type = 'NEWS' AND na.id = bh.content_id` + filter
+	var total int
+	if err := r.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+SELECT
+	bh.id,
+	bh.user_id,
+	u.phone,
+	bh.content_type,
+	bh.content_id,
+	COALESCE(NULLIF(na.title, ''), bh.content_id) AS title,
+	bh.source_page,
+	bh.viewed_at
+FROM browse_histories bh
+LEFT JOIN users u ON u.id = bh.user_id
+LEFT JOIN news_articles na ON bh.content_type = 'NEWS' AND na.id = bh.content_id` + filter + `
+ORDER BY bh.viewed_at DESC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.AdminBrowseHistory, 0)
+	for rows.Next() {
+		var item model.AdminBrowseHistory
+		var userPhone sql.NullString
+		var sourcePage sql.NullString
+		var viewedAt time.Time
+		if err := rows.Scan(
+			&item.ID,
+			&item.UserID,
+			&userPhone,
+			&item.ContentType,
+			&item.ContentID,
+			&item.Title,
+			&sourcePage,
+			&viewedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		if userPhone.Valid {
+			item.UserPhone = userPhone.String
+		}
+		if sourcePage.Valid {
+			item.SourcePage = sourcePage.String
+		}
+		item.ViewedAt = viewedAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) AdminGetBrowseHistorySummary() (model.AdminBrowseHistorySummary, error) {
+	result := model.AdminBrowseHistorySummary{}
+	err := r.db.QueryRow(`
+SELECT
+	COUNT(*) AS total_views,
+	COUNT(DISTINCT user_id) AS unique_users,
+	COALESCE(SUM(CASE WHEN content_type = 'NEWS' THEN 1 ELSE 0 END), 0) AS news_views,
+	COALESCE(SUM(CASE WHEN content_type = 'REPORT' THEN 1 ELSE 0 END), 0) AS report_views,
+	COALESCE(SUM(CASE WHEN content_type = 'JOURNAL' THEN 1 ELSE 0 END), 0) AS journal_views,
+	COALESCE(SUM(CASE WHEN DATE(viewed_at) = CURRENT_DATE() THEN 1 ELSE 0 END), 0) AS today_views,
+	COALESCE(SUM(CASE WHEN viewed_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END), 0) AS last_7d_views
+FROM browse_histories`).Scan(
+		&result.TotalViews,
+		&result.UniqueUsers,
+		&result.NewsViews,
+		&result.ReportViews,
+		&result.JournalViews,
+		&result.TodayViews,
+		&result.Last7dViews,
+	)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *MySQLGrowthRepo) AdminGetBrowseHistoryTrend(days int) ([]model.AdminBrowseTrendPoint, error) {
+	if days <= 0 {
+		days = 7
+	}
+	if days > 30 {
+		days = 30
+	}
+
+	now := time.Now()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	rangeStart := dayStart.AddDate(0, 0, -(days - 1))
+
+	rows, err := r.db.Query(`
+SELECT
+	DATE(viewed_at) AS dt,
+	COUNT(*) AS total_views,
+	COALESCE(SUM(CASE WHEN content_type = 'NEWS' THEN 1 ELSE 0 END), 0) AS news_views,
+	COALESCE(SUM(CASE WHEN content_type = 'REPORT' THEN 1 ELSE 0 END), 0) AS report_views,
+	COALESCE(SUM(CASE WHEN content_type = 'JOURNAL' THEN 1 ELSE 0 END), 0) AS journal_views
+FROM browse_histories
+WHERE viewed_at >= ?
+GROUP BY DATE(viewed_at)
+ORDER BY dt ASC`, rangeStart)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	indexed := make(map[string]model.AdminBrowseTrendPoint, days)
+	for rows.Next() {
+		var day time.Time
+		var item model.AdminBrowseTrendPoint
+		if err := rows.Scan(&day, &item.TotalViews, &item.NewsViews, &item.ReportViews, &item.JournalViews); err != nil {
+			return nil, err
+		}
+		item.Date = day.Format("2006-01-02")
+		indexed[item.Date] = item
+	}
+
+	points := make([]model.AdminBrowseTrendPoint, 0, days)
+	for i := 0; i < days; i++ {
+		current := rangeStart.AddDate(0, 0, i).Format("2006-01-02")
+		if item, exists := indexed[current]; exists {
+			points = append(points, item)
+		} else {
+			points = append(points, model.AdminBrowseTrendPoint{Date: current})
+		}
+	}
+	return points, nil
+}
+
+func (r *MySQLGrowthRepo) AdminListBrowseUserSegments(limit int) ([]model.AdminBrowseUserSegment, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	activeRows, err := r.db.Query(`
+SELECT
+	u.id,
+	u.phone,
+	COUNT(bh.id) AS view_count_7d,
+	MAX(bh.viewed_at) AS last_viewed_at
+FROM users u
+JOIN browse_histories bh ON bh.user_id = u.id AND bh.viewed_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+WHERE u.status = 'ACTIVE'
+GROUP BY u.id, u.phone
+ORDER BY view_count_7d DESC, last_viewed_at DESC
+LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer activeRows.Close()
+
+	result := make([]model.AdminBrowseUserSegment, 0, limit*2)
+	for activeRows.Next() {
+		var item model.AdminBrowseUserSegment
+		var phone sql.NullString
+		var lastViewedAt sql.NullTime
+		if err := activeRows.Scan(&item.UserID, &phone, &item.ViewCount7d, &lastViewedAt); err != nil {
+			return nil, err
+		}
+		item.Segment = "ACTIVE"
+		if phone.Valid {
+			item.UserPhone = phone.String
+		}
+		if lastViewedAt.Valid {
+			item.LastViewedAt = lastViewedAt.Time.Format(time.RFC3339)
+		}
+		_ = r.db.QueryRow(`
+SELECT content_id, content_type
+FROM browse_histories
+WHERE user_id = ?
+ORDER BY viewed_at DESC
+LIMIT 1`, item.UserID).Scan(&item.LastContentID, &item.LastContentType)
+		result = append(result, item)
+	}
+
+	silentRows, err := r.db.Query(`
+SELECT
+	u.id,
+	u.phone,
+	MAX(bh.viewed_at) AS last_viewed_at
+FROM users u
+LEFT JOIN browse_histories bh ON bh.user_id = u.id
+WHERE u.status = 'ACTIVE'
+GROUP BY u.id, u.phone
+HAVING MAX(bh.viewed_at) IS NULL OR MAX(bh.viewed_at) < DATE_SUB(NOW(), INTERVAL 7 DAY)
+ORDER BY last_viewed_at ASC
+LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer silentRows.Close()
+
+	for silentRows.Next() {
+		var item model.AdminBrowseUserSegment
+		var phone sql.NullString
+		var lastViewedAt sql.NullTime
+		if err := silentRows.Scan(&item.UserID, &phone, &lastViewedAt); err != nil {
+			return nil, err
+		}
+		item.Segment = "SILENT"
+		item.ViewCount7d = 0
+		if phone.Valid {
+			item.UserPhone = phone.String
+		}
+		if lastViewedAt.Valid {
+			item.LastViewedAt = lastViewedAt.Time.Format(time.RFC3339)
+		}
+		_ = r.db.QueryRow(`
+SELECT content_id, content_type
+FROM browse_histories
+WHERE user_id = ?
+ORDER BY viewed_at DESC
+LIMIT 1`, item.UserID).Scan(&item.LastContentID, &item.LastContentType)
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+func (r *MySQLGrowthRepo) AdminListUserMessages(userID string, messageType string, readStatus string, page int, pageSize int) ([]model.AdminUserMessage, int, error) {
+	offset := (page - 1) * pageSize
+	filter := " WHERE 1=1"
+	args := []interface{}{}
+
+	userID = strings.TrimSpace(userID)
+	if userID != "" {
+		filter += " AND m.user_id = ?"
+		args = append(args, userID)
+	}
+
+	messageType = strings.ToUpper(strings.TrimSpace(messageType))
+	if messageType != "" {
+		filter += " AND m.type = ?"
+		args = append(args, messageType)
+	}
+
+	readStatus = strings.ToUpper(strings.TrimSpace(readStatus))
+	if readStatus != "" {
+		filter += " AND m.read_status = ?"
+		args = append(args, readStatus)
+	}
+
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM messages m"+filter, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+SELECT m.id, m.user_id, u.phone, m.title, m.content, m.type, m.read_status, m.created_at
+FROM messages m
+LEFT JOIN users u ON u.id = m.user_id` + filter + `
+ORDER BY m.created_at DESC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.AdminUserMessage, 0)
+	for rows.Next() {
+		var item model.AdminUserMessage
+		var userPhone sql.NullString
+		var content sql.NullString
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.UserID, &userPhone, &item.Title, &content, &item.Type, &item.ReadStatus, &createdAt); err != nil {
+			return nil, 0, err
+		}
+		if userPhone.Valid {
+			item.UserPhone = userPhone.String
+		}
+		if content.Valid {
+			item.Content = content.String
+		}
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) AdminCreateUserMessages(userIDs []string, title string, content string, messageType string) (int, []model.AdminMessageSendFailure, error) {
+	if len(userIDs) == 0 {
+		return 0, nil, errors.New("no target users")
+	}
+
+	title = strings.TrimSpace(title)
+	content = strings.TrimSpace(content)
+	messageType = strings.ToUpper(strings.TrimSpace(messageType))
+
+	stmt, err := r.db.Prepare(`
+INSERT INTO messages (id, user_id, title, content, type, read_status, created_at)
+VALUES (?, ?, ?, ?, ?, 'UNREAD', ?)`)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer stmt.Close()
+
+	now := time.Now()
+	sent := 0
+	failures := make([]model.AdminMessageSendFailure, 0)
+	existsCache := make(map[string]bool)
+	for _, userID := range userIDs {
+		userID = strings.TrimSpace(userID)
+		if userID == "" {
+			continue
+		}
+
+		exists, cached := existsCache[userID]
+		if !cached {
+			var count int
+			if err := r.db.QueryRow("SELECT COUNT(*) FROM users WHERE id = ?", userID).Scan(&count); err != nil {
+				failures = append(failures, model.AdminMessageSendFailure{UserID: userID, Reason: err.Error()})
+				continue
+			}
+			exists = count > 0
+			existsCache[userID] = exists
+		}
+		if !exists {
+			failures = append(failures, model.AdminMessageSendFailure{UserID: userID, Reason: "user not found"})
+			continue
+		}
+
+		if _, err := stmt.Exec(newID("msg"), userID, title, content, messageType, now); err != nil {
+			failures = append(failures, model.AdminMessageSendFailure{UserID: userID, Reason: err.Error()})
+			continue
+		}
+		sent++
+	}
+
+	if sent == 0 {
+		if len(failures) == 0 {
+			return 0, nil, errors.New("no target users")
+		}
+		return 0, failures, nil
+	}
+	return sent, failures, nil
+}
+
+func (r *MySQLGrowthRepo) AdminListUsers(status string, kycStatus string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error) {
 	offset := (page - 1) * pageSize
 	args := []interface{}{}
+	status = strings.ToUpper(strings.TrimSpace(status))
+	kycStatus = strings.ToUpper(strings.TrimSpace(kycStatus))
+	memberLevel = strings.TrimSpace(memberLevel)
+	registrationSource = strings.ToUpper(strings.TrimSpace(registrationSource))
 	filter := " WHERE 1=1"
 	if status != "" {
-		filter += " AND status = ?"
+		filter += " AND u.status = ?"
 		args = append(args, status)
 	}
 	if kycStatus != "" {
-		filter += " AND kyc_status = ?"
+		filter += " AND u.kyc_status = ?"
 		args = append(args, kycStatus)
 	}
 	if memberLevel != "" {
-		filter += " AND member_level = ?"
+		filter += " AND u.member_level = ?"
 		args = append(args, memberLevel)
 	}
+	if registrationSource == "INVITED" {
+		filter += " AND ir.id IS NOT NULL"
+	}
+	if registrationSource == "DIRECT" {
+		filter += " AND ir.id IS NULL"
+	}
 	var total int
-	if err := r.db.QueryRow("SELECT COUNT(*) FROM users"+filter, args...).Scan(&total); err != nil {
+	countQuery := "SELECT COUNT(*) FROM users u LEFT JOIN invite_records ir ON ir.invitee_user_id = u.id" + filter
+	if err := r.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	query := `
-SELECT id, phone, email, status, kyc_status, member_level, created_at
-FROM users` + filter + `
-ORDER BY created_at DESC
+SELECT
+	u.id,
+	u.phone,
+	u.email,
+	u.status,
+	u.kyc_status,
+	u.member_level,
+	CASE WHEN ir.id IS NULL THEN 'DIRECT' ELSE 'INVITED' END AS registration_source,
+	ir.inviter_user_id,
+	il.invite_code,
+	ir.register_at,
+	u.created_at
+FROM users u
+LEFT JOIN invite_records ir ON ir.invitee_user_id = u.id
+LEFT JOIN invite_links il ON il.id = ir.invite_link_id` + filter + `
+ORDER BY u.created_at DESC
 LIMIT ? OFFSET ?`
 	args = append(args, pageSize, offset)
 	rows, err := r.db.Query(query, args...)
@@ -2126,17 +6632,143 @@ LIMIT ? OFFSET ?`
 	for rows.Next() {
 		var item model.AdminUser
 		var email sql.NullString
+		var inviterUserID sql.NullString
+		var inviteCode sql.NullString
+		var invitedAt sql.NullTime
 		var createdAt time.Time
-		if err := rows.Scan(&item.ID, &item.Phone, &email, &item.Status, &item.KYCStatus, &item.MemberLevel, &createdAt); err != nil {
+		if err := rows.Scan(
+			&item.ID,
+			&item.Phone,
+			&email,
+			&item.Status,
+			&item.KYCStatus,
+			&item.MemberLevel,
+			&item.RegistrationSource,
+			&inviterUserID,
+			&inviteCode,
+			&invitedAt,
+			&createdAt,
+		); err != nil {
 			return nil, 0, err
 		}
 		if email.Valid {
 			item.Email = email.String
 		}
+		if inviterUserID.Valid {
+			item.InviterUserID = inviterUserID.String
+		}
+		if inviteCode.Valid {
+			item.InviteCode = inviteCode.String
+		}
+		if invitedAt.Valid {
+			item.InviteRegisteredAt = invitedAt.Time.Format(time.RFC3339)
+		}
 		item.CreatedAt = createdAt.Format(time.RFC3339)
 		items = append(items, item)
 	}
 	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) AdminGetUserSourceSummary(status string, kycStatus string, memberLevel string, registrationSource string) (model.AdminUserSourceSummary, error) {
+	result := model.AdminUserSourceSummary{}
+	args := []interface{}{}
+	status = strings.ToUpper(strings.TrimSpace(status))
+	kycStatus = strings.ToUpper(strings.TrimSpace(kycStatus))
+	memberLevel = strings.TrimSpace(memberLevel)
+	registrationSource = strings.ToUpper(strings.TrimSpace(registrationSource))
+
+	filter := " WHERE 1=1"
+	if status != "" {
+		filter += " AND u.status = ?"
+		args = append(args, status)
+	}
+	if kycStatus != "" {
+		filter += " AND u.kyc_status = ?"
+		args = append(args, kycStatus)
+	}
+	if memberLevel != "" {
+		filter += " AND u.member_level = ?"
+		args = append(args, memberLevel)
+	}
+	if registrationSource == "INVITED" {
+		filter += " AND ir.id IS NOT NULL"
+	}
+	if registrationSource == "DIRECT" {
+		filter += " AND ir.id IS NULL"
+	}
+
+	query := `
+SELECT
+	COUNT(*) AS total_users,
+	SUM(CASE WHEN ir.id IS NULL THEN 1 ELSE 0 END) AS direct_users,
+	SUM(CASE WHEN ir.id IS NOT NULL THEN 1 ELSE 0 END) AS invited_users,
+	SUM(CASE WHEN ir.id IS NOT NULL AND DATE(ir.register_at) = CURDATE() THEN 1 ELSE 0 END) AS today_invited_users,
+	SUM(CASE WHEN ir.id IS NOT NULL AND ir.first_pay_at IS NOT NULL THEN 1 ELSE 0 END) AS total_first_paid_users,
+	SUM(CASE WHEN ir.id IS NOT NULL AND ir.register_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS last_7d_invited_users,
+	SUM(CASE WHEN ir.id IS NOT NULL AND ir.register_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND ir.first_pay_at IS NOT NULL THEN 1 ELSE 0 END) AS last_7d_first_paid_users,
+	SUM(CASE WHEN ir.id IS NOT NULL AND ir.register_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) AS last_30d_invited_users,
+	SUM(CASE WHEN ir.id IS NOT NULL AND ir.register_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND ir.first_pay_at IS NOT NULL THEN 1 ELSE 0 END) AS last_30d_first_paid_users
+FROM users u
+LEFT JOIN invite_records ir ON ir.invitee_user_id = u.id` + filter
+
+	var directUsers sql.NullInt64
+	var invitedUsers sql.NullInt64
+	var todayInvitedUsers sql.NullInt64
+	var totalFirstPaidUsers sql.NullInt64
+	var last7dInvitedUsers sql.NullInt64
+	var last7dFirstPaidUsers sql.NullInt64
+	var last30dInvitedUsers sql.NullInt64
+	var last30dFirstPaidUsers sql.NullInt64
+	if err := r.db.QueryRow(query, args...).Scan(
+		&result.TotalUsers,
+		&directUsers,
+		&invitedUsers,
+		&todayInvitedUsers,
+		&totalFirstPaidUsers,
+		&last7dInvitedUsers,
+		&last7dFirstPaidUsers,
+		&last30dInvitedUsers,
+		&last30dFirstPaidUsers,
+	); err != nil {
+		return result, err
+	}
+	if directUsers.Valid {
+		result.DirectUsers = int(directUsers.Int64)
+	}
+	if invitedUsers.Valid {
+		result.InvitedUsers = int(invitedUsers.Int64)
+	}
+	if todayInvitedUsers.Valid {
+		result.TodayInvitedUsers = int(todayInvitedUsers.Int64)
+	}
+	if totalFirstPaidUsers.Valid {
+		result.TotalFirstPaidUsers = int(totalFirstPaidUsers.Int64)
+	}
+	if last7dInvitedUsers.Valid {
+		result.Last7dInvitedUsers = int(last7dInvitedUsers.Int64)
+	}
+	if last7dFirstPaidUsers.Valid {
+		result.Last7dFirstPaidUsers = int(last7dFirstPaidUsers.Int64)
+	}
+	if last30dInvitedUsers.Valid {
+		result.Last30dInvitedUsers = int(last30dInvitedUsers.Int64)
+	}
+	if last30dFirstPaidUsers.Valid {
+		result.Last30dFirstPaidUsers = int(last30dFirstPaidUsers.Int64)
+	}
+	if result.TotalUsers > 0 {
+		result.InviteRate = float64(result.InvitedUsers) / float64(result.TotalUsers)
+	}
+	if result.InvitedUsers > 0 {
+		result.TotalConversionRate = float64(result.TotalFirstPaidUsers) / float64(result.InvitedUsers)
+	}
+	if result.Last7dInvitedUsers > 0 {
+		result.Last7dConversionRate = float64(result.Last7dFirstPaidUsers) / float64(result.Last7dInvitedUsers)
+	}
+	if result.Last30dInvitedUsers > 0 {
+		result.Last30dConversionRate = float64(result.Last30dFirstPaidUsers) / float64(result.Last30dInvitedUsers)
+	}
+	return result, nil
 }
 
 func (r *MySQLGrowthRepo) AdminUpdateUserStatus(id string, status string) error {
@@ -2172,10 +6804,22 @@ func (r *MySQLGrowthRepo) AdminDashboardOverview() (model.AdminDashboardOverview
 	if err := r.db.QueryRow("SELECT COUNT(*) FROM users WHERE member_level LIKE 'VIP%'").Scan(&result.VIPUsers); err != nil {
 		return result, err
 	}
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM subscriptions WHERE status = 'ACTIVE'").Scan(&result.ActiveSubscriptions); err != nil {
+		return result, err
+	}
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM membership_orders WHERE status = 'PENDING'").Scan(&result.PendingMembershipOrders); err != nil {
+		return result, err
+	}
 	if err := r.db.QueryRow("SELECT COUNT(*) FROM users WHERE created_at >= ? AND created_at < ?", startOfDay, endOfDay).Scan(&result.TodayNewUsers); err != nil {
 		return result, err
 	}
 	if err := r.db.QueryRow("SELECT COUNT(*) FROM membership_orders WHERE status = 'PAID' AND paid_at >= ? AND paid_at < ?", startOfDay, endOfDay).Scan(&result.TodayPaidOrders); err != nil {
+		return result, err
+	}
+	if err := r.db.QueryRow(`
+SELECT COALESCE(SUM(amount), 0)
+FROM membership_orders
+WHERE status = 'PAID' AND paid_at >= ? AND paid_at < ?`, startOfDay, endOfDay).Scan(&result.TodayPaidAmount); err != nil {
 		return result, err
 	}
 	if err := r.db.QueryRow("SELECT COUNT(*) FROM stock_recommendations WHERE status = 'PUBLISHED' AND created_at >= ? AND created_at < ?", startOfDay, endOfDay).Scan(&result.TodayPublishedStocks); err != nil {
@@ -2295,24 +6939,101 @@ LIMIT ? OFFSET ?`
 
 func (r *MySQLGrowthRepo) AdminCreateMembershipProduct(name string, price float64, status string, memberLevel string, durationDays int) (string, error) {
 	id := newID("mp")
-	level := strings.TrimSpace(memberLevel)
+	level := strings.ToUpper(strings.TrimSpace(memberLevel))
 	if level == "" {
 		level = "VIP1"
+	}
+	if err := r.ensureMembershipLevelSynced(level); err != nil {
+		return "", err
 	}
 	days := durationDays
 	if days <= 0 {
 		days = 30
 	}
-	_, err := r.db.Exec("INSERT INTO membership_products (id, name, price, status, member_level, duration_days) VALUES (?, ?, ?, ?, ?, ?)", id, name, price, status, level, days)
+	_, err := r.db.Exec(
+		"INSERT INTO membership_products (id, name, price, status, member_level, duration_days) VALUES (?, ?, ?, ?, ?, ?)",
+		id,
+		strings.TrimSpace(name),
+		price,
+		strings.ToUpper(strings.TrimSpace(status)),
+		level,
+		days,
+	)
 	if err != nil {
 		return "", err
 	}
 	return id, nil
 }
 
+func (r *MySQLGrowthRepo) AdminUpdateMembershipProduct(id string, name string, price float64, status string, memberLevel string, durationDays int) error {
+	level := strings.ToUpper(strings.TrimSpace(memberLevel))
+	if level == "" {
+		return errors.New("member level is required")
+	}
+	if err := r.ensureMembershipLevelSynced(level); err != nil {
+		return err
+	}
+	days := durationDays
+	if days <= 0 {
+		days = 30
+	}
+	res, err := r.db.Exec(
+		`UPDATE membership_products
+SET name = ?, price = ?, status = ?, member_level = ?, duration_days = ?
+WHERE id = ?`,
+		strings.TrimSpace(name),
+		price,
+		strings.ToUpper(strings.TrimSpace(status)),
+		level,
+		days,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *MySQLGrowthRepo) AdminUpdateMembershipProductStatus(id string, status string) error {
-	_, err := r.db.Exec("UPDATE membership_products SET status = ? WHERE id = ?", status, id)
-	return err
+	res, err := r.db.Exec("UPDATE membership_products SET status = ? WHERE id = ?", status, id)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) ensureMembershipLevelSynced(memberLevel string) error {
+	level := strings.ToUpper(strings.TrimSpace(memberLevel))
+	if level == "" {
+		return errors.New("member level is required")
+	}
+	var count int
+	if err := r.db.QueryRow(
+		`SELECT COUNT(*)
+FROM vip_quota_configs
+WHERE member_level = ? AND status = 'ACTIVE'`,
+		level,
+	).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		return fmt.Errorf("member level %s has no active vip quota config", level)
+	}
+	return nil
 }
 
 func (r *MySQLGrowthRepo) AdminListMembershipOrders(status string, userID string, page int, pageSize int) ([]model.MembershipOrderAdmin, int, error) {
@@ -2561,6 +7282,9 @@ WHERE user_id = ? AND period_key = ?`,
 }
 
 func (r *MySQLGrowthRepo) AdminListDataSources(page int, pageSize int) ([]model.DataSource, int, error) {
+	if err := r.ensureBuiltinDataSources(); err != nil {
+		return nil, 0, err
+	}
 	offset := (page - 1) * pageSize
 	var total int
 	if err := r.db.QueryRow("SELECT COUNT(*) FROM system_configs WHERE config_key LIKE 'data_source.%'").Scan(&total); err != nil {
@@ -2731,7 +7455,12 @@ func (r *MySQLGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model.Da
 		result.Message = "data source is disabled"
 		result.FailureCategory = "DISABLED"
 	} else {
-		endpoint := parseDataSourceStringConfig(item.Config, "endpoint")
+		isTushare := strings.EqualFold(strings.TrimSpace(item.SourceKey), "TUSHARE") ||
+			strings.EqualFold(parseDataSourceStringConfig(item.Config, "provider", "vendor"), "TUSHARE")
+		endpoint := parseDataSourceStringConfig(item.Config, "endpoint", "quotes_endpoint")
+		if isTushare && strings.TrimSpace(endpoint) == "" {
+			endpoint = "https://api.tushare.pro"
+		}
 		if endpoint == "" {
 			result.Message = "endpoint not configured"
 			result.FailureCategory = "CONFIG_ERROR"
@@ -2748,9 +7477,31 @@ func (r *MySQLGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model.Da
 				retryTimes := parseDataSourceRetryTimes(item.Config)
 				retryIntervalMS := parseDataSourceRetryIntervalMS(item.Config)
 				result.MaxAttempts = retryTimes + 1
+
+				tushareToken := ""
+				if isTushare {
+					tushareToken = parseDataSourceStringConfig(item.Config, "token", "api_token", "tushare_token")
+					if strings.TrimSpace(tushareToken) == "" {
+						tushareToken = strings.TrimSpace(os.Getenv("TUSHARE_TOKEN"))
+					}
+					if strings.TrimSpace(tushareToken) == "" {
+						result.Status = "UNHEALTHY"
+						result.FailureCategory = "CONFIG_ERROR"
+						result.Message = "tushare token not configured"
+					}
+				}
+
 				for attempt := 1; attempt <= result.MaxAttempts; attempt++ {
+					if isTushare && strings.TrimSpace(tushareToken) == "" {
+						break
+					}
 					result.Attempts = attempt
-					attemptResult := performDataSourceHealthCheckAttempt(endpoint, timeoutMS)
+					attemptResult := model.DataSourceHealthCheck{}
+					if isTushare {
+						attemptResult = performTushareDataSourceHealthCheckAttempt(endpoint, tushareToken, timeoutMS)
+					} else {
+						attemptResult = performDataSourceHealthCheckAttempt(endpoint, timeoutMS)
+					}
 					result.Status = attemptResult.Status
 					result.Reachable = attemptResult.Reachable
 					result.HTTPStatus = attemptResult.HTTPStatus
@@ -2903,49 +7654,145 @@ func (r *MySQLGrowthRepo) getDataSourceBySourceKey(sourceKey string) (model.Data
 	if sourceKey == "" {
 		return model.DataSource{}, sql.ErrNoRows
 	}
-	configKey := "data_source." + sourceKey
-
-	var id, configValue string
-	var desc sql.NullString
-	var updatedAt time.Time
-	err := r.db.QueryRow(`
-SELECT id, config_value, description, updated_at
-FROM system_configs
-WHERE config_key = ?
-LIMIT 1`, configKey).Scan(&id, &configValue, &desc, &updatedAt)
-	if err != nil {
+	if err := r.ensureBuiltinDataSources(); err != nil {
 		return model.DataSource{}, err
 	}
-	item := model.DataSource{
-		ID:         id,
-		SourceKey:  sourceKey,
-		Name:       "",
-		SourceType: "",
-		Status:     "ACTIVE",
-		UpdatedAt:  updatedAt.Format(time.RFC3339),
+	candidates := []string{sourceKey}
+	lowerKey := strings.ToLower(sourceKey)
+	upperKey := strings.ToUpper(sourceKey)
+	if lowerKey != sourceKey {
+		candidates = append(candidates, lowerKey)
 	}
-	var payload struct {
-		Name       string                 `json:"name"`
-		SourceType string                 `json:"source_type"`
-		Status     string                 `json:"status"`
-		Config     map[string]interface{} `json:"config"`
+	if upperKey != sourceKey && upperKey != lowerKey {
+		candidates = append(candidates, upperKey)
 	}
-	if err := json.Unmarshal([]byte(configValue), &payload); err == nil {
-		item.Name = payload.Name
-		item.SourceType = payload.SourceType
-		if strings.TrimSpace(payload.Status) != "" {
-			item.Status = payload.Status
+	seen := make(map[string]struct{})
+	for _, candidate := range candidates {
+		trimmedCandidate := strings.TrimSpace(candidate)
+		if trimmedCandidate == "" {
+			continue
 		}
-		item.Config = payload.Config
+		lookupKey := strings.ToLower(trimmedCandidate)
+		if _, exists := seen[lookupKey]; exists {
+			continue
+		}
+		seen[lookupKey] = struct{}{}
+
+		configKey := "data_source." + trimmedCandidate
+		var id, configValue string
+		var desc sql.NullString
+		var updatedAt time.Time
+		var storedConfigKey string
+		err := r.db.QueryRow(`
+SELECT id, config_key, config_value, description, updated_at
+FROM system_configs
+WHERE LOWER(config_key) = LOWER(?)
+LIMIT 1`, configKey).Scan(&id, &storedConfigKey, &configValue, &desc, &updatedAt)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return model.DataSource{}, err
+		}
+		actualSourceKey := strings.TrimSpace(strings.TrimPrefix(storedConfigKey, "data_source."))
+		if actualSourceKey == "" {
+			actualSourceKey = trimmedCandidate
+		}
+		item := model.DataSource{
+			ID:         id,
+			SourceKey:  actualSourceKey,
+			Name:       "",
+			SourceType: "",
+			Status:     "ACTIVE",
+			UpdatedAt:  updatedAt.Format(time.RFC3339),
+		}
+		var payload struct {
+			Name       string                 `json:"name"`
+			SourceType string                 `json:"source_type"`
+			Status     string                 `json:"status"`
+			Config     map[string]interface{} `json:"config"`
+		}
+		if err := json.Unmarshal([]byte(configValue), &payload); err == nil {
+			item.Name = payload.Name
+			item.SourceType = payload.SourceType
+			if strings.TrimSpace(payload.Status) != "" {
+				item.Status = payload.Status
+			}
+			item.Config = payload.Config
+		}
+		if item.Name == "" {
+			if desc.Valid {
+				item.Name = desc.String
+			} else {
+				item.Name = actualSourceKey
+			}
+		}
+		return item, nil
 	}
-	if item.Name == "" {
-		if desc.Valid {
-			item.Name = desc.String
-		} else {
-			item.Name = sourceKey
+	return model.DataSource{}, sql.ErrNoRows
+}
+
+func (r *MySQLGrowthRepo) ensureBuiltinDataSources() error {
+	now := time.Now()
+	const defaultStockQuoteSourceConfigKey = "stock.quotes.default_source_key"
+	type builtinDataSource struct {
+		ID          string
+		SourceKey   string
+		ConfigValue string
+		Description string
+	}
+	builtins := []builtinDataSource{
+		{
+			ID:          "cfg_data_source_mock_stock",
+			SourceKey:   "mock_stock",
+			ConfigValue: `{"name":"Mock Stock Quotes","source_type":"STOCK","status":"ACTIVE","config":{"provider":"MOCK","endpoint":"http://127.0.0.1:18080/healthz","retry_times":0,"fail_threshold":5,"retry_interval_ms":200,"health_timeout_ms":3000,"alert_receiver_id":"admin_001"}}`,
+			Description: "内置模拟股票行情数据源",
+		},
+		{
+			ID:          "cfg_data_source_tushare",
+			SourceKey:   "tushare",
+			ConfigValue: `{"name":"Tushare","source_type":"STOCK","status":"ACTIVE","config":{"provider":"TUSHARE","endpoint":"https://api.tushare.pro","token":"","retry_times":1,"fail_threshold":3,"retry_interval_ms":500,"health_timeout_ms":8000,"alert_receiver_id":"admin_001"}}`,
+			Description: "内置Tushare股票行情数据源",
+		},
+	}
+	for _, item := range builtins {
+		configKey := "data_source." + item.SourceKey
+		_, err := r.db.Exec(`
+INSERT INTO system_configs (id, config_key, config_value, description, updated_by, updated_at)
+SELECT ?, ?, ?, ?, ?, ?
+WHERE NOT EXISTS (
+  SELECT 1 FROM system_configs WHERE LOWER(config_key) = LOWER(?)
+)`,
+			item.ID,
+			configKey,
+			item.ConfigValue,
+			item.Description,
+			"system",
+			now,
+			configKey,
+		)
+		if err != nil {
+			return err
 		}
 	}
-	return item, nil
+	_, err := r.db.Exec(`
+INSERT INTO system_configs (id, config_key, config_value, description, updated_by, updated_at)
+SELECT ?, ?, ?, ?, ?, ?
+WHERE NOT EXISTS (
+  SELECT 1 FROM system_configs WHERE LOWER(config_key) = LOWER(?)
+)`,
+		newID("cfg"),
+		defaultStockQuoteSourceConfigKey,
+		"TUSHARE",
+		"股票行情默认数据源",
+		"system",
+		now,
+		defaultStockQuoteSourceConfigKey,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *MySQLGrowthRepo) persistDataSourceHealthLog(item model.DataSourceHealthCheck, checkedAt time.Time) error {
@@ -3024,6 +7871,121 @@ func performDataSourceHealthCheckAttempt(endpoint string, timeoutMS int) model.D
 		LatencyMS:       latency,
 		Message:         resp.Status,
 		FailureCategory: "HTTP_ERROR",
+	}
+}
+
+func performTushareDataSourceHealthCheckAttempt(endpoint string, token string, timeoutMS int) model.DataSourceHealthCheck {
+	if strings.TrimSpace(token) == "" {
+		return model.DataSourceHealthCheck{
+			Status:          "UNHEALTHY",
+			Message:         "tushare token not configured",
+			FailureCategory: "CONFIG_ERROR",
+		}
+	}
+	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+	start := time.Now()
+	now := time.Now()
+	startDate := now.AddDate(0, 0, -3).Format("20060102")
+	endDate := now.Format("20060102")
+	payload := map[string]interface{}{
+		"api_name": "trade_cal",
+		"token":    token,
+		"params": map[string]string{
+			"exchange":   "SSE",
+			"start_date": startDate,
+			"end_date":   endDate,
+		},
+		"fields": "exchange,cal_date,is_open",
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return model.DataSourceHealthCheck{
+			Status:          "UNKNOWN",
+			Message:         err.Error(),
+			FailureCategory: "REQUEST_ERROR",
+		}
+	}
+
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return model.DataSourceHealthCheck{
+			Status:          "UNKNOWN",
+			Message:         err.Error(),
+			FailureCategory: "REQUEST_ERROR",
+		}
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	latency := time.Since(start).Milliseconds()
+	if err != nil {
+		return model.DataSourceHealthCheck{
+			Status:          "UNHEALTHY",
+			Reachable:       false,
+			LatencyMS:       latency,
+			Message:         err.Error(),
+			FailureCategory: classifyDataSourceRequestError(err),
+		}
+	}
+	defer resp.Body.Close()
+
+	responseBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return model.DataSourceHealthCheck{
+			Status:          "UNHEALTHY",
+			Reachable:       true,
+			HTTPStatus:      resp.StatusCode,
+			LatencyMS:       latency,
+			Message:         readErr.Error(),
+			FailureCategory: "RESPONSE_ERROR",
+		}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return model.DataSourceHealthCheck{
+			Status:          "UNHEALTHY",
+			Reachable:       true,
+			HTTPStatus:      resp.StatusCode,
+			LatencyMS:       latency,
+			Message:         resp.Status,
+			FailureCategory: "HTTP_ERROR",
+		}
+	}
+
+	parsed := struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+	}{}
+	if err := json.Unmarshal(responseBody, &parsed); err != nil {
+		return model.DataSourceHealthCheck{
+			Status:          "UNHEALTHY",
+			Reachable:       true,
+			HTTPStatus:      resp.StatusCode,
+			LatencyMS:       latency,
+			Message:         "invalid tushare response",
+			FailureCategory: "RESPONSE_PARSE_ERROR",
+		}
+	}
+	if parsed.Code != 0 {
+		category := "AUTH_ERROR"
+		msgLower := strings.ToLower(parsed.Msg)
+		if !strings.Contains(msgLower, "token") && !strings.Contains(msgLower, "auth") {
+			category = "API_ERROR"
+		}
+		return model.DataSourceHealthCheck{
+			Status:          "UNHEALTHY",
+			Reachable:       true,
+			HTTPStatus:      resp.StatusCode,
+			LatencyMS:       latency,
+			Message:         strings.TrimSpace(parsed.Msg),
+			FailureCategory: category,
+		}
+	}
+	return model.DataSourceHealthCheck{
+		Status:     "HEALTHY",
+		Reachable:  true,
+		HTTPStatus: resp.StatusCode,
+		LatencyMS:  latency,
+		Message:    "ok",
 	}
 }
 
@@ -3512,9 +8474,200 @@ LIMIT ? OFFSET ?`
 	return items, total, nil
 }
 
+func (r *MySQLGrowthRepo) AdminListNewsSyncRunDetails(runID string, syncType string, source string, symbol string, status string, page int, pageSize int) ([]model.NewsSyncRunDetail, int, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return []model.NewsSyncRunDetail{}, 0, nil
+	}
+	offset := (page - 1) * pageSize
+	args := []interface{}{runID}
+	filter := " WHERE run_id = ?"
+	if syncType = strings.ToUpper(strings.TrimSpace(syncType)); syncType != "" {
+		filter += " AND sync_type = ?"
+		args = append(args, syncType)
+	}
+	if source = strings.TrimSpace(source); source != "" {
+		filter += " AND source LIKE ?"
+		args = append(args, "%"+source+"%")
+	}
+	if symbol = strings.ToUpper(strings.TrimSpace(symbol)); symbol != "" {
+		filter += " AND symbol = ?"
+		args = append(args, symbol)
+	}
+	if status = strings.ToUpper(strings.TrimSpace(status)); status != "" {
+		filter += " AND status = ?"
+		args = append(args, status)
+	}
+
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM news_sync_run_details"+filter, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	query := `
+SELECT
+	id, run_id, job_name, sync_type, source, symbol, status,
+	fetched_count, upserted_count, failed_count,
+	warning_text, error_text, started_at, finished_at, created_at, updated_at
+FROM news_sync_run_details` + filter + `
+ORDER BY created_at DESC, sync_type ASC, source ASC, symbol ASC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.NewsSyncRunDetail, 0, pageSize)
+	for rows.Next() {
+		var item model.NewsSyncRunDetail
+		var sourceVal, symbolVal, warningVal, errorVal sql.NullString
+		var finishedAt sql.NullTime
+		var startedAt, createdAt, updatedAt time.Time
+		if err := rows.Scan(
+			&item.ID,
+			&item.RunID,
+			&item.JobName,
+			&item.SyncType,
+			&sourceVal,
+			&symbolVal,
+			&item.Status,
+			&item.FetchedCount,
+			&item.UpsertedCount,
+			&item.FailedCount,
+			&warningVal,
+			&errorVal,
+			&startedAt,
+			&finishedAt,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		if sourceVal.Valid {
+			item.Source = sourceVal.String
+		}
+		if symbolVal.Valid {
+			item.Symbol = symbolVal.String
+		}
+		if warningVal.Valid {
+			item.WarningText = warningVal.String
+		}
+		if errorVal.Valid {
+			item.ErrorText = errorVal.String
+		}
+		item.StartedAt = startedAt.Format(time.RFC3339)
+		if finishedAt.Valid {
+			item.FinishedAt = finishedAt.Time.Format(time.RFC3339)
+		}
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		item.UpdatedAt = updatedAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, rows.Err()
+}
+
+func (r *MySQLGrowthRepo) AdminCreateNewsSyncRunDetails(runID string, details []model.NewsSyncRunDetail) error {
+	runID = strings.TrimSpace(runID)
+	if runID == "" || len(details) == 0 {
+		return nil
+	}
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+INSERT INTO news_sync_run_details
+	(id, run_id, job_name, sync_type, source, symbol, status, fetched_count, upserted_count, failed_count, warning_text, error_text, started_at, finished_at, created_at, updated_at)
+VALUES
+	(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+	job_name = VALUES(job_name),
+	sync_type = VALUES(sync_type),
+	source = VALUES(source),
+	symbol = VALUES(symbol),
+	status = VALUES(status),
+	fetched_count = VALUES(fetched_count),
+	upserted_count = VALUES(upserted_count),
+	failed_count = VALUES(failed_count),
+	warning_text = VALUES(warning_text),
+	error_text = VALUES(error_text),
+	started_at = VALUES(started_at),
+	finished_at = VALUES(finished_at),
+	updated_at = VALUES(updated_at)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, detail := range details {
+		id := strings.TrimSpace(detail.ID)
+		if id == "" {
+			id = newID("nsd")
+		}
+		jobName := strings.TrimSpace(detail.JobName)
+		if jobName == "" {
+			jobName = tushareNewsIncrementalJobName
+		}
+		syncType := normalizeTushareSyncType(detail.SyncType)
+		if syncType == "" {
+			syncType = strings.ToUpper(strings.TrimSpace(detail.SyncType))
+		}
+		if syncType == "" {
+			syncType = tushareSyncTypeNewsBrief
+		}
+		status := strings.ToUpper(strings.TrimSpace(detail.Status))
+		if status == "" {
+			if detail.FailedCount > 0 || strings.TrimSpace(detail.ErrorText) != "" {
+				status = "FAILED"
+			} else {
+				status = "SUCCESS"
+			}
+		}
+		startedAt := parseDateTimeOrDefault(detail.StartedAt, time.Now())
+		finishedAt := parseDateTimeOrDefault(detail.FinishedAt, startedAt)
+		if strings.TrimSpace(detail.FinishedAt) == "" {
+			finishedAt = startedAt
+		}
+		warningText := truncateByRunes(normalizeUTF8Text(detail.WarningText), 512)
+		errorText := truncateByRunes(normalizeUTF8Text(detail.ErrorText), 512)
+		source := truncateByRunes(normalizeUTF8Text(detail.Source), 128)
+		symbol := truncateByRunes(normalizeTushareSymbol(detail.Symbol), 32)
+		now := time.Now()
+		_, err := stmt.Exec(
+			id,
+			runID,
+			jobName,
+			syncType,
+			nullableString(source),
+			nullableString(symbol),
+			status,
+			maxInt(0, detail.FetchedCount),
+			maxInt(0, detail.UpsertedCount),
+			maxInt(0, detail.FailedCount),
+			nullableString(warningText),
+			nullableString(errorText),
+			startedAt,
+			finishedAt,
+			now,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (r *MySQLGrowthRepo) AdminCreateSchedulerJobRun(jobName string, triggerSource string, status string, resultSummary string, errorMessage string, operatorID string) (string, error) {
 	id := newID("jr")
 	now := time.Now()
+	jobName = truncateByRunes(normalizeUTF8Text(jobName), 64)
+	operatorID = truncateByRunes(normalizeUTF8Text(operatorID), 32)
+	safeResultSummary := truncateByRunes(normalizeUTF8Text(resultSummary), 512)
+	safeErrorMessage := truncateByRunes(normalizeUTF8Text(errorMessage), 512)
 	var finishedAt interface{} = nil
 	if strings.ToUpper(status) != "RUNNING" {
 		finishedAt = now
@@ -3522,25 +8675,41 @@ func (r *MySQLGrowthRepo) AdminCreateSchedulerJobRun(jobName string, triggerSour
 	_, err := r.db.Exec(`
 INSERT INTO scheduler_job_runs (id, parent_run_id, retry_count, job_name, trigger_source, status, started_at, finished_at, result_summary, error_message, operator_id, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, nil, 0, jobName, strings.ToUpper(triggerSource), strings.ToUpper(status), now, finishedAt, resultSummary, errorMessage, operatorID, now,
+		id, nil, 0, jobName, strings.ToUpper(triggerSource), strings.ToUpper(status), now, finishedAt, safeResultSummary, safeErrorMessage, operatorID, now,
 	)
 	if err != nil {
 		return "", err
 	}
+	_, _ = r.db.Exec(`
+UPDATE scheduler_job_definitions
+SET last_run_at = ?, updated_at = ?
+WHERE job_name = ?`, now, now, strings.TrimSpace(jobName))
 	_ = r.AdminCreateWorkflowMessage(
 		"",
 		id,
 		"SYSTEM",
-		"",
+		operatorID,
 		operatorID,
 		"JOB_TRIGGERED",
 		"任务已触发",
 		"任务 "+jobName+" 已触发，状态 "+strings.ToUpper(status),
 	)
+	if strings.ToUpper(status) == "FAILED" {
+		_ = r.AdminCreateWorkflowMessage(
+			"",
+			id,
+			"SYSTEM",
+			operatorID,
+			operatorID,
+			"JOB_FAILED",
+			"任务执行失败",
+			"任务 "+jobName+" 执行失败："+safeErrorMessage,
+		)
+	}
 	return id, nil
 }
 
-func (r *MySQLGrowthRepo) AdminRetrySchedulerJobRun(runID string, status string, resultSummary string, errorMessage string, operatorID string) (string, error) {
+func (r *MySQLGrowthRepo) AdminRetrySchedulerJobRun(runID string, triggerSource string, status string, resultSummary string, errorMessage string, operatorID string) (string, error) {
 	var jobName string
 	var prevRetry int
 	err := r.db.QueryRow("SELECT job_name, retry_count FROM scheduler_job_runs WHERE id = ?", runID).Scan(&jobName, &prevRetry)
@@ -3549,29 +8718,52 @@ func (r *MySQLGrowthRepo) AdminRetrySchedulerJobRun(runID string, status string,
 	}
 	id := newID("jr")
 	now := time.Now()
+	operatorID = truncateByRunes(normalizeUTF8Text(operatorID), 32)
+	safeResultSummary := truncateByRunes(normalizeUTF8Text(resultSummary), 512)
+	safeErrorMessage := truncateByRunes(normalizeUTF8Text(errorMessage), 512)
 	upperStatus := strings.ToUpper(status)
 	var finishedAt interface{} = nil
 	if upperStatus != "RUNNING" {
 		finishedAt = now
 	}
+	upperTriggerSource := strings.ToUpper(strings.TrimSpace(triggerSource))
+	if upperTriggerSource == "" {
+		upperTriggerSource = "MANUAL"
+	}
 	_, err = r.db.Exec(`
 INSERT INTO scheduler_job_runs (id, parent_run_id, retry_count, job_name, trigger_source, status, started_at, finished_at, result_summary, error_message, operator_id, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, runID, prevRetry+1, jobName, "MANUAL", upperStatus, now, finishedAt, resultSummary, errorMessage, operatorID, now,
+		id, runID, prevRetry+1, jobName, upperTriggerSource, upperStatus, now, finishedAt, safeResultSummary, safeErrorMessage, operatorID, now,
 	)
 	if err != nil {
 		return "", err
 	}
+	_, _ = r.db.Exec(`
+UPDATE scheduler_job_definitions
+SET last_run_at = ?, updated_at = ?
+WHERE job_name = ?`, now, now, strings.TrimSpace(jobName))
 	_ = r.AdminCreateWorkflowMessage(
 		"",
 		id,
 		"SYSTEM",
-		"",
+		operatorID,
 		operatorID,
 		"JOB_RETRIED",
 		"任务重跑已触发",
 		"任务 "+jobName+" 基于运行 "+runID+" 重跑，状态 "+upperStatus,
 	)
+	if upperStatus == "FAILED" {
+		_ = r.AdminCreateWorkflowMessage(
+			"",
+			id,
+			"SYSTEM",
+			operatorID,
+			operatorID,
+			"JOB_FAILED",
+			"任务重跑失败",
+			"任务 "+jobName+" 重跑失败："+safeErrorMessage,
+		)
+	}
 	return id, nil
 }
 
@@ -3650,6 +8842,25 @@ func (r *MySQLGrowthRepo) AdminUpdateSchedulerJobDefinitionStatus(id string, sta
 		strings.ToUpper(status), operatorID, time.Now(), id,
 	)
 	return err
+}
+
+func (r *MySQLGrowthRepo) AdminDeleteSchedulerJobDefinition(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return sql.ErrNoRows
+	}
+	result, err := r.db.Exec("DELETE FROM scheduler_job_definitions WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *MySQLGrowthRepo) AdminListWorkflowMessages(module string, eventType string, isRead string, receiverID string, page int, pageSize int) ([]model.WorkflowMessage, int, error) {
@@ -3778,22 +8989,31 @@ func (r *MySQLGrowthRepo) AdminBulkReadWorkflowMessages(module string, eventType
 }
 
 func (r *MySQLGrowthRepo) AdminCreateWorkflowMessage(reviewID string, targetID string, module string, receiverID string, senderID string, eventType string, title string, content string) error {
+	reviewID = truncateByRunes(normalizeUTF8Text(reviewID), 64)
+	targetID = truncateByRunes(normalizeUTF8Text(targetID), 64)
+	module = truncateByRunes(strings.ToUpper(normalizeUTF8Text(module)), 32)
+	receiverID = truncateByRunes(normalizeUTF8Text(receiverID), 32)
+	senderID = truncateByRunes(normalizeUTF8Text(senderID), 32)
+	eventType = truncateByRunes(strings.ToUpper(normalizeUTF8Text(eventType)), 32)
+	title = truncateByRunes(normalizeUTF8Text(title), 128)
+	content = truncateByRunes(normalizeUTF8Text(content), 512)
+
 	var reviewVal interface{} = nil
-	if strings.TrimSpace(reviewID) != "" {
+	if reviewID != "" {
 		reviewVal = reviewID
 	}
 	var receiverVal interface{} = nil
-	if strings.TrimSpace(receiverID) != "" {
+	if receiverID != "" {
 		receiverVal = receiverID
 	}
 	var senderVal interface{} = nil
-	if strings.TrimSpace(senderID) != "" {
+	if senderID != "" {
 		senderVal = senderID
 	}
 	_, err := r.db.Exec(`
 INSERT INTO workflow_messages (id, review_id, target_id, module, receiver_id, sender_id, event_type, title, content, is_read, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
-		newID("wm"), reviewVal, targetID, strings.ToUpper(module), receiverVal, senderVal, strings.ToUpper(eventType), title, content, time.Now(),
+		newID("wm"), reviewVal, targetID, module, receiverVal, senderVal, eventType, title, content, time.Now(),
 	)
 	return err
 }
@@ -3846,14 +9066,15 @@ func (r *MySQLGrowthRepo) AdminGetWorkflowMetrics(module string, receiverID stri
 
 func (r *MySQLGrowthRepo) AdminGetSchedulerJobMetrics(jobName string) (model.SchedulerJobMetrics, error) {
 	result := model.SchedulerJobMetrics{}
+	normalizedJobName := strings.TrimSpace(jobName)
 	args := []interface{}{}
 	filter := " WHERE started_at >= ? AND started_at < ?"
 	todayStart := time.Now().Truncate(24 * time.Hour)
 	tomorrowStart := todayStart.Add(24 * time.Hour)
 	args = append(args, todayStart, tomorrowStart)
-	if jobName != "" {
+	if normalizedJobName != "" {
 		filter += " AND job_name = ?"
-		args = append(args, jobName)
+		args = append(args, normalizedJobName)
 	}
 	if err := r.db.QueryRow("SELECT COUNT(*) FROM scheduler_job_runs"+filter, args...).Scan(&result.TodayTotal); err != nil {
 		return result, err
@@ -3867,7 +9088,444 @@ func (r *MySQLGrowthRepo) AdminGetSchedulerJobMetrics(jobName string) (model.Sch
 	if err := r.db.QueryRow("SELECT COUNT(*) FROM scheduler_job_runs"+filter+" AND status = 'RUNNING'", args...).Scan(&result.TodayRunning); err != nil {
 		return result, err
 	}
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM scheduler_job_runs"+filter+" AND retry_count > 0", args...).Scan(&result.RetryTotal); err != nil {
+		return result, err
+	}
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM scheduler_job_runs"+filter+" AND retry_count > 0 AND status = 'SUCCESS'", args...).Scan(&result.RetrySuccess); err != nil {
+		return result, err
+	}
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM scheduler_job_runs"+filter+" AND retry_count > 0 AND status = 'FAILED'", args...).Scan(&result.RetryFailed); err != nil {
+		return result, err
+	}
+	if result.RetryTotal > 0 {
+		result.RetryHitRate = roundTo(float64(result.RetrySuccess)/float64(result.RetryTotal), 4)
+	} else {
+		result.RetryHitRate = 0
+	}
+	var avgRetry sql.NullFloat64
+	if err := r.db.QueryRow("SELECT AVG(retry_count) FROM scheduler_job_runs"+filter+" AND retry_count > 0", args...).Scan(&avgRetry); err != nil {
+		return result, err
+	}
+	if avgRetry.Valid {
+		result.AvgRetryCount = roundTo(avgRetry.Float64, 2)
+	}
+
+	jobStatsRows, err := r.db.Query(`
+SELECT
+	job_name,
+	COUNT(*) AS today_total,
+	SUM(CASE WHEN status = 'SUCCESS' THEN 1 ELSE 0 END) AS today_success,
+	SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) AS today_failed,
+	SUM(CASE WHEN status = 'RUNNING' THEN 1 ELSE 0 END) AS today_running,
+	SUM(CASE WHEN retry_count > 0 THEN 1 ELSE 0 END) AS retry_total,
+	SUM(CASE WHEN retry_count > 0 AND status = 'SUCCESS' THEN 1 ELSE 0 END) AS retry_success,
+	SUM(CASE WHEN retry_count > 0 AND status = 'FAILED' THEN 1 ELSE 0 END) AS retry_failed,
+	SUM(CASE WHEN retry_count > 0 AND trigger_source = 'SYSTEM' THEN 1 ELSE 0 END) AS auto_retry_total,
+	AVG(CASE WHEN retry_count > 0 THEN retry_count ELSE NULL END) AS avg_retry_count
+FROM scheduler_job_runs`+filter+`
+GROUP BY job_name
+ORDER BY retry_total DESC, job_name ASC`, args...)
+	if err != nil {
+		return result, err
+	}
+	defer jobStatsRows.Close()
+	jobStatsMap := make(map[string]*model.SchedulerJobRetryStat)
+	for jobStatsRows.Next() {
+		var (
+			item                model.SchedulerJobRetryStat
+			todayTotal          int64
+			todaySuccess        int64
+			todayFailed         int64
+			todayRunning        int64
+			retryTotal          int64
+			retrySuccess        int64
+			retryFailed         int64
+			autoRetryTotal      int64
+			avgRetryCountPerJob sql.NullFloat64
+		)
+		if err := jobStatsRows.Scan(
+			&item.JobName,
+			&todayTotal,
+			&todaySuccess,
+			&todayFailed,
+			&todayRunning,
+			&retryTotal,
+			&retrySuccess,
+			&retryFailed,
+			&autoRetryTotal,
+			&avgRetryCountPerJob,
+		); err != nil {
+			return result, err
+		}
+		item.TodayTotal = int(todayTotal)
+		item.TodaySuccess = int(todaySuccess)
+		item.TodayFailed = int(todayFailed)
+		item.TodayRunning = int(todayRunning)
+		item.RetryTotal = int(retryTotal)
+		item.RetrySuccess = int(retrySuccess)
+		item.RetryFailed = int(retryFailed)
+		item.AutoRetryTotal = int(autoRetryTotal)
+		if item.RetryTotal > 0 {
+			item.RetryHitRate = roundTo(float64(item.RetrySuccess)/float64(item.RetryTotal), 4)
+		}
+		if avgRetryCountPerJob.Valid {
+			item.AvgRetryCount = roundTo(avgRetryCountPerJob.Float64, 2)
+		}
+		jobStatsMap[item.JobName] = &item
+	}
+	if err := jobStatsRows.Err(); err != nil {
+		return result, err
+	}
+
+	if err := r.fillSchedulerRecoveryStats(jobStatsMap, todayStart, tomorrowStart, normalizedJobName); err != nil {
+		return result, err
+	}
+
+	jobStats := make([]model.SchedulerJobRetryStat, 0, len(jobStatsMap))
+	for _, item := range jobStatsMap {
+		jobStats = append(jobStats, *item)
+	}
+	sort.Slice(jobStats, func(i, j int) bool {
+		if jobStats[i].RetryTotal == jobStats[j].RetryTotal {
+			if jobStats[i].RecoveryTotal == jobStats[j].RecoveryTotal {
+				return jobStats[i].JobName < jobStats[j].JobName
+			}
+			return jobStats[i].RecoveryTotal > jobStats[j].RecoveryTotal
+		}
+		return jobStats[i].RetryTotal > jobStats[j].RetryTotal
+	})
+	result.JobRetryStats = jobStats
+	for _, item := range jobStats {
+		result.AutoRetryTotal += item.AutoRetryTotal
+		result.RecoveryTotal += item.RecoveryTotal
+		result.RecoverySuccess += item.RecoverySuccess
+	}
+	if result.RecoveryTotal > 0 {
+		result.RecoveryHitRate = roundTo(float64(result.RecoverySuccess)/float64(result.RecoveryTotal), 4)
+	}
+
+	failScopeDays := 7
+	failSince := time.Now().AddDate(0, 0, -failScopeDays)
+	failArgs := []interface{}{failSince}
+	failFilter := " WHERE status = 'FAILED' AND started_at >= ?"
+	if normalizedJobName != "" {
+		failFilter += " AND job_name = ?"
+		failArgs = append(failArgs, normalizedJobName)
+	}
+	failRows, err := r.db.Query(`
+SELECT job_name, error_message, started_at
+FROM scheduler_job_runs`+failFilter+`
+ORDER BY started_at DESC
+LIMIT 800`, failArgs...)
+	if err != nil {
+		return result, err
+	}
+	defer failRows.Close()
+	reasonAggMap := make(map[string]*schedulerFailureReasonAggregate)
+	jobReasonAggMap := make(map[string]*schedulerFailureReasonAggregate)
+	for failRows.Next() {
+		var (
+			jobNameValue string
+			errorMessage sql.NullString
+			startedAt    time.Time
+		)
+		if err := failRows.Scan(&jobNameValue, &errorMessage, &startedAt); err != nil {
+			return result, err
+		}
+		reason := normalizeSchedulerFailureReason(errorMessage.String)
+		agg := reasonAggMap[reason]
+		if agg == nil {
+			agg = &schedulerFailureReasonAggregate{Reason: reason}
+			reasonAggMap[reason] = agg
+		}
+		agg.Count++
+		if agg.LastOccurredAt.IsZero() || startedAt.After(agg.LastOccurredAt) {
+			agg.LastOccurredAt = startedAt
+		}
+		jobReasonKey := strings.TrimSpace(jobNameValue) + "|" + reason
+		jobAgg := jobReasonAggMap[jobReasonKey]
+		if jobAgg == nil {
+			jobAgg = &schedulerFailureReasonAggregate{
+				JobName: strings.TrimSpace(jobNameValue),
+				Reason:  reason,
+			}
+			jobReasonAggMap[jobReasonKey] = jobAgg
+		}
+		jobAgg.Count++
+		if jobAgg.LastOccurredAt.IsZero() || startedAt.After(jobAgg.LastOccurredAt) {
+			jobAgg.LastOccurredAt = startedAt
+		}
+	}
+	if err := failRows.Err(); err != nil {
+		return result, err
+	}
+	reasons := make([]model.SchedulerJobFailureReason, 0, len(reasonAggMap))
+	for _, agg := range reasonAggMap {
+		reasons = append(reasons, model.SchedulerJobFailureReason{
+			Reason:         agg.Reason,
+			Count:          agg.Count,
+			LastOccurredAt: agg.LastOccurredAt.Format(time.RFC3339),
+		})
+	}
+	sort.Slice(reasons, func(i, j int) bool {
+		if reasons[i].Count == reasons[j].Count {
+			return reasons[i].Reason < reasons[j].Reason
+		}
+		return reasons[i].Count > reasons[j].Count
+	})
+	if len(reasons) > 8 {
+		reasons = reasons[:8]
+	}
+	jobReasons := make([]model.SchedulerJobFailureByJob, 0, len(jobReasonAggMap))
+	for _, agg := range jobReasonAggMap {
+		jobReasons = append(jobReasons, model.SchedulerJobFailureByJob{
+			JobName:        agg.JobName,
+			Reason:         agg.Reason,
+			Count:          agg.Count,
+			LastOccurredAt: agg.LastOccurredAt.Format(time.RFC3339),
+		})
+	}
+	sort.Slice(jobReasons, func(i, j int) bool {
+		if jobReasons[i].Count == jobReasons[j].Count {
+			if jobReasons[i].JobName == jobReasons[j].JobName {
+				return jobReasons[i].Reason < jobReasons[j].Reason
+			}
+			return jobReasons[i].JobName < jobReasons[j].JobName
+		}
+		return jobReasons[i].Count > jobReasons[j].Count
+	})
+	if len(jobReasons) > 36 {
+		jobReasons = jobReasons[:36]
+	}
+	result.FailureReasons = reasons
+	result.JobFailureReasons = jobReasons
+	result.FailureReasonScope = fmt.Sprintf("LAST_%d_DAYS", failScopeDays)
 	return result, nil
+}
+
+type schedulerJobRecoveryState struct {
+	JobName       string
+	HasRetry      bool
+	MaxRetryCount int
+	FinalStatus   string
+}
+
+type schedulerJobRetryChild struct {
+	ID          string
+	ParentRunID string
+	JobName     string
+	Status      string
+	RetryCount  int
+}
+
+func (r *MySQLGrowthRepo) fillSchedulerRecoveryStats(
+	jobStatsMap map[string]*model.SchedulerJobRetryStat,
+	startedAt time.Time,
+	endedAt time.Time,
+	jobName string,
+) error {
+	args := []interface{}{startedAt, endedAt}
+	filter := ""
+	if jobName != "" {
+		filter += " AND job_name = ?"
+		args = append(args, jobName)
+	}
+	rootRows, err := r.db.Query(`
+SELECT id, job_name
+FROM scheduler_job_runs
+WHERE retry_count = 0
+	AND status = 'FAILED'
+	AND started_at >= ?
+	AND started_at < ?`+filter, args...)
+	if err != nil {
+		return err
+	}
+	defer rootRows.Close()
+
+	recoveryStates := make(map[string]*schedulerJobRecoveryState)
+	runToRoot := make(map[string]string)
+	frontier := make([]string, 0)
+	visited := make(map[string]struct{})
+	for rootRows.Next() {
+		var (
+			rootID      string
+			rootJobName string
+		)
+		if err := rootRows.Scan(&rootID, &rootJobName); err != nil {
+			return err
+		}
+		rootID = strings.TrimSpace(rootID)
+		if rootID == "" {
+			continue
+		}
+		rootJobName = strings.TrimSpace(rootJobName)
+		recoveryStates[rootID] = &schedulerJobRecoveryState{
+			JobName:       rootJobName,
+			HasRetry:      false,
+			MaxRetryCount: 0,
+			FinalStatus:   "FAILED",
+		}
+		runToRoot[rootID] = rootID
+		frontier = append(frontier, rootID)
+		visited[rootID] = struct{}{}
+	}
+	if err := rootRows.Err(); err != nil {
+		return err
+	}
+	if len(frontier) == 0 {
+		return nil
+	}
+
+	const batchSize = 200
+	for len(frontier) > 0 {
+		nextFrontier := make([]string, 0)
+		for i := 0; i < len(frontier); i += batchSize {
+			end := i + batchSize
+			if end > len(frontier) {
+				end = len(frontier)
+			}
+			children, err := r.loadSchedulerJobRetryChildren(frontier[i:end])
+			if err != nil {
+				return err
+			}
+			for _, child := range children {
+				if _, seen := visited[child.ID]; seen {
+					continue
+				}
+				rootID, ok := runToRoot[child.ParentRunID]
+				if !ok || rootID == "" {
+					continue
+				}
+				visited[child.ID] = struct{}{}
+				runToRoot[child.ID] = rootID
+				nextFrontier = append(nextFrontier, child.ID)
+
+				state := recoveryStates[rootID]
+				if state == nil {
+					continue
+				}
+				if state.JobName == "" {
+					state.JobName = strings.TrimSpace(child.JobName)
+				}
+				if child.RetryCount > 0 {
+					state.HasRetry = true
+				}
+				childStatus := strings.ToUpper(strings.TrimSpace(child.Status))
+				if child.RetryCount > state.MaxRetryCount {
+					state.MaxRetryCount = child.RetryCount
+					state.FinalStatus = childStatus
+					continue
+				}
+				if child.RetryCount == state.MaxRetryCount && state.MaxRetryCount > 0 {
+					if state.FinalStatus != "SUCCESS" && childStatus == "SUCCESS" {
+						state.FinalStatus = childStatus
+					}
+				}
+			}
+		}
+		frontier = nextFrontier
+	}
+
+	for _, state := range recoveryStates {
+		if !state.HasRetry {
+			continue
+		}
+		jobNameValue := strings.TrimSpace(state.JobName)
+		if jobNameValue == "" {
+			jobNameValue = "UNKNOWN"
+		}
+		item := jobStatsMap[jobNameValue]
+		if item == nil {
+			item = &model.SchedulerJobRetryStat{JobName: jobNameValue}
+			jobStatsMap[jobNameValue] = item
+		}
+		item.RecoveryTotal++
+		if strings.EqualFold(state.FinalStatus, "SUCCESS") {
+			item.RecoverySuccess++
+		}
+		if item.RecoveryTotal > 0 {
+			item.RecoveryHitRate = roundTo(float64(item.RecoverySuccess)/float64(item.RecoveryTotal), 4)
+		}
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) loadSchedulerJobRetryChildren(parentRunIDs []string) ([]schedulerJobRetryChild, error) {
+	if len(parentRunIDs) == 0 {
+		return []schedulerJobRetryChild{}, nil
+	}
+	placeholder := strings.TrimSuffix(strings.Repeat("?,", len(parentRunIDs)), ",")
+	query := fmt.Sprintf(`
+SELECT id, parent_run_id, job_name, status, retry_count
+FROM scheduler_job_runs
+WHERE parent_run_id IN (%s)
+ORDER BY retry_count ASC, id ASC`, placeholder)
+	args := make([]interface{}, 0, len(parentRunIDs))
+	for _, id := range parentRunIDs {
+		args = append(args, id)
+	}
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]schedulerJobRetryChild, 0)
+	for rows.Next() {
+		var item schedulerJobRetryChild
+		if err := rows.Scan(&item.ID, &item.ParentRunID, &item.JobName, &item.Status, &item.RetryCount); err != nil {
+			return nil, err
+		}
+		item.ID = strings.TrimSpace(item.ID)
+		item.ParentRunID = strings.TrimSpace(item.ParentRunID)
+		item.JobName = strings.TrimSpace(item.JobName)
+		item.Status = strings.TrimSpace(item.Status)
+		if item.ID == "" || item.ParentRunID == "" {
+			continue
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+type schedulerFailureReasonAggregate struct {
+	JobName        string
+	Reason         string
+	Count          int
+	LastOccurredAt time.Time
+}
+
+func normalizeSchedulerFailureReason(raw string) string {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return "UNKNOWN_ERROR"
+	}
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(lower, "tushare") && strings.Contains(lower, "token"):
+		return "TUSHARE_TOKEN_INVALID_OR_MISSING"
+	case strings.Contains(lower, "error 2003"), strings.Contains(lower, "can’t connect"), strings.Contains(lower, "can't connect"):
+		return "MYSQL_CONNECTION_FAILED"
+	case strings.Contains(lower, "error 1146"):
+		return "TABLE_NOT_FOUND"
+	case strings.Contains(lower, "timeout"):
+		return "UPSTREAM_TIMEOUT"
+	case strings.Contains(lower, "status: 5"), strings.Contains(lower, "status code: 5"), strings.Contains(lower, "internal server error"):
+		return "UPSTREAM_5XX"
+	case strings.Contains(lower, "permission"), strings.Contains(lower, "forbidden"), strings.Contains(lower, "unauthorized"):
+		return "PERMISSION_DENIED"
+	case strings.Contains(lower, "unknown job"):
+		return "UNKNOWN_JOB_NAME"
+	default:
+		text = strings.ReplaceAll(text, "\n", " ")
+		text = strings.Join(strings.Fields(text), " ")
+		if len(text) > 96 {
+			text = text[:96]
+		}
+		return text
+	}
 }
 
 type sqlExecer interface {
@@ -3906,9 +9564,252 @@ func (r *MySQLGrowthRepo) applyModuleTargetStatus(execer sqlExecer, module strin
 	return nil
 }
 
+type vipLifecycleRuntimeConfig struct {
+	Enabled         bool
+	RemindDaysThree int
+	RemindDaysOne   int
+}
+
+func (r *MySQLGrowthRepo) AdminRunVIPMembershipLifecycle() (string, error) {
+	cfg := r.resolveVIPLifecycleRuntimeConfig()
+	if !cfg.Enabled {
+		return "vip lifecycle disabled", nil
+	}
+
+	now := time.Now()
+	tx, err := r.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	remindThreeCount, err := r.sendVIPExpiryReminder(tx, now, cfg.RemindDaysThree, "vip_remind_3d_at")
+	if err != nil {
+		return "", err
+	}
+	remindOneCount, err := r.sendVIPExpiryReminder(tx, now, cfg.RemindDaysOne, "vip_remind_1d_at")
+	if err != nil {
+		return "", err
+	}
+	expiredCount, err := r.expireVIPUsers(tx, now)
+	if err != nil {
+		return "", err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(
+		"vip_remind_3d=%d vip_remind_1d=%d vip_expired=%d",
+		remindThreeCount,
+		remindOneCount,
+		expiredCount,
+	), nil
+}
+
+func (r *MySQLGrowthRepo) resolveVIPLifecycleRuntimeConfig() vipLifecycleRuntimeConfig {
+	cfg := vipLifecycleRuntimeConfig{
+		Enabled:         true,
+		RemindDaysThree: 3,
+		RemindDaysOne:   1,
+	}
+	items, _, err := r.AdminListSystemConfigs("membership.vip.lifecycle.", 1, 50)
+	if err != nil {
+		return cfg
+	}
+	for _, item := range items {
+		key := strings.ToLower(strings.TrimSpace(item.ConfigKey))
+		value := strings.TrimSpace(item.ConfigValue)
+		switch key {
+		case "membership.vip.lifecycle.enabled":
+			cfg.Enabled = parseRepoConfigBool(value, cfg.Enabled)
+		case "membership.vip.lifecycle.remind_days_3":
+			cfg.RemindDaysThree = parseRepoConfigInt(value, cfg.RemindDaysThree)
+		case "membership.vip.lifecycle.remind_days_1":
+			cfg.RemindDaysOne = parseRepoConfigInt(value, cfg.RemindDaysOne)
+		}
+	}
+	if cfg.RemindDaysThree < 1 {
+		cfg.RemindDaysThree = 3
+	}
+	if cfg.RemindDaysOne < 1 {
+		cfg.RemindDaysOne = 1
+	}
+	if cfg.RemindDaysThree < cfg.RemindDaysOne {
+		cfg.RemindDaysThree = cfg.RemindDaysOne + 1
+	}
+	return cfg
+}
+
+func (r *MySQLGrowthRepo) sendVIPExpiryReminder(tx *sql.Tx, now time.Time, remindDays int, remindColumn string) (int, error) {
+	if remindDays <= 0 {
+		return 0, nil
+	}
+	if remindColumn != "vip_remind_3d_at" && remindColumn != "vip_remind_1d_at" {
+		return 0, nil
+	}
+	endAt := now.AddDate(0, 0, remindDays)
+	query := fmt.Sprintf(`
+SELECT id, member_level, vip_expire_at
+FROM users
+WHERE member_level LIKE 'VIP%%'
+  AND vip_expire_at IS NOT NULL
+  AND vip_expire_at > ?
+  AND vip_expire_at <= ?
+  AND %s IS NULL
+ORDER BY vip_expire_at ASC
+LIMIT 500`, remindColumn)
+
+	rows, err := tx.Query(query, now, endAt)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	type reminderCandidate struct {
+		UserID      string
+		MemberLevel string
+		ExpireAt    time.Time
+	}
+	candidates := make([]reminderCandidate, 0)
+	for rows.Next() {
+		var item reminderCandidate
+		if err := rows.Scan(&item.UserID, &item.MemberLevel, &item.ExpireAt); err != nil {
+			return 0, err
+		}
+		item.UserID = strings.TrimSpace(item.UserID)
+		item.MemberLevel = strings.ToUpper(strings.TrimSpace(item.MemberLevel))
+		if item.UserID == "" || !strings.HasPrefix(item.MemberLevel, "VIP") {
+			continue
+		}
+		candidates = append(candidates, item)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	count := 0
+	for _, item := range candidates {
+		res, err := tx.Exec(
+			fmt.Sprintf("UPDATE users SET %s = ?, updated_at = ? WHERE id = ? AND %s IS NULL", remindColumn, remindColumn),
+			now,
+			now,
+			item.UserID,
+		)
+		if err != nil {
+			return count, err
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			continue
+		}
+		daysLeft := vipRemainingDays(sql.NullTime{Time: item.ExpireAt, Valid: true}, now)
+		if daysLeft < 1 {
+			daysLeft = 1
+		}
+		title := "VIP到期提醒"
+		content := fmt.Sprintf(
+			"您的%s将于%s到期（约剩余%d天），到期后VIP权限将自动暂停。",
+			item.MemberLevel,
+			item.ExpireAt.Format("2006-01-02 15:04:05"),
+			daysLeft,
+		)
+		if err := insertSystemMessageTx(tx, item.UserID, title, content, now); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+func (r *MySQLGrowthRepo) expireVIPUsers(tx *sql.Tx, now time.Time) (int, error) {
+	rows, err := tx.Query(`
+SELECT id, member_level, vip_expire_at
+FROM users
+WHERE member_level LIKE 'VIP%'
+  AND vip_expire_at IS NOT NULL
+  AND vip_expire_at <= ?
+ORDER BY vip_expire_at ASC
+LIMIT 2000`, now)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	type expiredCandidate struct {
+		UserID      string
+		MemberLevel string
+		ExpireAt    time.Time
+	}
+	candidates := make([]expiredCandidate, 0)
+	for rows.Next() {
+		var item expiredCandidate
+		if err := rows.Scan(&item.UserID, &item.MemberLevel, &item.ExpireAt); err != nil {
+			return 0, err
+		}
+		item.UserID = strings.TrimSpace(item.UserID)
+		item.MemberLevel = strings.ToUpper(strings.TrimSpace(item.MemberLevel))
+		if item.UserID == "" || !strings.HasPrefix(item.MemberLevel, "VIP") {
+			continue
+		}
+		candidates = append(candidates, item)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	count := 0
+	for _, item := range candidates {
+		res, err := tx.Exec(`
+UPDATE users
+SET member_level = 'FREE',
+    vip_started_at = NULL,
+    vip_expire_at = NULL,
+    vip_remind_3d_at = NULL,
+    vip_remind_1d_at = NULL,
+    updated_at = ?
+WHERE id = ? AND member_level LIKE 'VIP%'`,
+			now,
+			item.UserID,
+		)
+		if err != nil {
+			return count, err
+		}
+		affected, _ := res.RowsAffected()
+		if affected == 0 {
+			continue
+		}
+		title := "VIP已到期暂停"
+		content := fmt.Sprintf(
+			"您的%s已于%s到期，当前已自动切换为免费权限。",
+			item.MemberLevel,
+			item.ExpireAt.Format("2006-01-02 15:04:05"),
+		)
+		if err := insertSystemMessageTx(tx, item.UserID, title, content, now); err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
+}
+
+func insertSystemMessageTx(tx *sql.Tx, userID string, title string, content string, now time.Time) error {
+	_, err := tx.Exec(`
+INSERT INTO messages (id, user_id, title, content, type, read_status, created_at)
+VALUES (?, ?, ?, ?, 'SYSTEM', 'UNREAD', ?)`,
+		newID("msg"),
+		userID,
+		truncateByRunes(strings.TrimSpace(title), 128),
+		truncateByRunes(strings.TrimSpace(content), 2048),
+		now,
+	)
+	return err
+}
+
 func (r *MySQLGrowthRepo) isVIPUser(userID string) (bool, error) {
 	var memberLevel string
-	err := r.db.QueryRow("SELECT member_level FROM users WHERE id = ?", userID).Scan(&memberLevel)
+	var vipExpireAt sql.NullTime
+	err := r.db.QueryRow("SELECT member_level, vip_expire_at FROM users WHERE id = ?", userID).Scan(&memberLevel, &vipExpireAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
@@ -3916,9 +9817,2178 @@ func (r *MySQLGrowthRepo) isVIPUser(userID string) (bool, error) {
 		return false, err
 	}
 	memberLevel = strings.ToUpper(strings.TrimSpace(memberLevel))
-	return strings.HasPrefix(memberLevel, "VIP"), nil
+	if !strings.HasPrefix(memberLevel, "VIP") {
+		return false, nil
+	}
+	now := time.Now()
+	if vipExpireAt.Valid && !vipExpireAt.Time.After(now) {
+		if _, err := r.db.Exec(`
+UPDATE users
+SET member_level = 'FREE',
+    vip_started_at = NULL,
+    vip_expire_at = NULL,
+    vip_remind_3d_at = NULL,
+    vip_remind_1d_at = NULL,
+    updated_at = ?
+WHERE id = ? AND member_level LIKE 'VIP%'`, now, userID); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	return true, nil
 }
 
 func newID(prefix string) string {
 	return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
+}
+
+func nullableString(value string) interface{} {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return trimmed
+}
+
+func formatNullTime(value sql.NullTime) string {
+	if value.Valid {
+		return value.Time.Format(time.RFC3339)
+	}
+	return ""
+}
+
+func vipRemainingDays(expireAt sql.NullTime, now time.Time) int {
+	if !expireAt.Valid {
+		return 0
+	}
+	if !expireAt.Time.After(now) {
+		return 0
+	}
+	hours := expireAt.Time.Sub(now).Hours()
+	if hours <= 0 {
+		return 0
+	}
+	days := int(math.Ceil(hours / 24))
+	if days < 0 {
+		return 0
+	}
+	return days
+}
+
+func vipStatusFromLevelAndExpire(memberLevel string, expireAt sql.NullTime, now time.Time) string {
+	level := strings.ToUpper(strings.TrimSpace(memberLevel))
+	if !strings.HasPrefix(level, "VIP") {
+		return "FREE"
+	}
+	if !expireAt.Valid {
+		return "ACTIVE"
+	}
+	if expireAt.Time.After(now) {
+		return "ACTIVE"
+	}
+	return "EXPIRED"
+}
+
+func resolveVIPStatusAndDays(memberLevel string, expireAt sql.NullTime) (string, int) {
+	now := time.Now()
+	return vipStatusFromLevelAndExpire(memberLevel, expireAt, now), vipRemainingDays(expireAt, now)
+}
+
+func parseRepoConfigBool(raw string, fallback bool) bool {
+	text := strings.ToLower(strings.TrimSpace(raw))
+	if text == "" {
+		return fallback
+	}
+	switch text {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		return fallback
+	}
+}
+
+func parseRepoConfigInt(raw string, fallback int) int {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(text)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+type stockQuoteCandle struct {
+	Symbol         string
+	TradeDate      time.Time
+	OpenPrice      float64
+	HighPrice      float64
+	LowPrice       float64
+	ClosePrice     float64
+	PrevClosePrice float64
+	Volume         float64
+	Turnover       float64
+}
+
+type stockDailyBasicPoint struct {
+	Symbol       string
+	TradeDate    time.Time
+	TurnoverRate float64
+	VolumeRatio  float64
+	PeTTM        float64
+	PB           float64
+	TotalMV      float64
+	CircMV       float64
+	SourceKey    string
+}
+
+type stockMoneyflowPoint struct {
+	Symbol        string
+	TradeDate     time.Time
+	NetMFAmount   float64
+	BuyLGAmount   float64
+	SellLGAmount  float64
+	BuyELGAmount  float64
+	SellELGAmount float64
+	SourceKey     string
+}
+
+type stockNewsRawPoint struct {
+	SourceKey   string
+	Symbol      string
+	PublishedAt time.Time
+	Title       string
+	Content     string
+	URL         string
+	Sentiment   string
+}
+
+type stockNewsSignal struct {
+	Heat         int
+	PositiveRate float64
+}
+
+type quantRiskAggregate struct {
+	Sum5  float64
+	Cnt5  int
+	Hit5  int
+	Sum10 float64
+	Cnt10 int
+	Hit10 int
+}
+
+type metricRange struct {
+	Min float64
+	Max float64
+}
+
+type dailyStockCandidate struct {
+	Symbol         string
+	Name           string
+	Score          float64
+	RiskLevel      string
+	PositionRange  string
+	ValidFrom      time.Time
+	ValidTo        time.Time
+	Status         string
+	ReasonSummary  string
+	TechScore      float64
+	FundScore      float64
+	SentimentScore float64
+	MoneyFlowScore float64
+	TakeProfit     string
+	StopLoss       string
+	RiskNote       string
+}
+
+func normalizeStockSymbolList(symbols []string) []string {
+	seen := make(map[string]struct{}, len(symbols))
+	result := make([]string, 0, len(symbols))
+	for _, symbol := range symbols {
+		normalized := strings.ToUpper(strings.TrimSpace(symbol))
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result
+}
+
+func defaultMockStockSymbols() []string {
+	return []string{
+		"600519.SH", "601318.SH", "600036.SH", "600276.SH", "601012.SH",
+		"000333.SZ", "300750.SZ", "002594.SZ", "688981.SH", "601888.SH",
+		"000858.SZ", "000001.SZ", "601166.SH", "300015.SZ", "000651.SZ",
+	}
+}
+
+func symbolSeed(symbol string) float64 {
+	sum := 0
+	for _, ch := range symbol {
+		sum += int(ch)
+	}
+	return float64((sum%97)+3) / 10.0
+}
+
+func mockBasePriceBySymbol(symbol string) float64 {
+	if strings.HasSuffix(symbol, ".SZ") {
+		return 18 + symbolSeed(symbol)*4.5
+	}
+	return 25 + symbolSeed(symbol)*5.2
+}
+
+func buildMockStockQuotes(symbols []string, days int, sourceKey string) []model.StockMarketQuote {
+	now := time.Now()
+	tradeDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	items := make([]model.StockMarketQuote, 0, len(symbols)*days)
+	for _, symbol := range symbols {
+		seed := symbolSeed(symbol)
+		prevClose := mockBasePriceBySymbol(symbol)
+		for offset := days - 1; offset >= 0; offset-- {
+			currentDay := tradeDay.AddDate(0, 0, -offset)
+			drift := 0.0008 + 0.0015*math.Sin(float64(days-offset)/11.0+seed/5.0)
+			wave := 0.006 * math.Sin(float64(offset)/2.7+seed)
+			noise := 0.003 * math.Cos(float64(offset)/1.9+seed*1.8)
+			closePrice := prevClose * (1 + drift + wave + noise)
+			if closePrice <= 0 {
+				closePrice = prevClose
+			}
+			openPrice := prevClose * (1 + noise*0.6)
+			highPrice := math.Max(openPrice, closePrice) * (1 + 0.002 + math.Abs(wave)*0.5)
+			lowPrice := math.Min(openPrice, closePrice) * (1 - 0.002 - math.Abs(wave)*0.45)
+			if lowPrice <= 0 {
+				lowPrice = math.Min(openPrice, closePrice)
+			}
+
+			volumeBase := 1_800_000 + seed*260_000
+			volumeWave := (1 + 0.35*math.Sin(float64(offset)/3.1+seed*0.7))
+			volume := int64(math.Max(200_000, math.Round(volumeBase*volumeWave)))
+			turnover := closePrice * float64(volume)
+
+			items = append(items, model.StockMarketQuote{
+				Symbol:         symbol,
+				TradeDate:      currentDay.Format("2006-01-02"),
+				OpenPrice:      roundTo(openPrice, 4),
+				HighPrice:      roundTo(highPrice, 4),
+				LowPrice:       roundTo(lowPrice, 4),
+				ClosePrice:     roundTo(closePrice, 4),
+				PrevClosePrice: roundTo(prevClose, 4),
+				Volume:         volume,
+				Turnover:       roundTo(turnover, 2),
+				SourceKey:      sourceKey,
+			})
+			prevClose = closePrice
+		}
+	}
+	return items
+}
+
+func fetchStockQuotesFromEndpoint(endpoint string, sourceKey string, symbols []string, days int, timeoutMS int) ([]model.StockMarketQuote, error) {
+	parsed, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil {
+		return nil, err
+	}
+	query := parsed.Query()
+	if len(symbols) > 0 {
+		query.Set("symbols", strings.Join(symbols, ","))
+	}
+	if days > 0 {
+		query.Set("days", strconv.Itoa(days))
+	}
+	parsed.RawQuery = query.Encode()
+	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+	resp, err := client.Get(parsed.String())
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("quotes endpoint status: %s", resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	type quoteItem struct {
+		Symbol         string  `json:"symbol"`
+		TradeDate      string  `json:"trade_date"`
+		Date           string  `json:"date"`
+		OpenPrice      float64 `json:"open_price"`
+		HighPrice      float64 `json:"high_price"`
+		LowPrice       float64 `json:"low_price"`
+		ClosePrice     float64 `json:"close_price"`
+		PrevClosePrice float64 `json:"prev_close_price"`
+		Volume         float64 `json:"volume"`
+		Turnover       float64 `json:"turnover"`
+	}
+	payload := struct {
+		Data  []quoteItem `json:"data"`
+		Items []quoteItem `json:"items"`
+	}{}
+	items := make([]quoteItem, 0)
+	if err := json.Unmarshal(body, &payload); err == nil {
+		if len(payload.Data) > 0 {
+			items = payload.Data
+		} else if len(payload.Items) > 0 {
+			items = payload.Items
+		}
+	}
+	if len(items) == 0 {
+		if err := json.Unmarshal(body, &items); err != nil {
+			return nil, err
+		}
+	}
+
+	symbolFilter := make(map[string]struct{}, len(symbols))
+	for _, symbol := range symbols {
+		symbolFilter[strings.ToUpper(strings.TrimSpace(symbol))] = struct{}{}
+	}
+
+	result := make([]model.StockMarketQuote, 0, len(items))
+	for _, item := range items {
+		symbol := strings.ToUpper(strings.TrimSpace(item.Symbol))
+		if symbol == "" {
+			continue
+		}
+		if len(symbolFilter) > 0 {
+			if _, ok := symbolFilter[symbol]; !ok {
+				continue
+			}
+		}
+		dateText := strings.TrimSpace(item.TradeDate)
+		if dateText == "" {
+			dateText = strings.TrimSpace(item.Date)
+		}
+		if dateText == "" {
+			continue
+		}
+		tradeDate, err := parseFlexibleDateTime(dateText)
+		if err != nil {
+			continue
+		}
+		closePrice := item.ClosePrice
+		if closePrice <= 0 {
+			continue
+		}
+		openPrice := item.OpenPrice
+		if openPrice <= 0 {
+			openPrice = closePrice
+		}
+		highPrice := item.HighPrice
+		if highPrice <= 0 {
+			highPrice = math.Max(openPrice, closePrice)
+		}
+		lowPrice := item.LowPrice
+		if lowPrice <= 0 {
+			lowPrice = math.Min(openPrice, closePrice)
+		}
+		prevClose := item.PrevClosePrice
+		if prevClose <= 0 {
+			prevClose = openPrice
+		}
+		volume := int64(math.Round(item.Volume))
+		if volume < 0 {
+			volume = 0
+		}
+		turnover := item.Turnover
+		if turnover <= 0 && volume > 0 {
+			turnover = closePrice * float64(volume)
+		}
+		result = append(result, model.StockMarketQuote{
+			Symbol:         symbol,
+			TradeDate:      tradeDate.Format("2006-01-02"),
+			OpenPrice:      roundTo(openPrice, 4),
+			HighPrice:      roundTo(highPrice, 4),
+			LowPrice:       roundTo(lowPrice, 4),
+			ClosePrice:     roundTo(closePrice, 4),
+			PrevClosePrice: roundTo(prevClose, 4),
+			Volume:         volume,
+			Turnover:       roundTo(turnover, 2),
+			SourceKey:      sourceKey,
+		})
+	}
+	return result, nil
+}
+
+func fetchStockQuotesFromTushare(token string, sourceKey string, symbols []string, days int, timeoutMS int) ([]model.StockMarketQuote, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, errors.New("tushare token not configured")
+	}
+	if timeoutMS <= 0 {
+		timeoutMS = 12000
+	}
+	startDate := time.Now().AddDate(0, 0, -(days + 20)).Format("20060102")
+	endDate := time.Now().Format("20060102")
+	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+	result := make([]model.StockMarketQuote, 0, len(symbols)*days)
+
+	for _, symbol := range symbols {
+		reqBody := map[string]interface{}{
+			"api_name": "daily",
+			"token":    token,
+			"params": map[string]string{
+				"ts_code":    symbol,
+				"start_date": startDate,
+				"end_date":   endDate,
+			},
+			"fields": "ts_code,trade_date,open,high,low,close,pre_close,vol,amount",
+		}
+		payload, err := json.Marshal(reqBody)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequest(http.MethodPost, "https://api.tushare.pro", bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("tushare status: %s", resp.Status)
+		}
+
+		parsed := struct {
+			Code int    `json:"code"`
+			Msg  string `json:"msg"`
+			Data struct {
+				Fields []string        `json:"fields"`
+				Items  [][]interface{} `json:"items"`
+			} `json:"data"`
+		}{}
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return nil, err
+		}
+		if parsed.Code != 0 {
+			return nil, fmt.Errorf("tushare error(%s): %s", symbol, strings.TrimSpace(parsed.Msg))
+		}
+		if len(parsed.Data.Fields) == 0 || len(parsed.Data.Items) == 0 {
+			continue
+		}
+
+		fieldIndex := make(map[string]int, len(parsed.Data.Fields))
+		for idx, field := range parsed.Data.Fields {
+			fieldIndex[strings.TrimSpace(field)] = idx
+		}
+
+		for _, row := range parsed.Data.Items {
+			tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+			if !ok {
+				continue
+			}
+			tradeDateRaw, ok := tushareGetString(row, fieldIndex, "trade_date")
+			if !ok {
+				continue
+			}
+			tradeDate, err := time.ParseInLocation("20060102", strings.TrimSpace(tradeDateRaw), time.Local)
+			if err != nil {
+				continue
+			}
+
+			openPrice, ok := tushareGetFloat(row, fieldIndex, "open")
+			if !ok {
+				continue
+			}
+			highPrice, ok := tushareGetFloat(row, fieldIndex, "high")
+			if !ok {
+				continue
+			}
+			lowPrice, ok := tushareGetFloat(row, fieldIndex, "low")
+			if !ok {
+				continue
+			}
+			closePrice, ok := tushareGetFloat(row, fieldIndex, "close")
+			if !ok || closePrice <= 0 {
+				continue
+			}
+			prevClose, ok := tushareGetFloat(row, fieldIndex, "pre_close")
+			if !ok || prevClose <= 0 {
+				prevClose = openPrice
+			}
+			volLot, _ := tushareGetFloat(row, fieldIndex, "vol")
+			amountK, _ := tushareGetFloat(row, fieldIndex, "amount")
+			volumeShares := int64(math.Round(volLot * 100))
+			if volumeShares < 0 {
+				volumeShares = 0
+			}
+			turnover := amountK * 1000
+			if turnover <= 0 && volumeShares > 0 {
+				turnover = closePrice * float64(volumeShares)
+			}
+
+			result = append(result, model.StockMarketQuote{
+				Symbol:         strings.ToUpper(strings.TrimSpace(tsCode)),
+				TradeDate:      tradeDate.Format("2006-01-02"),
+				OpenPrice:      roundTo(openPrice, 4),
+				HighPrice:      roundTo(highPrice, 4),
+				LowPrice:       roundTo(lowPrice, 4),
+				ClosePrice:     roundTo(closePrice, 4),
+				PrevClosePrice: roundTo(prevClose, 4),
+				Volume:         volumeShares,
+				Turnover:       roundTo(turnover, 2),
+				SourceKey:      sourceKey,
+			})
+		}
+	}
+	return result, nil
+}
+
+type tushareStdResponse struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data struct {
+		Fields []string        `json:"fields"`
+		Items  [][]interface{} `json:"items"`
+	} `json:"data"`
+}
+
+func callTushareAPI(client *http.Client, token string, apiName string, params map[string]string, fields string) (tushareStdResponse, error) {
+	request := map[string]interface{}{
+		"api_name": apiName,
+		"token":    token,
+		"params":   params,
+		"fields":   fields,
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return tushareStdResponse{}, err
+	}
+	req, err := http.NewRequest(http.MethodPost, "https://api.tushare.pro", bytes.NewReader(payload))
+	if err != nil {
+		return tushareStdResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return tushareStdResponse{}, err
+	}
+	body, readErr := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if readErr != nil {
+		return tushareStdResponse{}, readErr
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return tushareStdResponse{}, fmt.Errorf("tushare status: %s", resp.Status)
+	}
+	parsed := tushareStdResponse{}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return tushareStdResponse{}, err
+	}
+	if parsed.Code != 0 {
+		return tushareStdResponse{}, fmt.Errorf("tushare error(%s): %s", apiName, strings.TrimSpace(parsed.Msg))
+	}
+	return parsed, nil
+}
+
+func fetchStockDailyBasicsFromTushare(token string, sourceKey string, symbols []string, days int, timeoutMS int) ([]stockDailyBasicPoint, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, errors.New("tushare token not configured")
+	}
+	if timeoutMS <= 0 {
+		timeoutMS = 12000
+	}
+	if days <= 0 {
+		days = 120
+	}
+	startDate := time.Now().AddDate(0, 0, -(days + 20)).Format("20060102")
+	endDate := time.Now().Format("20060102")
+	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+	result := make([]stockDailyBasicPoint, 0, len(symbols)*days)
+	for _, symbol := range symbols {
+		parsed, err := callTushareAPI(client, token, "daily_basic", map[string]string{
+			"ts_code":    symbol,
+			"start_date": startDate,
+			"end_date":   endDate,
+		}, "ts_code,trade_date,turnover_rate,volume_ratio,pe_ttm,pb,total_mv,circ_mv")
+		if err != nil {
+			return nil, err
+		}
+		fieldIndex := make(map[string]int, len(parsed.Data.Fields))
+		for idx, field := range parsed.Data.Fields {
+			fieldIndex[strings.TrimSpace(field)] = idx
+		}
+		for _, row := range parsed.Data.Items {
+			tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+			if !ok {
+				continue
+			}
+			tradeDateRaw, ok := tushareGetString(row, fieldIndex, "trade_date")
+			if !ok {
+				continue
+			}
+			tradeDate, err := time.ParseInLocation("20060102", tradeDateRaw, time.Local)
+			if err != nil {
+				continue
+			}
+			turnoverRate, _ := tushareGetFloat(row, fieldIndex, "turnover_rate")
+			volumeRatio, _ := tushareGetFloat(row, fieldIndex, "volume_ratio")
+			peTTM, _ := tushareGetFloat(row, fieldIndex, "pe_ttm")
+			pb, _ := tushareGetFloat(row, fieldIndex, "pb")
+			totalMV, _ := tushareGetFloat(row, fieldIndex, "total_mv")
+			circMV, _ := tushareGetFloat(row, fieldIndex, "circ_mv")
+			result = append(result, stockDailyBasicPoint{
+				Symbol:       strings.ToUpper(strings.TrimSpace(tsCode)),
+				TradeDate:    tradeDate,
+				TurnoverRate: roundTo(turnoverRate, 4),
+				VolumeRatio:  roundTo(volumeRatio, 4),
+				PeTTM:        roundTo(peTTM, 4),
+				PB:           roundTo(pb, 4),
+				TotalMV:      roundTo(totalMV, 4),
+				CircMV:       roundTo(circMV, 4),
+				SourceKey:    sourceKey,
+			})
+		}
+	}
+	return result, nil
+}
+
+func fetchStockMoneyflowsFromTushare(token string, sourceKey string, symbols []string, days int, timeoutMS int) ([]stockMoneyflowPoint, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, errors.New("tushare token not configured")
+	}
+	if timeoutMS <= 0 {
+		timeoutMS = 12000
+	}
+	if days <= 0 {
+		days = 120
+	}
+	startDate := time.Now().AddDate(0, 0, -(days + 20)).Format("20060102")
+	endDate := time.Now().Format("20060102")
+	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+	result := make([]stockMoneyflowPoint, 0, len(symbols)*days)
+	for _, symbol := range symbols {
+		parsed, err := callTushareAPI(client, token, "moneyflow", map[string]string{
+			"ts_code":    symbol,
+			"start_date": startDate,
+			"end_date":   endDate,
+		}, "ts_code,trade_date,net_mf_amount,buy_lg_amount,sell_lg_amount,buy_elg_amount,sell_elg_amount")
+		if err != nil {
+			return nil, err
+		}
+		fieldIndex := make(map[string]int, len(parsed.Data.Fields))
+		for idx, field := range parsed.Data.Fields {
+			fieldIndex[strings.TrimSpace(field)] = idx
+		}
+		for _, row := range parsed.Data.Items {
+			tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+			if !ok {
+				continue
+			}
+			tradeDateRaw, ok := tushareGetString(row, fieldIndex, "trade_date")
+			if !ok {
+				continue
+			}
+			tradeDate, err := time.ParseInLocation("20060102", tradeDateRaw, time.Local)
+			if err != nil {
+				continue
+			}
+			netMFAmount, _ := tushareGetFloat(row, fieldIndex, "net_mf_amount")
+			buyLGAmount, _ := tushareGetFloat(row, fieldIndex, "buy_lg_amount")
+			sellLGAmount, _ := tushareGetFloat(row, fieldIndex, "sell_lg_amount")
+			buyELGAmount, _ := tushareGetFloat(row, fieldIndex, "buy_elg_amount")
+			sellELGAmount, _ := tushareGetFloat(row, fieldIndex, "sell_elg_amount")
+			result = append(result, stockMoneyflowPoint{
+				Symbol:        strings.ToUpper(strings.TrimSpace(tsCode)),
+				TradeDate:     tradeDate,
+				NetMFAmount:   roundTo(netMFAmount, 4),
+				BuyLGAmount:   roundTo(buyLGAmount, 4),
+				SellLGAmount:  roundTo(sellLGAmount, 4),
+				BuyELGAmount:  roundTo(buyELGAmount, 4),
+				SellELGAmount: roundTo(sellELGAmount, 4),
+				SourceKey:     sourceKey,
+			})
+		}
+	}
+	return result, nil
+}
+
+func fetchStockNewsFromTushare(token string, sourceKey string, symbols []string, days int, timeoutMS int) ([]stockNewsRawPoint, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, errors.New("tushare token not configured")
+	}
+	if timeoutMS <= 0 {
+		timeoutMS = 12000
+	}
+	if days <= 0 {
+		days = 14
+	}
+	startDate := time.Now().AddDate(0, 0, -days).Format("20060102")
+	endDate := time.Now().Format("20060102")
+	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+	result := make([]stockNewsRawPoint, 0, len(symbols)*3)
+	for _, symbol := range symbols {
+		parsed, err := callTushareAPI(client, token, "anns_d", map[string]string{
+			"ts_code":    symbol,
+			"start_date": startDate,
+			"end_date":   endDate,
+		}, "ts_code,ann_date,title,url,rec_time")
+		if err != nil {
+			return nil, err
+		}
+		fieldIndex := make(map[string]int, len(parsed.Data.Fields))
+		for idx, field := range parsed.Data.Fields {
+			fieldIndex[strings.TrimSpace(field)] = idx
+		}
+		for _, row := range parsed.Data.Items {
+			tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+			if !ok {
+				continue
+			}
+			title, ok := tushareGetString(row, fieldIndex, "title")
+			if !ok {
+				continue
+			}
+			urlText, _ := tushareGetString(row, fieldIndex, "url")
+			recTime, _ := tushareGetString(row, fieldIndex, "rec_time")
+			annDate, _ := tushareGetString(row, fieldIndex, "ann_date")
+			publishedAt := parseTushareNewsTime(recTime, annDate)
+			sentiment := classifyNewsSentiment(title)
+			result = append(result, stockNewsRawPoint{
+				SourceKey:   sourceKey,
+				Symbol:      strings.ToUpper(strings.TrimSpace(tsCode)),
+				PublishedAt: publishedAt,
+				Title:       strings.TrimSpace(title),
+				URL:         strings.TrimSpace(urlText),
+				Sentiment:   sentiment,
+			})
+		}
+	}
+	return result, nil
+}
+
+func parseTushareNewsTime(recTime string, annDate string) time.Time {
+	recTime = strings.TrimSpace(recTime)
+	annDate = strings.TrimSpace(annDate)
+	if recTime != "" {
+		if ts, err := time.ParseInLocation("2006-01-02 15:04:05", recTime, time.Local); err == nil {
+			return ts
+		}
+		if ts, err := time.ParseInLocation("2006-01-02 15:04", recTime, time.Local); err == nil {
+			return ts
+		}
+	}
+	if annDate != "" {
+		if ts, err := time.ParseInLocation("20060102", annDate, time.Local); err == nil {
+			return ts
+		}
+	}
+	return time.Now()
+}
+
+func classifyNewsSentiment(title string) string {
+	text := strings.ToLower(strings.TrimSpace(title))
+	if text == "" {
+		return "NEUTRAL"
+	}
+	positiveKeywords := []string{"增长", "预增", "中标", "回购", "增持", "突破", "创新高", "上调", "盈利", "签约", "positive", "upgrade"}
+	negativeKeywords := []string{"下滑", "预减", "亏损", "违约", "减持", "处罚", "风险", "暴跌", "下调", "诉讼", "negative", "downgrade"}
+	positiveHit := 0
+	negativeHit := 0
+	for _, keyword := range positiveKeywords {
+		if strings.Contains(text, keyword) {
+			positiveHit++
+		}
+	}
+	for _, keyword := range negativeKeywords {
+		if strings.Contains(text, keyword) {
+			negativeHit++
+		}
+	}
+	if positiveHit > negativeHit {
+		return "POSITIVE"
+	}
+	if negativeHit > positiveHit {
+		return "NEGATIVE"
+	}
+	return "NEUTRAL"
+}
+
+func tushareGetString(row []interface{}, fieldIndex map[string]int, key string) (string, bool) {
+	index, ok := fieldIndex[key]
+	if !ok || index < 0 || index >= len(row) {
+		return "", false
+	}
+	text := strings.TrimSpace(fmt.Sprintf("%v", row[index]))
+	if text == "" || text == "<nil>" {
+		return "", false
+	}
+	return text, true
+}
+
+func tushareGetFloat(row []interface{}, fieldIndex map[string]int, key string) (float64, bool) {
+	index, ok := fieldIndex[key]
+	if !ok || index < 0 || index >= len(row) {
+		return 0, false
+	}
+	value := row[index]
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case int32:
+		return float64(v), true
+	case json.Number:
+		num, err := v.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return num, true
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return 0, false
+		}
+		num, err := strconv.ParseFloat(trimmed, 64)
+		if err != nil {
+			return 0, false
+		}
+		return num, true
+	default:
+		text := strings.TrimSpace(fmt.Sprintf("%v", value))
+		if text == "" || text == "<nil>" {
+			return 0, false
+		}
+		num, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			return 0, false
+		}
+		return num, true
+	}
+}
+
+func (r *MySQLGrowthRepo) upsertStockMarketQuotes(items []model.StockMarketQuote) (int, error) {
+	affected := 0
+	for _, item := range items {
+		symbol := strings.ToUpper(strings.TrimSpace(item.Symbol))
+		if symbol == "" {
+			continue
+		}
+		tradeDate, err := parseFlexibleDateTime(item.TradeDate)
+		if err != nil {
+			return affected, err
+		}
+		if item.ClosePrice <= 0 {
+			continue
+		}
+		openPrice := item.OpenPrice
+		if openPrice <= 0 {
+			openPrice = item.ClosePrice
+		}
+		highPrice := item.HighPrice
+		if highPrice <= 0 {
+			highPrice = math.Max(openPrice, item.ClosePrice)
+		}
+		lowPrice := item.LowPrice
+		if lowPrice <= 0 {
+			lowPrice = math.Min(openPrice, item.ClosePrice)
+		}
+		prevClose := item.PrevClosePrice
+		if prevClose <= 0 {
+			prevClose = openPrice
+		}
+		sourceKey := strings.ToUpper(strings.TrimSpace(item.SourceKey))
+		if sourceKey == "" {
+			sourceKey = "MOCK"
+		}
+		_, err = r.db.Exec(`
+INSERT INTO stock_market_quotes
+  (id, symbol, trade_date, open_price, high_price, low_price, close_price, prev_close_price, volume, turnover, source_key, created_at, updated_at)
+VALUES
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+  open_price = VALUES(open_price),
+  high_price = VALUES(high_price),
+  low_price = VALUES(low_price),
+  close_price = VALUES(close_price),
+  prev_close_price = VALUES(prev_close_price),
+  volume = VALUES(volume),
+  turnover = VALUES(turnover),
+  source_key = VALUES(source_key),
+  updated_at = VALUES(updated_at)`,
+			newID("smq"),
+			symbol,
+			tradeDate.Format("2006-01-02"),
+			openPrice,
+			highPrice,
+			lowPrice,
+			item.ClosePrice,
+			prevClose,
+			item.Volume,
+			item.Turnover,
+			sourceKey,
+			time.Now(),
+			time.Now(),
+		)
+		if err != nil {
+			return affected, err
+		}
+		affected++
+	}
+	return affected, nil
+}
+
+func (r *MySQLGrowthRepo) upsertStockDailyBasics(items []stockDailyBasicPoint) (int, error) {
+	affected := 0
+	for _, item := range items {
+		symbol := strings.ToUpper(strings.TrimSpace(item.Symbol))
+		if symbol == "" {
+			continue
+		}
+		sourceKey := strings.ToUpper(strings.TrimSpace(item.SourceKey))
+		if sourceKey == "" {
+			sourceKey = "TUSHARE"
+		}
+		_, err := r.db.Exec(`
+INSERT INTO stock_daily_basic
+  (id, symbol, trade_date, turnover_rate, volume_ratio, pe_ttm, pb, total_mv, circ_mv, source_key, created_at, updated_at)
+VALUES
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+  turnover_rate = VALUES(turnover_rate),
+  volume_ratio = VALUES(volume_ratio),
+  pe_ttm = VALUES(pe_ttm),
+  pb = VALUES(pb),
+  total_mv = VALUES(total_mv),
+  circ_mv = VALUES(circ_mv),
+  source_key = VALUES(source_key),
+  updated_at = VALUES(updated_at)`,
+			newID("sdb"),
+			symbol,
+			item.TradeDate.Format("2006-01-02"),
+			item.TurnoverRate,
+			item.VolumeRatio,
+			item.PeTTM,
+			item.PB,
+			item.TotalMV,
+			item.CircMV,
+			sourceKey,
+			time.Now(),
+			time.Now(),
+		)
+		if err != nil {
+			return affected, err
+		}
+		affected++
+	}
+	return affected, nil
+}
+
+func (r *MySQLGrowthRepo) upsertStockMoneyflows(items []stockMoneyflowPoint) (int, error) {
+	affected := 0
+	for _, item := range items {
+		symbol := strings.ToUpper(strings.TrimSpace(item.Symbol))
+		if symbol == "" {
+			continue
+		}
+		sourceKey := strings.ToUpper(strings.TrimSpace(item.SourceKey))
+		if sourceKey == "" {
+			sourceKey = "TUSHARE"
+		}
+		_, err := r.db.Exec(`
+INSERT INTO stock_moneyflow_daily
+  (id, symbol, trade_date, net_mf_amount, buy_lg_amount, sell_lg_amount, buy_elg_amount, sell_elg_amount, source_key, created_at, updated_at)
+VALUES
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+  net_mf_amount = VALUES(net_mf_amount),
+  buy_lg_amount = VALUES(buy_lg_amount),
+  sell_lg_amount = VALUES(sell_lg_amount),
+  buy_elg_amount = VALUES(buy_elg_amount),
+  sell_elg_amount = VALUES(sell_elg_amount),
+  source_key = VALUES(source_key),
+  updated_at = VALUES(updated_at)`,
+			newID("smf"),
+			symbol,
+			item.TradeDate.Format("2006-01-02"),
+			item.NetMFAmount,
+			item.BuyLGAmount,
+			item.SellLGAmount,
+			item.BuyELGAmount,
+			item.SellELGAmount,
+			sourceKey,
+			time.Now(),
+			time.Now(),
+		)
+		if err != nil {
+			return affected, err
+		}
+		affected++
+	}
+	return affected, nil
+}
+
+func (r *MySQLGrowthRepo) upsertStockNewsRaw(items []stockNewsRawPoint) (int, error) {
+	affected := 0
+	for _, item := range items {
+		symbol := strings.ToUpper(strings.TrimSpace(item.Symbol))
+		title := strings.TrimSpace(item.Title)
+		if symbol == "" || title == "" || item.PublishedAt.IsZero() {
+			continue
+		}
+		sourceKey := strings.ToUpper(strings.TrimSpace(item.SourceKey))
+		if sourceKey == "" {
+			sourceKey = "TUSHARE"
+		}
+		sentiment := strings.ToUpper(strings.TrimSpace(item.Sentiment))
+		if sentiment == "" {
+			sentiment = "NEUTRAL"
+		}
+		_, err := r.db.Exec(`
+INSERT INTO stock_news_raw
+  (id, source_key, symbol, published_at, title, content, url, sentiment, created_at, updated_at)
+VALUES
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+  content = VALUES(content),
+  url = VALUES(url),
+  sentiment = VALUES(sentiment),
+  updated_at = VALUES(updated_at)`,
+			newID("snr"),
+			sourceKey,
+			symbol,
+			item.PublishedAt,
+			title,
+			nullableString(item.Content),
+			nullableString(item.URL),
+			sentiment,
+			time.Now(),
+			time.Now(),
+		)
+		if err != nil {
+			return affected, err
+		}
+		affected++
+	}
+	return affected, nil
+}
+
+func (r *MySQLGrowthRepo) loadLatestStockDailyBasics(sinceDate time.Time) (map[string]stockDailyBasicPoint, error) {
+	rows, err := r.db.Query(`
+SELECT t.symbol, t.trade_date, t.turnover_rate, t.volume_ratio, t.pe_ttm, t.pb, t.total_mv, t.circ_mv, t.source_key
+FROM stock_daily_basic t
+INNER JOIN (
+  SELECT symbol, MAX(trade_date) AS latest_trade_date
+  FROM stock_daily_basic
+  WHERE trade_date >= ?
+  GROUP BY symbol
+) latest
+ON latest.symbol = t.symbol AND latest.latest_trade_date = t.trade_date`, sinceDate.Format("2006-01-02"))
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return map[string]stockDailyBasicPoint{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]stockDailyBasicPoint)
+	for rows.Next() {
+		var (
+			item         stockDailyBasicPoint
+			turnoverRate sql.NullFloat64
+			volumeRatio  sql.NullFloat64
+			peTTM        sql.NullFloat64
+			pb           sql.NullFloat64
+			totalMV      sql.NullFloat64
+			circMV       sql.NullFloat64
+			sourceKey    sql.NullString
+		)
+		if err := rows.Scan(
+			&item.Symbol,
+			&item.TradeDate,
+			&turnoverRate,
+			&volumeRatio,
+			&peTTM,
+			&pb,
+			&totalMV,
+			&circMV,
+			&sourceKey,
+		); err != nil {
+			return nil, err
+		}
+		item.Symbol = strings.ToUpper(strings.TrimSpace(item.Symbol))
+		item.TurnoverRate = sqlNullFloat(turnoverRate)
+		item.VolumeRatio = sqlNullFloat(volumeRatio)
+		item.PeTTM = sqlNullFloat(peTTM)
+		item.PB = sqlNullFloat(pb)
+		item.TotalMV = sqlNullFloat(totalMV)
+		item.CircMV = sqlNullFloat(circMV)
+		if sourceKey.Valid {
+			item.SourceKey = strings.ToUpper(strings.TrimSpace(sourceKey.String))
+		}
+		if item.Symbol == "" {
+			continue
+		}
+		result[item.Symbol] = item
+	}
+	return result, nil
+}
+
+func (r *MySQLGrowthRepo) loadLatestStockMoneyflows(sinceDate time.Time) (map[string]stockMoneyflowPoint, error) {
+	rows, err := r.db.Query(`
+SELECT t.symbol, t.trade_date, t.net_mf_amount, t.buy_lg_amount, t.sell_lg_amount, t.buy_elg_amount, t.sell_elg_amount, t.source_key
+FROM stock_moneyflow_daily t
+INNER JOIN (
+  SELECT symbol, MAX(trade_date) AS latest_trade_date
+  FROM stock_moneyflow_daily
+  WHERE trade_date >= ?
+  GROUP BY symbol
+) latest
+ON latest.symbol = t.symbol AND latest.latest_trade_date = t.trade_date`, sinceDate.Format("2006-01-02"))
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return map[string]stockMoneyflowPoint{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]stockMoneyflowPoint)
+	for rows.Next() {
+		var (
+			item      stockMoneyflowPoint
+			netMF     sql.NullFloat64
+			buyLG     sql.NullFloat64
+			sellLG    sql.NullFloat64
+			buyELG    sql.NullFloat64
+			sellELG   sql.NullFloat64
+			sourceKey sql.NullString
+		)
+		if err := rows.Scan(
+			&item.Symbol,
+			&item.TradeDate,
+			&netMF,
+			&buyLG,
+			&sellLG,
+			&buyELG,
+			&sellELG,
+			&sourceKey,
+		); err != nil {
+			return nil, err
+		}
+		item.Symbol = strings.ToUpper(strings.TrimSpace(item.Symbol))
+		item.NetMFAmount = sqlNullFloat(netMF)
+		item.BuyLGAmount = sqlNullFloat(buyLG)
+		item.SellLGAmount = sqlNullFloat(sellLG)
+		item.BuyELGAmount = sqlNullFloat(buyELG)
+		item.SellELGAmount = sqlNullFloat(sellELG)
+		if sourceKey.Valid {
+			item.SourceKey = strings.ToUpper(strings.TrimSpace(sourceKey.String))
+		}
+		if item.Symbol == "" {
+			continue
+		}
+		result[item.Symbol] = item
+	}
+	return result, nil
+}
+
+func (r *MySQLGrowthRepo) loadStockNewsSignals(sinceTime time.Time) (map[string]stockNewsSignal, error) {
+	rows, err := r.db.Query(`
+SELECT symbol,
+       COUNT(*) AS heat,
+       SUM(CASE WHEN sentiment = 'POSITIVE' THEN 1 ELSE 0 END) AS positive_cnt
+FROM stock_news_raw
+WHERE published_at >= ?
+GROUP BY symbol`, sinceTime)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return map[string]stockNewsSignal{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]stockNewsSignal)
+	for rows.Next() {
+		var (
+			symbol      string
+			heat        int
+			positiveCnt int
+		)
+		if err := rows.Scan(&symbol, &heat, &positiveCnt); err != nil {
+			return nil, err
+		}
+		symbol = strings.ToUpper(strings.TrimSpace(symbol))
+		if symbol == "" || heat <= 0 {
+			continue
+		}
+		result[symbol] = stockNewsSignal{
+			Heat:         heat,
+			PositiveRate: float64(positiveCnt) / float64(heat),
+		}
+	}
+	return result, nil
+}
+
+func (r *MySQLGrowthRepo) persistStockQuantSnapshots(items []model.StockQuantScore) error {
+	if len(items) == 0 {
+		return nil
+	}
+	now := time.Now()
+	for _, item := range items {
+		tradeDate, err := parseFlexibleDateTime(item.TradeDate)
+		if err != nil {
+			continue
+		}
+		reasonsJSON, _ := json.Marshal(item.Reasons)
+		payloadJSON, _ := json.Marshal(item)
+		_, err = r.db.Exec(`
+INSERT INTO stock_factor_snapshot
+  (id, symbol, trade_date, total_score, trend_score, flow_score, value_score, news_score, risk_level, reason_summary, reasons_json, source_key, created_at, updated_at)
+VALUES
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+  total_score = VALUES(total_score),
+  trend_score = VALUES(trend_score),
+  flow_score = VALUES(flow_score),
+  value_score = VALUES(value_score),
+  news_score = VALUES(news_score),
+  risk_level = VALUES(risk_level),
+  reason_summary = VALUES(reason_summary),
+  reasons_json = VALUES(reasons_json),
+  source_key = VALUES(source_key),
+  updated_at = VALUES(updated_at)`,
+			newID("sfs"),
+			item.Symbol,
+			tradeDate.Format("2006-01-02"),
+			item.Score,
+			item.TrendScore,
+			item.FlowScore,
+			item.ValueScore,
+			item.NewsScore,
+			item.RiskLevel,
+			nullableString(item.ReasonSummary),
+			string(reasonsJSON),
+			"QUANT_V2",
+			now,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+		_, err = r.db.Exec(`
+INSERT INTO stock_rank_daily
+  (id, trade_date, rank_no, symbol, name, total_score, risk_level, reason_summary, payload_json, created_at, updated_at)
+VALUES
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+  rank_no = VALUES(rank_no),
+  name = VALUES(name),
+  total_score = VALUES(total_score),
+  risk_level = VALUES(risk_level),
+  reason_summary = VALUES(reason_summary),
+  payload_json = VALUES(payload_json),
+  updated_at = VALUES(updated_at)`,
+			newID("srd"),
+			tradeDate.Format("2006-01-02"),
+			item.Rank,
+			item.Symbol,
+			nullableString(item.Name),
+			item.Score,
+			item.RiskLevel,
+			nullableString(item.ReasonSummary),
+			string(payloadJSON),
+			now,
+			now,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) loadStockQuotesBySymbol(sinceDate time.Time) (map[string][]stockQuoteCandle, error) {
+	rows, err := r.db.Query(`
+SELECT symbol, trade_date, open_price, high_price, low_price, close_price, prev_close_price, volume, turnover
+FROM stock_market_quotes
+WHERE trade_date >= ?
+ORDER BY symbol ASC, trade_date ASC`, sinceDate.Format("2006-01-02"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string][]stockQuoteCandle)
+	for rows.Next() {
+		var item stockQuoteCandle
+		var prevClose sql.NullFloat64
+		var turnover sql.NullFloat64
+		if err := rows.Scan(
+			&item.Symbol,
+			&item.TradeDate,
+			&item.OpenPrice,
+			&item.HighPrice,
+			&item.LowPrice,
+			&item.ClosePrice,
+			&prevClose,
+			&item.Volume,
+			&turnover,
+		); err != nil {
+			return nil, err
+		}
+		item.Symbol = strings.ToUpper(strings.TrimSpace(item.Symbol))
+		if prevClose.Valid {
+			item.PrevClosePrice = prevClose.Float64
+		}
+		if turnover.Valid {
+			item.Turnover = turnover.Float64
+		}
+		if item.Symbol == "" || item.ClosePrice <= 0 {
+			continue
+		}
+		result[item.Symbol] = append(result[item.Symbol], item)
+	}
+	return result, nil
+}
+
+func (r *MySQLGrowthRepo) loadBenchmarkQuoteSeries(sinceDate time.Time) ([]stockQuoteCandle, error) {
+	benchmarkSymbols := []string{
+		"000300.SH",
+		"399001.SZ",
+		"000001.SH",
+		"399006.SZ",
+	}
+	symbols := normalizeStockSymbolList(benchmarkSymbols)
+	placeholder := strings.TrimSuffix(strings.Repeat("?,", len(symbols)), ",")
+	args := make([]interface{}, 0, len(symbols)+1)
+	args = append(args, sinceDate.Format("2006-01-02"))
+	for _, symbol := range symbols {
+		args = append(args, symbol)
+	}
+	query := fmt.Sprintf(`
+SELECT symbol, trade_date, open_price, high_price, low_price, close_price, prev_close_price, volume, turnover
+FROM stock_market_quotes
+WHERE trade_date >= ? AND symbol IN (%s)
+ORDER BY trade_date ASC, symbol ASC`, placeholder)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return []stockQuoteCandle{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	seriesByDate := make(map[string][]float64)
+	for rows.Next() {
+		var (
+			symbol     string
+			tradeDate  time.Time
+			openPrice  float64
+			highPrice  float64
+			lowPrice   float64
+			closePrice float64
+			prevClose  sql.NullFloat64
+			volume     sql.NullInt64
+			turnover   sql.NullFloat64
+		)
+		if err := rows.Scan(&symbol, &tradeDate, &openPrice, &highPrice, &lowPrice, &closePrice, &prevClose, &volume, &turnover); err != nil {
+			return nil, err
+		}
+		if closePrice <= 0 {
+			continue
+		}
+		key := tradeDate.Format("2006-01-02")
+		seriesByDate[key] = append(seriesByDate[key], closePrice)
+	}
+	dateKeys := make([]string, 0, len(seriesByDate))
+	for date := range seriesByDate {
+		dateKeys = append(dateKeys, date)
+	}
+	sort.Strings(dateKeys)
+	result := make([]stockQuoteCandle, 0, len(dateKeys))
+	prev := 0.0
+	for _, date := range dateKeys {
+		values := seriesByDate[date]
+		if len(values) == 0 {
+			continue
+		}
+		meanClose := avgFloat(values)
+		if meanClose <= 0 {
+			continue
+		}
+		tradeDate, err := time.ParseInLocation("2006-01-02", date, time.Local)
+		if err != nil {
+			continue
+		}
+		if prev <= 0 {
+			prev = meanClose
+		}
+		result = append(result, stockQuoteCandle{
+			Symbol:         "BENCHMARK",
+			TradeDate:      tradeDate,
+			OpenPrice:      meanClose,
+			HighPrice:      meanClose,
+			LowPrice:       meanClose,
+			ClosePrice:     meanClose,
+			PrevClosePrice: prev,
+		})
+		prev = meanClose
+	}
+	return result, nil
+}
+
+func (r *MySQLGrowthRepo) loadQuantRiskLevelByDateSymbol(sinceDate time.Time, topN int) (map[string]string, error) {
+	rows, err := r.db.Query(`
+SELECT r.trade_date, r.symbol, COALESCE(NULLIF(s.risk_level, ''), 'MEDIUM') AS risk_level
+FROM stock_rank_daily r
+LEFT JOIN stock_factor_snapshot s
+  ON s.trade_date = r.trade_date AND s.symbol = r.symbol
+WHERE r.trade_date >= ? AND r.rank_no <= ?`, sinceDate.Format("2006-01-02"), topN)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return map[string]string{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]string)
+	for rows.Next() {
+		var (
+			tradeDate time.Time
+			symbol    string
+			riskLevel sql.NullString
+		)
+		if err := rows.Scan(&tradeDate, &symbol, &riskLevel); err != nil {
+			return nil, err
+		}
+		symbol = strings.ToUpper(strings.TrimSpace(symbol))
+		if symbol == "" {
+			continue
+		}
+		risk := "MEDIUM"
+		if riskLevel.Valid {
+			risk = resolveQuantRiskLevel(riskLevel.String)
+		}
+		result[tradeDate.Format("2006-01-02")+"|"+symbol] = risk
+	}
+	return result, nil
+}
+
+func resolveQuantRiskLevel(raw string) string {
+	risk := strings.ToUpper(strings.TrimSpace(raw))
+	switch risk {
+	case "LOW", "MEDIUM", "HIGH":
+		return risk
+	default:
+		return "MEDIUM"
+	}
+}
+
+func buildQuantRiskPerformanceItems(aggMap map[string]*quantRiskAggregate) []model.StockQuantRiskPerformance {
+	if len(aggMap) == 0 {
+		return []model.StockQuantRiskPerformance{}
+	}
+	orderedRiskLevels := []string{"LOW", "MEDIUM", "HIGH"}
+	items := make([]model.StockQuantRiskPerformance, 0, len(orderedRiskLevels))
+	for _, riskLevel := range orderedRiskLevels {
+		agg := aggMap[riskLevel]
+		if agg == nil {
+			continue
+		}
+		item := model.StockQuantRiskPerformance{
+			RiskLevel:   riskLevel,
+			SampleCount: agg.Cnt5,
+		}
+		if agg.Cnt5 > 0 {
+			item.AvgReturn5 = roundTo(agg.Sum5/float64(agg.Cnt5), 4)
+			item.HitRate5 = roundTo(float64(agg.Hit5)/float64(agg.Cnt5), 4)
+		}
+		if agg.Cnt10 > 0 {
+			item.AvgReturn10 = roundTo(agg.Sum10/float64(agg.Cnt10), 4)
+			item.HitRate10 = roundTo(float64(agg.Hit10)/float64(agg.Cnt10), 4)
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func buildQuantRotationItems(tradeDates []string, dayTopSymbols map[string][]string) []model.StockQuantRotationPoint {
+	if len(tradeDates) == 0 {
+		return []model.StockQuantRotationPoint{}
+	}
+	result := make([]model.StockQuantRotationPoint, 0, len(tradeDates))
+	prevSymbols := []string{}
+	prevSet := make(map[string]struct{})
+	for _, tradeDate := range tradeDates {
+		currSymbols := uniqueUpperSymbols(dayTopSymbols[tradeDate])
+		currSet := make(map[string]struct{}, len(currSymbols))
+		for _, symbol := range currSymbols {
+			currSet[symbol] = struct{}{}
+		}
+		entered := make([]string, 0)
+		for _, symbol := range currSymbols {
+			if _, ok := prevSet[symbol]; !ok {
+				entered = append(entered, symbol)
+			}
+		}
+		exited := make([]string, 0)
+		for _, symbol := range prevSymbols {
+			if _, ok := currSet[symbol]; !ok {
+				exited = append(exited, symbol)
+			}
+		}
+		stayed := len(currSymbols) - len(entered)
+		if stayed < 0 {
+			stayed = 0
+		}
+		result = append(result, model.StockQuantRotationPoint{
+			TradeDate:    tradeDate,
+			TopSymbols:   currSymbols,
+			Entered:      entered,
+			Exited:       exited,
+			StayedCount:  stayed,
+			ChangedCount: len(entered) + len(exited),
+		})
+		prevSymbols = currSymbols
+		prevSet = currSet
+	}
+	return result
+}
+
+func uniqueUpperSymbols(symbols []string) []string {
+	seen := make(map[string]struct{}, len(symbols))
+	result := make([]string, 0, len(symbols))
+	for _, symbol := range symbols {
+		normalized := strings.ToUpper(strings.TrimSpace(symbol))
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result
+}
+
+func calcForwardReturn(quotes []stockQuoteCandle, tradeDate time.Time, horizon int) (float64, bool) {
+	if horizon <= 0 || len(quotes) == 0 {
+		return 0, false
+	}
+	indexByDate := make(map[string]int, len(quotes))
+	for idx, quote := range quotes {
+		indexByDate[quote.TradeDate.Format("2006-01-02")] = idx
+	}
+	key := tradeDate.Format("2006-01-02")
+	startIndex, ok := indexByDate[key]
+	if !ok {
+		return 0, false
+	}
+	targetIndex := startIndex + horizon
+	if targetIndex >= len(quotes) {
+		return 0, false
+	}
+	startClose := quotes[startIndex].ClosePrice
+	targetClose := quotes[targetIndex].ClosePrice
+	if startClose <= 0 || targetClose <= 0 {
+		return 0, false
+	}
+	return targetClose/startClose - 1, true
+}
+
+func buildStockQuantScore(symbol string, quotes []stockQuoteCandle) (model.StockQuantScore, bool) {
+	if len(quotes) < 25 {
+		return model.StockQuantScore{}, false
+	}
+	lastIndex := len(quotes) - 1
+	index5 := lastIndex - 5
+	index20 := lastIndex - 20
+	if index5 < 0 || index20 < 0 {
+		return model.StockQuantScore{}, false
+	}
+	latest := quotes[lastIndex]
+	base5 := quotes[index5].ClosePrice
+	base20 := quotes[index20].ClosePrice
+	if base5 <= 0 || base20 <= 0 || latest.ClosePrice <= 0 {
+		return model.StockQuantScore{}, false
+	}
+
+	momentum5 := (latest.ClosePrice/base5 - 1) * 100
+	momentum20 := (latest.ClosePrice/base20 - 1) * 100
+
+	returns := make([]float64, 0, 20)
+	for idx := index20 + 1; idx <= lastIndex; idx++ {
+		prev := quotes[idx-1].ClosePrice
+		curr := quotes[idx].ClosePrice
+		if prev <= 0 || curr <= 0 {
+			continue
+		}
+		returns = append(returns, curr/prev-1)
+	}
+	if len(returns) < 10 {
+		return model.StockQuantScore{}, false
+	}
+	volatility20 := calculateStdDev(returns) * 100
+
+	volumeSum := 0.0
+	volumeCount := 0
+	startVolume := maxInt(0, lastIndex-20)
+	for idx := startVolume; idx < lastIndex; idx++ {
+		if quotes[idx].Volume <= 0 {
+			continue
+		}
+		volumeSum += quotes[idx].Volume
+		volumeCount++
+	}
+	avgVolume := volumeSum
+	if volumeCount > 0 {
+		avgVolume = volumeSum / float64(volumeCount)
+	}
+	volumeRatio := 1.0
+	if avgVolume > 0 && latest.Volume > 0 {
+		volumeRatio = latest.Volume / avgVolume
+	}
+
+	startDrawdown := maxInt(0, len(quotes)-20)
+	peak := quotes[startDrawdown].ClosePrice
+	maxDrawdown := 0.0
+	for idx := startDrawdown; idx <= lastIndex; idx++ {
+		closePrice := quotes[idx].ClosePrice
+		if closePrice > peak {
+			peak = closePrice
+		}
+		if peak > 0 {
+			drawdown := (peak - closePrice) / peak * 100
+			if drawdown > maxDrawdown {
+				maxDrawdown = drawdown
+			}
+		}
+	}
+
+	ma5 := 0.0
+	for idx := lastIndex - 4; idx <= lastIndex; idx++ {
+		ma5 += quotes[idx].ClosePrice
+	}
+	ma5 /= 5
+	ma20 := 0.0
+	for idx := lastIndex - 19; idx <= lastIndex; idx++ {
+		ma20 += quotes[idx].ClosePrice
+	}
+	ma20 /= 20
+	trendStrength := 0.0
+	if ma20 > 0 {
+		trendStrength = (ma5/ma20 - 1) * 100
+	}
+
+	return model.StockQuantScore{
+		Symbol:        symbol,
+		TradeDate:     latest.TradeDate.Format("2006-01-02"),
+		ClosePrice:    latest.ClosePrice,
+		Momentum5:     momentum5,
+		Momentum20:    momentum20,
+		Volatility20:  volatility20,
+		VolumeRatio:   volumeRatio,
+		Drawdown20:    maxDrawdown,
+		TrendStrength: trendStrength,
+		RiskLevel:     classifyQuantRisk(volatility20, maxDrawdown),
+	}, true
+}
+
+func classifyQuantRisk(volatility20 float64, drawdown20 float64) string {
+	if volatility20 >= 4.0 || drawdown20 >= 12 {
+		return "HIGH"
+	}
+	if volatility20 >= 2.5 || drawdown20 >= 7 {
+		return "MEDIUM"
+	}
+	return "LOW"
+}
+
+func quantRiskPenalty(item model.StockQuantScore) float64 {
+	penalty := 0.0
+	if item.Volatility20 >= 5.0 {
+		penalty += 4.0
+	}
+	if item.Drawdown20 >= 16 {
+		penalty += 5.0
+	}
+	if item.NetMFAmount < 0 {
+		penalty += 2.5
+	}
+	if item.PeTTM > 0 && item.PeTTM >= 60 {
+		penalty += 2.0
+	}
+	if item.NewsHeat >= 3 && item.PositiveNewsRate > 0 && item.PositiveNewsRate < 0.3 {
+		penalty += 2.0
+	}
+	return penalty
+}
+
+func passesQuantRiskGate(item model.StockQuantScore) bool {
+	if item.ClosePrice <= 0 {
+		return false
+	}
+	if item.Volatility20 >= 9.0 {
+		return false
+	}
+	if item.Drawdown20 >= 25 {
+		return false
+	}
+	if item.VolumeRatio <= 0.15 {
+		return false
+	}
+	if item.Momentum20 <= -12 {
+		return false
+	}
+	if item.PeTTM > 0 && item.PeTTM >= 200 {
+		return false
+	}
+	if item.PB > 0 && item.PB >= 30 {
+		return false
+	}
+	if item.NewsHeat >= 5 && item.PositiveNewsRate > 0 && item.PositiveNewsRate < 0.2 {
+		return false
+	}
+	return true
+}
+
+func quantBucketBySymbol(symbol string) string {
+	normalized := strings.ToUpper(strings.TrimSpace(symbol))
+	if strings.HasPrefix(normalized, "68") && strings.HasSuffix(normalized, ".SH") {
+		return "KCB"
+	}
+	if strings.HasPrefix(normalized, "30") && strings.HasSuffix(normalized, ".SZ") {
+		return "CYB"
+	}
+	if strings.HasPrefix(normalized, "60") && strings.HasSuffix(normalized, ".SH") {
+		return "MAIN_SH"
+	}
+	if (strings.HasPrefix(normalized, "00") || strings.HasPrefix(normalized, "002")) && strings.HasSuffix(normalized, ".SZ") {
+		return "MAIN_SZ"
+	}
+	if strings.HasSuffix(normalized, ".BJ") {
+		return "BJ"
+	}
+	if strings.HasSuffix(normalized, ".SH") {
+		return "SH"
+	}
+	if strings.HasSuffix(normalized, ".SZ") {
+		return "SZ"
+	}
+	return "OTHER"
+}
+
+func selectDiversifiedQuantTop(items []model.StockQuantScore, limit int) []model.StockQuantScore {
+	if len(items) <= limit {
+		return items
+	}
+	capByBucket := maxInt(1, int(math.Ceil(float64(limit)*0.4)))
+	selected := make([]model.StockQuantScore, 0, limit)
+	overflow := make([]model.StockQuantScore, 0, len(items))
+	bucketCount := make(map[string]int)
+	for _, item := range items {
+		bucket := quantBucketBySymbol(item.Symbol)
+		if bucketCount[bucket] < capByBucket {
+			selected = append(selected, item)
+			bucketCount[bucket]++
+		} else {
+			overflow = append(overflow, item)
+		}
+		if len(selected) >= limit {
+			return selected
+		}
+	}
+	for _, item := range overflow {
+		if len(selected) >= limit {
+			break
+		}
+		selected = append(selected, item)
+	}
+	if len(selected) > limit {
+		selected = selected[:limit]
+	}
+	return selected
+}
+
+func calculateStdDev(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	mean := 0.0
+	for _, item := range values {
+		mean += item
+	}
+	mean /= float64(len(values))
+	sumSq := 0.0
+	for _, item := range values {
+		diff := item - mean
+		sumSq += diff * diff
+	}
+	return math.Sqrt(sumSq / float64(len(values)))
+}
+
+func avgFloat(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	total := 0.0
+	for _, value := range values {
+		total += value
+	}
+	return total / float64(len(values))
+}
+
+func calcMaxDrawdownFromReturns(returns []float64) float64 {
+	if len(returns) == 0 {
+		return 0
+	}
+	equity := 1.0
+	peak := 1.0
+	maxDrawdown := 0.0
+	for _, dayReturn := range returns {
+		equity *= 1 + dayReturn
+		if equity > peak {
+			peak = equity
+		}
+		if peak <= 0 {
+			continue
+		}
+		drawdown := (peak - equity) / peak
+		if drawdown > maxDrawdown {
+			maxDrawdown = drawdown
+		}
+	}
+	return maxDrawdown
+}
+
+func buildMetricRange(items []model.StockQuantScore, selector func(model.StockQuantScore) float64) metricRange {
+	if len(items) == 0 {
+		return metricRange{}
+	}
+	minVal := selector(items[0])
+	maxVal := minVal
+	for index := 1; index < len(items); index++ {
+		value := selector(items[index])
+		if value < minVal {
+			minVal = value
+		}
+		if value > maxVal {
+			maxVal = value
+		}
+	}
+	return metricRange{Min: minVal, Max: maxVal}
+}
+
+func buildMetricRangeFromValues(values []float64) metricRange {
+	if len(values) == 0 {
+		return metricRange{}
+	}
+	minVal := values[0]
+	maxVal := values[0]
+	for index := 1; index < len(values); index++ {
+		if values[index] < minVal {
+			minVal = values[index]
+		}
+		if values[index] > maxVal {
+			maxVal = values[index]
+		}
+	}
+	return metricRange{Min: minVal, Max: maxVal}
+}
+
+func extractPositiveValues(items []model.StockQuantScore, selector func(model.StockQuantScore) float64) []float64 {
+	result := make([]float64, 0, len(items))
+	for _, item := range items {
+		value := selector(item)
+		if value > 0 {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func normalizeMetric(value float64, valueRange metricRange, invert bool) float64 {
+	span := valueRange.Max - valueRange.Min
+	if math.Abs(span) < 1e-9 {
+		return 0.5
+	}
+	normalized := (value - valueRange.Min) / span
+	if invert {
+		normalized = 1 - normalized
+	}
+	return clampFloat(normalized, 0, 1)
+}
+
+func clampFloat(value float64, minValue float64, maxValue float64) float64 {
+	if value < minValue {
+		return minValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func roundTo(value float64, precision int) float64 {
+	if precision < 0 {
+		precision = 0
+	}
+	factor := math.Pow(10, float64(precision))
+	return math.Round(value*factor) / factor
+}
+
+func maxInt(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+func minInt(left int, right int) int {
+	if left < right {
+		return left
+	}
+	return right
+}
+
+func sqlNullFloat(value sql.NullFloat64) float64 {
+	if !value.Valid {
+		return 0
+	}
+	return value.Float64
+}
+
+func isTableNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "error 1146") ||
+		(strings.Contains(message, "doesn't exist") && strings.Contains(message, "table"))
+}
+
+func (r *MySQLGrowthRepo) lookupStockNames(symbols []string) (map[string]string, error) {
+	result := make(map[string]string)
+	symbols = normalizeStockSymbolList(symbols)
+	if len(symbols) == 0 {
+		return result, nil
+	}
+	for _, symbol := range symbols {
+		result[symbol] = ""
+	}
+	placeholder := strings.TrimSuffix(strings.Repeat("?,", len(symbols)), ",")
+	query := fmt.Sprintf(`
+SELECT symbol, name
+FROM stock_recommendations
+WHERE symbol IN (%s)
+ORDER BY created_at DESC`, placeholder)
+	args := make([]interface{}, 0, len(symbols))
+	for _, symbol := range symbols {
+		args = append(args, symbol)
+	}
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var symbol string
+		var name sql.NullString
+		if err := rows.Scan(&symbol, &name); err != nil {
+			return nil, err
+		}
+		symbol = strings.ToUpper(strings.TrimSpace(symbol))
+		if _, ok := result[symbol]; !ok {
+			continue
+		}
+		if strings.TrimSpace(result[symbol]) != "" {
+			continue
+		}
+		if name.Valid {
+			result[symbol] = strings.TrimSpace(name.String)
+		}
+	}
+	return result, nil
+}
+
+func buildQuantReasons(item model.StockQuantScore) []string {
+	reasons := make([]string, 0, 6)
+	if item.Momentum20 >= 6 {
+		reasons = append(reasons, fmt.Sprintf("20日动量%.2f%%，中期趋势较强", item.Momentum20))
+	}
+	if item.VolumeRatio >= 1.2 {
+		reasons = append(reasons, fmt.Sprintf("量比%.2f，成交活跃度提升", item.VolumeRatio))
+	}
+	if item.NetMFAmount > 0 {
+		reasons = append(reasons, fmt.Sprintf("主力净流入%.2f，资金面偏强", item.NetMFAmount))
+	} else if item.NetMFAmount < 0 {
+		reasons = append(reasons, fmt.Sprintf("主力净流出%.2f，需控制仓位", math.Abs(item.NetMFAmount)))
+	}
+	if item.PeTTM > 0 {
+		if item.PeTTM < 30 {
+			reasons = append(reasons, fmt.Sprintf("PE(TTM) %.2f，估值处于可接受区间", item.PeTTM))
+		} else {
+			reasons = append(reasons, fmt.Sprintf("PE(TTM) %.2f，估值偏高需跟踪兑现", item.PeTTM))
+		}
+	}
+	if item.NewsHeat > 0 {
+		reasons = append(reasons, fmt.Sprintf("近14天资讯热度%d，正面占比%.0f%%", item.NewsHeat, item.PositiveNewsRate*100))
+	}
+	if item.Volatility20 <= 2.5 && item.Drawdown20 <= 7 {
+		reasons = append(reasons, "波动与回撤控制在可接受范围")
+	}
+	if len(reasons) == 0 {
+		reasons = append(reasons, fmt.Sprintf("趋势评分%.2f，资金评分%.2f，估值评分%.2f", item.TrendScore, item.FlowScore, item.ValueScore))
+	}
+	return reasons
+}
+
+func buildQuantReasonSummary(item model.StockQuantScore) string {
+	reasons := item.Reasons
+	if len(reasons) == 0 {
+		reasons = buildQuantReasons(item)
+	}
+	return strings.Join(firstNStrings(reasons, 3), "；")
+}
+
+func firstNStrings(items []string, count int) []string {
+	if count <= 0 || len(items) == 0 {
+		return []string{}
+	}
+	if len(items) <= count {
+		return items
+	}
+	return items[:count]
+}
+
+func buildDailyStockCandidatesFromQuant(items []model.StockQuantScore, validFrom time.Time, validTo time.Time) []dailyStockCandidate {
+	if len(items) == 0 {
+		return nil
+	}
+	candidates := make([]dailyStockCandidate, 0, len(items))
+	for _, item := range items {
+		riskLevel := strings.ToUpper(strings.TrimSpace(item.RiskLevel))
+		if riskLevel == "" {
+			riskLevel = "MEDIUM"
+		}
+		positionRange := "8%-12%"
+		takeProfit := "上涨10%-15%分批止盈"
+		stopLoss := "回撤5%止损"
+		switch riskLevel {
+		case "LOW":
+			positionRange = "10%-15%"
+			takeProfit = "上涨8%-12%分批止盈"
+			stopLoss = "回撤3%止损"
+		case "HIGH":
+			positionRange = "5%-8%"
+			takeProfit = "上涨12%-18%动态止盈"
+			stopLoss = "回撤7%止损"
+		}
+		score := item.Score
+		if score <= 0 {
+			score = 80
+		}
+		candidate := dailyStockCandidate{
+			Symbol:        strings.ToUpper(strings.TrimSpace(item.Symbol)),
+			Name:          strings.TrimSpace(item.Name),
+			Score:         roundTo(score, 2),
+			RiskLevel:     riskLevel,
+			PositionRange: positionRange,
+			ValidFrom:     validFrom,
+			ValidTo:       validTo,
+			Status:        "PUBLISHED",
+			ReasonSummary: fmt.Sprintf("量化评分%.2f，%s", score, buildQuantReasonSummary(item)),
+			TechScore:     roundTo(clampFloat(58+item.Momentum20*1.6+item.TrendStrength*2.8, 55, 98), 2),
+			FundScore:     roundTo(clampFloat(56+item.Momentum20*1.4+item.Momentum5*1.1, 52, 97), 2),
+			SentimentScore: roundTo(
+				clampFloat(54+item.VolumeRatio*9+item.Momentum5*1.2-item.Volatility20*0.6, 50, 96),
+				2,
+			),
+			MoneyFlowScore: roundTo(
+				clampFloat(55+item.VolumeRatio*11+item.TrendStrength*1.5-item.Drawdown20*0.4, 50, 97),
+				2,
+			),
+			TakeProfit: takeProfit,
+			StopLoss:   stopLoss,
+			RiskNote:   "量化信号存在失效风险，仅供参考，不构成投资建议",
+		}
+		if candidate.Name == "" {
+			candidate.Name = candidate.Symbol
+		}
+		candidates = append(candidates, candidate)
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].Score == candidates[j].Score {
+			return candidates[i].Symbol < candidates[j].Symbol
+		}
+		return candidates[i].Score > candidates[j].Score
+	})
+	return candidates
+}
+
+func buildDefaultDailyStockCandidates(validFrom time.Time, validTo time.Time) []dailyStockCandidate {
+	samples := []dailyStockCandidate{
+		{Symbol: "600519.SH", Name: "贵州茅台", Score: 91.1, RiskLevel: "MEDIUM", PositionRange: "10%-15%", Status: "PUBLISHED", ReasonSummary: "龙头估值修复"},
+		{Symbol: "601318.SH", Name: "中国平安", Score: 88.4, RiskLevel: "MEDIUM", PositionRange: "8%-12%", Status: "PUBLISHED", ReasonSummary: "估值低位"},
+		{Symbol: "600036.SH", Name: "招商银行", Score: 86.8, RiskLevel: "LOW", PositionRange: "8%-10%", Status: "PUBLISHED", ReasonSummary: "基本面稳健"},
+		{Symbol: "600276.SH", Name: "恒瑞医药", Score: 84.5, RiskLevel: "MEDIUM", PositionRange: "6%-10%", Status: "PUBLISHED", ReasonSummary: "创新药预期"},
+		{Symbol: "601012.SH", Name: "隆基绿能", Score: 83.2, RiskLevel: "HIGH", PositionRange: "5%-8%", Status: "PUBLISHED", ReasonSummary: "景气拐点博弈"},
+		{Symbol: "000333.SZ", Name: "美的集团", Score: 82.1, RiskLevel: "LOW", PositionRange: "6%-10%", Status: "PUBLISHED", ReasonSummary: "外需改善"},
+		{Symbol: "300750.SZ", Name: "宁德时代", Score: 87.5, RiskLevel: "MEDIUM", PositionRange: "8%-12%", Status: "PUBLISHED", ReasonSummary: "产业链回暖"},
+		{Symbol: "002594.SZ", Name: "比亚迪", Score: 85.3, RiskLevel: "MEDIUM", PositionRange: "7%-11%", Status: "PUBLISHED", ReasonSummary: "销量韧性"},
+		{Symbol: "688981.SH", Name: "中芯国际", Score: 80.8, RiskLevel: "HIGH", PositionRange: "5%-8%", Status: "PUBLISHED", ReasonSummary: "国产替代"},
+		{Symbol: "601888.SH", Name: "中国中免", Score: 79.9, RiskLevel: "HIGH", PositionRange: "4%-7%", Status: "PUBLISHED", ReasonSummary: "消费复苏博弈"},
+	}
+	for index := range samples {
+		samples[index].ValidFrom = validFrom
+		samples[index].ValidTo = validTo
+		samples[index].TechScore = roundTo(clampFloat(samples[index].Score-3, 50, 99), 2)
+		samples[index].FundScore = roundTo(clampFloat(samples[index].Score-1, 50, 99), 2)
+		samples[index].SentimentScore = roundTo(clampFloat(samples[index].Score-5, 50, 99), 2)
+		samples[index].MoneyFlowScore = roundTo(clampFloat(samples[index].Score-2, 50, 99), 2)
+		samples[index].TakeProfit = "上涨8%-12%分批止盈"
+		samples[index].StopLoss = "跌破关键位止损"
+		samples[index].RiskNote = "仅供参考，不构成投资建议"
+	}
+	return samples
+}
+
+func parseFlexibleDateTime(value string) (time.Time, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return time.Time{}, errors.New("datetime is required")
+	}
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if layout == time.RFC3339 {
+			if ts, err := time.Parse(layout, trimmed); err == nil {
+				return ts, nil
+			}
+			continue
+		}
+		if ts, err := time.ParseInLocation(layout, trimmed, time.Local); err == nil {
+			return ts, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("invalid datetime format: %s", trimmed)
 }

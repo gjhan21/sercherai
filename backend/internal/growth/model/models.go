@@ -9,6 +9,50 @@ type BrowseHistory struct {
 	ViewedAt    string `json:"viewed_at"`
 }
 
+type AdminBrowseHistory struct {
+	ID          string `json:"id"`
+	UserID      string `json:"user_id"`
+	UserPhone   string `json:"user_phone,omitempty"`
+	ContentType string `json:"content_type"`
+	ContentID   string `json:"content_id"`
+	Title       string `json:"title"`
+	SourcePage  string `json:"source_page"`
+	ViewedAt    string `json:"viewed_at"`
+}
+
+type AdminBrowseHistorySummary struct {
+	TotalViews   int `json:"total_views"`
+	UniqueUsers  int `json:"unique_users"`
+	NewsViews    int `json:"news_views"`
+	ReportViews  int `json:"report_views"`
+	JournalViews int `json:"journal_views"`
+	TodayViews   int `json:"today_views"`
+	Last7dViews  int `json:"last_7d_views"`
+}
+
+type AdminBrowseUserSegment struct {
+	Segment         string `json:"segment"`
+	UserID          string `json:"user_id"`
+	UserPhone       string `json:"user_phone,omitempty"`
+	ViewCount7d     int    `json:"view_count_7d"`
+	LastViewedAt    string `json:"last_viewed_at,omitempty"`
+	LastContentID   string `json:"last_content_id,omitempty"`
+	LastContentType string `json:"last_content_type,omitempty"`
+}
+
+type AdminBrowseTrendPoint struct {
+	Date         string `json:"date"`
+	TotalViews   int    `json:"total_views"`
+	NewsViews    int    `json:"news_views"`
+	ReportViews  int    `json:"report_views"`
+	JournalViews int    `json:"journal_views"`
+}
+
+type AdminMessageSendFailure struct {
+	UserID string `json:"user_id"`
+	Reason string `json:"reason"`
+}
+
 type RechargeRecord struct {
 	ID         string  `json:"id"`
 	OrderNo    string  `json:"order_no"`
@@ -38,6 +82,19 @@ type InviteRecord struct {
 	InviterUser string `json:"inviter_user_id,omitempty"`
 }
 
+type InviteSummary struct {
+	ShareLinkCount         int     `json:"share_link_count"`
+	RegisteredCount        int     `json:"registered_count"`
+	FirstPaidCount         int     `json:"first_paid_count"`
+	ConversionRate         float64 `json:"conversion_rate"`
+	Last7dRegisteredCount  int     `json:"last_7d_registered_count"`
+	Last7dFirstPaidCount   int     `json:"last_7d_first_paid_count"`
+	Last7dConversionRate   float64 `json:"last_7d_conversion_rate"`
+	Last30dRegisteredCount int     `json:"last_30d_registered_count"`
+	Last30dFirstPaidCount  int     `json:"last_30d_first_paid_count"`
+	Last30dConversionRate  float64 `json:"last_30d_conversion_rate"`
+}
+
 type RewardRecord struct {
 	ID           string  `json:"id"`
 	InviterUser  string  `json:"inviter_user_id,omitempty"`
@@ -50,11 +107,20 @@ type RewardRecord struct {
 }
 
 type UserProfile struct {
-	ID          string `json:"id"`
-	Phone       string `json:"phone"`
-	Email       string `json:"email,omitempty"`
-	KYCStatus   string `json:"kyc_status"`
-	MemberLevel string `json:"member_level"`
+	ID                 string `json:"id"`
+	Phone              string `json:"phone"`
+	Email              string `json:"email,omitempty"`
+	KYCStatus          string `json:"kyc_status"`
+	MemberLevel        string `json:"member_level"`
+	VIPStartedAt       string `json:"vip_started_at,omitempty"`
+	VIPExpireAt        string `json:"vip_expire_at,omitempty"`
+	VIPStatus          string `json:"vip_status,omitempty"`
+	VIPRemainingDays   int    `json:"vip_remaining_days,omitempty"`
+	RegistrationSource string `json:"registration_source,omitempty"`
+	InviterUserID      string `json:"inviter_user_id,omitempty"`
+	InviteCode         string `json:"invite_code,omitempty"`
+	InviteLinkID       string `json:"invite_link_id,omitempty"`
+	InvitedAt          string `json:"invited_at,omitempty"`
 }
 
 type Subscription struct {
@@ -74,6 +140,17 @@ type UserMessage struct {
 	CreatedAt  string `json:"created_at"`
 }
 
+type AdminUserMessage struct {
+	ID         string `json:"id"`
+	UserID     string `json:"user_id"`
+	UserPhone  string `json:"user_phone,omitempty"`
+	Title      string `json:"title"`
+	Content    string `json:"content,omitempty"`
+	Type       string `json:"type"`
+	ReadStatus string `json:"read_status"`
+	CreatedAt  string `json:"created_at"`
+}
+
 type MembershipQuota struct {
 	MemberLevel            string `json:"member_level"`
 	PeriodKey              string `json:"period_key"`
@@ -85,6 +162,9 @@ type MembershipQuota struct {
 	NewsSubscribeRemaining int    `json:"news_subscribe_remaining"`
 	ResetCycle             string `json:"reset_cycle"`
 	ResetAt                string `json:"reset_at,omitempty"`
+	VIPExpireAt            string `json:"vip_expire_at,omitempty"`
+	VIPStatus              string `json:"vip_status,omitempty"`
+	VIPRemainingDays       int    `json:"vip_remaining_days,omitempty"`
 }
 
 type SignedURL struct {
@@ -208,15 +288,17 @@ type NewsCategory struct {
 }
 
 type NewsArticle struct {
-	ID          string `json:"id"`
-	CategoryID  string `json:"category_id"`
-	Title       string `json:"title"`
-	Summary     string `json:"summary"`
-	Content     string `json:"content,omitempty"`
-	Visibility  string `json:"visibility"`
-	Status      string `json:"status"`
-	PublishedAt string `json:"published_at,omitempty"`
-	AuthorID    string `json:"author_id,omitempty"`
+	ID              string `json:"id"`
+	CategoryID      string `json:"category_id"`
+	Title           string `json:"title"`
+	Summary         string `json:"summary"`
+	Content         string `json:"content,omitempty"`
+	CoverURL        string `json:"cover_url,omitempty"`
+	Visibility      string `json:"visibility"`
+	Status          string `json:"status"`
+	PublishedAt     string `json:"published_at,omitempty"`
+	AuthorID        string `json:"author_id,omitempty"`
+	AttachmentCount int    `json:"attachment_count,omitempty"`
 }
 
 type NewsAttachment struct {
@@ -251,6 +333,150 @@ type StockRecommendationDetail struct {
 	TakeProfit     string  `json:"take_profit"`
 	StopLoss       string  `json:"stop_loss"`
 	RiskNote       string  `json:"risk_note"`
+}
+
+type StockRecommendationFactorScore struct {
+	Key          string  `json:"key"`
+	Label        string  `json:"label"`
+	Weight       float64 `json:"weight"`
+	Score        float64 `json:"score"`
+	Contribution float64 `json:"contribution"`
+}
+
+type StockRecommendationScoreFramework struct {
+	Method        string                           `json:"method"`
+	TotalScore    float64                          `json:"total_score"`
+	WeightedScore float64                          `json:"weighted_score"`
+	ScoreGap      float64                          `json:"score_gap"`
+	Factors       []StockRecommendationFactorScore `json:"factors"`
+}
+
+type StockRecommendationRelatedNews struct {
+	ID             string  `json:"id"`
+	Title          string  `json:"title"`
+	Summary        string  `json:"summary"`
+	Source         string  `json:"source"`
+	Visibility     string  `json:"visibility"`
+	PublishedAt    string  `json:"published_at"`
+	RelevanceScore float64 `json:"relevance_score"`
+}
+
+type StockRecommendationPerformanceSummary struct {
+	SampleDays                int     `json:"sample_days"`
+	WinRate                   float64 `json:"win_rate"`
+	AvgDailyReturn            float64 `json:"avg_daily_return"`
+	CumulativeReturn          float64 `json:"cumulative_return"`
+	BenchmarkCumulativeReturn float64 `json:"benchmark_cumulative_return"`
+	ExcessReturn              float64 `json:"excess_return"`
+	MaxDrawdown               float64 `json:"max_drawdown"`
+	BenchmarkSymbol           string  `json:"benchmark_symbol"`
+	BenchmarkSource           string  `json:"benchmark_source"`
+}
+
+type StockRecommendationInsight struct {
+	Recommendation   StockRecommendation                   `json:"recommendation"`
+	Detail           StockRecommendationDetail             `json:"detail"`
+	ScoreFramework   StockRecommendationScoreFramework     `json:"score_framework"`
+	RelatedNews      []StockRecommendationRelatedNews      `json:"related_news"`
+	Performance      []RecommendationPerformancePoint      `json:"performance"`
+	Benchmark        []RecommendationPerformancePoint      `json:"benchmark"`
+	PerformanceStats StockRecommendationPerformanceSummary `json:"performance_stats"`
+	GeneratedAt      string                                `json:"generated_at"`
+}
+
+type StockMarketQuote struct {
+	ID             string  `json:"id"`
+	Symbol         string  `json:"symbol"`
+	TradeDate      string  `json:"trade_date"`
+	OpenPrice      float64 `json:"open_price"`
+	HighPrice      float64 `json:"high_price"`
+	LowPrice       float64 `json:"low_price"`
+	ClosePrice     float64 `json:"close_price"`
+	PrevClosePrice float64 `json:"prev_close_price"`
+	Volume         int64   `json:"volume"`
+	Turnover       float64 `json:"turnover"`
+	SourceKey      string  `json:"source_key"`
+	CreatedAt      string  `json:"created_at,omitempty"`
+	UpdatedAt      string  `json:"updated_at,omitempty"`
+}
+
+type StockQuantScore struct {
+	Rank             int      `json:"rank"`
+	Symbol           string   `json:"symbol"`
+	Name             string   `json:"name"`
+	TradeDate        string   `json:"trade_date"`
+	ClosePrice       float64  `json:"close_price"`
+	Momentum5        float64  `json:"momentum_5"`
+	Momentum20       float64  `json:"momentum_20"`
+	Volatility20     float64  `json:"volatility_20"`
+	VolumeRatio      float64  `json:"volume_ratio"`
+	Drawdown20       float64  `json:"drawdown_20"`
+	TrendStrength    float64  `json:"trend_strength"`
+	TrendScore       float64  `json:"trend_score"`
+	FlowScore        float64  `json:"flow_score"`
+	ValueScore       float64  `json:"value_score"`
+	NewsScore        float64  `json:"news_score"`
+	NetMFAmount      float64  `json:"net_mf_amount"`
+	PeTTM            float64  `json:"pe_ttm"`
+	PB               float64  `json:"pb"`
+	TurnoverRate     float64  `json:"turnover_rate"`
+	NewsHeat         int      `json:"news_heat"`
+	PositiveNewsRate float64  `json:"positive_news_rate"`
+	Score            float64  `json:"score"`
+	RiskLevel        string   `json:"risk_level"`
+	ReasonSummary    string   `json:"reason_summary"`
+	Reasons          []string `json:"reasons"`
+}
+
+type StockQuantEvaluationPoint struct {
+	TradeDate             string  `json:"trade_date"`
+	SampleCount           int     `json:"sample_count"`
+	AvgReturn5            float64 `json:"avg_return_5"`
+	HitRate5              float64 `json:"hit_rate_5"`
+	AvgReturn10           float64 `json:"avg_return_10"`
+	HitRate10             float64 `json:"hit_rate_10"`
+	BenchmarkReturn       float64 `json:"benchmark_return"`
+	BenchmarkReturn10     float64 `json:"benchmark_return_10"`
+	CumulativeReturn5     float64 `json:"cumulative_return_5"`
+	CumulativeBenchmark5  float64 `json:"cumulative_benchmark_5"`
+	CumulativeExcess5     float64 `json:"cumulative_excess_5"`
+	CumulativeReturn10    float64 `json:"cumulative_return_10"`
+	CumulativeBenchmark10 float64 `json:"cumulative_benchmark_10"`
+	CumulativeExcess10    float64 `json:"cumulative_excess_10"`
+}
+
+type StockQuantEvaluationSummary struct {
+	WindowDays           int     `json:"window_days"`
+	TopN                 int     `json:"top_n"`
+	SampleDays           int     `json:"sample_days"`
+	SampleCount          int     `json:"sample_count"`
+	AvgReturn5           float64 `json:"avg_return_5"`
+	HitRate5             float64 `json:"hit_rate_5"`
+	MaxDrawdown5         float64 `json:"max_drawdown_5"`
+	AvgReturn10          float64 `json:"avg_return_10"`
+	HitRate10            float64 `json:"hit_rate_10"`
+	MaxDrawdown10        float64 `json:"max_drawdown_10"`
+	BenchmarkAvgReturn5  float64 `json:"benchmark_avg_return_5"`
+	BenchmarkAvgReturn10 float64 `json:"benchmark_avg_return_10"`
+	GeneratedAt          string  `json:"generated_at"`
+}
+
+type StockQuantRiskPerformance struct {
+	RiskLevel   string  `json:"risk_level"`
+	SampleCount int     `json:"sample_count"`
+	AvgReturn5  float64 `json:"avg_return_5"`
+	HitRate5    float64 `json:"hit_rate_5"`
+	AvgReturn10 float64 `json:"avg_return_10"`
+	HitRate10   float64 `json:"hit_rate_10"`
+}
+
+type StockQuantRotationPoint struct {
+	TradeDate    string   `json:"trade_date"`
+	TopSymbols   []string `json:"top_symbols"`
+	Entered      []string `json:"entered"`
+	Exited       []string `json:"exited"`
+	StayedCount  int      `json:"stayed_count"`
+	ChangedCount int      `json:"changed_count"`
 }
 
 type RecommendationPerformancePoint struct {
@@ -289,14 +515,58 @@ type FuturesStrategy struct {
 	ReasonSummary string `json:"reason_summary"`
 }
 
+type FuturesStrategyFactorScore struct {
+	Key          string  `json:"key"`
+	Label        string  `json:"label"`
+	Weight       float64 `json:"weight"`
+	Score        float64 `json:"score"`
+	Contribution float64 `json:"contribution"`
+}
+
+type FuturesStrategyScoreFramework struct {
+	Method        string                       `json:"method"`
+	TotalScore    float64                      `json:"total_score"`
+	WeightedScore float64                      `json:"weighted_score"`
+	ScoreGap      float64                      `json:"score_gap"`
+	Factors       []FuturesStrategyFactorScore `json:"factors"`
+}
+
+type FuturesStrategyPerformanceSummary struct {
+	SampleDays                int     `json:"sample_days"`
+	WinRate                   float64 `json:"win_rate"`
+	AvgDailyReturn            float64 `json:"avg_daily_return"`
+	CumulativeReturn          float64 `json:"cumulative_return"`
+	BenchmarkCumulativeReturn float64 `json:"benchmark_cumulative_return"`
+	ExcessReturn              float64 `json:"excess_return"`
+	MaxDrawdown               float64 `json:"max_drawdown"`
+	BenchmarkSymbol           string  `json:"benchmark_symbol"`
+	BenchmarkSource           string  `json:"benchmark_source"`
+}
+
+type FuturesStrategyInsight struct {
+	Strategy         FuturesStrategy                   `json:"strategy"`
+	Guidance         FuturesGuidance                   `json:"guidance"`
+	ScoreFramework   FuturesStrategyScoreFramework     `json:"score_framework"`
+	RelatedNews      []StockRecommendationRelatedNews  `json:"related_news"`
+	RelatedEvents    []MarketEvent                     `json:"related_events"`
+	Performance      []RecommendationPerformancePoint  `json:"performance"`
+	Benchmark        []RecommendationPerformancePoint  `json:"benchmark"`
+	PerformanceStats FuturesStrategyPerformanceSummary `json:"performance_stats"`
+	GeneratedAt      string                            `json:"generated_at"`
+}
+
 type AdminUser struct {
-	ID          string `json:"id"`
-	Phone       string `json:"phone"`
-	Email       string `json:"email,omitempty"`
-	Status      string `json:"status"`
-	KYCStatus   string `json:"kyc_status"`
-	MemberLevel string `json:"member_level"`
-	CreatedAt   string `json:"created_at"`
+	ID                 string `json:"id"`
+	Phone              string `json:"phone"`
+	Email              string `json:"email,omitempty"`
+	Status             string `json:"status"`
+	KYCStatus          string `json:"kyc_status"`
+	MemberLevel        string `json:"member_level"`
+	RegistrationSource string `json:"registration_source,omitempty"`
+	InviterUserID      string `json:"inviter_user_id,omitempty"`
+	InviteCode         string `json:"invite_code,omitempty"`
+	InviteRegisteredAt string `json:"invite_registered_at,omitempty"`
+	CreatedAt          string `json:"created_at"`
 }
 
 type AdminPermission struct {
@@ -349,14 +619,33 @@ type AdminAccessProfile struct {
 }
 
 type AdminDashboardOverview struct {
-	TotalUsers           int `json:"total_users"`
-	ActiveUsers          int `json:"active_users"`
-	KYCApprovedUsers     int `json:"kyc_approved_users"`
-	VIPUsers             int `json:"vip_users"`
-	TodayNewUsers        int `json:"today_new_users"`
-	TodayPaidOrders      int `json:"today_paid_orders"`
-	TodayPublishedStocks int `json:"today_published_stocks"`
-	TodayPublishedNews   int `json:"today_published_news"`
+	TotalUsers              int     `json:"total_users"`
+	ActiveUsers             int     `json:"active_users"`
+	KYCApprovedUsers        int     `json:"kyc_approved_users"`
+	VIPUsers                int     `json:"vip_users"`
+	ActiveSubscriptions     int     `json:"active_subscriptions"`
+	PendingMembershipOrders int     `json:"pending_membership_orders"`
+	TodayNewUsers           int     `json:"today_new_users"`
+	TodayPaidOrders         int     `json:"today_paid_orders"`
+	TodayPaidAmount         float64 `json:"today_paid_amount"`
+	TodayPublishedStocks    int     `json:"today_published_stocks"`
+	TodayPublishedNews      int     `json:"today_published_news"`
+}
+
+type AdminUserSourceSummary struct {
+	TotalUsers            int     `json:"total_users"`
+	DirectUsers           int     `json:"direct_users"`
+	InvitedUsers          int     `json:"invited_users"`
+	InviteRate            float64 `json:"invite_rate"`
+	TodayInvitedUsers     int     `json:"today_invited_users"`
+	Last7dInvitedUsers    int     `json:"last_7d_invited_users"`
+	Last7dFirstPaidUsers  int     `json:"last_7d_first_paid_users"`
+	Last7dConversionRate  float64 `json:"last_7d_conversion_rate"`
+	Last30dInvitedUsers   int     `json:"last_30d_invited_users"`
+	Last30dFirstPaidUsers int     `json:"last_30d_first_paid_users"`
+	Last30dConversionRate float64 `json:"last_30d_conversion_rate"`
+	TotalFirstPaidUsers   int     `json:"total_first_paid_users"`
+	TotalConversionRate   float64 `json:"total_conversion_rate"`
 }
 
 type AdminOperationLog struct {
@@ -499,6 +788,32 @@ type SchedulerJobRun struct {
 	OperatorID    string `json:"operator_id,omitempty"`
 }
 
+type TushareNewsSyncOptions struct {
+	BatchSize int      `json:"batch_size,omitempty"`
+	Sources   []string `json:"sources,omitempty"`
+	Symbols   []string `json:"symbols,omitempty"`
+	SyncTypes []string `json:"sync_types,omitempty"`
+}
+
+type NewsSyncRunDetail struct {
+	ID            string `json:"id"`
+	RunID         string `json:"run_id"`
+	JobName       string `json:"job_name"`
+	SyncType      string `json:"sync_type"`
+	Source        string `json:"source,omitempty"`
+	Symbol        string `json:"symbol,omitempty"`
+	Status        string `json:"status"`
+	FetchedCount  int    `json:"fetched_count"`
+	UpsertedCount int    `json:"upserted_count"`
+	FailedCount   int    `json:"failed_count"`
+	WarningText   string `json:"warning_text,omitempty"`
+	ErrorText     string `json:"error_text,omitempty"`
+	StartedAt     string `json:"started_at"`
+	FinishedAt    string `json:"finished_at,omitempty"`
+	CreatedAt     string `json:"created_at,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
+}
+
 type WorkflowMessage struct {
 	ID         string `json:"id"`
 	ReviewID   string `json:"review_id,omitempty"`
@@ -523,10 +838,53 @@ type WorkflowMetrics struct {
 }
 
 type SchedulerJobMetrics struct {
-	TodayTotal   int `json:"today_total"`
-	TodaySuccess int `json:"today_success"`
-	TodayFailed  int `json:"today_failed"`
-	TodayRunning int `json:"today_running"`
+	TodayTotal         int                         `json:"today_total"`
+	TodaySuccess       int                         `json:"today_success"`
+	TodayFailed        int                         `json:"today_failed"`
+	TodayRunning       int                         `json:"today_running"`
+	RetryTotal         int                         `json:"retry_total"`
+	RetrySuccess       int                         `json:"retry_success"`
+	RetryFailed        int                         `json:"retry_failed"`
+	RetryHitRate       float64                     `json:"retry_hit_rate"`
+	AvgRetryCount      float64                     `json:"avg_retry_count"`
+	AutoRetryTotal     int                         `json:"auto_retry_total"`
+	RecoveryTotal      int                         `json:"recovery_total"`
+	RecoverySuccess    int                         `json:"recovery_success"`
+	RecoveryHitRate    float64                     `json:"recovery_hit_rate"`
+	FailureReasons     []SchedulerJobFailureReason `json:"failure_reasons"`
+	JobRetryStats      []SchedulerJobRetryStat     `json:"job_retry_stats"`
+	JobFailureReasons  []SchedulerJobFailureByJob  `json:"job_failure_reasons"`
+	FailureReasonScope string                      `json:"failure_reason_scope"`
+}
+
+type SchedulerJobFailureReason struct {
+	Reason         string `json:"reason"`
+	Count          int    `json:"count"`
+	LastOccurredAt string `json:"last_occurred_at"`
+}
+
+type SchedulerJobRetryStat struct {
+	JobName         string  `json:"job_name"`
+	TodayTotal      int     `json:"today_total"`
+	TodaySuccess    int     `json:"today_success"`
+	TodayFailed     int     `json:"today_failed"`
+	TodayRunning    int     `json:"today_running"`
+	RetryTotal      int     `json:"retry_total"`
+	RetrySuccess    int     `json:"retry_success"`
+	RetryFailed     int     `json:"retry_failed"`
+	RetryHitRate    float64 `json:"retry_hit_rate"`
+	AvgRetryCount   float64 `json:"avg_retry_count"`
+	AutoRetryTotal  int     `json:"auto_retry_total"`
+	RecoveryTotal   int     `json:"recovery_total"`
+	RecoverySuccess int     `json:"recovery_success"`
+	RecoveryHitRate float64 `json:"recovery_hit_rate"`
+}
+
+type SchedulerJobFailureByJob struct {
+	JobName        string `json:"job_name"`
+	Reason         string `json:"reason"`
+	Count          int    `json:"count"`
+	LastOccurredAt string `json:"last_occurred_at"`
 }
 
 type SchedulerJobDefinition struct {

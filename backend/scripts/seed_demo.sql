@@ -66,12 +66,16 @@ INSERT INTO news_categories (id, name, slug, sort, visibility, status, created_a
 VALUES ('nc_demo_001', '盘前速递', 'pre-market', 1, 'PUBLIC', 'PUBLISHED', NOW(), NOW())
 ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at), status = VALUES(status);
 
-INSERT INTO news_articles (id, category_id, title, summary, content, tags, visibility, status, published_at, author_id, created_at, updated_at)
-VALUES ('article_demo_001', 'nc_demo_001', 'A股盘前观察', '示例资讯', '这是用于联调的示例资讯正文。', JSON_ARRAY('A股', '盘前'), 'VIP', 'PUBLISHED', NOW(), 'admin_demo_001', NOW(), NOW())
-ON DUPLICATE KEY UPDATE summary = VALUES(summary), content = VALUES(content), updated_at = VALUES(updated_at), status = VALUES(status);
+INSERT INTO news_articles (id, category_id, title, summary, content, cover_url, tags, visibility, status, published_at, author_id, created_at, updated_at)
+VALUES
+  ('article_demo_001', 'nc_demo_001', 'A股盘前观察', '示例资讯', '这是用于联调的示例资讯正文。', 'https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80', JSON_ARRAY('A股', '盘前'), 'VIP', 'PUBLISHED', NOW(), 'admin_demo_001', NOW(), NOW()),
+  ('article_demo_public_001', 'nc_demo_001', '午间市场速览', '公开资讯示例，用于客户端栏目联调', '这是公开可见的示例资讯正文，用于客户端新闻列表与详情页联调。', 'https://images.unsplash.com/photo-1518186285589-2f7649de83e0?auto=format&fit=crop&w=1200&q=80', JSON_ARRAY('公开', '联调'), 'PUBLIC', 'PUBLISHED', NOW(), 'admin_001', NOW(), NOW())
+ON DUPLICATE KEY UPDATE summary = VALUES(summary), content = VALUES(content), cover_url = VALUES(cover_url), updated_at = VALUES(updated_at), status = VALUES(status);
 
 INSERT INTO news_attachments (id, article_id, file_name, file_url, file_size, mime_type, created_at)
-VALUES ('att_demo_001', 'article_demo_001', 'daily-note.pdf', 'https://example.com/files/daily-note.pdf', 20480, 'application/pdf', NOW())
+VALUES
+  ('att_demo_001', 'article_demo_001', 'daily-note.pdf', 'https://example.com/files/daily-note.pdf', 20480, 'application/pdf', NOW()),
+  ('att_demo_public_001', 'article_demo_public_001', 'midday-note.txt', 'https://example.com/files/midday-note.txt', 1024, 'text/plain', NOW())
 ON DUPLICATE KEY UPDATE file_url = VALUES(file_url), file_size = VALUES(file_size), created_at = VALUES(created_at);
 
 INSERT INTO arbitrage_recos (id, type, contract_a, contract_b, spread, percentile, entry_point, exit_point, stop_point, trigger_rule, status)

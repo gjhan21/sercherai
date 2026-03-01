@@ -7,7 +7,6 @@ import {
   getSchedulerJobMetrics,
   getWorkflowMetrics,
   listDataSources,
-  listMembershipOrders,
   listRiskHits,
   listStockRecommendations
 } from "../api/admin";
@@ -23,8 +22,11 @@ const overview = ref({
   active_users: 0,
   kyc_approved_users: 0,
   vip_users: 0,
+  active_subscriptions: 0,
+  pending_membership_orders: 0,
   today_new_users: 0,
   today_paid_orders: 0,
+  today_paid_amount: 0,
   today_published_stocks: 0,
   today_published_news: 0
 });
@@ -34,7 +36,6 @@ const ops = ref({
   pending_reviews: 0,
   today_job_failed: 0,
   today_job_running: 0,
-  pending_membership_orders: 0,
   pending_risk_hits: 0,
   published_stock_recos: 0,
   active_data_sources: 0
@@ -45,8 +46,11 @@ const coreCards = computed(() => [
   { label: "活跃用户", value: overview.value.active_users },
   { label: "实名通过", value: overview.value.kyc_approved_users },
   { label: "VIP 用户", value: overview.value.vip_users },
+  { label: "生效订阅", value: overview.value.active_subscriptions },
+  { label: "待处理会员订单", value: overview.value.pending_membership_orders },
   { label: "今日新增", value: overview.value.today_new_users },
   { label: "今日付费订单", value: overview.value.today_paid_orders },
+  { label: "今日支付金额", value: formatAmount(overview.value.today_paid_amount) },
   { label: "今日发布股票推荐", value: overview.value.today_published_stocks },
   { label: "今日发布新闻", value: overview.value.today_published_news }
 ]);
@@ -56,7 +60,6 @@ const opsCards = computed(() => [
   { label: "待审核任务", value: ops.value.pending_reviews, type: "warning" },
   { label: "今日失败任务", value: ops.value.today_job_failed, type: "danger" },
   { label: "运行中任务", value: ops.value.today_job_running, type: "info" },
-  { label: "待处理会员订单", value: ops.value.pending_membership_orders, type: "warning" },
   { label: "待处理风险命中", value: ops.value.pending_risk_hits, type: "danger" },
   { label: "已发布股票推荐", value: ops.value.published_stock_recos, type: "success" },
   { label: "活跃数据源", value: ops.value.active_data_sources, type: "success" }
@@ -82,6 +85,11 @@ function statusTagType(type) {
   return "info";
 }
 
+function formatAmount(value) {
+  const num = Number(value || 0);
+  return `¥${num.toFixed(2).replace(/\.00$/, "")}`;
+}
+
 function openLink(path) {
   router.push(path);
 }
@@ -96,7 +104,6 @@ async function fetchOverview() {
       unreadData,
       workflowData,
       schedulerData,
-      pendingOrderData,
       pendingRiskData,
       stockRecoData,
       dataSourceData
@@ -105,7 +112,6 @@ async function fetchOverview() {
       countUnreadWorkflowMessages({}),
       getWorkflowMetrics({}),
       getSchedulerJobMetrics({}),
-      listMembershipOrders({ status: "PENDING", page: 1, page_size: 1 }),
       listRiskHits({ status: "PENDING", page: 1, page_size: 1 }),
       listStockRecommendations({ status: "PUBLISHED", page: 1, page_size: 1 }),
       listDataSources({ page: 1, page_size: 200 })
@@ -120,7 +126,6 @@ async function fetchOverview() {
       pending_reviews: workflowData.pending_reviews || 0,
       today_job_failed: schedulerData.today_failed || 0,
       today_job_running: schedulerData.today_running || 0,
-      pending_membership_orders: pendingOrderData.total || 0,
       pending_risk_hits: pendingRiskData.total || 0,
       published_stock_recos: stockRecoData.total || 0,
       active_data_sources: activeDataSourceCount

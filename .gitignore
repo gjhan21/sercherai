@@ -9,3 +9,11 @@ backend/uploads/
 # Admin frontend
 admin/node_modules/
 admin/dist/
+
+# Client frontend
+client/node_modules/
+client/dist/
+
+# Runtime artifacts
+.run/
+.mysql-local/

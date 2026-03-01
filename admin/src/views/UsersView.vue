@@ -1,9 +1,12 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import {
+  getUserSourceSummary,
+  getUserCenterOverview,
   listUsers,
   updateUserKYCStatus,
   updateUserMemberLevel,
+  updateUserSubscription,
   updateUserStatus
 } from "../api/admin";
 import { getAccessToken } from "../lib/session";
@@ -19,13 +22,27 @@ const message = ref("");
 const filters = reactive({
   status: "",
   kyc_status: "",
-  member_level: ""
+  member_level: "",
+  registration_source: ""
 });
 
 const users = ref([]);
 const page = ref(1);
 const pageSize = ref(20);
 const total = ref(0);
+const sourceSummary = ref({
+  total_users: 0,
+  direct_users: 0,
+  invited_users: 0,
+  invite_rate: 0,
+  today_invited_users: 0,
+  last_7d_invited_users: 0,
+  last_7d_first_paid_users: 0,
+  last_7d_conversion_rate: 0,
+  last_30d_invited_users: 0,
+  last_30d_first_paid_users: 0,
+  last_30d_conversion_rate: 0
+});
 
 const userTableRef = ref(null);
 const selectedRows = ref([]);
@@ -46,8 +63,36 @@ const batchResultTitle = ref("");
 const batchResultRows = ref([]);
 const batchResultFilter = ref("all");
 
+const centerDialogVisible = ref(false);
+const centerLoading = ref(false);
+const centerErrorMessage = ref("");
+const centerActiveTab = ref("vip");
+const centerTargetUserID = ref("");
+const centerData = ref({
+  user_profile: {},
+  membership_quota: {},
+  payment_summary: {},
+  reading_summary: {},
+  subscription_summary: {},
+  invite_summary: {},
+  membership_orders: [],
+  recharge_records: [],
+  browse_history: [],
+  subscriptions: [],
+  share_links: [],
+  invite_records: []
+});
+const centerSubscriptionDraft = ref({});
+const centerSavingSubscriptionID = ref("");
+
 const statusOptions = ["ACTIVE", "DISABLED", "BANNED"];
 const kycStatusOptions = ["PENDING", "APPROVED", "REJECTED"];
+const registrationSourceOptions = [
+  { value: "DIRECT", label: "自然注册" },
+  { value: "INVITED", label: "邀请注册" }
+];
+const subscriptionStatusOptions = ["ACTIVE", "PAUSED"];
+const subscriptionFrequencyOptions = ["INSTANT", "DAILY", "WEEKLY"];
 
 const selectedCount = computed(() => selectedRows.value.length);
 const failedBatchRows = computed(() => batchResultRows.value.filter((row) => row.result === "FAILED"));
@@ -86,6 +131,76 @@ const displayBatchResultRows = computed(() => {
   }
   return batchResultRows.value;
 });
+const centerMembershipOrders = computed(() => centerData.value?.membership_orders || []);
+const centerRechargeRecords = computed(() => centerData.value?.recharge_records || []);
+const centerBrowseHistory = computed(() => centerData.value?.browse_history || []);
+const centerSubscriptions = computed(() => centerData.value?.subscriptions || []);
+const centerShareLinks = computed(() => centerData.value?.share_links || []);
+const centerInviteRecords = computed(() => centerData.value?.invite_records || []);
+const centerInviteSummaryCards = computed(() => {
+  const summary = centerData.value?.invite_summary || {};
+  return [
+    { label: "分享链接数", value: Number(summary.share_link_count || 0) },
+    { label: "邀请注册总数", value: Number(summary.registered_count || 0) },
+    { label: "首单转化总数", value: Number(summary.first_paid_count || 0) },
+    { label: "总转化率", value: `${(Number(summary.conversion_rate || 0) * 100).toFixed(1)}%` },
+    { label: "近7天转化率", value: `${(Number(summary.last_7d_conversion_rate || 0) * 100).toFixed(1)}%` },
+    { label: "近30天转化率", value: `${(Number(summary.last_30d_conversion_rate || 0) * 100).toFixed(1)}%` }
+  ];
+});
+const centerInviteTimeline = computed(() =>
+  (centerInviteRecords.value || [])
+    .map((item) => {
+      const statusRaw = String(item.status || "").toUpperCase();
+      return {
+        id: item.id || `${item.invitee_user_id || "invitee"}-${item.register_at || ""}`,
+        inviteeUserID: item.invitee_user_id || "-",
+        statusRaw,
+        statusText: mapInviteStatus(statusRaw),
+        registerAt: formatCenterDateTime(item.register_at),
+        firstPayAt: formatCenterDateTime(item.first_pay_at),
+        riskFlag: mapInviteRiskFlag(item.risk_flag),
+        sortTS: Date.parse(item.register_at || "") || 0
+      };
+    })
+    .sort((a, b) => b.sortTS - a.sortTS)
+);
+const sourceSummaryCards = computed(() => {
+  const totalUsers = Number(sourceSummary.value?.total_users || 0);
+  const directUsers = Number(sourceSummary.value?.direct_users || 0);
+  const invitedUsers = Number(sourceSummary.value?.invited_users || 0);
+  const inviteRate = Number(sourceSummary.value?.invite_rate || 0);
+  const todayInvitedUsers = Number(sourceSummary.value?.today_invited_users || 0);
+  const last7dInvitedUsers = Number(sourceSummary.value?.last_7d_invited_users || 0);
+  const last7dConversionRate = Number(sourceSummary.value?.last_7d_conversion_rate || 0);
+  const last30dInvitedUsers = Number(sourceSummary.value?.last_30d_invited_users || 0);
+  const last30dConversionRate = Number(sourceSummary.value?.last_30d_conversion_rate || 0);
+  return [
+    { label: "用户总数", value: totalUsers },
+    { label: "自然注册", value: directUsers },
+    { label: "邀请注册", value: invitedUsers },
+    { label: "邀请占比", value: `${(inviteRate * 100).toFixed(1)}%` },
+    { label: "今日邀请注册", value: todayInvitedUsers },
+    { label: "近7天邀请注册", value: last7dInvitedUsers },
+    { label: "近7天转化率", value: `${(last7dConversionRate * 100).toFixed(1)}%` },
+    { label: "近30天邀请注册", value: last30dInvitedUsers },
+    { label: "近30天转化率", value: `${(last30dConversionRate * 100).toFixed(1)}%` }
+  ];
+});
+
+function syncCenterSubscriptionDraft(rows = []) {
+  const draft = {};
+  (rows || []).forEach((row) => {
+    if (!row?.id) {
+      return;
+    }
+    draft[row.id] = {
+      frequency: String(row.frequency || "DAILY").toUpperCase(),
+      status: String(row.status || "ACTIVE").toUpperCase()
+    };
+  });
+  centerSubscriptionDraft.value = draft;
+}
 
 function syncDrafts() {
   const statusMap = {};
@@ -124,15 +239,32 @@ async function fetchUsers(options = {}) {
     message.value = "";
   }
   try {
-    const data = await listUsers({
+    const listParams = {
       status: filters.status,
       kyc_status: filters.kyc_status,
       member_level: filters.member_level,
+      registration_source: filters.registration_source,
       page: page.value,
       page_size: pageSize.value
-    });
+    };
+    const [listResult, summaryResult] = await Promise.allSettled([
+      listUsers(listParams),
+      getUserSourceSummary({
+        status: filters.status,
+        kyc_status: filters.kyc_status,
+        member_level: filters.member_level,
+        registration_source: filters.registration_source
+      })
+    ]);
+    if (listResult.status !== "fulfilled") {
+      throw listResult.reason;
+    }
+    const data = listResult.value;
     users.value = data.items || [];
     total.value = data.total || 0;
+    if (summaryResult.status === "fulfilled" && summaryResult.value) {
+      sourceSummary.value = summaryResult.value;
+    }
     syncDrafts();
     clearSelection();
   } catch (error) {
@@ -187,6 +319,176 @@ async function handleUpdateMemberLevel(user) {
     message.value = `用户 ${user.id} 会员等级已更新为 ${target}`;
   } catch (error) {
     errorMessage.value = error.message || "更新会员等级失败";
+  }
+}
+
+function mapDisplayStatus(raw, type = "") {
+  const normalized = (raw || "").toUpperCase();
+  if (type === "kyc") {
+    if (normalized === "APPROVED") return "已认证";
+    if (normalized === "PENDING") return "审核中";
+    if (normalized === "REJECTED") return "未通过";
+  }
+  if (type === "payment") {
+    if (normalized === "PAID" || normalized === "SUCCESS") return "已支付";
+    if (normalized === "PENDING") return "处理中";
+    if (normalized === "FAILED") return "失败";
+    if (normalized === "REFUNDED" || normalized === "REFUND") return "已退款";
+  }
+  if (type === "subscription") {
+    if (normalized === "ACTIVE") return "生效中";
+    if (normalized === "PAUSED" || normalized === "INACTIVE") return "已暂停";
+  }
+  return raw || "-";
+}
+
+function mapRegistrationSource(raw) {
+  const normalized = (raw || "").toUpperCase();
+  if (normalized === "INVITED") return "邀请注册";
+  if (normalized === "DIRECT") return "自然注册";
+  return raw || "-";
+}
+
+function mapSubscriptionFrequency(raw) {
+  const normalized = (raw || "").toUpperCase();
+  if (normalized === "INSTANT") return "实时";
+  if (normalized === "DAILY") return "每日";
+  if (normalized === "WEEKLY") return "每周";
+  return raw || "-";
+}
+
+function mapInviteStatus(raw) {
+  const normalized = (raw || "").toUpperCase();
+  if (normalized === "REGISTERED") return "已注册";
+  if (normalized === "FIRST_PAID") return "首单完成";
+  if (normalized === "INVALID") return "失效";
+  return raw || "-";
+}
+
+function mapInviteRiskFlag(raw) {
+  const normalized = (raw || "").toUpperCase();
+  if (normalized === "NORMAL") return "正常";
+  if (normalized === "RISK") return "疑似风险";
+  if (normalized === "BLOCKED") return "已拦截";
+  return raw || "-";
+}
+
+function statusTagByType(raw, type = "") {
+  const normalized = (raw || "").toUpperCase();
+  if (type === "payment") {
+    if (normalized === "PAID" || normalized === "SUCCESS") return "success";
+    if (normalized === "PENDING") return "warning";
+    return "danger";
+  }
+  if (type === "subscription") {
+    if (normalized === "ACTIVE") return "success";
+    if (normalized === "PAUSED" || normalized === "INACTIVE") return "warning";
+    return "info";
+  }
+  return "info";
+}
+
+function registrationSourceTagType(source) {
+  const normalized = (source || "").toUpperCase();
+  if (normalized === "INVITED") return "success";
+  if (normalized === "DIRECT") return "info";
+  return "warning";
+}
+
+function formatCenterDateTime(value) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function formatCenterAmount(value) {
+  const num = Number(value || 0);
+  return `¥${Number.isFinite(num) ? num.toFixed(2).replace(/\.00$/, "") : "0"}`;
+}
+
+async function openUserCenter(user) {
+  if (!user?.id) {
+    return;
+  }
+  centerDialogVisible.value = true;
+  centerTargetUserID.value = user.id;
+  centerActiveTab.value = "vip";
+  centerErrorMessage.value = "";
+  centerSavingSubscriptionID.value = "";
+  centerLoading.value = true;
+
+  try {
+    const data = await getUserCenterOverview(user.id, { limit: 80 });
+    const nextData = {
+      user_profile: data?.user_profile || {},
+      membership_quota: data?.membership_quota || {},
+      payment_summary: data?.payment_summary || {},
+      reading_summary: data?.reading_summary || {},
+      subscription_summary: data?.subscription_summary || {},
+      invite_summary: data?.invite_summary || {},
+      membership_orders: data?.membership_orders || [],
+      recharge_records: data?.recharge_records || [],
+      browse_history: data?.browse_history || [],
+      subscriptions: data?.subscriptions || [],
+      share_links: data?.share_links || [],
+      invite_records: data?.invite_records || []
+    };
+    centerData.value = nextData;
+    syncCenterSubscriptionDraft(nextData.subscriptions);
+  } catch (error) {
+    centerErrorMessage.value = normalizeErrorMessage(error, "加载客户中心数据失败");
+  } finally {
+    centerLoading.value = false;
+  }
+}
+
+async function handleSaveCenterSubscription(row) {
+  if (!centerTargetUserID.value || !row?.id) {
+    return;
+  }
+  const draft = centerSubscriptionDraft.value[row.id];
+  if (!draft) {
+    centerErrorMessage.value = "订阅草稿数据缺失，请刷新后重试";
+    return;
+  }
+
+  const frequency = String(draft.frequency || "").toUpperCase();
+  const status = String(draft.status || "").toUpperCase();
+  const prevFrequency = String(row.frequency || "").toUpperCase();
+  const prevStatus = String(row.status || "").toUpperCase();
+
+  if (!subscriptionFrequencyOptions.includes(frequency)) {
+    centerErrorMessage.value = "订阅频率不合法";
+    return;
+  }
+  if (!subscriptionStatusOptions.includes(status)) {
+    centerErrorMessage.value = "订阅状态不合法";
+    return;
+  }
+  if (frequency === prevFrequency && status === prevStatus) {
+    message.value = `订阅 ${row.id} 未发生变化`;
+    return;
+  }
+
+  centerSavingSubscriptionID.value = row.id;
+  centerErrorMessage.value = "";
+  try {
+    await updateUserSubscription(centerTargetUserID.value, row.id, {
+      frequency,
+      status
+    });
+    row.frequency = frequency;
+    row.status = status;
+    message.value = `订阅 ${row.id} 更新成功`;
+  } catch (error) {
+    centerErrorMessage.value = normalizeErrorMessage(error, "更新订阅失败");
+  } finally {
+    centerSavingSubscriptionID.value = "";
   }
 }
 
@@ -442,7 +744,19 @@ function triggerCSVDownload(content, fileName) {
 }
 
 function buildCSVRows(items) {
-  const header = ["id", "phone", "email", "status", "kyc_status", "member_level", "created_at"];
+  const header = [
+    "id",
+    "phone",
+    "email",
+    "status",
+    "kyc_status",
+    "member_level",
+    "registration_source",
+    "inviter_user_id",
+    "invite_code",
+    "invite_registered_at",
+    "created_at"
+  ];
   const rows = items.map((item) => [
     item.id || "",
     item.phone || "",
@@ -450,6 +764,10 @@ function buildCSVRows(items) {
     item.status || "",
     item.kyc_status || "",
     item.member_level || "",
+    item.registration_source || "",
+    item.inviter_user_id || "",
+    item.invite_code || "",
+    item.invite_registered_at || "",
     item.created_at || ""
   ]);
   return [header, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
@@ -472,6 +790,7 @@ async function exportFilteredCSV() {
     if (filters.status) params.set("status", filters.status);
     if (filters.kyc_status) params.set("kyc_status", filters.kyc_status);
     if (filters.member_level.trim()) params.set("member_level", filters.member_level.trim());
+    if (filters.registration_source) params.set("registration_source", filters.registration_source);
 
     const baseURL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "");
     const query = params.toString();
@@ -516,6 +835,7 @@ function resetFilters() {
   filters.status = "";
   filters.kyc_status = "";
   filters.member_level = "";
+  filters.registration_source = "";
   page.value = 1;
   fetchUsers();
 }
@@ -580,10 +900,32 @@ onMounted(fetchUsers);
           <el-option v-for="item in kycStatusOptions" :key="item" :label="item" :value="item" />
         </el-select>
         <el-input v-model="filters.member_level" clearable placeholder="会员等级，如 VIP1" style="width: 180px" />
+        <el-select
+          v-model="filters.registration_source"
+          clearable
+          placeholder="全部注册来源"
+          style="width: 160px"
+        >
+          <el-option
+            v-for="item in registrationSourceOptions"
+            :key="item.value"
+            :label="item.label"
+            :value="item.value"
+          />
+        </el-select>
         <el-button :loading="exportingFiltered" @click="exportFilteredCSV">导出筛选CSV</el-button>
         <el-button @click="exportCurrentPageCSV">导出当前页CSV</el-button>
         <el-button type="primary" plain @click="applyFilters">查询</el-button>
         <el-button @click="resetFilters">重置</el-button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 12px">
+      <div class="summary-cards">
+        <div v-for="item in sourceSummaryCards" :key="item.label" class="summary-card">
+          <p>{{ item.label }}</p>
+          <h3>{{ item.value }}</h3>
+        </div>
       </div>
     </div>
 
@@ -659,6 +1001,21 @@ onMounted(fetchUsers);
             {{ row.email || "-" }}
           </template>
         </el-table-column>
+        <el-table-column label="注册来源" min-width="120">
+          <template #default="{ row }">
+            <el-tag :type="registrationSourceTagType(row.registration_source)">
+              {{ mapRegistrationSource(row.registration_source) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="邀请关系" min-width="220">
+          <template #default="{ row }">
+            <div class="stack-meta">
+              <span>邀请人：{{ row.inviter_user_id || "-" }}</span>
+              <span>邀请码：{{ row.invite_code || "-" }}</span>
+            </div>
+          </template>
+        </el-table-column>
 
         <el-table-column label="用户状态" min-width="300">
           <template #default="{ row }">
@@ -694,6 +1051,11 @@ onMounted(fetchUsers);
         </el-table-column>
 
         <el-table-column prop="created_at" label="创建时间" min-width="180" />
+        <el-table-column label="客户中心" width="110" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" @click="openUserCenter(row)">查看</el-button>
+          </template>
+        </el-table-column>
       </el-table>
 
       <div class="pagination">
@@ -756,6 +1118,262 @@ onMounted(fetchUsers);
         <el-button type="primary" @click="batchResultVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="centerDialogVisible"
+      :title="`客户中心详情 · ${centerTargetUserID || '-'}`"
+      width="980px"
+      destroy-on-close
+    >
+      <el-alert
+        v-if="centerErrorMessage"
+        :title="centerErrorMessage"
+        type="error"
+        show-icon
+        style="margin-bottom: 10px"
+      />
+
+      <div v-loading="centerLoading">
+        <el-descriptions :column="2" border style="margin-bottom: 10px">
+          <el-descriptions-item label="用户ID">
+            {{ centerData.user_profile?.id || centerTargetUserID || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="会员等级">
+            {{ centerData.membership_quota?.member_level || centerData.user_profile?.member_level || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="KYC状态">
+            {{ mapDisplayStatus(centerData.user_profile?.kyc_status, "kyc") }}
+          </el-descriptions-item>
+          <el-descriptions-item label="邮箱">
+            {{ centerData.user_profile?.email || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="注册来源">
+            {{ mapRegistrationSource(centerData.user_profile?.registration_source) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="邀请人ID">
+            {{ centerData.user_profile?.inviter_user_id || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="邀请码">
+            {{ centerData.user_profile?.invite_code || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="文档阅读剩余">
+            {{ centerData.membership_quota?.doc_read_remaining ?? 0 }}
+          </el-descriptions-item>
+          <el-descriptions-item label="资讯订阅剩余">
+            {{ centerData.membership_quota?.news_subscribe_remaining ?? 0 }}
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <div class="center-summary-row">
+          <el-tag type="success">
+            已支付订单 {{ centerData.payment_summary?.paid_order_count ?? 0 }}
+          </el-tag>
+          <el-tag type="warning">
+            待处理订单 {{ centerData.payment_summary?.pending_order_count ?? 0 }}
+          </el-tag>
+          <el-tag type="info">
+            支付总额 {{ formatCenterAmount(centerData.payment_summary?.paid_amount_total ?? 0) }}
+          </el-tag>
+          <el-tag type="info">
+            阅读记录 {{ centerData.reading_summary?.browse_count ?? 0 }}
+          </el-tag>
+          <el-tag type="success">
+            生效订阅 {{ centerData.subscription_summary?.active_count ?? 0 }}
+          </el-tag>
+        </div>
+
+        <el-tabs v-model="centerActiveTab">
+          <el-tab-pane label="VIP情况" name="vip">
+            <el-descriptions :column="2" border>
+              <el-descriptions-item label="配额周期">
+                {{ centerData.membership_quota?.period_key || "-" }}
+              </el-descriptions-item>
+              <el-descriptions-item label="重置周期">
+                {{ centerData.membership_quota?.reset_cycle || "-" }}
+              </el-descriptions-item>
+              <el-descriptions-item label="文档阅读">
+                {{ centerData.membership_quota?.doc_read_used ?? 0 }} /
+                {{ centerData.membership_quota?.doc_read_limit ?? 0 }}
+              </el-descriptions-item>
+              <el-descriptions-item label="资讯订阅">
+                {{ centerData.membership_quota?.news_subscribe_used ?? 0 }} /
+                {{ centerData.membership_quota?.news_subscribe_limit ?? 0 }}
+              </el-descriptions-item>
+              <el-descriptions-item label="下次重置">
+                {{ formatCenterDateTime(centerData.membership_quota?.reset_at) }}
+              </el-descriptions-item>
+            </el-descriptions>
+          </el-tab-pane>
+
+          <el-tab-pane label="支付情况" name="payment">
+            <p class="center-subtitle">会员订单</p>
+            <el-table :data="centerMembershipOrders" border stripe max-height="240" empty-text="暂无会员订单">
+              <el-table-column prop="order_no" label="订单号" min-width="150">
+                <template #default="{ row }">{{ row.order_no || row.id || "-" }}</template>
+              </el-table-column>
+              <el-table-column prop="product_id" label="产品ID" min-width="120" />
+              <el-table-column prop="pay_channel" label="支付方式" min-width="110" />
+              <el-table-column label="金额" min-width="90">
+                <template #default="{ row }">{{ formatCenterAmount(row.amount) }}</template>
+              </el-table-column>
+              <el-table-column label="状态" min-width="90">
+                <template #default="{ row }">
+                  <el-tag :type="statusTagByType(row.status, 'payment')">
+                    {{ mapDisplayStatus(row.status, "payment") }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="支付时间" min-width="170">
+                <template #default="{ row }">
+                  {{ formatCenterDateTime(row.paid_at || row.created_at) }}
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <p class="center-subtitle">充值记录</p>
+            <el-table :data="centerRechargeRecords" border stripe max-height="220" empty-text="暂无充值记录">
+              <el-table-column prop="order_no" label="订单号" min-width="150" />
+              <el-table-column label="金额" min-width="90">
+                <template #default="{ row }">{{ formatCenterAmount(row.amount) }}</template>
+              </el-table-column>
+              <el-table-column prop="pay_channel" label="支付方式" min-width="110" />
+              <el-table-column label="状态" min-width="90">
+                <template #default="{ row }">
+                  <el-tag :type="statusTagByType(row.status, 'payment')">
+                    {{ mapDisplayStatus(row.status, "payment") }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="支付时间" min-width="170">
+                <template #default="{ row }">{{ formatCenterDateTime(row.paid_at) }}</template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+
+          <el-tab-pane label="阅读情况" name="reading">
+            <el-table :data="centerBrowseHistory" border stripe max-height="360" empty-text="暂无阅读记录">
+              <el-table-column prop="content_type" label="类型" min-width="90" />
+              <el-table-column prop="title" label="标题" min-width="260" />
+              <el-table-column prop="source_page" label="来源页面" min-width="120" />
+              <el-table-column label="阅读时间" min-width="170">
+                <template #default="{ row }">{{ formatCenterDateTime(row.viewed_at) }}</template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+
+          <el-tab-pane label="订阅情况" name="subscription">
+            <el-table :data="centerSubscriptions" border stripe max-height="360" empty-text="暂无订阅记录">
+              <el-table-column prop="type" label="订阅类型" min-width="140" />
+              <el-table-column prop="scope" label="范围" min-width="120" />
+              <el-table-column label="频率" min-width="140">
+                <template #default="{ row }">
+                  <el-select
+                    v-model="centerSubscriptionDraft[row.id].frequency"
+                    size="small"
+                    style="width: 110px"
+                  >
+                    <el-option
+                      v-for="item in subscriptionFrequencyOptions"
+                      :key="item"
+                      :label="mapSubscriptionFrequency(item)"
+                      :value="item"
+                    />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="状态" min-width="100">
+                <template #default="{ row }">
+                  <el-select
+                    v-model="centerSubscriptionDraft[row.id].status"
+                    size="small"
+                    style="width: 110px"
+                  >
+                    <el-option
+                      v-for="item in subscriptionStatusOptions"
+                      :key="item"
+                      :label="mapDisplayStatus(item, 'subscription')"
+                      :value="item"
+                    />
+                  </el-select>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" min-width="110">
+                <template #default="{ row }">
+                  <el-button
+                    size="small"
+                    type="primary"
+                    :loading="centerSavingSubscriptionID === row.id"
+                    @click="handleSaveCenterSubscription(row)"
+                  >
+                    保存
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+
+          <el-tab-pane label="邀请关系" name="invite">
+            <div class="center-summary-row">
+              <el-tag v-for="item in centerInviteSummaryCards" :key="item.label" type="info">
+                {{ item.label }} {{ item.value }}
+              </el-tag>
+            </div>
+
+            <p class="center-subtitle">分享链接</p>
+            <el-table :data="centerShareLinks" border stripe max-height="200" empty-text="暂无分享链接">
+              <el-table-column prop="invite_code" label="邀请码" min-width="120" />
+              <el-table-column prop="channel" label="渠道" min-width="110" />
+              <el-table-column prop="status" label="状态" min-width="100" />
+              <el-table-column label="过期时间" min-width="170">
+                <template #default="{ row }">
+                  {{ formatCenterDateTime(row.expired_at) }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="url" label="分享链接" min-width="280" />
+            </el-table>
+
+            <p class="center-subtitle">邀请时间线</p>
+            <el-timeline class="center-invite-timeline">
+              <el-timeline-item
+                v-for="item in centerInviteTimeline"
+                :key="item.id"
+                :timestamp="item.registerAt"
+                placement="top"
+              >
+                <div class="timeline-title">
+                  邀请用户 {{ item.inviteeUserID }} · {{ item.statusText }}
+                </div>
+                <div class="timeline-meta">
+                  <span>首单支付：{{ item.firstPayAt }}</span>
+                  <span>风控：{{ item.riskFlag }}</span>
+                </div>
+              </el-timeline-item>
+            </el-timeline>
+          </el-tab-pane>
+
+          <el-tab-pane label="其他信息" name="other">
+            <el-descriptions :column="2" border>
+              <el-descriptions-item label="手机号">
+                {{ centerData.user_profile?.phone || "-" }}
+              </el-descriptions-item>
+              <el-descriptions-item label="邮箱">
+                {{ centerData.user_profile?.email || "-" }}
+              </el-descriptions-item>
+              <el-descriptions-item label="记录读取上限">
+                {{ centerMembershipOrders.length + centerRechargeRecords.length + centerBrowseHistory.length }}
+              </el-descriptions-item>
+              <el-descriptions-item label="接口返回订阅条数">
+                {{ centerSubscriptions.length }}
+              </el-descriptions-item>
+            </el-descriptions>
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+
+      <template #footer>
+        <el-button @click="centerDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -795,5 +1413,71 @@ onMounted(fetchUsers);
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 10px;
+}
+
+.center-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.center-subtitle {
+  margin: 10px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-regular);
+}
+
+.summary-cards {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.summary-card {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.summary-card p {
+  margin: 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.summary-card h3 {
+  margin: 6px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.stack-meta {
+  display: grid;
+  gap: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.center-invite-timeline {
+  margin-top: 8px;
+}
+
+.timeline-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.timeline-meta {
+  margin-top: 4px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 </style>

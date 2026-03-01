@@ -3,6 +3,7 @@ package repo
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -39,7 +40,7 @@ func (r *InMemoryGrowthRepo) ListRechargeRecords(userID string, status string, p
 
 func (r *InMemoryGrowthRepo) ListShareLinks(userID string) ([]model.ShareLink, error) {
 	items := []model.ShareLink{
-		{ID: "sl_001", InviteCode: "ABCD1234", URL: "https://example.com/invite/ABCD1234", Channel: "wechat", Status: "ACTIVE", ExpiredAt: ""},
+		{ID: "sl_001", InviteCode: "ABCD1234", URL: "/invite/ABCD1234", Channel: "wechat", Status: "ACTIVE", ExpiredAt: ""},
 	}
 	return items, nil
 }
@@ -48,7 +49,7 @@ func (r *InMemoryGrowthRepo) CreateShareLink(userID string, channel string, expi
 	return model.ShareLink{
 		ID:         "sl_002",
 		InviteCode: "NEWC1234",
-		URL:        "https://example.com/invite/NEWC1234",
+		URL:        "/invite/NEWC1234",
 		Channel:    channel,
 		Status:     "ACTIVE",
 		ExpiredAt:  expiredAt,
@@ -57,9 +58,24 @@ func (r *InMemoryGrowthRepo) CreateShareLink(userID string, channel string, expi
 
 func (r *InMemoryGrowthRepo) ListInviteRecords(userID string, page int, pageSize int) ([]model.InviteRecord, int, error) {
 	items := []model.InviteRecord{
-		{ID: "iv_001", InviteeUser: "u_1002", Status: "FIRST_PAID", RegisterAt: "2026-02-20T12:00:00+08:00", FirstPayAt: "2026-02-21T09:00:00+08:00"},
+		{ID: "iv_001", InviteeUser: "u_1002", Status: "FIRST_PAID", RegisterAt: "2026-02-20T12:00:00+08:00", FirstPayAt: "2026-02-21T09:00:00+08:00", RiskFlag: "NORMAL"},
 	}
 	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) GetUserInviteSummary(userID string) (model.InviteSummary, error) {
+	return model.InviteSummary{
+		ShareLinkCount:         1,
+		RegisteredCount:        1,
+		FirstPaidCount:         1,
+		ConversionRate:         1,
+		Last7dRegisteredCount:  1,
+		Last7dFirstPaidCount:   1,
+		Last7dConversionRate:   1,
+		Last30dRegisteredCount: 1,
+		Last30dFirstPaidCount:  1,
+		Last30dConversionRate:  1,
+	}, nil
 }
 
 func (r *InMemoryGrowthRepo) ListRewardRecords(userID string, page int, pageSize int) ([]model.RewardRecord, int, error) {
@@ -71,11 +87,20 @@ func (r *InMemoryGrowthRepo) ListRewardRecords(userID string, page int, pageSize
 
 func (r *InMemoryGrowthRepo) GetUserProfile(userID string) (model.UserProfile, error) {
 	return model.UserProfile{
-		ID:          userID,
-		Phone:       "13800000001",
-		Email:       "demo@sercherai.local",
-		KYCStatus:   "PENDING",
-		MemberLevel: "FREE",
+		ID:                 userID,
+		Phone:              "13800000001",
+		Email:              "demo@sercherai.local",
+		KYCStatus:          "PENDING",
+		MemberLevel:        "VIP1",
+		VIPStartedAt:       "2026-02-20T00:00:00+08:00",
+		VIPExpireAt:        "2026-03-20T23:59:59+08:00",
+		VIPStatus:          "ACTIVE",
+		VIPRemainingDays:   20,
+		RegistrationSource: "INVITED",
+		InviterUserID:      "u_demo_inviter",
+		InviteCode:         "DEMO2026",
+		InviteLinkID:       "sl_demo_001",
+		InvitedAt:          "2026-02-20T10:00:00+08:00",
 	}, nil
 }
 
@@ -134,6 +159,9 @@ func (r *InMemoryGrowthRepo) GetMembershipQuota(userID string) (model.Membership
 		NewsSubscribeRemaining: 38,
 		ResetCycle:             "MONTHLY",
 		ResetAt:                "2026-03-01T00:00:00+08:00",
+		VIPExpireAt:            "2026-03-20T23:59:59+08:00",
+		VIPStatus:              "ACTIVE",
+		VIPRemainingDays:       20,
 	}, nil
 }
 
@@ -157,15 +185,59 @@ func (r *InMemoryGrowthRepo) ListNewsCategories(userID string) ([]model.NewsCate
 
 func (r *InMemoryGrowthRepo) ListNewsArticles(userID string, categoryID string, keyword string, page int, pageSize int) ([]model.NewsArticle, int, error) {
 	items := []model.NewsArticle{
-		{ID: "na_001", CategoryID: "nc_001", Title: "A股盘前观察", Summary: "示例摘要", Visibility: "PUBLIC", Status: "PUBLISHED", PublishedAt: "2026-02-25T09:00:00+08:00"},
+		{
+			ID:              "na_001",
+			CategoryID:      "nc_001",
+			Title:           "A股盘前观察",
+			Summary:         "示例摘要",
+			CoverURL:        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=800&q=80",
+			Visibility:      "PUBLIC",
+			Status:          "PUBLISHED",
+			PublishedAt:     "2026-02-25T09:00:00+08:00",
+			AttachmentCount: 1,
+		},
+		{
+			ID:              "na_002",
+			CategoryID:      "nc_002",
+			Title:           "VIP盘后复盘",
+			Summary:         "仅供会员查看的复盘摘要",
+			CoverURL:        "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80",
+			Visibility:      "VIP",
+			Status:          "PUBLISHED",
+			PublishedAt:     "2026-02-25T20:30:00+08:00",
+			AttachmentCount: 1,
+		},
 	}
-	return items, len(items), nil
+	filtered := make([]model.NewsArticle, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(categoryID) != "" && item.CategoryID != categoryID {
+			continue
+		}
+		if strings.TrimSpace(keyword) != "" {
+			kw := strings.ToLower(keyword)
+			merged := strings.ToLower(item.Title + " " + item.Summary)
+			if !strings.Contains(merged, kw) {
+				continue
+			}
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered, len(filtered), nil
 }
 
 func (r *InMemoryGrowthRepo) GetNewsArticleDetail(userID string, articleID string) (model.NewsArticle, error) {
 	return model.NewsArticle{
-		ID: "na_001", CategoryID: "nc_001", Title: "A股盘前观察", Summary: "示例摘要", Content: "示例正文",
-		Visibility: "PUBLIC", Status: "PUBLISHED", PublishedAt: "2026-02-25T09:00:00+08:00", AuthorID: "admin_001",
+		ID:              "na_001",
+		CategoryID:      "nc_001",
+		Title:           "A股盘前观察",
+		Summary:         "示例摘要",
+		Content:         "示例正文",
+		CoverURL:        "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=800&q=80",
+		Visibility:      "PUBLIC",
+		Status:          "PUBLISHED",
+		PublishedAt:     "2026-02-25T09:00:00+08:00",
+		AuthorID:        "admin_001",
+		AttachmentCount: 1,
 	}, nil
 }
 
@@ -197,6 +269,82 @@ func (r *InMemoryGrowthRepo) GetStockRecommendationPerformance(userID string, re
 	}, nil
 }
 
+func (r *InMemoryGrowthRepo) GetStockRecommendationInsight(userID string, recoID string) (model.StockRecommendationInsight, error) {
+	recommendation := model.StockRecommendation{
+		ID:            recoID,
+		Symbol:        "600519.SH",
+		Name:          "贵州茅台",
+		Score:         91.2,
+		RiskLevel:     "MEDIUM",
+		PositionRange: "10%-15%",
+		ValidFrom:     "2026-02-25T09:00:00+08:00",
+		ValidTo:       "2026-03-01T15:00:00+08:00",
+		Status:        "PUBLISHED",
+		ReasonSummary: "基本面和资金流共振，阶段性趋势延续",
+	}
+	detail, _ := r.GetStockRecommendationDetail(userID, recoID)
+	performance, _ := r.GetStockRecommendationPerformance(userID, recoID)
+	benchmark := make([]model.RecommendationPerformancePoint, 0, len(performance))
+	for _, item := range performance {
+		benchmark = append(benchmark, model.RecommendationPerformancePoint{
+			Date:   item.Date,
+			Return: roundTo(item.Return*0.55, 4),
+		})
+	}
+	framework := model.StockRecommendationScoreFramework{
+		Method:        "growth-v1 (tech30 + fund30 + sentiment20 + flow20)",
+		TotalScore:    recommendation.Score,
+		WeightedScore: 89.5,
+		ScoreGap:      1.7,
+		Factors: []model.StockRecommendationFactorScore{
+			{Key: "tech", Label: "技术因子", Weight: 0.30, Score: detail.TechScore, Contribution: roundTo(detail.TechScore*0.30, 2)},
+			{Key: "fund", Label: "基本面因子", Weight: 0.30, Score: detail.FundScore, Contribution: roundTo(detail.FundScore*0.30, 2)},
+			{Key: "sentiment", Label: "情绪因子", Weight: 0.20, Score: detail.SentimentScore, Contribution: roundTo(detail.SentimentScore*0.20, 2)},
+			{Key: "flow", Label: "资金流因子", Weight: 0.20, Score: detail.MoneyFlowScore, Contribution: roundTo(detail.MoneyFlowScore*0.20, 2)},
+		},
+	}
+
+	return model.StockRecommendationInsight{
+		Recommendation: recommendation,
+		Detail:         detail,
+		ScoreFramework: framework,
+		RelatedNews: []model.StockRecommendationRelatedNews{
+			{
+				ID:             "na_demo_001",
+				Title:          "白酒龙头获资金连续净流入",
+				Summary:        "板块景气度维持，主力资金延续净买入。",
+				Source:         "新闻快讯",
+				Visibility:     "PUBLIC",
+				PublishedAt:    "2026-02-26T10:12:00+08:00",
+				RelevanceScore: 0.89,
+			},
+			{
+				ID:             "na_demo_002",
+				Title:          "机构研报上调消费龙头盈利预测",
+				Summary:        "渠道恢复节奏稳健，估值回到中枢区间。",
+				Source:         "券商研报",
+				Visibility:     "VIP",
+				PublishedAt:    "2026-02-25T20:08:00+08:00",
+				RelevanceScore: 0.81,
+			},
+		},
+		Performance: performance,
+		Benchmark:   benchmark,
+		PerformanceStats: model.StockRecommendationPerformanceSummary{
+			SampleDays:                3,
+			WinRate:                   1.0,
+			AvgDailyReturn:            0.017,
+			CumulativeReturn:          0.0518,
+			BenchmarkCumulativeReturn: 0.0282,
+			ExcessReturn:              0.0236,
+			MaxDrawdown:               0,
+			BenchmarkSymbol:           "000300.SH",
+			BenchmarkSource:           "estimated: 55% of strategy daily return",
+		},
+		GeneratedAt: time.Now().Format(time.RFC3339),
+	}, nil
+}
+
 func (r *InMemoryGrowthRepo) ListFuturesStrategies(userID string, contract string, status string, page int, pageSize int) ([]model.FuturesStrategy, int, error) {
 	items := []model.FuturesStrategy{
 		{ID: "fs_001", Contract: "IF2603", Name: "股指趋势跟踪", Direction: "LONG", RiskLevel: "MEDIUM", PositionRange: "20%-30%", ValidFrom: "2026-02-25T09:00:00+08:00", ValidTo: "2026-02-26T15:00:00+08:00", Status: "PUBLISHED", ReasonSummary: "趋势与量价结构一致"},
@@ -209,6 +357,86 @@ func (r *InMemoryGrowthRepo) GetFuturesStrategyDetail(userID string, strategyID 
 		ID: strategyID, Contract: "IF2603", Name: "股指趋势跟踪", Direction: "LONG", RiskLevel: "MEDIUM",
 		PositionRange: "20%-30%", ValidFrom: "2026-02-25T09:00:00+08:00", ValidTo: "2026-02-26T15:00:00+08:00",
 		Status: "PUBLISHED", ReasonSummary: "趋势与量价结构一致",
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) GetFuturesStrategyInsight(userID string, strategyID string) (model.FuturesStrategyInsight, error) {
+	strategy, _ := r.GetFuturesStrategyDetail(userID, strategyID)
+	guidance, _ := r.GetFuturesGuidance(strategy.Contract)
+	performance := []model.RecommendationPerformancePoint{
+		{Date: "2026-02-24", Return: 0.008},
+		{Date: "2026-02-25", Return: 0.012},
+		{Date: "2026-02-26", Return: -0.004},
+		{Date: "2026-02-27", Return: 0.011},
+	}
+	benchmark := []model.RecommendationPerformancePoint{
+		{Date: "2026-02-24", Return: 0.004},
+		{Date: "2026-02-25", Return: 0.006},
+		{Date: "2026-02-26", Return: -0.002},
+		{Date: "2026-02-27", Return: 0.005},
+	}
+	return model.FuturesStrategyInsight{
+		Strategy: strategy,
+		Guidance: guidance,
+		ScoreFramework: model.FuturesStrategyScoreFramework{
+			Method:        "futures-v1 (trend25 + structure20 + flow15 + risk20 + news10 + performance10)",
+			TotalScore:    84.6,
+			WeightedScore: 83.9,
+			ScoreGap:      0.7,
+			Factors: []model.FuturesStrategyFactorScore{
+				{Key: "trend", Label: "趋势因子", Weight: 0.25, Score: 86.0, Contribution: 21.5},
+				{Key: "structure", Label: "结构因子", Weight: 0.20, Score: 82.0, Contribution: 16.4},
+				{Key: "flow", Label: "资金因子", Weight: 0.15, Score: 80.0, Contribution: 12.0},
+				{Key: "risk", Label: "风险控制", Weight: 0.20, Score: 84.0, Contribution: 16.8},
+				{Key: "news", Label: "资讯因子", Weight: 0.10, Score: 81.0, Contribution: 8.1},
+				{Key: "performance", Label: "绩效因子", Weight: 0.10, Score: 91.0, Contribution: 9.1},
+			},
+		},
+		RelatedNews: []model.StockRecommendationRelatedNews{
+			{
+				ID:             "na_fut_demo_001",
+				Title:          "股指期货主力合约成交放量，短线趋势延续",
+				Summary:        "IF 主力合约成交量放大，盘中波动率回落，趋势信号维持。",
+				Source:         "新闻快讯",
+				Visibility:     "PUBLIC",
+				PublishedAt:    "2026-02-27T10:22:00+08:00",
+				RelevanceScore: 0.86,
+			},
+			{
+				ID:             "na_fut_demo_002",
+				Title:          "机构观点：股指期货套保盘活跃，风险偏好回升",
+				Summary:        "套保盘与投机盘同步增加，短期偏多策略胜率提升。",
+				Source:         "券商研报",
+				Visibility:     "VIP",
+				PublishedAt:    "2026-02-26T20:15:00+08:00",
+				RelevanceScore: 0.79,
+			},
+		},
+		RelatedEvents: []model.MarketEvent{
+			{
+				ID:          "me_fut_demo_001",
+				EventType:   "PRICE",
+				Symbol:      strategy.Contract,
+				Summary:     "15分钟级别价格突破关键压力位。",
+				TriggerRule: "15分钟涨幅超过1.2%",
+				Source:      "system",
+				CreatedAt:   "2026-02-27T10:16:00+08:00",
+			},
+		},
+		Performance: performance,
+		Benchmark:   benchmark,
+		PerformanceStats: model.FuturesStrategyPerformanceSummary{
+			SampleDays:                4,
+			WinRate:                   0.75,
+			AvgDailyReturn:            0.0068,
+			CumulativeReturn:          0.0271,
+			BenchmarkCumulativeReturn: 0.0131,
+			ExcessReturn:              0.014,
+			MaxDrawdown:               0.004,
+			BenchmarkSymbol:           "000300.SH",
+			BenchmarkSource:           "actual: CSI300",
+		},
+		GeneratedAt: time.Now().Format(time.RFC3339),
 	}, nil
 }
 
@@ -458,11 +686,15 @@ func (r *InMemoryGrowthRepo) AdminListNewsArticles(status string, categoryID str
 	return items, total, nil
 }
 
-func (r *InMemoryGrowthRepo) AdminCreateNewsArticle(categoryID string, title string, summary string, content string, visibility string, status string, authorID string) (string, error) {
+func (r *InMemoryGrowthRepo) AdminGetNewsArticleDetail(id string) (model.NewsArticle, error) {
+	return r.GetNewsArticleDetail("u_demo_001", id)
+}
+
+func (r *InMemoryGrowthRepo) AdminCreateNewsArticle(categoryID string, title string, summary string, content string, coverURL string, visibility string, status string, authorID string) (string, error) {
 	return "na_new_001", nil
 }
 
-func (r *InMemoryGrowthRepo) AdminUpdateNewsArticle(id string, categoryID string, title string, summary string, content string, visibility string, status string) error {
+func (r *InMemoryGrowthRepo) AdminUpdateNewsArticle(id string, categoryID string, title string, summary string, content string, coverURL string, visibility string, status string) error {
 	return nil
 }
 
@@ -484,6 +716,52 @@ func (r *InMemoryGrowthRepo) AdminDeleteNewsAttachment(id string) error {
 	return nil
 }
 
+func (r *InMemoryGrowthRepo) AdminListMarketEvents(eventType string, symbol string, page int, pageSize int) ([]model.MarketEvent, int, error) {
+	items := []model.MarketEvent{
+		{
+			ID:          "me_demo_001",
+			EventType:   "PRICE",
+			Symbol:      "IF2603",
+			Summary:     "指数期货早盘快速拉升，触发突破提醒",
+			TriggerRule: "15分钟涨幅超过1.2%",
+			Source:      "system",
+			CreatedAt:   "2026-02-26T09:40:00+08:00",
+		},
+		{
+			ID:          "me_demo_002",
+			EventType:   "POLICY",
+			Symbol:      "ALL",
+			Summary:     "交易所发布保证金调整通知",
+			TriggerRule: "保证金比率上调",
+			Source:      "exchange",
+			CreatedAt:   "2026-02-26T08:20:00+08:00",
+		},
+	}
+
+	trimmedType := strings.ToUpper(strings.TrimSpace(eventType))
+	trimmedSymbol := strings.ToUpper(strings.TrimSpace(symbol))
+	filtered := make([]model.MarketEvent, 0, len(items))
+	for _, item := range items {
+		if trimmedType != "" && strings.ToUpper(item.EventType) != trimmedType {
+			continue
+		}
+		if trimmedSymbol != "" && !strings.Contains(strings.ToUpper(item.Symbol), trimmedSymbol) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+
+	return filtered, len(filtered), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminCreateMarketEvent(item model.MarketEvent) (string, error) {
+	return "me_new_001", nil
+}
+
+func (r *InMemoryGrowthRepo) AdminUpdateMarketEvent(id string, item model.MarketEvent) error {
+	return nil
+}
+
 func (r *InMemoryGrowthRepo) AdminListStockRecommendations(status string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
 	items, total, _ := r.ListStockRecommendations("u_demo_001", "", page, pageSize)
 	return items, total, nil
@@ -495,6 +773,168 @@ func (r *InMemoryGrowthRepo) AdminCreateStockRecommendation(item model.StockReco
 
 func (r *InMemoryGrowthRepo) AdminUpdateStockRecommendationStatus(id string, status string) error {
 	return nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error) {
+	if days <= 0 {
+		days = 90
+	}
+	if len(symbols) == 0 {
+		symbols = []string{"600519.SH", "601318.SH", "600036.SH", "300750.SZ", "000333.SZ"}
+	}
+	return len(symbols) * days, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncDocFastNewsIncremental(batchSize int) (string, error) {
+	if batchSize <= 0 {
+		batchSize = 200
+	}
+	return "doc_fast incremental sync skipped (in-memory repo)", nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncTushareNewsIncremental(batchSize int) (string, error) {
+	if batchSize <= 0 {
+		batchSize = 200
+	}
+	return "tushare news incremental sync skipped (in-memory repo)", nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncTushareNewsIncrementalWithOptions(opts model.TushareNewsSyncOptions) (string, []model.NewsSyncRunDetail, error) {
+	batchSize := opts.BatchSize
+	if batchSize <= 0 {
+		batchSize = 200
+	}
+	details := []model.NewsSyncRunDetail{
+		{
+			ID:            "nsd_demo_001",
+			JobName:       "tushare_news_incremental",
+			SyncType:      "NEWS_BRIEF",
+			Source:        "cls",
+			Symbol:        "",
+			Status:        "SUCCESS",
+			FetchedCount:  0,
+			UpsertedCount: 0,
+			FailedCount:   0,
+			StartedAt:     "2026-02-28T00:00:00+08:00",
+			FinishedAt:    "2026-02-28T00:00:00+08:00",
+		},
+	}
+	return fmt.Sprintf("tushare news incremental sync skipped (in-memory repo, batch=%d)", batchSize), details, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminRunVIPMembershipLifecycle() (string, error) {
+	return "vip lifecycle skipped (in-memory repo)", nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetQuantTopStocks(limit int, lookbackDays int) ([]model.StockQuantScore, error) {
+	items := []model.StockQuantScore{
+		{
+			Rank: 1, Symbol: "600519.SH", Name: "贵州茅台", TradeDate: "2026-02-27", ClosePrice: 1728.5,
+			Momentum5: 3.2, Momentum20: 8.6, Volatility20: 1.9, VolumeRatio: 1.28, Drawdown20: 3.1, TrendStrength: 2.4,
+			TrendScore: 91.2, FlowScore: 89.4, ValueScore: 86.8, NewsScore: 78.0,
+			NetMFAmount: 18234.5, PeTTM: 26.8, PB: 9.6, TurnoverRate: 0.86, NewsHeat: 4, PositiveNewsRate: 0.75,
+			Score: 92.6, RiskLevel: "LOW", ReasonSummary: "20日动量8.60%，主力净流入18234.50", Reasons: []string{"20日动量8.60%，中期趋势较强", "主力净流入18234.50，资金面偏强", "近14天资讯热度4，正面占比75%"},
+		},
+		{
+			Rank: 2, Symbol: "601318.SH", Name: "中国平安", TradeDate: "2026-02-27", ClosePrice: 49.6,
+			Momentum5: 2.8, Momentum20: 7.9, Volatility20: 2.1, VolumeRatio: 1.35, Drawdown20: 4.0, TrendStrength: 2.0,
+			TrendScore: 89.6, FlowScore: 86.5, ValueScore: 88.2, NewsScore: 73.1,
+			NetMFAmount: 10453.8, PeTTM: 10.5, PB: 1.2, TurnoverRate: 1.05, NewsHeat: 3, PositiveNewsRate: 0.67,
+			Score: 90.4, RiskLevel: "LOW", ReasonSummary: "20日动量7.90%，估值区间合理", Reasons: []string{"20日动量7.90%，中期趋势较强", "PE(TTM) 10.50，估值处于可接受区间", "波动与回撤控制在可接受范围"},
+		},
+		{
+			Rank: 3, Symbol: "600036.SH", Name: "招商银行", TradeDate: "2026-02-27", ClosePrice: 36.2,
+			Momentum5: 2.1, Momentum20: 6.8, Volatility20: 2.0, VolumeRatio: 1.22, Drawdown20: 3.6, TrendStrength: 1.8,
+			TrendScore: 87.1, FlowScore: 83.4, ValueScore: 85.9, NewsScore: 69.5,
+			NetMFAmount: 7234.2, PeTTM: 8.9, PB: 0.9, TurnoverRate: 0.96, NewsHeat: 2, PositiveNewsRate: 0.50,
+			Score: 88.7, RiskLevel: "LOW", ReasonSummary: "趋势稳健，估值与资金表现平衡", Reasons: []string{"20日动量6.80%，中期趋势较强", "主力净流入7234.20，资金面偏强", "PE(TTM) 8.90，估值处于可接受区间"},
+		},
+		{
+			Rank: 4, Symbol: "300750.SZ", Name: "宁德时代", TradeDate: "2026-02-27", ClosePrice: 211.8,
+			Momentum5: 3.9, Momentum20: 9.5, Volatility20: 2.8, VolumeRatio: 1.54, Drawdown20: 6.4, TrendStrength: 2.9,
+			TrendScore: 92.3, FlowScore: 90.8, ValueScore: 66.2, NewsScore: 71.4,
+			NetMFAmount: 21230.0, PeTTM: 38.2, PB: 7.6, TurnoverRate: 1.48, NewsHeat: 5, PositiveNewsRate: 0.60,
+			Score: 87.2, RiskLevel: "MEDIUM", ReasonSummary: "动量和资金强，但估值偏高", Reasons: []string{"20日动量9.50%，中期趋势较强", "主力净流入21230.00，资金面偏强", "PE(TTM) 38.20，估值偏高需跟踪兑现"},
+		},
+		{
+			Rank: 5, Symbol: "000333.SZ", Name: "美的集团", TradeDate: "2026-02-27", ClosePrice: 71.4,
+			Momentum5: 1.9, Momentum20: 6.1, Volatility20: 1.7, VolumeRatio: 1.11, Drawdown20: 3.5, TrendStrength: 1.6,
+			TrendScore: 84.2, FlowScore: 80.3, ValueScore: 83.4, NewsScore: 67.8,
+			NetMFAmount: 5312.7, PeTTM: 13.2, PB: 2.7, TurnoverRate: 0.82, NewsHeat: 2, PositiveNewsRate: 0.50,
+			Score: 86.8, RiskLevel: "LOW", ReasonSummary: "趋势延续，波动收敛", Reasons: []string{"20日动量6.10%，中期趋势较强", "PE(TTM) 13.20，估值处于可接受区间", "波动与回撤控制在可接受范围"},
+		},
+	}
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	return items[:limit], nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetQuantEvaluation(windowDays int, topN int) (model.StockQuantEvaluationSummary, []model.StockQuantEvaluationPoint, []model.StockQuantRiskPerformance, []model.StockQuantRotationPoint, error) {
+	if windowDays <= 0 {
+		windowDays = 60
+	}
+	if topN <= 0 {
+		topN = 10
+	}
+	points := []model.StockQuantEvaluationPoint{
+		{
+			TradeDate: "2026-02-21", SampleCount: 10,
+			AvgReturn5: 0.021, HitRate5: 0.70, BenchmarkReturn: 0.012,
+			AvgReturn10: 0.036, HitRate10: 0.68, BenchmarkReturn10: 0.019,
+			CumulativeReturn5: 0.021, CumulativeBenchmark5: 0.012, CumulativeExcess5: 0.009,
+			CumulativeReturn10: 0.036, CumulativeBenchmark10: 0.019, CumulativeExcess10: 0.017,
+		},
+		{
+			TradeDate: "2026-02-24", SampleCount: 10,
+			AvgReturn5: 0.013, HitRate5: 0.60, BenchmarkReturn: 0.009,
+			AvgReturn10: 0.025, HitRate10: 0.61, BenchmarkReturn10: 0.014,
+			CumulativeReturn5: 0.034, CumulativeBenchmark5: 0.021, CumulativeExcess5: 0.013,
+			CumulativeReturn10: 0.061, CumulativeBenchmark10: 0.033, CumulativeExcess10: 0.028,
+		},
+		{
+			TradeDate: "2026-02-26", SampleCount: 9,
+			AvgReturn5: 0.017, HitRate5: 0.67, BenchmarkReturn: 0.010,
+			AvgReturn10: 0.031, HitRate10: 0.64, BenchmarkReturn10: 0.015,
+			CumulativeReturn5: 0.052, CumulativeBenchmark5: 0.031, CumulativeExcess5: 0.021,
+			CumulativeReturn10: 0.094, CumulativeBenchmark10: 0.048, CumulativeExcess10: 0.046,
+		},
+	}
+	summary := model.StockQuantEvaluationSummary{
+		WindowDays:           windowDays,
+		TopN:                 topN,
+		SampleDays:           len(points),
+		SampleCount:          29,
+		AvgReturn5:           0.017,
+		HitRate5:             0.6567,
+		MaxDrawdown5:         0.024,
+		AvgReturn10:          0.0307,
+		HitRate10:            0.6433,
+		MaxDrawdown10:        0.031,
+		BenchmarkAvgReturn5:  0.0103,
+		BenchmarkAvgReturn10: 0.0162,
+		GeneratedAt:          "2026-02-28T10:00:00+08:00",
+	}
+	riskItems := []model.StockQuantRiskPerformance{
+		{RiskLevel: "LOW", SampleCount: 18, AvgReturn5: 0.018, HitRate5: 0.72, AvgReturn10: 0.032, HitRate10: 0.67},
+		{RiskLevel: "MEDIUM", SampleCount: 11, AvgReturn5: 0.014, HitRate5: 0.55, AvgReturn10: 0.028, HitRate10: 0.59},
+		{RiskLevel: "HIGH", SampleCount: 0, AvgReturn5: 0, HitRate5: 0, AvgReturn10: 0, HitRate10: 0},
+	}
+	rotationItems := []model.StockQuantRotationPoint{
+		{
+			TradeDate: "2026-02-21", TopSymbols: []string{"600519.SH", "601318.SH", "600036.SH", "300750.SZ", "000333.SZ"},
+			Entered: []string{"600519.SH", "601318.SH", "600036.SH", "300750.SZ", "000333.SZ"}, Exited: []string{}, StayedCount: 0, ChangedCount: 5,
+		},
+		{
+			TradeDate: "2026-02-24", TopSymbols: []string{"600519.SH", "601318.SH", "300750.SZ", "000333.SZ", "688981.SH"},
+			Entered: []string{"688981.SH"}, Exited: []string{"600036.SH"}, StayedCount: 4, ChangedCount: 2,
+		},
+		{
+			TradeDate: "2026-02-26", TopSymbols: []string{"600519.SH", "601318.SH", "600036.SH", "688981.SH", "002594.SZ"},
+			Entered: []string{"600036.SH", "002594.SZ"}, Exited: []string{"300750.SZ", "000333.SZ"}, StayedCount: 3, ChangedCount: 4,
+		},
+	}
+	return summary, points, riskItems, rotationItems, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminGenerateDailyStockRecommendations(tradeDate string) (int, error) {
@@ -518,12 +958,272 @@ func (r *InMemoryGrowthRepo) AdminUpdateFuturesStrategyStatus(id string, status 
 	return nil
 }
 
-func (r *InMemoryGrowthRepo) AdminListUsers(status string, kycStatus string, memberLevel string, page int, pageSize int) ([]model.AdminUser, int, error) {
+func (r *InMemoryGrowthRepo) AdminListUsers(status string, kycStatus string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error) {
+	registrationSource = strings.ToUpper(strings.TrimSpace(registrationSource))
 	items := []model.AdminUser{
-		{ID: "u_demo_001", Phone: "13800000001", Email: "demo@sercherai.local", Status: "ACTIVE", KYCStatus: "APPROVED", MemberLevel: "VIP1", CreatedAt: "2026-02-20T10:00:00+08:00"},
-		{ID: "admin_001", Phone: "13800000000", Email: "admin@sercherai.local", Status: "ACTIVE", KYCStatus: "APPROVED", MemberLevel: "VIP1", CreatedAt: "2026-02-20T10:00:00+08:00"},
+		{
+			ID:                 "u_demo_001",
+			Phone:              "13800000001",
+			Email:              "demo@sercherai.local",
+			Status:             "ACTIVE",
+			KYCStatus:          "APPROVED",
+			MemberLevel:        "VIP1",
+			RegistrationSource: "INVITED",
+			InviterUserID:      "u_demo_inviter",
+			InviteCode:         "DEMO2026",
+			InviteRegisteredAt: "2026-02-20T10:00:00+08:00",
+			CreatedAt:          "2026-02-20T10:00:00+08:00",
+		},
+		{
+			ID:                 "admin_001",
+			Phone:              "13800000000",
+			Email:              "admin@sercherai.local",
+			Status:             "ACTIVE",
+			KYCStatus:          "APPROVED",
+			MemberLevel:        "VIP1",
+			RegistrationSource: "DIRECT",
+			CreatedAt:          "2026-02-20T10:00:00+08:00",
+		},
 	}
-	return items, len(items), nil
+	filtered := make([]model.AdminUser, 0, len(items))
+	for _, item := range items {
+		if registrationSource == "INVITED" && strings.ToUpper(item.RegistrationSource) != "INVITED" {
+			continue
+		}
+		if registrationSource == "DIRECT" && strings.ToUpper(item.RegistrationSource) != "DIRECT" {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered, len(filtered), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetUserSourceSummary(status string, kycStatus string, memberLevel string, registrationSource string) (model.AdminUserSourceSummary, error) {
+	summary := model.AdminUserSourceSummary{
+		TotalUsers:            2,
+		DirectUsers:           1,
+		InvitedUsers:          1,
+		InviteRate:            0.5,
+		TodayInvitedUsers:     0,
+		Last7dInvitedUsers:    1,
+		Last7dFirstPaidUsers:  0,
+		Last7dConversionRate:  0,
+		Last30dInvitedUsers:   1,
+		Last30dFirstPaidUsers: 0,
+		Last30dConversionRate: 0,
+		TotalFirstPaidUsers:   0,
+		TotalConversionRate:   0,
+	}
+	registrationSource = strings.ToUpper(strings.TrimSpace(registrationSource))
+	if registrationSource == "DIRECT" {
+		summary.InvitedUsers = 0
+		summary.InviteRate = 0
+		summary.TodayInvitedUsers = 0
+		summary.Last7dInvitedUsers = 0
+		summary.Last7dFirstPaidUsers = 0
+		summary.Last7dConversionRate = 0
+		summary.Last30dInvitedUsers = 0
+		summary.Last30dFirstPaidUsers = 0
+		summary.Last30dConversionRate = 0
+		summary.TotalFirstPaidUsers = 0
+		summary.TotalConversionRate = 0
+		summary.TotalUsers = summary.DirectUsers
+	}
+	if registrationSource == "INVITED" {
+		summary.DirectUsers = 0
+		summary.InviteRate = 1
+		summary.TotalUsers = summary.InvitedUsers
+	}
+	return summary, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminListBrowseHistories(userID string, contentType string, keyword string, page int, pageSize int) ([]model.AdminBrowseHistory, int, error) {
+	items := []model.AdminBrowseHistory{
+		{
+			ID:          "bh_demo_001",
+			UserID:      "u_demo_001",
+			UserPhone:   "13800000001",
+			ContentType: "NEWS",
+			ContentID:   "na_001",
+			Title:       "A股盘前观察",
+			SourcePage:  "/news",
+			ViewedAt:    "2026-02-27T09:25:00+08:00",
+		},
+		{
+			ID:          "bh_demo_002",
+			UserID:      "u_demo_001",
+			UserPhone:   "13800000001",
+			ContentType: "REPORT",
+			ContentID:   "na_002",
+			Title:       "量价协同模型在震荡市的适配边界",
+			SourcePage:  "/news",
+			ViewedAt:    "2026-02-26T21:12:00+08:00",
+		},
+	}
+
+	targetUserID := strings.TrimSpace(userID)
+	targetType := strings.ToUpper(strings.TrimSpace(contentType))
+	targetKeyword := strings.TrimSpace(keyword)
+	filtered := make([]model.AdminBrowseHistory, 0, len(items))
+	for _, item := range items {
+		if targetUserID != "" && item.UserID != targetUserID {
+			continue
+		}
+		if targetType != "" && strings.ToUpper(strings.TrimSpace(item.ContentType)) != targetType {
+			continue
+		}
+		if targetKeyword != "" {
+			merged := strings.ToLower(item.ContentID + " " + item.Title + " " + item.UserPhone)
+			if !strings.Contains(merged, strings.ToLower(targetKeyword)) {
+				continue
+			}
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered, len(filtered), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetBrowseHistorySummary() (model.AdminBrowseHistorySummary, error) {
+	return model.AdminBrowseHistorySummary{
+		TotalViews:   128,
+		UniqueUsers:  42,
+		NewsViews:    79,
+		ReportViews:  31,
+		JournalViews: 18,
+		TodayViews:   14,
+		Last7dViews:  65,
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetBrowseHistoryTrend(days int) ([]model.AdminBrowseTrendPoint, error) {
+	points := []model.AdminBrowseTrendPoint{
+		{Date: "2026-02-21", TotalViews: 8, NewsViews: 5, ReportViews: 2, JournalViews: 1},
+		{Date: "2026-02-22", TotalViews: 10, NewsViews: 6, ReportViews: 3, JournalViews: 1},
+		{Date: "2026-02-23", TotalViews: 12, NewsViews: 7, ReportViews: 3, JournalViews: 2},
+		{Date: "2026-02-24", TotalViews: 9, NewsViews: 5, ReportViews: 2, JournalViews: 2},
+		{Date: "2026-02-25", TotalViews: 7, NewsViews: 4, ReportViews: 2, JournalViews: 1},
+		{Date: "2026-02-26", TotalViews: 11, NewsViews: 6, ReportViews: 3, JournalViews: 2},
+		{Date: "2026-02-27", TotalViews: 14, NewsViews: 8, ReportViews: 4, JournalViews: 2},
+	}
+	if days <= 0 || days >= len(points) {
+		return points, nil
+	}
+	return points[len(points)-days:], nil
+}
+
+func (r *InMemoryGrowthRepo) AdminListBrowseUserSegments(limit int) ([]model.AdminBrowseUserSegment, error) {
+	items := []model.AdminBrowseUserSegment{
+		{
+			Segment:         "ACTIVE",
+			UserID:          "u_demo_001",
+			UserPhone:       "13800000001",
+			ViewCount7d:     12,
+			LastViewedAt:    "2026-02-27T09:25:00+08:00",
+			LastContentID:   "na_001",
+			LastContentType: "NEWS",
+		},
+		{
+			Segment:         "ACTIVE",
+			UserID:          "u_demo_002",
+			UserPhone:       "13800000002",
+			ViewCount7d:     9,
+			LastViewedAt:    "2026-02-27T08:18:00+08:00",
+			LastContentID:   "na_007",
+			LastContentType: "REPORT",
+		},
+		{
+			Segment:         "SILENT",
+			UserID:          "u_demo_010",
+			UserPhone:       "13800000010",
+			ViewCount7d:     0,
+			LastViewedAt:    "2026-02-15T19:20:00+08:00",
+			LastContentID:   "na_003",
+			LastContentType: "NEWS",
+		},
+		{
+			Segment:         "SILENT",
+			UserID:          "u_demo_011",
+			UserPhone:       "13800000011",
+			ViewCount7d:     0,
+			LastViewedAt:    "",
+			LastContentID:   "",
+			LastContentType: "",
+		},
+	}
+	if limit <= 0 || limit >= len(items) {
+		return items, nil
+	}
+	return items[:limit], nil
+}
+
+func (r *InMemoryGrowthRepo) AdminListUserMessages(userID string, messageType string, readStatus string, page int, pageSize int) ([]model.AdminUserMessage, int, error) {
+	items := []model.AdminUserMessage{
+		{
+			ID:         "msg_demo_001",
+			UserID:     "u_demo_001",
+			UserPhone:  "13800000001",
+			Title:      "策略提醒",
+			Content:    "今日股指波动加大，建议收缩仓位至 70%。",
+			Type:       "STRATEGY",
+			ReadStatus: "UNREAD",
+			CreatedAt:  "2026-02-27T10:20:00+08:00",
+		},
+		{
+			ID:         "msg_demo_002",
+			UserID:     "u_demo_001",
+			UserPhone:  "13800000001",
+			Title:      "系统公告",
+			Content:    "本周六 02:00-03:00 进行系统维护。",
+			Type:       "SYSTEM",
+			ReadStatus: "READ",
+			CreatedAt:  "2026-02-26T20:00:00+08:00",
+		},
+	}
+
+	filtered := make([]model.AdminUserMessage, 0, len(items))
+	targetUserID := strings.TrimSpace(userID)
+	targetType := strings.ToUpper(strings.TrimSpace(messageType))
+	targetReadStatus := strings.ToUpper(strings.TrimSpace(readStatus))
+	for _, item := range items {
+		if targetUserID != "" && item.UserID != targetUserID {
+			continue
+		}
+		if targetType != "" && strings.ToUpper(strings.TrimSpace(item.Type)) != targetType {
+			continue
+		}
+		if targetReadStatus != "" && strings.ToUpper(strings.TrimSpace(item.ReadStatus)) != targetReadStatus {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered, len(filtered), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminCreateUserMessages(userIDs []string, title string, content string, messageType string) (int, []model.AdminMessageSendFailure, error) {
+	if len(userIDs) == 0 {
+		return 0, nil, errors.New("no target users")
+	}
+	failures := make([]model.AdminMessageSendFailure, 0)
+	success := 0
+	validUsers := map[string]struct{}{
+		"u_demo_001": {},
+		"u_demo_002": {},
+		"u_demo_010": {},
+		"u_demo_011": {},
+		"admin_001":  {},
+	}
+	for _, userID := range userIDs {
+		userID = strings.TrimSpace(userID)
+		if userID == "" {
+			continue
+		}
+		if _, ok := validUsers[userID]; !ok {
+			failures = append(failures, model.AdminMessageSendFailure{UserID: userID, Reason: "user not found"})
+			continue
+		}
+		success++
+	}
+	return success, failures, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminUpdateUserStatus(id string, status string) error {
@@ -540,14 +1240,17 @@ func (r *InMemoryGrowthRepo) AdminUpdateUserKYCStatus(id string, kycStatus strin
 
 func (r *InMemoryGrowthRepo) AdminDashboardOverview() (model.AdminDashboardOverview, error) {
 	return model.AdminDashboardOverview{
-		TotalUsers:           1200,
-		ActiveUsers:          1080,
-		KYCApprovedUsers:     860,
-		VIPUsers:             320,
-		TodayNewUsers:        26,
-		TodayPaidOrders:      14,
-		TodayPublishedStocks: 10,
-		TodayPublishedNews:   8,
+		TotalUsers:              1200,
+		ActiveUsers:             1080,
+		KYCApprovedUsers:        860,
+		VIPUsers:                320,
+		ActiveSubscriptions:     486,
+		PendingMembershipOrders: 9,
+		TodayNewUsers:           26,
+		TodayPaidOrders:         14,
+		TodayPaidAmount:         2688,
+		TodayPublishedStocks:    10,
+		TodayPublishedNews:      8,
 	}, nil
 }
 
@@ -583,6 +1286,10 @@ func (r *InMemoryGrowthRepo) AdminListMembershipProducts(status string, page int
 
 func (r *InMemoryGrowthRepo) AdminCreateMembershipProduct(name string, price float64, status string, memberLevel string, durationDays int) (string, error) {
 	return "mp_new_001", nil
+}
+
+func (r *InMemoryGrowthRepo) AdminUpdateMembershipProduct(id string, name string, price float64, status string, memberLevel string, durationDays int) error {
+	return nil
 }
 
 func (r *InMemoryGrowthRepo) AdminUpdateMembershipProductStatus(id string, status string) error {
@@ -648,6 +1355,38 @@ func (r *InMemoryGrowthRepo) AdminListDataSources(page int, pageSize int) ([]mod
 			},
 			UpdatedAt: "2026-02-26T09:00:00+08:00",
 		},
+		{
+			ID:         "ds_002",
+			SourceKey:  "mock_stock",
+			Name:       "Mock Stock Quotes",
+			SourceType: "STOCK",
+			Status:     "ACTIVE",
+			Config: map[string]interface{}{
+				"provider":          "MOCK",
+				"endpoint":          "http://127.0.0.1:18080/healthz",
+				"retry_times":       0,
+				"retry_interval_ms": 200,
+				"fail_threshold":    5,
+				"health_timeout_ms": 3000,
+			},
+			UpdatedAt: "2026-02-27T20:00:00+08:00",
+		},
+		{
+			ID:         "ds_003",
+			SourceKey:  "tushare",
+			Name:       "Tushare",
+			SourceType: "STOCK",
+			Status:     "ACTIVE",
+			Config: map[string]interface{}{
+				"provider":          "TUSHARE",
+				"endpoint":          "https://api.tushare.pro",
+				"retry_times":       1,
+				"retry_interval_ms": 500,
+				"fail_threshold":    3,
+				"health_timeout_ms": 8000,
+			},
+			UpdatedAt: "2026-02-27T20:00:00+08:00",
+		},
 	}
 	return items, len(items), nil
 }
@@ -660,7 +1399,7 @@ func (r *InMemoryGrowthRepo) AdminUpdateDataSource(sourceKey string, item model.
 	if strings.TrimSpace(sourceKey) == "" {
 		return sql.ErrNoRows
 	}
-	if sourceKey != "wind" && sourceKey != "ds_new_001" {
+	if !inMemoryDataSourceExists(sourceKey) {
 		return sql.ErrNoRows
 	}
 	return nil
@@ -670,22 +1409,27 @@ func (r *InMemoryGrowthRepo) AdminDeleteDataSource(sourceKey string) error {
 	if strings.TrimSpace(sourceKey) == "" {
 		return sql.ErrNoRows
 	}
-	if sourceKey != "wind" && sourceKey != "ds_new_001" {
+	if !inMemoryDataSourceExists(sourceKey) {
 		return sql.ErrNoRows
 	}
 	return nil
 }
 
 func (r *InMemoryGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model.DataSourceHealthCheck, error) {
-	if strings.TrimSpace(sourceKey) == "" || (sourceKey != "wind" && sourceKey != "ds_new_001") {
+	sourceKey = strings.TrimSpace(sourceKey)
+	if !inMemoryDataSourceExists(sourceKey) {
 		return model.DataSourceHealthCheck{}, sql.ErrNoRows
+	}
+	message := "ok"
+	if strings.EqualFold(sourceKey, "tushare") {
+		message = "tushare mock healthy"
 	}
 	return model.DataSourceHealthCheck{
 		SourceKey:           sourceKey,
 		Status:              "HEALTHY",
 		Reachable:           true,
 		LatencyMS:           8,
-		Message:             "ok",
+		Message:             message,
 		Attempts:            1,
 		MaxAttempts:         1,
 		ConsecutiveFailures: 0,
@@ -697,7 +1441,7 @@ func (r *InMemoryGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model
 func (r *InMemoryGrowthRepo) AdminBatchCheckDataSourceHealth(sourceKeys []string) ([]model.DataSourceHealthCheck, error) {
 	targets := make([]string, 0)
 	if len(sourceKeys) == 0 {
-		targets = append(targets, "wind")
+		targets = append(targets, "tushare", "mock_stock", "wind")
 	} else {
 		for _, key := range sourceKeys {
 			trimmed := strings.TrimSpace(key)
@@ -727,7 +1471,8 @@ func (r *InMemoryGrowthRepo) AdminBatchCheckDataSourceHealth(sourceKeys []string
 }
 
 func (r *InMemoryGrowthRepo) AdminListDataSourceHealthLogs(sourceKey string, page int, pageSize int) ([]model.DataSourceHealthLog, int, error) {
-	if strings.TrimSpace(sourceKey) == "" || (sourceKey != "wind" && sourceKey != "ds_new_001") {
+	sourceKey = strings.TrimSpace(sourceKey)
+	if !inMemoryDataSourceExists(sourceKey) {
 		return nil, 0, sql.ErrNoRows
 	}
 	items := []model.DataSourceHealthLog{
@@ -745,10 +1490,20 @@ func (r *InMemoryGrowthRepo) AdminListDataSourceHealthLogs(sourceKey string, pag
 	return items, len(items), nil
 }
 
+func inMemoryDataSourceExists(sourceKey string) bool {
+	switch strings.ToLower(strings.TrimSpace(sourceKey)) {
+	case "wind", "ds_new_001", "mock_stock", "tushare":
+		return true
+	default:
+		return false
+	}
+}
+
 func (r *InMemoryGrowthRepo) AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error) {
 	items := []model.SystemConfig{
 		{ID: "cfg_stock_model", ConfigKey: "stock.model.version", ConfigValue: "v1", Description: "股票推荐模型版本", UpdatedBy: "system", UpdatedAt: "2026-02-25T00:00:00+08:00"},
 		{ID: "cfg_futures_model", ConfigKey: "futures.model.version", ConfigValue: "v1", Description: "期货策略模型版本", UpdatedBy: "system", UpdatedAt: "2026-02-25T00:00:00+08:00"},
+		{ID: "cfg_stock_quotes_default_source", ConfigKey: "stock.quotes.default_source_key", ConfigValue: "TUSHARE", Description: "股票行情默认数据源", UpdatedBy: "system", UpdatedAt: "2026-02-28T00:00:00+08:00"},
 	}
 	return items, len(items), nil
 }
@@ -804,11 +1559,37 @@ func (r *InMemoryGrowthRepo) AdminListSchedulerJobRuns(jobName string, status st
 	return items, len(items), nil
 }
 
+func (r *InMemoryGrowthRepo) AdminListNewsSyncRunDetails(runID string, syncType string, source string, symbol string, status string, page int, pageSize int) ([]model.NewsSyncRunDetail, int, error) {
+	items := []model.NewsSyncRunDetail{
+		{
+			ID:            "nsd_demo_001",
+			RunID:         runID,
+			JobName:       "tushare_news_incremental",
+			SyncType:      "NEWS_BRIEF",
+			Source:        "cls",
+			Symbol:        "",
+			Status:        "SUCCESS",
+			FetchedCount:  8,
+			UpsertedCount: 8,
+			FailedCount:   0,
+			StartedAt:     "2026-02-28T00:00:00+08:00",
+			FinishedAt:    "2026-02-28T00:00:02+08:00",
+			CreatedAt:     "2026-02-28T00:00:02+08:00",
+			UpdatedAt:     "2026-02-28T00:00:02+08:00",
+		},
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminCreateNewsSyncRunDetails(runID string, details []model.NewsSyncRunDetail) error {
+	return nil
+}
+
 func (r *InMemoryGrowthRepo) AdminCreateSchedulerJobRun(jobName string, triggerSource string, status string, resultSummary string, errorMessage string, operatorID string) (string, error) {
 	return "jr_new_001", nil
 }
 
-func (r *InMemoryGrowthRepo) AdminRetrySchedulerJobRun(runID string, status string, resultSummary string, errorMessage string, operatorID string) (string, error) {
+func (r *InMemoryGrowthRepo) AdminRetrySchedulerJobRun(runID string, triggerSource string, status string, resultSummary string, errorMessage string, operatorID string) (string, error) {
 	return "jr_retry_001", nil
 }
 
@@ -838,6 +1619,10 @@ func (r *InMemoryGrowthRepo) AdminUpdateSchedulerJobDefinition(id string, item m
 }
 
 func (r *InMemoryGrowthRepo) AdminUpdateSchedulerJobDefinitionStatus(id string, status string, operatorID string) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) AdminDeleteSchedulerJobDefinition(id string) error {
 	return nil
 }
 
@@ -888,9 +1673,61 @@ func (r *InMemoryGrowthRepo) AdminGetWorkflowMetrics(module string, receiverID s
 
 func (r *InMemoryGrowthRepo) AdminGetSchedulerJobMetrics(jobName string) (model.SchedulerJobMetrics, error) {
 	return model.SchedulerJobMetrics{
-		TodayTotal:   8,
-		TodaySuccess: 6,
-		TodayFailed:  1,
-		TodayRunning: 1,
+		TodayTotal:         8,
+		TodaySuccess:       6,
+		TodayFailed:        1,
+		TodayRunning:       1,
+		RetryTotal:         3,
+		RetrySuccess:       2,
+		RetryFailed:        1,
+		RetryHitRate:       0.6667,
+		AvgRetryCount:      1.33,
+		AutoRetryTotal:     2,
+		RecoveryTotal:      2,
+		RecoverySuccess:    1,
+		RecoveryHitRate:    0.5,
+		FailureReasonScope: "LAST_7_DAYS",
+		FailureReasons: []model.SchedulerJobFailureReason{
+			{Reason: "TUSHARE_TOKEN_INVALID_OR_MISSING", Count: 3, LastOccurredAt: "2026-02-28T09:15:00+08:00"},
+			{Reason: "UPSTREAM_TIMEOUT", Count: 2, LastOccurredAt: "2026-02-28T08:30:00+08:00"},
+			{Reason: "MYSQL_CONNECTION_FAILED", Count: 1, LastOccurredAt: "2026-02-27T22:10:00+08:00"},
+		},
+		JobRetryStats: []model.SchedulerJobRetryStat{
+			{
+				JobName:         "daily_stock_quant_pipeline",
+				TodayTotal:      4,
+				TodaySuccess:    3,
+				TodayFailed:     1,
+				RetryTotal:      2,
+				RetrySuccess:    1,
+				RetryFailed:     1,
+				RetryHitRate:    0.5,
+				AvgRetryCount:   1.5,
+				AutoRetryTotal:  2,
+				RecoveryTotal:   1,
+				RecoverySuccess: 1,
+				RecoveryHitRate: 1,
+			},
+			{
+				JobName:         "daily_stock_recommendation",
+				TodayTotal:      4,
+				TodaySuccess:    3,
+				TodayFailed:     0,
+				TodayRunning:    1,
+				RetryTotal:      1,
+				RetrySuccess:    1,
+				RetryHitRate:    1,
+				AvgRetryCount:   1,
+				AutoRetryTotal:  0,
+				RecoveryTotal:   1,
+				RecoverySuccess: 0,
+				RecoveryHitRate: 0,
+			},
+		},
+		JobFailureReasons: []model.SchedulerJobFailureByJob{
+			{JobName: "daily_stock_quant_pipeline", Reason: "TUSHARE_TOKEN_INVALID_OR_MISSING", Count: 3, LastOccurredAt: "2026-02-28T09:15:00+08:00"},
+			{JobName: "daily_stock_quant_pipeline", Reason: "UPSTREAM_TIMEOUT", Count: 2, LastOccurredAt: "2026-02-28T08:30:00+08:00"},
+			{JobName: "daily_stock_recommendation", Reason: "MYSQL_CONNECTION_FAILED", Count: 1, LastOccurredAt: "2026-02-27T22:10:00+08:00"},
+		},
 	}, nil
 }

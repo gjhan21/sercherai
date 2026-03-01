@@ -1,0 +1,31 @@
+:root {
+  color-scheme: light;
+  --color-pine-800: #1f4a42;
+  --color-pine-700: #275c52;
+  --color-pine-600: #2f6f62;
+  --color-pine-500: #3f7f71;
+  --color-pine-300: #9bc4b8;
+  --color-champagne-100: #f6f4ef;
+  --color-champagne-200: #efebe2;
+  --color-champagne-300: #e1d5c0;
+  --color-surface: #ffffff;
+  --color-surface-soft: #fcfbf7;
+  --color-text-main: #1f2933;
+  --color-text-sub: #5f6b76;
+  --color-border: #d8dfd8;
+  --color-accent: #c08b3c;
+  --color-accent-soft: #ead7b4;
+  --color-success: #2e7d32;
+  --color-warning: #b7791f;
+  --color-danger: #b23a2a;
+
+  --font-sans: "Source Han Sans SC", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
+  --font-serif: "Source Han Serif SC", "Noto Serif SC", "STSong", serif;
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --shadow-soft: 0 10px 28px rgba(29, 38, 34, 0.08);
+  --shadow-strong: 0 18px 40px rgba(23, 44, 37, 0.16);
+}

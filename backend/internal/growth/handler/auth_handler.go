@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -118,12 +119,36 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
 		return
 	}
-	if exists, err := h.phoneExists(req.Phone); err != nil {
-		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+	phone, email, normalizeErr := normalizeRegisterCredential(req.Account, req.Phone, req.Email)
+	if normalizeErr != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: normalizeErr.Error(), Data: struct{}{}})
 		return
-	} else if exists {
-		c.JSON(http.StatusConflict, dto.APIResponse{Code: 40902, Message: "phone already exists", Data: struct{}{}})
-		return
+	}
+	if phone != "" {
+		if exists, err := h.phoneExists(phone); err != nil {
+			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+			return
+		} else if exists {
+			c.JSON(http.StatusConflict, dto.APIResponse{Code: 40902, Message: "phone already exists", Data: struct{}{}})
+			return
+		}
+	}
+	if email != "" {
+		if exists, err := h.emailExists(email); err != nil {
+			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+			return
+		} else if exists {
+			c.JSON(http.StatusConflict, dto.APIResponse{Code: 40903, Message: "email already exists", Data: struct{}{}})
+			return
+		}
+	}
+	if phone == "" {
+		allocatedPhone, allocErr := h.allocateVirtualPhone(email)
+		if allocErr != nil {
+			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: allocErr.Error(), Data: struct{}{}})
+			return
+		}
+		phone = allocatedPhone
 	}
 
 	passwordHash, err := bcryptHash(req.Password)
@@ -133,12 +158,27 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	userID := newID("u")
 	now := time.Now()
-	_, err = h.db.Exec(`
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
 INSERT INTO users (id, phone, email, password_hash, status, kyc_status, member_level, created_at, updated_at)
 VALUES (?, ?, ?, ?, 'ACTIVE', 'PENDING', 'FREE', ?, ?)`,
-		userID, req.Phone, strings.TrimSpace(req.Email), passwordHash, now, now,
+		userID, phone, optionalString(email), passwordHash, now, now,
 	)
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if bindErr := h.bindInviteOnRegister(tx, userID, req.InviteLinkID, req.InviteCode); bindErr != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: bindErr.Error(), Data: struct{}{}})
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
@@ -157,7 +197,7 @@ VALUES (?, ?, ?, ?, 'ACTIVE', 'PENDING', 'FREE', ?, ?)`,
 		UserID:       userID,
 		Role:         role,
 	}))
-	h.writeAuthLog(userID, req.Phone, "REGISTER", "SUCCESS", "", c)
+	h.writeAuthLog(userID, logPhoneValue(phone), "REGISTER", "SUCCESS", "", c)
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -175,54 +215,62 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: cfgErr.Error(), Data: struct{}{}})
 		return
 	}
+	account, normalizeErr := normalizeLoginCredential(req.Account, req.Phone, req.Email)
+	if normalizeErr != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: normalizeErr.Error(), Data: struct{}{}})
+		return
+	}
+	logPhone := logPhoneValue(account)
+	riskPhone := riskPhoneValue(account)
+
 	clientIP := c.ClientIP()
-	if lockedUntil, lockType, locked, lockErr := h.checkRedisLock(clientIP, req.Phone); lockErr != nil {
+	if lockedUntil, lockType, locked, lockErr := h.checkRedisLock(clientIP, riskPhone); lockErr != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: lockErr.Error(), Data: struct{}{}})
 		return
 	} else if locked {
 		c.JSON(http.StatusTooManyRequests, dto.APIResponse{Code: 42901, Message: "too many failed attempts", Data: gin.H{"locked_until": lockedUntil, "lock_type": lockType}})
-		h.writeAuthLog("", req.Phone, "LOGIN", "FAILED", lockType, c)
+		h.writeAuthLog("", logPhone, "LOGIN", "FAILED", lockType, c)
 		return
 	}
-	if lockedUntil, locked, lockErr := h.checkLoginLock(req.Phone); lockErr != nil {
+	if lockedUntil, locked, lockErr := h.checkLoginLock(riskPhone); lockErr != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: lockErr.Error(), Data: struct{}{}})
 		return
 	} else if locked {
 		c.JSON(http.StatusTooManyRequests, dto.APIResponse{Code: 42901, Message: "too many failed attempts", Data: gin.H{"locked_until": lockedUntil}})
-		h.writeAuthLog("", req.Phone, "LOGIN", "FAILED", "locked", c)
+		h.writeAuthLog("", logPhone, "LOGIN", "FAILED", "locked", c)
 		return
 	}
 
-	userID, passHash, status, err := h.loadUserByPhone(req.Phone)
+	userID, passHash, status, err := h.loadUserByAccount(account)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			_, _ = h.recordLoginFailure(req.Phone, cfg)
-			_, _, _ = h.recordRedisFailure(clientIP, req.Phone, cfg)
+			_, _ = h.recordLoginFailure(riskPhone, cfg)
+			_, _, _ = h.recordRedisFailure(clientIP, riskPhone, cfg)
 			c.JSON(http.StatusUnauthorized, dto.APIResponse{Code: 40104, Message: "invalid credentials", Data: struct{}{}})
-			h.writeAuthLog("", req.Phone, "LOGIN", "FAILED", "user_not_found", c)
+			h.writeAuthLog("", logPhone, "LOGIN", "FAILED", "user_not_found", c)
 			return
 		}
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
 	if strings.ToUpper(status) != "ACTIVE" {
-		_, _ = h.recordLoginFailure(req.Phone, cfg)
-		_, _, _ = h.recordRedisFailure(clientIP, req.Phone, cfg)
+		_, _ = h.recordLoginFailure(riskPhone, cfg)
+		_, _, _ = h.recordRedisFailure(clientIP, riskPhone, cfg)
 		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40303, Message: "user status invalid", Data: struct{}{}})
-		h.writeAuthLog(userID, req.Phone, "LOGIN", "FAILED", "status_not_active", c)
+		h.writeAuthLog(userID, logPhone, "LOGIN", "FAILED", "status_not_active", c)
 		return
 	}
 	passwordMatch, legacyHash := verifyPassword(req.Password, passHash)
 	if !passwordMatch {
-		lockedUntil, _ := h.recordLoginFailure(req.Phone, cfg)
-		redisLockedUntil, lockType, _ := h.recordRedisFailure(clientIP, req.Phone, cfg)
+		lockedUntil, _ := h.recordLoginFailure(riskPhone, cfg)
+		redisLockedUntil, lockType, _ := h.recordRedisFailure(clientIP, riskPhone, cfg)
 		c.JSON(http.StatusUnauthorized, dto.APIResponse{Code: 40104, Message: "invalid credentials", Data: struct{}{}})
 		if redisLockedUntil != "" {
-			h.writeAuthLog(userID, req.Phone, "LOGIN", "FAILED", lockType, c)
+			h.writeAuthLog(userID, logPhone, "LOGIN", "FAILED", lockType, c)
 		} else if lockedUntil != "" {
-			h.writeAuthLog(userID, req.Phone, "LOGIN", "FAILED", "bad_password_locked", c)
+			h.writeAuthLog(userID, logPhone, "LOGIN", "FAILED", "bad_password_locked", c)
 		} else {
-			h.writeAuthLog(userID, req.Phone, "LOGIN", "FAILED", "bad_password", c)
+			h.writeAuthLog(userID, logPhone, "LOGIN", "FAILED", "bad_password", c)
 		}
 		return
 	}
@@ -252,9 +300,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		UserID:       userID,
 		Role:         role,
 	}))
-	_ = h.clearLoginFailures(req.Phone)
-	_ = h.clearRedisFailures(clientIP, req.Phone)
-	h.writeAuthLog(userID, req.Phone, "LOGIN", "SUCCESS", "", c)
+	_ = h.clearLoginFailures(riskPhone)
+	_ = h.clearRedisFailures(clientIP, riskPhone)
+	h.writeAuthLog(userID, logPhone, "LOGIN", "SUCCESS", "", c)
 }
 
 func (h *AuthHandler) Refresh(c *gin.Context) {
@@ -1481,9 +1529,17 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	}))
 }
 
-func (h *AuthHandler) loadUserByPhone(phone string) (string, string, string, error) {
+func (h *AuthHandler) loadUserByAccount(account string) (string, string, string, error) {
+	account = strings.TrimSpace(account)
+	if account == "" {
+		return "", "", "", sql.ErrNoRows
+	}
 	var userID, passwordHash, status string
-	err := h.db.QueryRow("SELECT id, password_hash, status FROM users WHERE phone = ? LIMIT 1", phone).Scan(&userID, &passwordHash, &status)
+	email := strings.ToLower(account)
+	err := h.db.QueryRow(
+		"SELECT id, password_hash, status FROM users WHERE phone = ? OR email = ? LIMIT 1",
+		account, email,
+	).Scan(&userID, &passwordHash, &status)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -1491,11 +1547,296 @@ func (h *AuthHandler) loadUserByPhone(phone string) (string, string, string, err
 }
 
 func (h *AuthHandler) phoneExists(phone string) (bool, error) {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return false, nil
+	}
 	var cnt int
 	if err := h.db.QueryRow("SELECT COUNT(*) FROM users WHERE phone = ?", phone).Scan(&cnt); err != nil {
 		return false, err
 	}
 	return cnt > 0, nil
+}
+
+func (h *AuthHandler) emailExists(email string) (bool, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return false, nil
+	}
+	var cnt int
+	if err := h.db.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", email).Scan(&cnt); err != nil {
+		return false, err
+	}
+	return cnt > 0, nil
+}
+
+func (h *AuthHandler) allocateVirtualPhone(seed string) (string, error) {
+	seed = strings.ToLower(strings.TrimSpace(seed))
+	for i := 0; i < 12; i++ {
+		raw := fmt.Sprintf("%s|%d|%d", seed, time.Now().UnixNano(), i)
+		sum := sha256.Sum256([]byte(raw))
+		value := uint64(0)
+		for j := 0; j < 8; j++ {
+			value = (value << 8) | uint64(sum[j])
+		}
+		phone := fmt.Sprintf("9%010d", value%10000000000)
+		exists, err := h.phoneExists(phone)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return phone, nil
+		}
+	}
+	return "", errors.New("failed to allocate virtual phone")
+}
+
+func (h *AuthHandler) bindInviteOnRegister(tx *sql.Tx, inviteeUserID string, inviteLinkID string, inviteCode string) error {
+	inviteLinkID = strings.TrimSpace(inviteLinkID)
+	inviteCode = strings.ToUpper(strings.TrimSpace(inviteCode))
+	if inviteLinkID == "" && inviteCode == "" {
+		return nil
+	}
+
+	var row *sql.Row
+	now := time.Now()
+	if inviteLinkID != "" {
+		row = tx.QueryRow(`
+SELECT id, user_id
+FROM invite_links
+WHERE id = ? AND status = 'ACTIVE' AND (expired_at IS NULL OR expired_at > ?)
+LIMIT 1`, inviteLinkID, now)
+	} else {
+		row = tx.QueryRow(`
+SELECT id, user_id
+FROM invite_links
+WHERE invite_code = ? AND status = 'ACTIVE' AND (expired_at IS NULL OR expired_at > ?)
+LIMIT 1`, inviteCode, now)
+	}
+
+	var resolvedLinkID, inviterUserID string
+	if err := row.Scan(&resolvedLinkID, &inviterUserID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("invite link invalid")
+		}
+		return err
+	}
+	if strings.TrimSpace(inviterUserID) == "" || inviterUserID == inviteeUserID {
+		return nil
+	}
+
+	inviteRecordID := newID("ir")
+	_, err := tx.Exec(`
+INSERT INTO invite_records (id, inviter_user_id, invitee_user_id, invite_link_id, register_at, status, risk_flag)
+VALUES (?, ?, ?, ?, ?, 'REGISTERED', 'NORMAL')`,
+		inviteRecordID, inviterUserID, inviteeUserID, resolvedLinkID, now,
+	)
+	if err != nil {
+		return err
+	}
+	if err := h.grantInviteRegisterVIPReward(tx, inviterUserID, inviteeUserID, inviteRecordID, now); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (h *AuthHandler) loadInviteRegisterVIPDays(tx *sql.Tx) int {
+	const (
+		configKey   = "invite.register.reward.vip_days"
+		defaultDays = 3
+		maxDays     = 3650
+	)
+	if tx == nil {
+		return defaultDays
+	}
+	var raw sql.NullString
+	err := tx.QueryRow("SELECT config_value FROM system_configs WHERE config_key = ? LIMIT 1", configKey).Scan(&raw)
+	if err != nil {
+		return defaultDays
+	}
+	value, err := strconv.Atoi(strings.TrimSpace(raw.String))
+	if err != nil {
+		return defaultDays
+	}
+	if value < 0 {
+		return 0
+	}
+	if value > maxDays {
+		return maxDays
+	}
+	return value
+}
+
+func (h *AuthHandler) grantInviteRegisterVIPReward(tx *sql.Tx, inviterUserID string, inviteeUserID string, inviteRecordID string, now time.Time) error {
+	const (
+		rewardType   = "VIP_DAYS"
+		triggerEvent = "INVITEE_REGISTERED"
+	)
+	if tx == nil || strings.TrimSpace(inviterUserID) == "" || strings.TrimSpace(inviteRecordID) == "" {
+		return nil
+	}
+	rewardDays := h.loadInviteRegisterVIPDays(tx)
+	if rewardDays <= 0 {
+		return nil
+	}
+
+	var exists int
+	if err := tx.QueryRow(
+		"SELECT COUNT(*) FROM share_reward_records WHERE invite_record_id = ? AND reward_type = ? AND trigger_event = ?",
+		inviteRecordID,
+		rewardType,
+		triggerEvent,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if exists > 0 {
+		return nil
+	}
+
+	seedWalletID := newID("rwd")
+	_, err := tx.Exec(`
+INSERT INTO reward_wallets (id, user_id, cash_balance, cash_frozen, coupon_balance, vip_days_balance, updated_at)
+VALUES (?, ?, 0, 0, 0, 0, ?)
+ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at)`,
+		seedWalletID,
+		inviterUserID,
+		now,
+	)
+	if err != nil {
+		return err
+	}
+
+	var walletID string
+	if err := tx.QueryRow("SELECT id FROM reward_wallets WHERE user_id = ? LIMIT 1", inviterUserID).Scan(&walletID); err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+UPDATE reward_wallets
+SET vip_days_balance = vip_days_balance + ?, updated_at = ?
+WHERE id = ?`,
+		rewardDays,
+		now,
+		walletID,
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+INSERT INTO reward_wallet_txns (id, wallet_id, txn_type, amount, status, ref_id, created_at)
+VALUES (?, ?, ?, ?, 'SUCCESS', ?, ?)`,
+		newID("rwt"),
+		walletID,
+		"VIP_DAYS_IN",
+		float64(rewardDays),
+		inviteRecordID,
+		now,
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+INSERT INTO share_reward_records (id, inviter_user_id, invitee_user_id, invite_record_id, reward_type, reward_value, trigger_event, status, issued_at, review_reason, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, 'ISSUED', ?, ?, ?)`,
+		newID("rrd"),
+		inviterUserID,
+		inviteeUserID,
+		inviteRecordID,
+		rewardType,
+		float64(rewardDays),
+		triggerEvent,
+		now,
+		fmt.Sprintf("邀请注册奖励 %d 天VIP", rewardDays),
+		now,
+	)
+	return err
+}
+
+func normalizeRegisterCredential(account string, phone string, email string) (string, string, error) {
+	account = strings.TrimSpace(account)
+	phone = strings.TrimSpace(phone)
+	email = strings.ToLower(strings.TrimSpace(email))
+	if account != "" {
+		if strings.Contains(account, "@") {
+			if email == "" {
+				email = strings.ToLower(account)
+			}
+		} else if phone == "" {
+			phone = account
+		}
+	}
+	if phone == "" && email == "" {
+		return "", "", errors.New("phone or email is required")
+	}
+	if len(phone) > 20 {
+		return "", "", errors.New("phone too long")
+	}
+	if len(email) > 128 {
+		return "", "", errors.New("email too long")
+	}
+	return phone, email, nil
+}
+
+func normalizeLoginCredential(account string, phone string, email string) (string, error) {
+	account = strings.TrimSpace(account)
+	if account != "" {
+		if strings.Contains(account, "@") {
+			return strings.ToLower(account), nil
+		}
+		return account, nil
+	}
+
+	phone = strings.TrimSpace(phone)
+	if phone != "" {
+		return phone, nil
+	}
+
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email != "" {
+		return email, nil
+	}
+	return "", errors.New("phone or email is required")
+}
+
+func logPhoneValue(account string) string {
+	account = strings.TrimSpace(account)
+	if account == "" {
+		return ""
+	}
+	for _, ch := range account {
+		if ch < '0' || ch > '9' {
+			return ""
+		}
+	}
+	if len(account) > 20 {
+		return ""
+	}
+	return account
+}
+
+func riskPhoneValue(account string) string {
+	normalized := strings.ToLower(strings.TrimSpace(account))
+	if normalized == "" {
+		return ""
+	}
+	if logged := logPhoneValue(normalized); logged != "" {
+		return logged
+	}
+	digest := strings.ToUpper(sha256Hex(normalized))
+	if len(digest) >= 19 {
+		return "E" + digest[:19]
+	}
+	return "E" + digest
+}
+
+func optionalString(value string) interface{} {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return trimmed
 }
 
 func (h *AuthHandler) issueTokenPair(userID string, role string, accessExpires int) (string, string, error) {

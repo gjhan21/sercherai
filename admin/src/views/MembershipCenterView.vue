@@ -9,6 +9,7 @@ import {
   listUserQuotas,
   listVIPQuotaConfigs,
   updateMembershipOrderStatus,
+  updateMembershipProduct,
   updateMembershipProductStatus,
   updateVIPQuotaConfig
 } from "../api/admin";
@@ -32,7 +33,9 @@ const productFilters = reactive({
 });
 const draftProductStatusMap = ref({});
 const productFormVisible = ref(false);
+const productFormMode = ref("create");
 const productForm = reactive({
+  id: "",
   name: "",
   price: 99,
   status: "ACTIVE",
@@ -95,7 +98,8 @@ const usageAdjustForm = reactive({
 
 const productStatusOptions = ["ACTIVE", "DISABLED"];
 const orderStatusOptions = ["PENDING", "PAID", "CANCELED", "REFUNDED", "FAILED"];
-const productMemberLevelOptions = ["VIP1", "VIP2"];
+const defaultProductMemberLevelOptions = ["VIP1", "VIP2"];
+const productMemberLevelOptions = ref([...defaultProductMemberLevelOptions]);
 const memberLevelOptions = ["VIP1", "VIP2", "VIP3", "VIP4", "FREE"];
 const resetCycleOptions = ["MONTHLY", "WEEKLY", "DAILY"];
 
@@ -122,13 +126,81 @@ function clearMessages() {
 }
 
 function resetProductForm() {
+  const defaultMemberLevel = productMemberLevelOptions.value[0] || "VIP1";
   Object.assign(productForm, {
+    id: "",
     name: "",
     price: 99,
     status: "ACTIVE",
-    member_level: "VIP1",
+    member_level: defaultMemberLevel,
     duration_days: 30
   });
+  productFormMode.value = "create";
+}
+
+function normalizeMemberLevel(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function mergeProductMemberLevels(levels = []) {
+  const merged = [];
+  const seen = new Set();
+  [...defaultProductMemberLevelOptions, ...levels].forEach((item) => {
+    const level = normalizeMemberLevel(item);
+    if (!level || level === "FREE" || seen.has(level)) {
+      return;
+    }
+    seen.add(level);
+    merged.push(level);
+  });
+  if (!merged.length) {
+    return [...defaultProductMemberLevelOptions];
+  }
+  return merged;
+}
+
+async function syncProductMemberLevelOptions() {
+  try {
+    const data = await listVIPQuotaConfigs({
+      status: "ACTIVE",
+      page: 1,
+      page_size: 200
+    });
+    const levels = (data.items || []).map((item) => item.member_level);
+    productMemberLevelOptions.value = mergeProductMemberLevels(levels);
+  } catch {
+    productMemberLevelOptions.value = mergeProductMemberLevels();
+  }
+
+  const currentLevel = normalizeMemberLevel(productForm.member_level);
+  if (!productMemberLevelOptions.value.includes(currentLevel)) {
+    productForm.member_level = productMemberLevelOptions.value[0] || "VIP1";
+  }
+}
+
+function openCreateProductDialog() {
+  resetProductForm();
+  productFormVisible.value = true;
+}
+
+function openEditProductDialog(item) {
+  if (!item?.id) {
+    return;
+  }
+  const level = normalizeMemberLevel(item.member_level) || productMemberLevelOptions.value[0] || "VIP1";
+  if (!productMemberLevelOptions.value.includes(level)) {
+    productMemberLevelOptions.value = mergeProductMemberLevels([level]);
+  }
+  Object.assign(productForm, {
+    id: item.id,
+    name: item.name || "",
+    price: Number(item.price || 0),
+    status: normalizeMemberLevel(item.status) || "ACTIVE",
+    member_level: level,
+    duration_days: Number(item.duration_days || 30)
+  });
+  productFormMode.value = "edit";
+  productFormVisible.value = true;
 }
 
 function syncProductDrafts() {
@@ -167,24 +239,39 @@ async function submitProduct() {
     name: productForm.name.trim(),
     price: Number(productForm.price),
     status: productForm.status,
-    member_level: productForm.member_level,
+    member_level: normalizeMemberLevel(productForm.member_level),
     duration_days: toSafeInt(productForm.duration_days, 30)
   };
-  if (!payload.name || !Number.isFinite(payload.price) || payload.price <= 0) {
-    errorMessage.value = "请正确填写产品名称和价格";
+  if (!payload.name || !Number.isFinite(payload.price) || payload.price <= 0 || !payload.member_level) {
+    errorMessage.value = "请正确填写产品名称、价格和会员等级";
+    return;
+  }
+  if (!productMemberLevelOptions.value.includes(payload.member_level)) {
+    errorMessage.value = `会员等级 ${payload.member_level} 未在VIP配额配置中启用`;
     return;
   }
 
   productSubmitting.value = true;
   clearMessages();
   try {
-    await createMembershipProduct(payload);
+    if (productFormMode.value === "create") {
+      await createMembershipProduct(payload);
+      message.value = `会员产品 ${payload.name} 已创建`;
+    } else {
+      if (!productForm.id) {
+        throw new Error("缺少产品ID");
+      }
+      await updateMembershipProduct(productForm.id, payload);
+      message.value = `会员产品 ${productForm.id} 已更新`;
+    }
     productFormVisible.value = false;
     resetProductForm();
     await fetchProducts({ keepMessage: true });
-    message.value = `会员产品 ${payload.name} 已创建`;
   } catch (error) {
-    errorMessage.value = normalizeErrorMessage(error, "创建会员产品失败");
+    errorMessage.value = normalizeErrorMessage(
+      error,
+      productFormMode.value === "create" ? "创建会员产品失败" : "更新会员产品失败"
+    );
   } finally {
     productSubmitting.value = false;
   }
@@ -421,6 +508,7 @@ async function submitQuotaForm() {
     quotaDialogVisible.value = false;
     resetQuotaForm();
     await fetchQuotaConfigs({ keepMessage: true });
+    await syncProductMemberLevelOptions();
   } catch (error) {
     errorMessage.value = normalizeErrorMessage(error, "提交配额配置失败");
   } finally {
@@ -553,7 +641,8 @@ async function refreshAll() {
       fetchProducts({ keepMessage: true }),
       fetchOrders({ keepMessage: true }),
       fetchQuotaConfigs({ keepMessage: true }),
-      fetchUserQuotaUsages({ keepMessage: true })
+      fetchUserQuotaUsages({ keepMessage: true }),
+      syncProductMemberLevelOptions()
     ]);
     message.value = "会员中心数据已刷新";
   } finally {
@@ -603,7 +692,7 @@ onMounted(() => {
             </el-select>
             <el-button type="primary" plain @click="applyProductFilters">查询</el-button>
             <el-button @click="resetProductFilters">重置</el-button>
-            <el-button type="primary" @click="productFormVisible = true">新增产品</el-button>
+            <el-button type="primary" @click="openCreateProductDialog">新增产品</el-button>
           </div>
         </div>
 
@@ -614,7 +703,7 @@ onMounted(() => {
             <el-table-column prop="price" label="价格" min-width="100" />
             <el-table-column prop="member_level" label="会员等级" min-width="110" />
             <el-table-column prop="duration_days" label="时长(天)" min-width="100" />
-            <el-table-column label="状态" min-width="250">
+            <el-table-column label="状态" min-width="320">
               <template #default="{ row }">
                 <div class="inline-actions">
                   <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
@@ -622,6 +711,7 @@ onMounted(() => {
                     <el-option v-for="item in productStatusOptions" :key="item" :label="item" :value="item" />
                   </el-select>
                   <el-button size="small" @click="updateProductStatus(row)">保存</el-button>
+                  <el-button size="small" type="primary" plain @click="openEditProductDialog(row)">编辑</el-button>
                 </div>
               </template>
             </el-table-column>
@@ -793,7 +883,12 @@ onMounted(() => {
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="productFormVisible" title="新增会员产品" width="520px" destroy-on-close>
+    <el-dialog
+      v-model="productFormVisible"
+      :title="productFormMode === 'create' ? '新增会员产品' : '编辑会员产品'"
+      width="520px"
+      destroy-on-close
+    >
       <el-form label-width="120px">
         <el-form-item label="产品名称" required>
           <el-input v-model="productForm.name" placeholder="如 VIP1 月卡" />
@@ -817,7 +912,9 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="productFormVisible = false">取消</el-button>
-        <el-button type="primary" :loading="productSubmitting" @click="submitProduct">创建</el-button>
+        <el-button type="primary" :loading="productSubmitting" @click="submitProduct">
+          {{ productFormMode === "create" ? "创建" : "更新" }}
+        </el-button>
       </template>
     </el-dialog>
 

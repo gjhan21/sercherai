@@ -8,8 +8,13 @@ CREATE TABLE IF NOT EXISTS users (
   status        varchar(16) NOT NULL,
   kyc_status    varchar(16) NOT NULL,
   member_level  varchar(16) NOT NULL,
+  vip_started_at datetime,
+  vip_expire_at  datetime,
+  vip_remind_3d_at datetime,
+  vip_remind_1d_at datetime,
   created_at    datetime NOT NULL,
-  updated_at    datetime NOT NULL
+  updated_at    datetime NOT NULL,
+  INDEX idx_users_member_vip_expire (member_level, vip_expire_at)
 );
 
 CREATE TABLE IF NOT EXISTS kyc_records (
@@ -201,6 +206,7 @@ CREATE TABLE IF NOT EXISTS news_articles (
   title        varchar(256) NOT NULL,
   summary      varchar(512),
   content      mediumtext NOT NULL,
+  cover_url    varchar(512),
   tags         json,
   visibility   varchar(16) NOT NULL,
   status       varchar(16) NOT NULL,
@@ -221,4 +227,3 @@ CREATE TABLE IF NOT EXISTS news_attachments (
   created_at datetime NOT NULL,
   FOREIGN KEY (article_id) REFERENCES news_articles(id)
 );
-

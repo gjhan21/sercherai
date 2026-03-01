@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS news_sync_run_details (
+  id             varchar(64) PRIMARY KEY,
+  run_id         varchar(64) NOT NULL,
+  job_name       varchar(64) NOT NULL,
+  sync_type      varchar(32) NOT NULL,
+  source         varchar(128),
+  symbol         varchar(32),
+  status         varchar(16) NOT NULL,
+  fetched_count  int NOT NULL DEFAULT 0,
+  upserted_count int NOT NULL DEFAULT 0,
+  failed_count   int NOT NULL DEFAULT 0,
+  warning_text   varchar(512),
+  error_text     varchar(512),
+  started_at     datetime NOT NULL,
+  finished_at    datetime,
+  created_at     datetime NOT NULL,
+  updated_at     datetime NOT NULL,
+  INDEX idx_news_sync_run_details_run (run_id, created_at),
+  INDEX idx_news_sync_run_details_filter (run_id, sync_type, source, symbol),
+  INDEX idx_news_sync_run_details_status (run_id, status)
+);

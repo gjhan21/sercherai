@@ -3,8 +3,11 @@ import { hasPermission, hasSession } from "../lib/session";
 
 const AppLayout = () => import("../components/AppLayout.vue");
 const LoginView = () => import("../views/LoginView.vue");
+const PublicHomePreviewView = () => import("../views/PublicHomePreviewView.vue");
 const DashboardView = () => import("../views/DashboardView.vue");
 const UsersView = () => import("../views/UsersView.vue");
+const BrowseInsightsView = () => import("../views/BrowseInsightsView.vue");
+const UserMessagesView = () => import("../views/UserMessagesView.vue");
 const NewsView = () => import("../views/NewsView.vue");
 const ReviewCenterView = () => import("../views/ReviewCenterView.vue");
 const SystemJobsView = () => import("../views/SystemJobsView.vue");
@@ -24,6 +27,12 @@ const routes = [
     name: "login",
     component: LoginView,
     meta: { public: true }
+  },
+  {
+    path: "/home-preview",
+    name: "home-preview",
+    component: PublicHomePreviewView,
+    meta: { public: true, allowAuthed: true }
   },
   {
     path: "/",
@@ -50,6 +59,18 @@ const routes = [
         path: "users",
         name: "users",
         component: UsersView,
+        meta: { permission: "users.view" }
+      },
+      {
+        path: "browse-insights",
+        name: "browse-insights",
+        component: BrowseInsightsView,
+        meta: { permission: "users.view" }
+      },
+      {
+        path: "user-messages",
+        name: "user-messages",
+        component: UserMessagesView,
         meta: { permission: "users.view" }
       },
       {
@@ -133,7 +154,7 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const authed = hasSession();
-  if (to.meta.public && authed) {
+  if (to.meta.public && authed && !to.meta.allowAuthed) {
     return "/dashboard";
   }
   if (to.meta.requiresAuth && !authed) {

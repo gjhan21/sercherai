@@ -73,6 +73,7 @@ type NewsArticleRequest struct {
 	Title      string `json:"title" binding:"required"`
 	Summary    string `json:"summary"`
 	Content    string `json:"content" binding:"required"`
+	CoverURL   string `json:"cover_url"`
 	Visibility string `json:"visibility" binding:"required,oneof=PUBLIC VIP"`
 	Status     string `json:"status" binding:"required,oneof=PUBLISHED DRAFT DISABLED"`
 }
@@ -115,12 +116,18 @@ type StockRecommendationRequest struct {
 	PositionRange string  `json:"position_range"`
 	ValidFrom     string  `json:"valid_from" binding:"required"`
 	ValidTo       string  `json:"valid_to" binding:"required"`
-	Status        string  `json:"status" binding:"required"`
+	Status        string  `json:"status" binding:"required,oneof=PUBLISHED ACTIVE DRAFT DISABLED"`
 	ReasonSummary string  `json:"reason_summary"`
 }
 
 type StockRecommendationStatusRequest struct {
-	Status string `json:"status" binding:"required"`
+	Status string `json:"status" binding:"required,oneof=PUBLISHED ACTIVE DRAFT DISABLED"`
+}
+
+type StockQuoteSyncRequest struct {
+	SourceKey string   `json:"source_key"`
+	Symbols   []string `json:"symbols"`
+	Days      int      `json:"days" binding:"omitempty,gte=5,lte=365"`
 }
 
 type FuturesStrategyRequest struct {
@@ -131,12 +138,20 @@ type FuturesStrategyRequest struct {
 	PositionRange string `json:"position_range"`
 	ValidFrom     string `json:"valid_from" binding:"required"`
 	ValidTo       string `json:"valid_to" binding:"required"`
-	Status        string `json:"status" binding:"required"`
+	Status        string `json:"status" binding:"required,oneof=PUBLISHED ACTIVE DRAFT DISABLED"`
 	ReasonSummary string `json:"reason_summary"`
 }
 
 type FuturesStrategyStatusRequest struct {
-	Status string `json:"status" binding:"required"`
+	Status string `json:"status" binding:"required,oneof=PUBLISHED ACTIVE DRAFT DISABLED"`
+}
+
+type MarketEventRequest struct {
+	EventType   string `json:"event_type" binding:"required"`
+	Symbol      string `json:"symbol" binding:"required"`
+	Summary     string `json:"summary" binding:"required"`
+	TriggerRule string `json:"trigger_rule" binding:"required"`
+	Source      string `json:"source"`
 }
 
 type UpdateUserStatusRequest struct {
@@ -149,6 +164,13 @@ type UpdateUserMemberLevelRequest struct {
 
 type UpdateUserKYCStatusRequest struct {
 	KYCStatus string `json:"kyc_status" binding:"required,oneof=PENDING APPROVED REJECTED"`
+}
+
+type AdminUserMessageCreateRequest struct {
+	UserIDs []string `json:"user_ids"`
+	Title   string   `json:"title" binding:"required"`
+	Content string   `json:"content" binding:"required"`
+	Type    string   `json:"type" binding:"required"`
 }
 
 type UpdateUserProfileRequest struct {
@@ -181,7 +203,15 @@ type MembershipProductRequest struct {
 	Name         string  `json:"name" binding:"required"`
 	Price        float64 `json:"price" binding:"required,gt=0"`
 	Status       string  `json:"status" binding:"required,oneof=ACTIVE DISABLED"`
-	MemberLevel  string  `json:"member_level" binding:"omitempty,oneof=VIP1 VIP2"`
+	MemberLevel  string  `json:"member_level" binding:"required"`
+	DurationDays int     `json:"duration_days" binding:"omitempty,gte=1"`
+}
+
+type MembershipProductUpdateRequest struct {
+	Name         string  `json:"name" binding:"required"`
+	Price        float64 `json:"price" binding:"required,gt=0"`
+	Status       string  `json:"status" binding:"required,oneof=ACTIVE DISABLED"`
+	MemberLevel  string  `json:"member_level" binding:"required"`
 	DurationDays int     `json:"duration_days" binding:"omitempty,gte=1"`
 }
 
@@ -195,7 +225,7 @@ type MembershipOrderStatusRequest struct {
 
 type CreateMembershipOrderRequest struct {
 	ProductID  string `json:"product_id" binding:"required"`
-	PayChannel string `json:"pay_channel" binding:"required,oneof=ALIPAY WECHAT CARD"`
+	PayChannel string `json:"pay_channel" binding:"required,oneof=ALIPAY WECHAT CARD YOLKPAY"`
 }
 
 type VIPQuotaConfigRequest struct {
@@ -245,17 +275,32 @@ type ReviewAssignRequest struct {
 }
 
 type SchedulerTriggerRequest struct {
-	JobName        string `json:"job_name" binding:"required"`
-	TriggerSource  string `json:"trigger_source" binding:"required,oneof=MANUAL SYSTEM"`
-	ResultSummary  string `json:"result_summary"`
-	SimulateStatus string `json:"simulate_status" binding:"omitempty,oneof=SUCCESS FAILED"`
-	ErrorMessage   string `json:"error_message"`
+	JobName        string   `json:"job_name" binding:"required"`
+	TriggerSource  string   `json:"trigger_source" binding:"required,oneof=MANUAL SYSTEM"`
+	ResultSummary  string   `json:"result_summary"`
+	SimulateStatus string   `json:"simulate_status" binding:"omitempty,oneof=SUCCESS FAILED"`
+	ErrorMessage   string   `json:"error_message"`
+	NewsSources    []string `json:"news_sources"`
+	Symbols        []string `json:"symbols"`
+	SyncTypes      []string `json:"sync_types"`
+	BatchSize      int      `json:"batch_size" binding:"omitempty,gte=1,lte=1000"`
 }
 
 type SchedulerRetryRequest struct {
-	SimulateStatus string `json:"simulate_status" binding:"omitempty,oneof=SUCCESS FAILED"`
-	ResultSummary  string `json:"result_summary"`
-	ErrorMessage   string `json:"error_message"`
+	SimulateStatus string   `json:"simulate_status" binding:"omitempty,oneof=SUCCESS FAILED"`
+	ResultSummary  string   `json:"result_summary"`
+	ErrorMessage   string   `json:"error_message"`
+	NewsSources    []string `json:"news_sources"`
+	Symbols        []string `json:"symbols"`
+	SyncTypes      []string `json:"sync_types"`
+	BatchSize      int      `json:"batch_size" binding:"omitempty,gte=1,lte=1000"`
+}
+
+type RetryNewsSyncItemRequest struct {
+	SyncType  string `json:"sync_type" binding:"required"`
+	Source    string `json:"source"`
+	Symbol    string `json:"symbol"`
+	BatchSize int    `json:"batch_size" binding:"omitempty,gte=1,lte=1000"`
 }
 
 type SchedulerJobDefinitionRequest struct {
@@ -287,15 +332,20 @@ type MockLoginRequest struct {
 }
 
 type LoginRequest struct {
-	Phone         string `json:"phone" binding:"required"`
+	Account       string `json:"account"`
+	Phone         string `json:"phone"`
+	Email         string `json:"email"`
 	Password      string `json:"password" binding:"required"`
 	ExpireSeconds int    `json:"expire_seconds"`
 }
 
 type RegisterRequest struct {
-	Phone    string `json:"phone" binding:"required"`
-	Password string `json:"password" binding:"required,min=8"`
-	Email    string `json:"email"`
+	Account      string `json:"account"`
+	Phone        string `json:"phone"`
+	Email        string `json:"email"`
+	Password     string `json:"password" binding:"required,min=8"`
+	InviteCode   string `json:"invite_code"`
+	InviteLinkID string `json:"invite_link_id"`
 }
 
 type RefreshTokenRequest struct {

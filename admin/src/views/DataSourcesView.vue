@@ -8,12 +8,16 @@ import {
   deleteDataSource,
   listDataSourceHealthLogs,
   listDataSources,
+  listSystemConfigs,
+  upsertSystemConfig,
   updateDataSource
 } from "../api/admin";
 
 const loading = ref(false);
 const submitting = ref(false);
 const batchChecking = ref(false);
+const settingDefaultSource = ref(false);
+const settingDefaultSourceKey = ref("");
 const message = ref("");
 const errorMessage = ref("");
 
@@ -30,9 +34,12 @@ const logItems = ref([]);
 
 const formVisible = ref(false);
 const formMode = ref("create");
+const defaultStockSourceKey = ref("TUSHARE");
 
 const sourceTypeOptions = ["MARKET", "NEWS", "STOCK", "FUTURES", "SYSTEM"];
 const statusOptions = ["ACTIVE", "DISABLED"];
+const STOCK_DEFAULT_SOURCE_CONFIG_KEY = "stock.quotes.default_source_key";
+const STOCK_DEFAULT_SOURCE_FALLBACK = "TUSHARE";
 
 function defaultForm() {
   return {
@@ -41,6 +48,7 @@ function defaultForm() {
     source_type: "MARKET",
     status: "ACTIVE",
     endpoint: "",
+    token: "",
     fail_threshold: 3,
     retry_times: 0,
     retry_interval_ms: 200,
@@ -61,9 +69,50 @@ function toSafeInt(value, fallback) {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
 }
 
+function normalizeSourceKey(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
+function isStockDataSource(item) {
+  return String(item?.source_type || "")
+    .trim()
+    .toUpperCase() === "STOCK";
+}
+
+function isDefaultStockSource(sourceKey) {
+  return normalizeSourceKey(sourceKey) === normalizeSourceKey(defaultStockSourceKey.value);
+}
+
+async function loadDefaultStockSourceKey(options = {}) {
+  const { silent = false } = options;
+  try {
+    const data = await listSystemConfigs({
+      keyword: STOCK_DEFAULT_SOURCE_CONFIG_KEY,
+      page: 1,
+      page_size: 50
+    });
+    const rows = Array.isArray(data?.items) ? data.items : [];
+    const matched = rows.find(
+      (item) =>
+        normalizeSourceKey(item?.config_key) === normalizeSourceKey(STOCK_DEFAULT_SOURCE_CONFIG_KEY)
+    );
+    const configValue = normalizeSourceKey(matched?.config_value);
+    defaultStockSourceKey.value = configValue || STOCK_DEFAULT_SOURCE_FALLBACK;
+  } catch (error) {
+    defaultStockSourceKey.value = STOCK_DEFAULT_SOURCE_FALLBACK;
+    if (!silent) {
+      throw error;
+    }
+  }
+}
+
 function buildPayload() {
+  const sourceKey = form.source_key.trim().toUpperCase();
+  const endpointValue = form.endpoint.trim();
   const config = {
-    endpoint: form.endpoint.trim(),
+    endpoint: sourceKey === "TUSHARE" && !endpointValue ? "https://api.tushare.pro" : endpointValue,
     fail_threshold: toSafeInt(form.fail_threshold, 3),
     retry_times: toSafeInt(form.retry_times, 0),
     retry_interval_ms: toSafeInt(form.retry_interval_ms, 200),
@@ -72,8 +121,11 @@ function buildPayload() {
   if (form.alert_receiver_id.trim()) {
     config.alert_receiver_id = form.alert_receiver_id.trim();
   }
+  if (form.token.trim()) {
+    config.token = form.token.trim();
+  }
   return {
-    source_key: form.source_key.trim(),
+    source_key: sourceKey,
     name: form.name.trim(),
     source_type: form.source_type.trim(),
     status: form.status,
@@ -86,7 +138,10 @@ async function fetchDataSources() {
   errorMessage.value = "";
   message.value = "";
   try {
-    const data = await listDataSources({ page: page.value, page_size: pageSize.value });
+    const [data] = await Promise.all([
+      listDataSources({ page: page.value, page_size: pageSize.value }),
+      loadDefaultStockSourceKey({ silent: true })
+    ]);
     items.value = data.items || [];
     total.value = data.total || 0;
   } catch (error) {
@@ -143,6 +198,7 @@ function handleEdit(item) {
     source_type: item.source_type || "MARKET",
     status: item.status || "ACTIVE",
     endpoint: cfg.endpoint || "",
+    token: cfg.token || cfg.api_token || cfg.tushare_token || "",
     fail_threshold: toSafeInt(cfg.fail_threshold, 3),
     retry_times: toSafeInt(cfg.retry_times, 0),
     retry_interval_ms: toSafeInt(cfg.retry_interval_ms, 200),
@@ -172,6 +228,36 @@ async function handleDelete(sourceKey) {
     await fetchDataSources();
   } catch (error) {
     errorMessage.value = error.message || "删除失败";
+  }
+}
+
+async function handleSetDefaultStockSource(row) {
+  if (!isStockDataSource(row)) {
+    errorMessage.value = "仅支持设置 STOCK 类型数据源为默认行情源";
+    return;
+  }
+  const sourceKey = normalizeSourceKey(row.source_key);
+  if (!sourceKey) {
+    errorMessage.value = "source_key 不能为空";
+    return;
+  }
+  settingDefaultSource.value = true;
+  settingDefaultSourceKey.value = sourceKey;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    await upsertSystemConfig({
+      config_key: STOCK_DEFAULT_SOURCE_CONFIG_KEY,
+      config_value: sourceKey,
+      description: "股票行情默认数据源"
+    });
+    defaultStockSourceKey.value = sourceKey;
+    message.value = `默认行情源已设置为 ${sourceKey}`;
+  } catch (error) {
+    errorMessage.value = error.message || "设置默认行情源失败";
+  } finally {
+    settingDefaultSource.value = false;
+    settingDefaultSourceKey.value = "";
   }
 }
 
@@ -252,6 +338,9 @@ onMounted(fetchDataSources);
         <p class="muted">管理数据源配置、健康检查与日志</p>
       </div>
       <div class="toolbar">
+        <el-tag type="warning" effect="plain">
+          默认行情源：{{ defaultStockSourceKey || "-" }}
+        </el-tag>
         <el-button :loading="loading" @click="fetchDataSources">刷新列表</el-button>
         <el-button type="primary" plain :loading="batchChecking" @click="handleBatchCheckAll">
           全部健康检查
@@ -277,7 +366,16 @@ onMounted(fetchDataSources);
 
     <div class="card">
       <el-table :data="items" border stripe v-loading="loading" empty-text="暂无数据源">
-        <el-table-column prop="source_key" label="source_key" min-width="130" />
+        <el-table-column label="source_key" min-width="190">
+          <template #default="{ row }">
+            <div class="source-key-cell">
+              <span>{{ row.source_key }}</span>
+              <el-tag v-if="isDefaultStockSource(row.source_key)" size="small" type="warning" effect="plain">
+                默认行情源
+              </el-tag>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="name" label="名称" min-width="130" />
         <el-table-column prop="source_type" label="类型" min-width="110" />
         <el-table-column label="状态" min-width="110">
@@ -288,6 +386,9 @@ onMounted(fetchDataSources);
         <el-table-column label="配置摘要" min-width="260">
           <template #default="{ row }">
             <div class="config-line">endpoint: {{ row.config?.endpoint || "-" }}</div>
+            <div class="config-line config-line--muted">
+              token: {{ row.config?.token ? "已配置" : "未配置" }}
+            </div>
             <div class="config-line config-line--muted">
               阈值: {{ row.config?.fail_threshold ?? 3 }} / 重试: {{ row.config?.retry_times ?? 0 }}
             </div>
@@ -310,9 +411,20 @@ onMounted(fetchDataSources);
           </template>
         </el-table-column>
         <el-table-column prop="updated_at" label="更新时间" min-width="180" />
-        <el-table-column label="操作" align="right" min-width="280">
+        <el-table-column label="操作" align="right" min-width="420">
           <template #default="{ row }">
             <div class="inline-actions">
+              <el-button
+                v-if="isStockDataSource(row)"
+                size="small"
+                type="success"
+                plain
+                :loading="settingDefaultSource && settingDefaultSourceKey === normalizeSourceKey(row.source_key)"
+                :disabled="isDefaultStockSource(row.source_key)"
+                @click="handleSetDefaultStockSource(row)"
+              >
+                设为默认行情源
+              </el-button>
               <el-button size="small" @click="handleCheckOne(row.source_key)">健康检查</el-button>
               <el-button size="small" @click="showLogs(row.source_key)">健康日志</el-button>
               <el-button size="small" @click="handleEdit(row)">编辑</el-button>
@@ -391,7 +503,15 @@ onMounted(fetchDataSources);
             </el-select>
           </el-form-item>
           <el-form-item label="endpoint">
-            <el-input v-model="form.endpoint" placeholder="http://127.0.0.1:8080/healthz" />
+            <el-input v-model="form.endpoint" placeholder="Tushare: https://api.tushare.pro" />
+          </el-form-item>
+          <el-form-item label="token">
+            <el-input
+              v-model="form.token"
+              type="password"
+              show-password
+              placeholder="Tushare Token（可留空使用后端环境变量）"
+            />
           </el-form-item>
           <el-form-item label="fail_threshold">
             <el-input-number v-model="form.fail_threshold" :min="1" :step="1" controls-position="right" />
@@ -423,6 +543,13 @@ onMounted(fetchDataSources);
 .config-line {
   line-height: 1.5;
   word-break: break-all;
+}
+
+.source-key-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .config-line--muted {
