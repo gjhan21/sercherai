@@ -22,6 +22,17 @@ npm run dev
 
 默认端口 `5174`，默认代理到 `http://127.0.0.1:18080`。
 
+如果你在整个仓库里联调，优先使用根目录脚本：
+
+```bash
+cd /Users/gjhan21/cursor/sercherai
+./scripts/devctl.sh start strategy-engine
+./scripts/devctl.sh start backend
+./scripts/devctl.sh start admin
+```
+
+`devctl` 会自动把 admin 的 `VITE_PROXY_TARGET` 指到当前 backend 端口；如果你在 `./.run/backend.env` 里把 backend 改成 `19081`，只要同步在 `./.run/admin.env` 里写 `VITE_PROXY_TARGET=http://127.0.0.1:19081` 即可。
+
 ## 环境变量
 
 复制 `.env.example` 到 `.env` 并按需修改：
@@ -32,5 +43,5 @@ npm run dev
 ## 联调建议
 
 1. 启动后端并连接真实 MySQL（管理员与权限模块依赖 RBAC 表）
-2. 打开管理端，优先使用密码登录（`13800000000 / abc123456`）
+2. 打开管理端，优先使用密码登录（`19900000001 / abc123456`）
 3. 先联调「用户管理 / 新闻管理 / 审核中心 / 任务中心 / 数据源管理 / 流程消息 / 管理员与权限」

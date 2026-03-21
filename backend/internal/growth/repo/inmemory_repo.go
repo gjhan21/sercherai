@@ -5,15 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"sercherai/backend/internal/growth/model"
 )
 
-type InMemoryGrowthRepo struct{}
+type InMemoryGrowthRepo struct {
+	mu                sync.Mutex
+	marketRhythmTasks map[string]model.MarketRhythmTask
+}
 
 func NewInMemoryGrowthRepo() *InMemoryGrowthRepo {
-	return &InMemoryGrowthRepo{}
+	return &InMemoryGrowthRepo{
+		marketRhythmTasks: make(map[string]model.MarketRhythmTask),
+	}
 }
 
 func (r *InMemoryGrowthRepo) ListBrowseHistory(userID string, contentType string, page int, pageSize int) ([]model.BrowseHistory, int, error) {
@@ -92,6 +98,7 @@ func (r *InMemoryGrowthRepo) GetUserProfile(userID string) (model.UserProfile, e
 		Email:              "demo@sercherai.local",
 		KYCStatus:          "PENDING",
 		MemberLevel:        "VIP1",
+		ActivationState:    "PAID_PENDING_KYC",
 		VIPStartedAt:       "2026-02-20T00:00:00+08:00",
 		VIPExpireAt:        "2026-03-20T23:59:59+08:00",
 		VIPStatus:          "ACTIVE",
@@ -140,16 +147,19 @@ func (r *InMemoryGrowthRepo) MarkMessageRead(userID string, id string) error {
 
 func (r *InMemoryGrowthRepo) GetUserAccessProfile(userID string) (model.UserAccessProfile, error) {
 	return model.UserAccessProfile{
-		UserID:      userID,
-		Status:      "ACTIVE",
-		KYCStatus:   "APPROVED",
-		MemberLevel: "VIP1",
+		UserID:          userID,
+		Status:          "ACTIVE",
+		KYCStatus:       "PENDING",
+		MemberLevel:     "VIP1",
+		ActivationState: "PAID_PENDING_KYC",
 	}, nil
 }
 
 func (r *InMemoryGrowthRepo) GetMembershipQuota(userID string) (model.MembershipQuota, error) {
 	return model.MembershipQuota{
 		MemberLevel:            "VIP1",
+		KYCStatus:              "PENDING",
+		ActivationState:        "PAID_PENDING_KYC",
 		PeriodKey:              "2026-02",
 		DocReadLimit:           100,
 		DocReadUsed:            24,
@@ -345,6 +355,27 @@ func (r *InMemoryGrowthRepo) GetStockRecommendationInsight(userID string, recoID
 	}, nil
 }
 
+func (r *InMemoryGrowthRepo) GetStockRecommendationVersionHistory(userID string, recoID string) ([]model.StrategyVersionHistoryItem, error) {
+	insight, err := r.GetStockRecommendationInsight(userID, recoID)
+	if err != nil {
+		return nil, err
+	}
+	return []model.StrategyVersionHistoryItem{
+		{
+			TradeDate:        "2026-02-25",
+			PublishVersion:   1,
+			CreatedAt:        insight.GeneratedAt,
+			StrategyVersion:  firstNonEmpty(insight.Explanation.StrategyVersion, insight.Recommendation.StrategyVersion, "growth-v1"),
+			ReasonSummary:    insight.Recommendation.ReasonSummary,
+			ConfidenceReason: firstNonEmpty(insight.Explanation.ConfidenceReason, insight.Recommendation.ReasonSummary),
+			ConsensusSummary: insight.Explanation.ConsensusSummary,
+			RiskFlags:        insight.Explanation.RiskFlags,
+			Invalidations:    insight.Explanation.Invalidations,
+			GeneratedAt:      firstNonEmpty(insight.Explanation.GeneratedAt, insight.GeneratedAt),
+		},
+	}, nil
+}
+
 func (r *InMemoryGrowthRepo) ListFuturesStrategies(userID string, contract string, status string, page int, pageSize int) ([]model.FuturesStrategy, int, error) {
 	items := []model.FuturesStrategy{
 		{ID: "fs_001", Contract: "IF2603", Name: "股指趋势跟踪", Direction: "LONG", RiskLevel: "MEDIUM", PositionRange: "20%-30%", ValidFrom: "2026-02-25T09:00:00+08:00", ValidTo: "2026-02-26T15:00:00+08:00", Status: "PUBLISHED", ReasonSummary: "趋势与量价结构一致"},
@@ -440,6 +471,27 @@ func (r *InMemoryGrowthRepo) GetFuturesStrategyInsight(userID string, strategyID
 	}, nil
 }
 
+func (r *InMemoryGrowthRepo) GetFuturesStrategyVersionHistory(userID string, strategyID string) ([]model.StrategyVersionHistoryItem, error) {
+	insight, err := r.GetFuturesStrategyInsight(userID, strategyID)
+	if err != nil {
+		return nil, err
+	}
+	return []model.StrategyVersionHistoryItem{
+		{
+			TradeDate:        "2026-02-25",
+			PublishVersion:   1,
+			CreatedAt:        insight.GeneratedAt,
+			StrategyVersion:  firstNonEmpty(insight.Explanation.StrategyVersion, "futures-mvp-v1"),
+			ReasonSummary:    insight.Strategy.ReasonSummary,
+			ConfidenceReason: firstNonEmpty(insight.Explanation.ConfidenceReason, insight.Strategy.ReasonSummary),
+			ConsensusSummary: insight.Explanation.ConsensusSummary,
+			RiskFlags:        insight.Explanation.RiskFlags,
+			Invalidations:    insight.Explanation.Invalidations,
+			GeneratedAt:      firstNonEmpty(insight.Explanation.GeneratedAt, insight.GeneratedAt),
+		},
+	}, nil
+}
+
 func (r *InMemoryGrowthRepo) ListMembershipProducts(status string, page int, pageSize int) ([]model.MembershipProduct, int, error) {
 	items := []model.MembershipProduct{
 		{ID: "mp_demo_001", Name: "VIP月卡", Price: 99, Status: "ACTIVE", MemberLevel: "VIP1", DurationDays: 30},
@@ -465,6 +517,14 @@ func (r *InMemoryGrowthRepo) ListMembershipOrders(userID string, status string, 
 		{ID: "mo_demo_001", OrderNo: "mo_demo_001", UserID: userID, ProductID: "mp_demo_001", Amount: 99, PayChannel: "ALIPAY", Status: "PAID", PaidAt: "2026-02-24T11:00:00+08:00", CreatedAt: "2026-02-24T10:50:00+08:00"},
 	}
 	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) TrackExperimentEvent(item model.ExperimentEvent) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) BindMembershipOrderExperiment(orderNo string, item model.ExperimentOrderAttribution) error {
+	return nil
 }
 
 func (r *InMemoryGrowthRepo) GetRewardWallet(userID string) (model.RewardWallet, error) {
@@ -762,6 +822,116 @@ func (r *InMemoryGrowthRepo) AdminUpdateMarketEvent(id string, item model.Market
 	return nil
 }
 
+func (r *InMemoryGrowthRepo) AdminListMarketRhythmTasks(taskDate string) ([]model.MarketRhythmTask, error) {
+	dateText, err := normalizeMarketRhythmDate(taskDate)
+	if err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	items := r.ensureInMemoryMarketRhythmTasksLocked(dateText)
+	return cloneMarketRhythmTasks(items), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminEnsureMarketRhythmTasks(taskDate string) ([]model.MarketRhythmTask, error) {
+	dateText, err := normalizeMarketRhythmDate(taskDate)
+	if err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	items := r.ensureInMemoryMarketRhythmTasksLocked(dateText)
+	return cloneMarketRhythmTasks(items), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminUpdateMarketRhythmTask(id string, owner string, notes string, sourceLinks []string, status string) (model.MarketRhythmTask, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, ok := r.marketRhythmTasks[id]
+	if !ok {
+		return model.MarketRhythmTask{}, sql.ErrNoRows
+	}
+	item.Owner = strings.TrimSpace(owner)
+	item.Notes = strings.TrimSpace(notes)
+	item.SourceLinks = normalizeStringList(sourceLinks)
+	if normalizedStatus := normalizeMarketRhythmStatus(status); normalizedStatus != "" {
+		item.Status = normalizedStatus
+	}
+	if item.Status == "DONE" {
+		item.CompletedAt = time.Now().Format(time.RFC3339)
+	} else {
+		item.CompletedAt = ""
+	}
+	item.UpdatedAt = time.Now().Format(time.RFC3339)
+	r.marketRhythmTasks[id] = item
+	return item, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminUpdateMarketRhythmTaskStatus(id string, status string, owner string, notes string) (model.MarketRhythmTask, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, ok := r.marketRhythmTasks[id]
+	if !ok {
+		return model.MarketRhythmTask{}, sql.ErrNoRows
+	}
+	if normalizedStatus := normalizeMarketRhythmStatus(status); normalizedStatus != "" {
+		item.Status = normalizedStatus
+	}
+	if strings.TrimSpace(owner) != "" {
+		item.Owner = strings.TrimSpace(owner)
+	}
+	if strings.TrimSpace(notes) != "" {
+		item.Notes = strings.TrimSpace(notes)
+	}
+	if item.Status == "DONE" {
+		item.CompletedAt = time.Now().Format(time.RFC3339)
+	} else {
+		item.CompletedAt = ""
+	}
+	item.UpdatedAt = time.Now().Format(time.RFC3339)
+	r.marketRhythmTasks[id] = item
+	return item, nil
+}
+
+func cloneMarketRhythmTasks(items []model.MarketRhythmTask) []model.MarketRhythmTask {
+	result := make([]model.MarketRhythmTask, 0, len(items))
+	for _, item := range items {
+		cloned := item
+		if len(item.SourceLinks) > 0 {
+			cloned.SourceLinks = append([]string(nil), item.SourceLinks...)
+		}
+		result = append(result, cloned)
+	}
+	return result
+}
+
+func (r *InMemoryGrowthRepo) ensureInMemoryMarketRhythmTasksLocked(taskDate string) []model.MarketRhythmTask {
+	now := time.Now().Format(time.RFC3339)
+	items := make([]model.MarketRhythmTask, 0, len(defaultMarketRhythmTaskTemplates()))
+	for _, template := range defaultMarketRhythmTaskTemplates() {
+		id := fmt.Sprintf("mrt_%s_%s", strings.ReplaceAll(taskDate, "-", ""), template.TaskKey)
+		item, ok := r.marketRhythmTasks[id]
+		if !ok {
+			item = model.MarketRhythmTask{
+				ID:          id,
+				Date:        taskDate,
+				Slot:        template.Slot,
+				TaskKey:     template.TaskKey,
+				Status:      "TODO",
+				Owner:       "",
+				Notes:       "",
+				SourceLinks: nil,
+				CompletedAt: "",
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}
+			r.marketRhythmTasks[id] = item
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
 func (r *InMemoryGrowthRepo) AdminListStockRecommendations(status string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
 	items, total, _ := r.ListStockRecommendations("u_demo_001", "", page, pageSize)
 	return items, total, nil
@@ -776,13 +946,145 @@ func (r *InMemoryGrowthRepo) AdminUpdateStockRecommendationStatus(id string, sta
 }
 
 func (r *InMemoryGrowthRepo) AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error) {
+	result, err := r.AdminSyncStockQuotesDetailed(sourceKey, symbols, days)
+	if err != nil {
+		return 0, err
+	}
+	if result.TruthCount > 0 {
+		return result.TruthCount, nil
+	}
+	return result.BarCount, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncStockQuotesDetailed(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
 	if days <= 0 {
 		days = 90
 	}
 	if len(symbols) == 0 {
 		symbols = []string{"600519.SH", "601318.SH", "600036.SH", "300750.SZ", "000333.SZ"}
 	}
-	return len(symbols) * days, nil
+	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
+	if sourceKey == "" {
+		sourceKey = "TUSHARE"
+	}
+	count := len(symbols) * days
+	return model.MarketSyncResult{
+		AssetClass:         "STOCK",
+		DataKind:           "DAILY_BARS",
+		RequestedSourceKey: sourceKey,
+		ResolvedSourceKeys: []string{sourceKey},
+		BarCount:           count,
+		TruthCount:         count,
+		SnapshotCount:      1,
+		Results: []model.MarketSourceSyncItemResult{
+			{
+				SourceKey:     sourceKey,
+				Status:        "SUCCESS",
+				BarCount:      count,
+				TruthCount:    count,
+				SnapshotCount: 1,
+				Message:       "in-memory market sync",
+			},
+		},
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncFuturesQuotes(sourceKey string, contracts []string, days int) (model.MarketSyncResult, error) {
+	if days <= 0 {
+		days = 60
+	}
+	if len(contracts) == 0 {
+		contracts = []string{"AU2406.SHF", "AG2406.SHF", "IF2406.CFX"}
+	}
+	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
+	if sourceKey == "" {
+		sourceKey = "TUSHARE"
+	}
+	count := len(contracts) * days
+	return model.MarketSyncResult{
+		AssetClass:         "FUTURES",
+		DataKind:           "DAILY_BARS",
+		RequestedSourceKey: sourceKey,
+		ResolvedSourceKeys: []string{sourceKey},
+		BarCount:           count,
+		TruthCount:         count,
+		SnapshotCount:      1,
+		Results: []model.MarketSourceSyncItemResult{
+			{
+				SourceKey:     sourceKey,
+				Status:        "SUCCESS",
+				BarCount:      count,
+				TruthCount:    count,
+				SnapshotCount: 1,
+				Message:       "in-memory futures sync",
+			},
+		},
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncFuturesInventory(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
+	if days <= 0 {
+		days = 30
+	}
+	if len(symbols) == 0 {
+		symbols = []string{"RB", "CU", "AU"}
+	}
+	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
+	if sourceKey == "" {
+		sourceKey = "MOCK"
+	}
+	count := len(symbols) * minInt(days, 10)
+	return model.MarketSyncResult{
+		AssetClass:         "FUTURES",
+		DataKind:           "FUTURES_INVENTORY",
+		RequestedSourceKey: sourceKey,
+		ResolvedSourceKeys: []string{sourceKey},
+		InventoryCount:     count,
+		SnapshotCount:      1,
+		Results: []model.MarketSourceSyncItemResult{
+			{
+				SourceKey:      sourceKey,
+				Status:         "SUCCESS",
+				InventoryCount: count,
+				SnapshotCount:  1,
+				Message:        "in-memory futures inventory sync",
+			},
+		},
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncMarketNews(sourceKey string, symbols []string, days int, limit int) (model.MarketSyncResult, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
+	if sourceKey == "" {
+		sourceKey = "AKSHARE"
+	}
+	return model.MarketSyncResult{
+		DataKind:           "NEWS_ITEMS",
+		RequestedSourceKey: sourceKey,
+		ResolvedSourceKeys: []string{sourceKey},
+		NewsCount:          limit,
+		SnapshotCount:      1,
+		Results: []model.MarketSourceSyncItemResult{
+			{
+				SourceKey:     sourceKey,
+				Status:        "SUCCESS",
+				NewsCount:     limit,
+				SnapshotCount: 1,
+				Message:       "in-memory news sync",
+			},
+		},
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.StrategyEngineStockSelectionContextRequest) (model.StrategyEngineStockSelectionContextResponse, error) {
+	return model.StrategyEngineStockSelectionContextResponse{}, errors.New("strategy-engine stock context is unavailable in memory mode")
+}
+
+func (r *InMemoryGrowthRepo) BuildStrategyEngineFuturesStrategyContext(input model.StrategyEngineFuturesStrategyContextRequest) (model.StrategyEngineFuturesStrategyContextResponse, error) {
+	return model.StrategyEngineFuturesStrategyContextResponse{}, errors.New("strategy-engine futures context is unavailable in memory mode")
 }
 
 func (r *InMemoryGrowthRepo) AdminSyncDocFastNewsIncremental(batchSize int) (string, error) {
@@ -937,12 +1239,28 @@ func (r *InMemoryGrowthRepo) AdminGetQuantEvaluation(windowDays int, topN int) (
 	return summary, points, riskItems, rotationItems, nil
 }
 
-func (r *InMemoryGrowthRepo) AdminGenerateDailyStockRecommendations(tradeDate string) (int, error) {
-	return 10, nil
+func (r *InMemoryGrowthRepo) AdminGenerateDailyStockRecommendations(tradeDate string) (model.AdminDailyStockRecommendationGenerationResult, error) {
+	return model.AdminDailyStockRecommendationGenerationResult{Count: 10}, nil
 }
 
-func (r *InMemoryGrowthRepo) AdminGenerateDailyFuturesStrategies(tradeDate string) (int, error) {
-	return 3, nil
+func (r *InMemoryGrowthRepo) AdminListStrategyEnginePublishHistory(jobType string) ([]model.StrategyEnginePublishRecordSummary, error) {
+	return []model.StrategyEnginePublishRecordSummary{}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetStrategyEnginePublishRecord(publishID string) (model.StrategyEnginePublishRecord, error) {
+	return model.StrategyEnginePublishRecord{}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetStrategyEnginePublishReplay(publishID string) (model.StrategyEnginePublishReplay, error) {
+	return model.StrategyEnginePublishReplay{}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminCompareStrategyEnginePublishVersions(leftPublishID string, rightPublishID string) (model.StrategyEnginePublishCompareResult, error) {
+	return model.StrategyEnginePublishCompareResult{}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGenerateDailyFuturesStrategies(tradeDate string) (model.AdminDailyFuturesStrategyGenerationResult, error) {
+	return model.AdminDailyFuturesStrategyGenerationResult{Count: 3}, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListFuturesStrategies(status string, contract string, page int, pageSize int) ([]model.FuturesStrategy, int, error) {
@@ -966,8 +1284,9 @@ func (r *InMemoryGrowthRepo) AdminListUsers(status string, kycStatus string, mem
 			Phone:              "13800000001",
 			Email:              "demo@sercherai.local",
 			Status:             "ACTIVE",
-			KYCStatus:          "APPROVED",
+			KYCStatus:          "PENDING",
 			MemberLevel:        "VIP1",
+			ActivationState:    "PAID_PENDING_KYC",
 			RegistrationSource: "INVITED",
 			InviterUserID:      "u_demo_inviter",
 			InviteCode:         "DEMO2026",
@@ -981,6 +1300,7 @@ func (r *InMemoryGrowthRepo) AdminListUsers(status string, kycStatus string, mem
 			Status:             "ACTIVE",
 			KYCStatus:          "APPROVED",
 			MemberLevel:        "VIP1",
+			ActivationState:    "ACTIVE",
 			RegistrationSource: "DIRECT",
 			CreatedAt:          "2026-02-20T10:00:00+08:00",
 		},
@@ -1305,6 +1625,36 @@ func (r *InMemoryGrowthRepo) AdminListMembershipOrders(status string, userID str
 
 func (r *InMemoryGrowthRepo) AdminUpdateMembershipOrderStatus(id string, status string) error {
 	return nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetExperimentAnalyticsSummary(days int) (model.AdminExperimentAnalyticsSummary, error) {
+	overview := model.AdminExperimentAnalyticsOverview{
+		Days:                   days,
+		TotalEvents:            0,
+		TotalExperiments:       0,
+		ExposureCount:          0,
+		ClickCount:             0,
+		UpgradeIntentCount:     0,
+		PaymentSuccessCount:    0,
+		RenewalSuccessCount:    0,
+		ClickThroughRate:       0,
+		UpgradePerClickRate:    0,
+		UpgradePerExposureRate: 0,
+		PaidPerUpgradeRate:     0,
+		PaidPerClickRate:       0,
+		PaidPerExposureRate:    0,
+	}
+	return model.AdminExperimentAnalyticsSummary{
+		Days:                days,
+		Overview:            overview,
+		Items:               []model.AdminExperimentAnalyticsItem{},
+		PageBreakdown:       []model.AdminExperimentAnalyticsPageItem{},
+		DailyTrend:          []model.AdminExperimentAnalyticsTrendPoint{},
+		PayChannelBreakdown: []model.AdminExperimentAnalyticsPayChannelItem{},
+		DeviceBreakdown:     []model.AdminExperimentAnalyticsDeviceItem{},
+		UserStageBreakdown:  []model.AdminExperimentAnalyticsUserStageItem{},
+		VariantDailyTrend:   []model.AdminExperimentAnalyticsVariantTrendPoint{},
+	}, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListVIPQuotaConfigs(memberLevel string, status string, page int, pageSize int) ([]model.VIPQuotaConfig, int, error) {

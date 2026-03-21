@@ -8,6 +8,7 @@ SELECT
   '内置模拟股票行情数据源',
   'system',
   NOW()
+FROM DUAL
 WHERE NOT EXISTS (
   SELECT 1 FROM system_configs WHERE config_key = 'data_source.mock_stock'
 );
@@ -20,6 +21,7 @@ SELECT
   '内置Tushare股票行情数据源',
   'system',
   NOW()
+FROM DUAL
 WHERE NOT EXISTS (
   SELECT 1 FROM system_configs WHERE config_key = 'data_source.tushare'
 );
@@ -32,6 +34,7 @@ SELECT
   '股票行情默认数据源',
   'system',
   NOW()
+FROM DUAL
 WHERE NOT EXISTS (
   SELECT 1 FROM system_configs WHERE config_key = 'stock.quotes.default_source_key'
 );

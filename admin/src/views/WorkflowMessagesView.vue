@@ -6,7 +6,7 @@ import {
   listWorkflowMessages,
   updateWorkflowMessageRead
 } from "../api/admin";
-import { getAccessToken } from "../lib/session";
+import { getAccessToken, hasPermission } from "../lib/session";
 
 const loading = ref(false);
 const batchUpdating = ref(false);
@@ -30,6 +30,7 @@ const timerRef = ref(null);
 
 const detailVisible = ref(false);
 const currentMessage = ref(null);
+const canEditWorkflow = hasPermission("workflow.edit");
 
 const filters = reactive({
   module: "",
@@ -43,6 +44,14 @@ const selectedUnreadCount = computed(() => selectedRows.value.filter((item) => !
 const selectedReadCount = computed(() => selectedRows.value.filter((item) => item.is_read).length);
 const canBatchMarkRead = computed(() => selectedUnreadCount.value > 0);
 const canBatchMarkUnread = computed(() => selectedReadCount.value > 0);
+
+function ensureCanEditWorkflow() {
+  if (canEditWorkflow) {
+    return true;
+  }
+  errorMessage.value = "当前账号只有查看权限，无法修改流程消息已读状态";
+  return false;
+}
 
 function normalizeErrorMessage(error, fallback) {
   return error?.message || fallback || "操作失败";
@@ -107,6 +116,9 @@ async function refreshAll(options = {}) {
 }
 
 async function toggleRead(item, targetRead = null) {
+  if (!ensureCanEditWorkflow()) {
+    return;
+  }
   const nextRead = targetRead === null ? !item.is_read : !!targetRead;
   if (nextRead === item.is_read) {
     return;
@@ -122,6 +134,9 @@ async function toggleRead(item, targetRead = null) {
 }
 
 async function markAllRead() {
+  if (!ensureCanEditWorkflow()) {
+    return;
+  }
   clearMessages();
   try {
     const result = await bulkReadWorkflowMessages({
@@ -136,6 +151,9 @@ async function markAllRead() {
 }
 
 async function batchMarkSelected(targetRead) {
+  if (!ensureCanEditWorkflow()) {
+    return;
+  }
   if (selectedRows.value.length <= 0) {
     errorMessage.value = "请先勾选消息";
     return;
@@ -385,6 +403,14 @@ onBeforeUnmount(() => {
       show-icon
       style="margin-bottom: 12px"
     />
+    <el-alert
+      v-if="!canEditWorkflow"
+      title="当前账号为只读流程消息权限，可查看消息详情和导出结果，但不能修改已读状态。"
+      type="info"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 12px"
+    />
 
     <div class="card" style="margin-bottom: 12px">
       <div class="message-stats">
@@ -415,7 +441,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="card" style="margin-bottom: 12px">
+    <div v-if="canEditWorkflow" class="card" style="margin-bottom: 12px">
       <div class="section-header">
         <h3 style="margin: 0">批量处理</h3>
         <el-text type="info">
@@ -445,7 +471,7 @@ onBeforeUnmount(() => {
         empty-text="暂无流程消息"
         @selection-change="handleSelectionChange"
       >
-        <el-table-column type="selection" width="52" reserve-selection />
+        <el-table-column v-if="canEditWorkflow" type="selection" width="52" reserve-selection />
         <el-table-column prop="event_type" label="事件" min-width="170" />
         <el-table-column prop="module" label="模块" min-width="100" />
         <el-table-column prop="title" label="标题" min-width="160" />
@@ -471,9 +497,10 @@ onBeforeUnmount(() => {
           <template #default="{ row }">
             <div class="inline-actions inline-actions--right">
               <el-button size="small" @click="openMessageDetail(row)">详情</el-button>
-              <el-button size="small" @click="toggleRead(row)">
+              <el-button v-if="canEditWorkflow" size="small" @click="toggleRead(row)">
                 {{ row.is_read ? "取消已读" : "标记已读" }}
               </el-button>
+              <el-text v-else type="info">只读</el-text>
             </div>
           </template>
         </el-table-column>

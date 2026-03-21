@@ -18,20 +18,29 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-redis/redis/v8"
 
 	"sercherai/backend/internal/growth/model"
+	"sercherai/backend/internal/platform/config"
 )
 
 type MySQLGrowthRepo struct {
-	db    *sql.DB
-	redis *redis.Client
+	db             *sql.DB
+	redis          *redis.Client
+	strategyEngine *strategyEngineClient
 }
 
-func NewMySQLGrowthRepo(db *sql.DB, redisClient *redis.Client) *MySQLGrowthRepo {
-	return &MySQLGrowthRepo{db: db, redis: redisClient}
+var repoIDSequence atomic.Uint64
+
+func NewMySQLGrowthRepo(db *sql.DB, redisClient *redis.Client, cfg config.Config) *MySQLGrowthRepo {
+	return &MySQLGrowthRepo{
+		db:             db,
+		redis:          redisClient,
+		strategyEngine: newStrategyEngineClient(cfg),
+	}
 }
 
 func normalizeInviteLinkURL(rawURL string, inviteCode string) string {
@@ -417,6 +426,7 @@ LIMIT 1`, userID).Scan(
 		profile.VIPExpireAt = vipExpireAt.Time.Format(time.RFC3339)
 	}
 	profile.VIPStatus, profile.VIPRemainingDays = resolveVIPStatusAndDays(profile.MemberLevel, vipExpireAt)
+	profile.ActivationState = resolveMembershipActivationState(profile.MemberLevel, profile.KYCStatus, vipExpireAt)
 	profile.RegistrationSource = registrationSource
 	if inviterUserID.Valid {
 		profile.InviterUserID = inviterUserID.String
@@ -574,20 +584,29 @@ func (r *MySQLGrowthRepo) MarkMessageRead(userID string, id string) error {
 
 func (r *MySQLGrowthRepo) GetUserAccessProfile(userID string) (model.UserAccessProfile, error) {
 	var profile model.UserAccessProfile
+	var vipExpireAt sql.NullTime
 	profile.UserID = userID
-	err := r.db.QueryRow("SELECT status, kyc_status, member_level FROM users WHERE id = ?", userID).Scan(&profile.Status, &profile.KYCStatus, &profile.MemberLevel)
+	err := r.db.QueryRow("SELECT status, kyc_status, member_level, vip_expire_at FROM users WHERE id = ?", userID).Scan(
+		&profile.Status,
+		&profile.KYCStatus,
+		&profile.MemberLevel,
+		&vipExpireAt,
+	)
 	if err != nil {
 		return model.UserAccessProfile{}, err
 	}
+	profile.ActivationState = resolveMembershipActivationState(profile.MemberLevel, profile.KYCStatus, vipExpireAt)
 	return profile, nil
 }
 
 func (r *MySQLGrowthRepo) GetMembershipQuota(userID string) (model.MembershipQuota, error) {
 	var memberLevel string
+	var kycStatus string
 	var vipExpireAt sql.NullTime
-	if err := r.db.QueryRow("SELECT member_level, vip_expire_at FROM users WHERE id = ?", userID).Scan(&memberLevel, &vipExpireAt); err != nil {
+	if err := r.db.QueryRow("SELECT member_level, kyc_status, vip_expire_at FROM users WHERE id = ?", userID).Scan(&memberLevel, &kycStatus, &vipExpireAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			memberLevel = "FREE"
+			kycStatus = ""
 		} else {
 			return model.MembershipQuota{}, err
 		}
@@ -660,6 +679,8 @@ WHERE user_id = ? AND period_key = ?`,
 
 	return model.MembershipQuota{
 		MemberLevel:            memberLevel,
+		KYCStatus:              kycStatus,
+		ActivationState:        resolveMembershipActivationState(memberLevel, kycStatus, vipExpireAt),
 		PeriodKey:              periodKey,
 		DocReadLimit:           limitDoc,
 		DocReadUsed:            usedDoc,
@@ -1049,6 +1070,10 @@ VALUES (?, ?, ?, ?, 'SYSTEM', 'UNREAD', ?)`,
 						return err
 					}
 				}
+			}
+			if err := createExperimentSuccessEventTx(tx, strings.TrimSpace(orderNo), now); err != nil {
+				_ = tx.Rollback()
+				return err
 			}
 		}
 		return tx.Commit()
@@ -2788,13 +2813,14 @@ func (r *MySQLGrowthRepo) ensureTushareNewsCategories() error {
 	now := time.Now()
 	for _, seed := range seeds {
 		_, err := r.db.Exec(`
-INSERT INTO news_categories
-	(id, name, slug, sort, visibility, status, created_at, updated_at)
-SELECT
-	?, ?, ?, ?, ?, 'PUBLISHED', ?, ?
-WHERE NOT EXISTS (
-	SELECT 1 FROM news_categories WHERE slug = ?
-)`,
+	INSERT INTO news_categories
+		(id, name, slug, sort, visibility, status, created_at, updated_at)
+	SELECT
+		?, ?, ?, ?, ?, 'PUBLISHED', ?, ?
+	FROM DUAL
+	WHERE NOT EXISTS (
+		SELECT 1 FROM news_categories WHERE slug = ?
+	)`,
 			seed.ID,
 			seed.Name,
 			seed.Slug,
@@ -3997,7 +4023,7 @@ func compactErrorMessages(messages []string, limit int) []string {
 func (r *MySQLGrowthRepo) ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
 	offset := (page - 1) * pageSize
 	args := []interface{}{}
-	filter := " WHERE status IN ('PUBLISHED', 'ACTIVE')"
+	filter := " WHERE status IN ('PUBLISHED', 'ACTIVE', 'TRACKING')"
 	if tradeDate != "" {
 		filter += " AND DATE(valid_from) = ?"
 		args = append(args, tradeDate)
@@ -4048,7 +4074,7 @@ func (r *MySQLGrowthRepo) GetStockRecommendationDetail(userID string, recoID str
 SELECT d.reco_id, d.tech_score, d.fund_score, d.sentiment_score, d.money_flow_score, d.take_profit, d.stop_loss, d.risk_note
 FROM stock_reco_details d
 JOIN stock_recommendations r ON r.id = d.reco_id
-WHERE d.reco_id = ? AND r.status IN ('PUBLISHED', 'ACTIVE')`, recoID).Scan(
+WHERE d.reco_id = ? AND r.status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT', 'HIT_STOP_LOSS', 'INVALIDATED', 'REVIEWED')`, recoID).Scan(
 		&item.RecoID, &item.TechScore, &item.FundScore, &item.SentimentScore, &item.MoneyFlowScore, &takeProfit, &stopLoss, &riskNote,
 	)
 	if err != nil {
@@ -4072,7 +4098,7 @@ func (r *MySQLGrowthRepo) GetStockRecommendationPerformance(userID string, recoI
 	err := r.db.QueryRow(`
 SELECT score, valid_from, valid_to
 FROM stock_recommendations
-WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE')`, recoID).Scan(&score, &validFrom, &validTo)
+WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT', 'HIT_STOP_LOSS', 'INVALIDATED', 'REVIEWED')`, recoID).Scan(&score, &validFrom, &validTo)
 	if err != nil {
 		return nil, err
 	}
@@ -4110,7 +4136,7 @@ func (r *MySQLGrowthRepo) GetStockRecommendationInsight(userID string, recoID st
 	if err := r.db.QueryRow(`
 SELECT id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary
 FROM stock_recommendations
-WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE')`, recoID).Scan(
+WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT', 'HIT_STOP_LOSS', 'INVALIDATED', 'REVIEWED')`, recoID).Scan(
 		&item.ID, &item.Symbol, &item.Name, &item.Score, &item.RiskLevel, &positionRange, &validFrom, &validTo, &item.Status, &reasonSummary,
 	); err != nil {
 		return model.StockRecommendationInsight{}, err
@@ -4160,8 +4186,75 @@ WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE')`, recoID).Scan(
 		Performance:      performancePoints,
 		Benchmark:        benchmarkPoints,
 		PerformanceStats: performanceStats,
+		Explanation:      r.buildStockStrategyExplanation(item, detail),
 		GeneratedAt:      time.Now().Format(time.RFC3339),
 	}, nil
+}
+
+func (r *MySQLGrowthRepo) GetStockRecommendationVersionHistory(userID string, recoID string) ([]model.StrategyVersionHistoryItem, error) {
+	var item model.StockRecommendation
+	var validFrom time.Time
+	var reasonSummary, strategyVersion sql.NullString
+	if err := r.db.QueryRow(`
+SELECT id, symbol, valid_from, reason_summary, strategy_version
+FROM stock_recommendations
+WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT', 'HIT_STOP_LOSS', 'INVALIDATED', 'REVIEWED')`,
+		recoID,
+	).Scan(&item.ID, &item.Symbol, &validFrom, &reasonSummary, &strategyVersion); err != nil {
+		return nil, err
+	}
+	item.ValidFrom = validFrom.Format(time.RFC3339)
+	if reasonSummary.Valid {
+		item.ReasonSummary = reasonSummary.String
+	}
+	if strategyVersion.Valid {
+		item.StrategyVersion = strategyVersion.String
+	}
+
+	detail, detailErr := r.GetStockRecommendationDetail(userID, recoID)
+	if detailErr != nil && !errors.Is(detailErr, sql.ErrNoRows) {
+		return nil, detailErr
+	}
+	explanation := r.buildStockStrategyExplanation(item, detail)
+	contexts, err := r.listStrategyEngineAssetContexts("stock-selection", item.Symbol, defaultVersionHistoryLimit)
+	if err != nil {
+		return nil, err
+	}
+	if len(contexts) == 0 {
+		return []model.StrategyVersionHistoryItem{
+			buildFallbackVersionHistoryItem(
+				explanation.PublishID,
+				explanation.JobID,
+				dateOnly(item.ValidFrom),
+				explanation.PublishVersion,
+				explanation.GeneratedAt,
+				item.StrategyVersion,
+				item.ReasonSummary,
+				explanation,
+			),
+		}, nil
+	}
+
+	items := make([]model.StrategyVersionHistoryItem, 0, len(contexts))
+	for _, ctx := range contexts {
+		historyItem := buildStrategyVersionHistoryItem(
+			ctx,
+			asString(ctx.asset["reason_summary"]),
+			firstNonEmpty(asString(ctx.asset["strategy_version"]), item.StrategyVersion),
+			[]string{
+				"市场种子输入",
+				"特征工程与打分",
+				"多角色评审",
+				"情景模拟",
+				"风险过滤与发布",
+			},
+		)
+		if summary, summaryErr := r.loadStockSelectionEvaluationSummaryByContext(ctx, item.Symbol); summaryErr == nil {
+			enrichStockSelectionVersionHistoryEvaluationMeta(&historyItem, summary)
+		}
+		items = append(items, historyItem)
+	}
+	return items, nil
 }
 
 func estimateStockRecoDetailByScore(recoID string, totalScore float64) model.StockRecommendationDetail {
@@ -4664,8 +4757,53 @@ func (r *MySQLGrowthRepo) GetFuturesStrategyInsight(userID string, strategyID st
 		Performance:      performance,
 		Benchmark:        benchmark,
 		PerformanceStats: stats,
+		Explanation:      r.buildFuturesStrategyExplanation(strategy, guidance),
 		GeneratedAt:      time.Now().Format(time.RFC3339),
 	}, nil
+}
+
+func (r *MySQLGrowthRepo) GetFuturesStrategyVersionHistory(userID string, strategyID string) ([]model.StrategyVersionHistoryItem, error) {
+	strategy, err := r.GetFuturesStrategyDetail(userID, strategyID)
+	if err != nil {
+		return nil, err
+	}
+	guidance, _ := r.getLatestFuturesGuidanceByContract(strategy.Contract)
+	explanation := r.buildFuturesStrategyExplanation(strategy, guidance)
+	contexts, err := r.listStrategyEngineAssetContexts("futures-strategy", strategy.Contract, defaultVersionHistoryLimit)
+	if err != nil {
+		return nil, err
+	}
+	if len(contexts) == 0 {
+		return []model.StrategyVersionHistoryItem{
+			buildFallbackVersionHistoryItem(
+				explanation.PublishID,
+				explanation.JobID,
+				dateOnly(strategy.ValidFrom),
+				explanation.PublishVersion,
+				explanation.GeneratedAt,
+				explanation.StrategyVersion,
+				strategy.ReasonSummary,
+				explanation,
+			),
+		}, nil
+	}
+
+	items := make([]model.StrategyVersionHistoryItem, 0, len(contexts))
+	for _, ctx := range contexts {
+		items = append(items, buildStrategyVersionHistoryItem(
+			ctx,
+			asString(ctx.asset["reason_summary"]),
+			firstNonEmpty(asString(ctx.asset["strategy_version"]), explanation.StrategyVersion, "futures-mvp-v1"),
+			[]string{
+				"合约池初始化",
+				"方向/价位特征评估",
+				"多角色评审",
+				"情景推演",
+				"风险与发布过滤",
+			},
+		))
+	}
+	return items, nil
 }
 
 func (r *MySQLGrowthRepo) getLatestFuturesGuidanceByContract(contract string) (model.FuturesGuidance, error) {
@@ -5367,6 +5505,251 @@ LIMIT ? OFFSET ?`
 	return items, total, nil
 }
 
+func (r *MySQLGrowthRepo) TrackExperimentEvent(item model.ExperimentEvent) error {
+	metadataJSON, err := marshalExperimentMetadata(item.Metadata)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(`
+INSERT INTO experiment_events (
+	id, experiment_key, variant_key, event_type, page_key, target_key, user_stage,
+	anonymous_id, session_id, pathname, referrer, metadata_json, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		newID("exp"),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.ExperimentKey)), 64),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.VariantKey)), 32),
+		truncateByRunes(strings.ToUpper(strings.TrimSpace(item.EventType)), 32),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.PageKey)), 64),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.TargetKey)), 64),
+		truncateByRunes(strings.ToUpper(strings.TrimSpace(item.UserStage)), 32),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.AnonymousID)), 64),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.SessionID)), 64),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.Pathname)), 255),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.Referrer)), 255),
+		nullableString(metadataJSON),
+		time.Now(),
+	)
+	return err
+}
+
+func (r *MySQLGrowthRepo) BindMembershipOrderExperiment(orderNo string, item model.ExperimentOrderAttribution) error {
+	metadataJSON, err := marshalExperimentMetadata(item.Metadata)
+	if err != nil {
+		return err
+	}
+	conversionType := strings.ToUpper(strings.TrimSpace(item.ConversionType))
+	if conversionType == "" {
+		conversionType = deriveExperimentConversionType(item.UserStage)
+	}
+	_, err = r.db.Exec(`
+INSERT INTO experiment_order_attributions (
+	order_no, experiment_key, variant_key, page_key, target_key, user_stage,
+	anonymous_id, session_id, pathname, referrer, conversion_type, metadata_json, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+	experiment_key = VALUES(experiment_key),
+	variant_key = VALUES(variant_key),
+	page_key = VALUES(page_key),
+	target_key = VALUES(target_key),
+	user_stage = VALUES(user_stage),
+	anonymous_id = VALUES(anonymous_id),
+	session_id = VALUES(session_id),
+	pathname = VALUES(pathname),
+	referrer = VALUES(referrer),
+	conversion_type = VALUES(conversion_type),
+	metadata_json = VALUES(metadata_json)`,
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(orderNo)), 32),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.ExperimentKey)), 64),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.VariantKey)), 32),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.PageKey)), 64),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.TargetKey)), 64),
+		truncateByRunes(strings.ToUpper(strings.TrimSpace(item.UserStage)), 32),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.AnonymousID)), 64),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.SessionID)), 64),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.Pathname)), 255),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.Referrer)), 255),
+		truncateByRunes(conversionType, 32),
+		nullableString(metadataJSON),
+		time.Now(),
+	)
+	return err
+}
+
+func marshalExperimentMetadata(metadata map[string]interface{}) (string, error) {
+	if len(metadata) == 0 {
+		return "", nil
+	}
+	payloadBytes, err := json.Marshal(metadata)
+	if err != nil {
+		return "", err
+	}
+	return truncateByRunes(string(payloadBytes), 4096), nil
+}
+
+func deriveExperimentConversionType(userStage string) string {
+	stage := strings.ToUpper(strings.TrimSpace(userStage))
+	if stage == "VIP" || stage == "EXPIRED" {
+		return "RENEWAL_SUCCESS"
+	}
+	return "PAYMENT_SUCCESS"
+}
+
+func insertExperimentEventTx(tx *sql.Tx, item model.ExperimentEvent, occurredAt time.Time) error {
+	metadataJSON, err := marshalExperimentMetadata(item.Metadata)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(`
+INSERT INTO experiment_events (
+	id, experiment_key, variant_key, event_type, page_key, target_key, user_stage,
+	anonymous_id, session_id, pathname, referrer, metadata_json, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		newID("exp"),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.ExperimentKey)), 64),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.VariantKey)), 32),
+		truncateByRunes(strings.ToUpper(strings.TrimSpace(item.EventType)), 32),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.PageKey)), 64),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.TargetKey)), 64),
+		truncateByRunes(strings.ToUpper(strings.TrimSpace(item.UserStage)), 32),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.AnonymousID)), 64),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.SessionID)), 64),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.Pathname)), 255),
+		truncateByRunes(normalizeUTF8Text(strings.TrimSpace(item.Referrer)), 255),
+		nullableString(metadataJSON),
+		occurredAt,
+	)
+	return err
+}
+
+func createExperimentSuccessEventTx(tx *sql.Tx, orderNo string, occurredAt time.Time) error {
+	var attribution model.ExperimentOrderAttribution
+	var targetKey, userStage, anonymousID, sessionID, pathname, referrer, conversionType sql.NullString
+	var metadataJSON sql.NullString
+	err := tx.QueryRow(`
+SELECT experiment_key, variant_key, page_key, target_key, user_stage, anonymous_id, session_id, pathname, referrer, conversion_type, metadata_json
+FROM experiment_order_attributions
+WHERE order_no = ?
+LIMIT 1`, orderNo).Scan(
+		&attribution.ExperimentKey,
+		&attribution.VariantKey,
+		&attribution.PageKey,
+		&targetKey,
+		&userStage,
+		&anonymousID,
+		&sessionID,
+		&pathname,
+		&referrer,
+		&conversionType,
+		&metadataJSON,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if targetKey.Valid {
+		attribution.TargetKey = targetKey.String
+	}
+	if userStage.Valid {
+		attribution.UserStage = userStage.String
+	}
+	if anonymousID.Valid {
+		attribution.AnonymousID = anonymousID.String
+	}
+	if sessionID.Valid {
+		attribution.SessionID = sessionID.String
+	}
+	if pathname.Valid {
+		attribution.Pathname = pathname.String
+	}
+	if referrer.Valid {
+		attribution.Referrer = referrer.String
+	}
+	eventMetadata := map[string]interface{}{
+		"order_no": orderNo,
+	}
+	if metadataJSON.Valid && strings.TrimSpace(metadataJSON.String) != "" {
+		var extra map[string]interface{}
+		if err := json.Unmarshal([]byte(metadataJSON.String), &extra); err == nil {
+			for key, value := range extra {
+				eventMetadata[key] = value
+			}
+		}
+	}
+	eventType := deriveExperimentConversionType(attribution.UserStage)
+	if conversionType.Valid && strings.TrimSpace(conversionType.String) != "" {
+		eventType = strings.ToUpper(strings.TrimSpace(conversionType.String))
+	}
+	sourceExperimentItems := []interface{}{}
+	if rawItems, ok := eventMetadata["source_experiments"].([]interface{}); ok {
+		sourceExperimentItems = rawItems
+	}
+	delete(eventMetadata, "source_experiments")
+	primaryMetadata := map[string]interface{}{}
+	for key, value := range eventMetadata {
+		primaryMetadata[key] = value
+	}
+	primaryMetadata["attribution_role"] = "primary"
+	if err := insertExperimentEventTx(tx, model.ExperimentEvent{
+		ExperimentKey: attribution.ExperimentKey,
+		VariantKey:    attribution.VariantKey,
+		EventType:     eventType,
+		PageKey:       attribution.PageKey,
+		TargetKey:     attribution.TargetKey,
+		UserStage:     attribution.UserStage,
+		AnonymousID:   attribution.AnonymousID,
+		SessionID:     attribution.SessionID,
+		Pathname:      attribution.Pathname,
+		Referrer:      attribution.Referrer,
+		Metadata:      primaryMetadata,
+	}, occurredAt); err != nil {
+		return err
+	}
+
+	for _, rawItem := range sourceExperimentItems {
+		itemMap, ok := rawItem.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		readSourceField := func(key string) string {
+			value, exists := itemMap[key]
+			if !exists || value == nil {
+				return ""
+			}
+			return strings.TrimSpace(fmt.Sprint(value))
+		}
+		sourceExperimentKey := readSourceField("experiment_key")
+		sourceVariantKey := readSourceField("variant_key")
+		sourcePageKey := readSourceField("page_key")
+		if sourceExperimentKey == "" || sourceVariantKey == "" || sourcePageKey == "" {
+			continue
+		}
+		sourceMetadata := map[string]interface{}{}
+		for key, value := range eventMetadata {
+			sourceMetadata[key] = value
+		}
+		sourceMetadata["attribution_role"] = "source"
+		sourceMetadata["source_experiment_key"] = sourceExperimentKey
+		if err := insertExperimentEventTx(tx, model.ExperimentEvent{
+			ExperimentKey: sourceExperimentKey,
+			VariantKey:    sourceVariantKey,
+			EventType:     eventType,
+			PageKey:       sourcePageKey,
+			TargetKey:     readSourceField("target_key"),
+			UserStage:     readSourceField("user_stage"),
+			AnonymousID:   readSourceField("anonymous_id"),
+			SessionID:     readSourceField("session_id"),
+			Pathname:      readSourceField("pathname"),
+			Referrer:      readSourceField("referrer"),
+			Metadata:      sourceMetadata,
+		}, occurredAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *MySQLGrowthRepo) AdminListMarketEvents(eventType string, symbol string, page int, pageSize int) ([]model.MarketEvent, int, error) {
 	offset := (page - 1) * pageSize
 	args := []interface{}{}
@@ -5477,7 +5860,7 @@ func (r *MySQLGrowthRepo) AdminListStockRecommendations(status string, page int,
 		return nil, 0, err
 	}
 	query := `
-SELECT id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary
+SELECT id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary, source_type, strategy_version, reviewer, publisher, review_note, performance_label
 FROM stock_recommendations` + filter + `
 ORDER BY created_at DESC
 LIMIT ? OFFSET ?`
@@ -5490,9 +5873,26 @@ LIMIT ? OFFSET ?`
 	items := make([]model.StockRecommendation, 0)
 	for rows.Next() {
 		var item model.StockRecommendation
-		var pos, reason sql.NullString
+		var pos, reason, sourceType, strategyVersion, reviewer, publisher, reviewNote, performanceLabel sql.NullString
 		var vf, vt time.Time
-		if err := rows.Scan(&item.ID, &item.Symbol, &item.Name, &item.Score, &item.RiskLevel, &pos, &vf, &vt, &item.Status, &reason); err != nil {
+		if err := rows.Scan(
+			&item.ID,
+			&item.Symbol,
+			&item.Name,
+			&item.Score,
+			&item.RiskLevel,
+			&pos,
+			&vf,
+			&vt,
+			&item.Status,
+			&reason,
+			&sourceType,
+			&strategyVersion,
+			&reviewer,
+			&publisher,
+			&reviewNote,
+			&performanceLabel,
+		); err != nil {
 			return nil, 0, err
 		}
 		if pos.Valid {
@@ -5500,6 +5900,24 @@ LIMIT ? OFFSET ?`
 		}
 		if reason.Valid {
 			item.ReasonSummary = reason.String
+		}
+		if sourceType.Valid {
+			item.SourceType = sourceType.String
+		}
+		if strategyVersion.Valid {
+			item.StrategyVersion = strategyVersion.String
+		}
+		if reviewer.Valid {
+			item.Reviewer = reviewer.String
+		}
+		if publisher.Valid {
+			item.Publisher = publisher.String
+		}
+		if reviewNote.Valid {
+			item.ReviewNote = reviewNote.String
+		}
+		if performanceLabel.Valid {
+			item.PerformanceLabel = performanceLabel.String
 		}
 		item.ValidFrom = vf.Format(time.RFC3339)
 		item.ValidTo = vt.Format(time.RFC3339)
@@ -5518,10 +5936,41 @@ func (r *MySQLGrowthRepo) AdminCreateStockRecommendation(item model.StockRecomme
 	if err != nil {
 		return "", err
 	}
+	sourceType := strings.ToUpper(strings.TrimSpace(item.SourceType))
+	if sourceType == "" {
+		sourceType = "MANUAL"
+	}
+	strategyVersion := strings.TrimSpace(item.StrategyVersion)
+	if strategyVersion == "" {
+		strategyVersion = "manual-v1"
+	}
+	reviewer := strings.TrimSpace(item.Reviewer)
+	publisher := strings.TrimSpace(item.Publisher)
+	reviewNote := strings.TrimSpace(item.ReviewNote)
+	performanceLabel := strings.ToUpper(strings.TrimSpace(item.PerformanceLabel))
+	if performanceLabel == "" {
+		performanceLabel = "PENDING"
+	}
 	_, err = r.db.Exec(`
-INSERT INTO stock_recommendations (id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, item.Symbol, item.Name, item.Score, item.RiskLevel, item.PositionRange, vf, vt, item.Status, item.ReasonSummary, time.Now(),
+INSERT INTO stock_recommendations (id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary, source_type, strategy_version, reviewer, publisher, review_note, performance_label, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id,
+		item.Symbol,
+		item.Name,
+		item.Score,
+		item.RiskLevel,
+		item.PositionRange,
+		vf,
+		vt,
+		item.Status,
+		item.ReasonSummary,
+		sourceType,
+		strategyVersion,
+		reviewer,
+		publisher,
+		reviewNote,
+		performanceLabel,
+		time.Now(),
 	)
 	if err != nil {
 		return "", err
@@ -5530,89 +5979,30 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 }
 
 func (r *MySQLGrowthRepo) AdminUpdateStockRecommendationStatus(id string, status string) error {
-	_, err := r.db.Exec("UPDATE stock_recommendations SET status = ? WHERE id = ?", status, id)
+	targetStatus := normalizeStockRecommendationLifecycleStatus(status)
+	if targetStatus == "" {
+		return errors.New("invalid stock recommendation status")
+	}
+
+	var currentStatus string
+	if err := r.db.QueryRow("SELECT status FROM stock_recommendations WHERE id = ?", id).Scan(&currentStatus); err != nil {
+		return err
+	}
+	currentStatus = normalizeStockRecommendationLifecycleStatus(currentStatus)
+	if currentStatus == "" {
+		return errors.New("current stock recommendation status is empty")
+	}
+	if !canTransitionStockRecommendationStatus(currentStatus, targetStatus) {
+		return fmt.Errorf(
+			"invalid status transition: %s -> %s (allowed: %s)",
+			currentStatus,
+			targetStatus,
+			strings.Join(allowedStockRecommendationTransitions(currentStatus), ", "),
+		)
+	}
+
+	_, err := r.db.Exec("UPDATE stock_recommendations SET status = ? WHERE id = ?", targetStatus, id)
 	return err
-}
-
-func (r *MySQLGrowthRepo) AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error) {
-	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
-	if sourceKey == "" {
-		sourceKey = "MOCK"
-	}
-	symbols = normalizeStockSymbolList(symbols)
-	if len(symbols) == 0 {
-		symbols = defaultMockStockSymbols()
-	}
-	if days <= 0 {
-		days = 120
-	}
-	if days > 365 {
-		days = 365
-	}
-
-	var (
-		quotes []model.StockMarketQuote
-		err    error
-	)
-	if sourceKey == "MOCK" {
-		quotes = buildMockStockQuotes(symbols, days, sourceKey)
-	} else {
-		dataSourceKey := strings.ToLower(sourceKey)
-		item, dsErr := r.getDataSourceBySourceKey(dataSourceKey)
-		if dsErr != nil {
-			item, dsErr = r.getDataSourceBySourceKey(sourceKey)
-		}
-
-		if sourceKey == "TUSHARE" {
-			timeoutMS := 12000
-			token := ""
-			if dsErr == nil {
-				timeoutMS = parseDataSourceTimeoutMS(item.Config)
-				token = parseDataSourceStringConfig(item.Config, "token", "api_token", "tushare_token")
-			}
-			if token == "" {
-				token = strings.TrimSpace(os.Getenv("TUSHARE_TOKEN"))
-			}
-			quotes, err = fetchStockQuotesFromTushare(token, sourceKey, symbols, days, timeoutMS)
-			if err != nil {
-				return 0, err
-			}
-			if len(quotes) > 0 {
-				if basics, fetchErr := fetchStockDailyBasicsFromTushare(token, sourceKey, symbols, days, timeoutMS); fetchErr == nil && len(basics) > 0 {
-					if _, upsertErr := r.upsertStockDailyBasics(basics); upsertErr != nil && !isTableNotFoundError(upsertErr) {
-						return 0, upsertErr
-					}
-				}
-				if flows, fetchErr := fetchStockMoneyflowsFromTushare(token, sourceKey, symbols, days, timeoutMS); fetchErr == nil && len(flows) > 0 {
-					if _, upsertErr := r.upsertStockMoneyflows(flows); upsertErr != nil && !isTableNotFoundError(upsertErr) {
-						return 0, upsertErr
-					}
-				}
-				if newsItems, fetchErr := fetchStockNewsFromTushare(token, sourceKey, symbols, minInt(days, 30), timeoutMS); fetchErr == nil && len(newsItems) > 0 {
-					if _, upsertErr := r.upsertStockNewsRaw(newsItems); upsertErr != nil && !isTableNotFoundError(upsertErr) {
-						return 0, upsertErr
-					}
-				}
-			}
-		} else {
-			if dsErr != nil {
-				return 0, dsErr
-			}
-			endpoint := parseDataSourceStringConfig(item.Config, "quotes_endpoint", "endpoint")
-			if endpoint == "" {
-				return 0, errors.New("quotes endpoint not configured")
-			}
-			timeoutMS := parseDataSourceTimeoutMS(item.Config)
-			quotes, err = fetchStockQuotesFromEndpoint(endpoint, sourceKey, symbols, days, timeoutMS)
-			if err != nil {
-				return 0, err
-			}
-		}
-	}
-	if len(quotes) == 0 {
-		return 0, nil
-	}
-	return r.upsertStockMarketQuotes(quotes)
 }
 
 func (r *MySQLGrowthRepo) AdminGetQuantTopStocks(limit int, lookbackDays int) ([]model.StockQuantScore, error) {
@@ -6030,13 +6420,16 @@ ORDER BY trade_date ASC, rank_no ASC`, sinceDate.Format("2006-01-02"), topN)
 	return summary, points, riskItems, rotationItems, nil
 }
 
-func (r *MySQLGrowthRepo) AdminGenerateDailyStockRecommendations(tradeDate string) (int, error) {
+func (r *MySQLGrowthRepo) AdminGenerateDailyStockRecommendations(tradeDate string) (model.AdminDailyStockRecommendationGenerationResult, error) {
+	if r.strategyEngine != nil {
+		return r.generateDailyStockRecommendationsViaStrategyEngine(tradeDate)
+	}
 	if tradeDate == "" {
 		tradeDate = time.Now().Format("2006-01-02")
 	}
 	start, err := time.ParseInLocation("2006-01-02", tradeDate, time.Local)
 	if err != nil {
-		return 0, err
+		return model.AdminDailyStockRecommendationGenerationResult{}, err
 	}
 	end := start.Add(24 * time.Hour)
 	quantItems, quantErr := r.AdminGetQuantTopStocks(10, 180)
@@ -6049,8 +6442,8 @@ func (r *MySQLGrowthRepo) AdminGenerateDailyStockRecommendations(tradeDate strin
 	for _, candidate := range candidates {
 		id := newID("sr")
 		_, err := r.db.Exec(`
-INSERT INTO stock_recommendations (id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+INSERT INTO stock_recommendations (id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary, source_type, strategy_version, reviewer, publisher, review_note, performance_label, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id,
 			candidate.Symbol,
 			candidate.Name,
@@ -6061,10 +6454,16 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			candidate.ValidTo,
 			candidate.Status,
 			candidate.ReasonSummary,
+			"SYSTEM",
+			"daily-v1",
+			"",
+			"system",
+			"由每日量化流水线自动生成，待运营跟踪。",
+			"ESTIMATED",
 			time.Now(),
 		)
 		if err != nil {
-			return count, err
+			return model.AdminDailyStockRecommendationGenerationResult{}, err
 		}
 		_, _ = r.db.Exec(`
 INSERT INTO stock_reco_details (reco_id, tech_score, fund_score, sentiment_score, money_flow_score, take_profit, stop_loss, risk_note)
@@ -6081,16 +6480,23 @@ ON DUPLICATE KEY UPDATE tech_score=VALUES(tech_score), fund_score=VALUES(fund_sc
 		)
 		count++
 	}
-	return count, nil
+	return model.AdminDailyStockRecommendationGenerationResult{
+		Count:          count,
+		GenerationMode: "FALLBACK",
+		ArchiveEnabled: false,
+	}, nil
 }
 
-func (r *MySQLGrowthRepo) AdminGenerateDailyFuturesStrategies(tradeDate string) (int, error) {
+func (r *MySQLGrowthRepo) AdminGenerateDailyFuturesStrategies(tradeDate string) (model.AdminDailyFuturesStrategyGenerationResult, error) {
+	if r.strategyEngine != nil {
+		return r.generateDailyFuturesStrategiesViaStrategyEngine(tradeDate)
+	}
 	if tradeDate == "" {
 		tradeDate = time.Now().Format("2006-01-02")
 	}
 	start, err := time.ParseInLocation("2006-01-02", tradeDate, time.Local)
 	if err != nil {
-		return 0, err
+		return model.AdminDailyFuturesStrategyGenerationResult{}, err
 	}
 	end := start.Add(24 * time.Hour)
 	samples := []model.FuturesStrategy{
@@ -6107,11 +6513,15 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id, s.Contract, s.Name, s.Direction, s.RiskLevel, s.PositionRange, start, end, s.Status, s.ReasonSummary,
 		)
 		if err != nil {
-			return count, err
+			return model.AdminDailyFuturesStrategyGenerationResult{}, err
 		}
 		count++
 	}
-	return count, nil
+	return model.AdminDailyFuturesStrategyGenerationResult{
+		Count:          count,
+		GenerationMode: "FALLBACK",
+		ArchiveEnabled: false,
+	}, nil
 }
 
 func (r *MySQLGrowthRepo) AdminListFuturesStrategies(status string, contract string, page int, pageSize int) ([]model.FuturesStrategy, int, error) {
@@ -6611,6 +7021,7 @@ SELECT
 	u.status,
 	u.kyc_status,
 	u.member_level,
+	u.vip_expire_at,
 	CASE WHEN ir.id IS NULL THEN 'DIRECT' ELSE 'INVITED' END AS registration_source,
 	ir.inviter_user_id,
 	il.invite_code,
@@ -6634,6 +7045,7 @@ LIMIT ? OFFSET ?`
 		var email sql.NullString
 		var inviterUserID sql.NullString
 		var inviteCode sql.NullString
+		var vipExpireAt sql.NullTime
 		var invitedAt sql.NullTime
 		var createdAt time.Time
 		if err := rows.Scan(
@@ -6643,6 +7055,7 @@ LIMIT ? OFFSET ?`
 			&item.Status,
 			&item.KYCStatus,
 			&item.MemberLevel,
+			&vipExpireAt,
 			&item.RegistrationSource,
 			&inviterUserID,
 			&inviteCode,
@@ -6663,6 +7076,7 @@ LIMIT ? OFFSET ?`
 		if invitedAt.Valid {
 			item.InviteRegisteredAt = invitedAt.Time.Format(time.RFC3339)
 		}
+		item.ActivationState = resolveMembershipActivationState(item.MemberLevel, item.KYCStatus, vipExpireAt)
 		item.CreatedAt = createdAt.Format(time.RFC3339)
 		items = append(items, item)
 	}
@@ -7089,8 +7503,559 @@ LIMIT ? OFFSET ?`
 }
 
 func (r *MySQLGrowthRepo) AdminUpdateMembershipOrderStatus(id string, status string) error {
-	_, err := r.db.Exec("UPDATE membership_orders SET status = ?, updated_at = ? WHERE id = ?", status, time.Now(), id)
-	return err
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	var orderNo, previousStatus string
+	if err := tx.QueryRow("SELECT order_no, status FROM membership_orders WHERE id = ? FOR UPDATE", id).Scan(&orderNo, &previousStatus); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	now := time.Now()
+	if _, err := tx.Exec("UPDATE membership_orders SET status = ?, updated_at = ? WHERE id = ?", status, now, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if strings.ToUpper(strings.TrimSpace(status)) == "PAID" && strings.ToUpper(strings.TrimSpace(previousStatus)) != "PAID" {
+		if err := createExperimentSuccessEventTx(tx, strings.TrimSpace(orderNo), now); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (r *MySQLGrowthRepo) AdminListMarketRhythmTasks(taskDate string) ([]model.MarketRhythmTask, error) {
+	normalizedDate, err := normalizeMarketRhythmDate(taskDate)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := r.db.Query(`
+SELECT id, task_date, slot, task_key, status, COALESCE(owner, ''), COALESCE(notes, ''), source_links_json, completed_at, created_at, updated_at
+FROM market_rhythm_tasks
+WHERE task_date = ?
+ORDER BY FIELD(slot, '08:30', '11:30', '15:30', '周末'), task_key ASC, created_at ASC`, normalizedDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.MarketRhythmTask, 0)
+	for rows.Next() {
+		item, err := scanMarketRhythmTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (r *MySQLGrowthRepo) AdminEnsureMarketRhythmTasks(taskDate string) ([]model.MarketRhythmTask, error) {
+	normalizedDate, err := normalizeMarketRhythmDate(taskDate)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := r.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	for _, template := range defaultMarketRhythmTaskTemplates() {
+		if _, err := tx.Exec(`
+INSERT INTO market_rhythm_tasks (
+	id, task_date, slot, task_key, status, owner, notes, source_links_json, completed_at, created_at, updated_at
+) VALUES (?, ?, ?, ?, 'TODO', '', '', NULL, NULL, ?, ?)
+ON DUPLICATE KEY UPDATE updated_at = updated_at`,
+			newID("mrt"),
+			normalizedDate,
+			template.Slot,
+			template.TaskKey,
+			now,
+			now,
+		); err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return r.AdminListMarketRhythmTasks(normalizedDate)
+}
+
+func (r *MySQLGrowthRepo) AdminUpdateMarketRhythmTask(id string, owner string, notes string, sourceLinks []string, status string) (model.MarketRhythmTask, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return model.MarketRhythmTask{}, err
+	}
+	item, err := getMarketRhythmTaskByIDTx(tx, id)
+	if err != nil {
+		_ = tx.Rollback()
+		return model.MarketRhythmTask{}, err
+	}
+	nextStatus := normalizeMarketRhythmStatus(status)
+	if nextStatus == "" {
+		nextStatus = normalizeMarketRhythmStatus(item.Status)
+	}
+	sourceLinksJSON, err := marshalStringList(normalizeStringList(sourceLinks))
+	if err != nil {
+		_ = tx.Rollback()
+		return model.MarketRhythmTask{}, err
+	}
+	completedAt := marketRhythmCompletedAtValue(item.CompletedAt, nextStatus)
+	now := time.Now()
+	if _, err := tx.Exec(`
+UPDATE market_rhythm_tasks
+SET owner = ?, notes = ?, source_links_json = ?, status = ?, completed_at = ?, updated_at = ?
+WHERE id = ?`,
+		strings.TrimSpace(owner),
+		strings.TrimSpace(notes),
+		nullableString(sourceLinksJSON),
+		nextStatus,
+		completedAt,
+		now,
+		id,
+	); err != nil {
+		_ = tx.Rollback()
+		return model.MarketRhythmTask{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return model.MarketRhythmTask{}, err
+	}
+	return r.adminGetMarketRhythmTaskByID(id)
+}
+
+func (r *MySQLGrowthRepo) AdminUpdateMarketRhythmTaskStatus(id string, status string, owner string, notes string) (model.MarketRhythmTask, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return model.MarketRhythmTask{}, err
+	}
+	item, err := getMarketRhythmTaskByIDTx(tx, id)
+	if err != nil {
+		_ = tx.Rollback()
+		return model.MarketRhythmTask{}, err
+	}
+	nextStatus := normalizeMarketRhythmStatus(status)
+	if nextStatus == "" {
+		nextStatus = normalizeMarketRhythmStatus(item.Status)
+	}
+	nextOwner := item.Owner
+	if strings.TrimSpace(owner) != "" {
+		nextOwner = strings.TrimSpace(owner)
+	}
+	nextNotes := item.Notes
+	if strings.TrimSpace(notes) != "" {
+		nextNotes = strings.TrimSpace(notes)
+	}
+	sourceLinksJSON, err := marshalStringList(normalizeStringList(item.SourceLinks))
+	if err != nil {
+		_ = tx.Rollback()
+		return model.MarketRhythmTask{}, err
+	}
+	completedAt := marketRhythmCompletedAtValue(item.CompletedAt, nextStatus)
+	now := time.Now()
+	if _, err := tx.Exec(`
+UPDATE market_rhythm_tasks
+SET owner = ?, notes = ?, source_links_json = ?, status = ?, completed_at = ?, updated_at = ?
+WHERE id = ?`,
+		nextOwner,
+		nextNotes,
+		nullableString(sourceLinksJSON),
+		nextStatus,
+		completedAt,
+		now,
+		id,
+	); err != nil {
+		_ = tx.Rollback()
+		return model.MarketRhythmTask{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return model.MarketRhythmTask{}, err
+	}
+	return r.adminGetMarketRhythmTaskByID(id)
+}
+
+func (r *MySQLGrowthRepo) AdminGetExperimentAnalyticsSummary(days int) (model.AdminExperimentAnalyticsSummary, error) {
+	if days <= 0 {
+		days = 7
+	}
+	since := time.Now().AddDate(0, 0, -days)
+	summary := model.AdminExperimentAnalyticsSummary{
+		Days:                days,
+		Overview:            model.AdminExperimentAnalyticsOverview{Days: days},
+		Items:               make([]model.AdminExperimentAnalyticsItem, 0),
+		PageBreakdown:       make([]model.AdminExperimentAnalyticsPageItem, 0),
+		DailyTrend:          make([]model.AdminExperimentAnalyticsTrendPoint, 0),
+		PayChannelBreakdown: make([]model.AdminExperimentAnalyticsPayChannelItem, 0),
+		DeviceBreakdown:     make([]model.AdminExperimentAnalyticsDeviceItem, 0),
+		UserStageBreakdown:  make([]model.AdminExperimentAnalyticsUserStageItem, 0),
+		VariantDailyTrend:   make([]model.AdminExperimentAnalyticsVariantTrendPoint, 0),
+	}
+	var lastEventAt sql.NullTime
+	if err := r.db.QueryRow(`
+SELECT
+	COUNT(*) AS total_events,
+	COUNT(DISTINCT experiment_key) AS total_experiments,
+	COALESCE(SUM(CASE WHEN event_type = 'EXPOSURE' THEN 1 ELSE 0 END), 0) AS exposure_count,
+	COALESCE(SUM(CASE WHEN event_type = 'CLICK' THEN 1 ELSE 0 END), 0) AS click_count,
+	COALESCE(SUM(CASE WHEN event_type = 'UPGRADE_INTENT' THEN 1 ELSE 0 END), 0) AS upgrade_intent_count,
+	COALESCE(SUM(CASE WHEN event_type = 'PAYMENT_SUCCESS' THEN 1 ELSE 0 END), 0) AS payment_success_count,
+	COALESCE(SUM(CASE WHEN event_type = 'RENEWAL_SUCCESS' THEN 1 ELSE 0 END), 0) AS renewal_success_count,
+	MAX(created_at) AS last_event_at
+FROM experiment_events
+WHERE created_at >= ?`, since).Scan(
+		&summary.Overview.TotalEvents,
+		&summary.Overview.TotalExperiments,
+		&summary.Overview.ExposureCount,
+		&summary.Overview.ClickCount,
+		&summary.Overview.UpgradeIntentCount,
+		&summary.Overview.PaymentSuccessCount,
+		&summary.Overview.RenewalSuccessCount,
+		&lastEventAt,
+	); err != nil {
+		return summary, err
+	}
+	paidSuccessTotal := summary.Overview.PaymentSuccessCount + summary.Overview.RenewalSuccessCount
+	summary.Overview.ClickThroughRate = safeRatioValue(int64(summary.Overview.ClickCount), int64(summary.Overview.ExposureCount))
+	summary.Overview.UpgradePerClickRate = safeRatioValue(int64(summary.Overview.UpgradeIntentCount), int64(summary.Overview.ClickCount))
+	summary.Overview.UpgradePerExposureRate = safeRatioValue(int64(summary.Overview.UpgradeIntentCount), int64(summary.Overview.ExposureCount))
+	summary.Overview.PaidPerUpgradeRate = safeRatioValue(int64(paidSuccessTotal), int64(summary.Overview.UpgradeIntentCount))
+	summary.Overview.PaidPerClickRate = safeRatioValue(int64(paidSuccessTotal), int64(summary.Overview.ClickCount))
+	summary.Overview.PaidPerExposureRate = safeRatioValue(int64(paidSuccessTotal), int64(summary.Overview.ExposureCount))
+	if lastEventAt.Valid {
+		summary.Overview.LastEventAt = lastEventAt.Time.Format(time.RFC3339)
+	}
+
+	rows, err := r.db.Query(`
+SELECT
+	experiment_key,
+	variant_key,
+	page_key,
+	COALESCE(NULLIF(user_stage, ''), 'UNKNOWN') AS user_stage,
+	COALESCE(SUM(CASE WHEN event_type = 'EXPOSURE' THEN 1 ELSE 0 END), 0) AS exposure_count,
+	COALESCE(SUM(CASE WHEN event_type = 'CLICK' THEN 1 ELSE 0 END), 0) AS click_count,
+	COALESCE(SUM(CASE WHEN event_type = 'UPGRADE_INTENT' THEN 1 ELSE 0 END), 0) AS upgrade_intent_count,
+	COALESCE(SUM(CASE WHEN event_type = 'PAYMENT_SUCCESS' THEN 1 ELSE 0 END), 0) AS payment_success_count,
+	COALESCE(SUM(CASE WHEN event_type = 'RENEWAL_SUCCESS' THEN 1 ELSE 0 END), 0) AS renewal_success_count,
+	MAX(created_at) AS last_event_at
+FROM experiment_events
+WHERE created_at >= ?
+GROUP BY experiment_key, variant_key, page_key, COALESCE(NULLIF(user_stage, ''), 'UNKNOWN')
+ORDER BY upgrade_intent_count DESC, click_count DESC, exposure_count DESC, last_event_at DESC
+LIMIT 100`, since)
+	if err != nil {
+		return summary, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var item model.AdminExperimentAnalyticsItem
+		var itemLastEventAt sql.NullTime
+		if err := rows.Scan(
+			&item.ExperimentKey,
+			&item.VariantKey,
+			&item.PageKey,
+			&item.UserStage,
+			&item.ExposureCount,
+			&item.ClickCount,
+			&item.UpgradeIntentCount,
+			&item.PaymentSuccessCount,
+			&item.RenewalSuccessCount,
+			&itemLastEventAt,
+		); err != nil {
+			return summary, err
+		}
+		paidSuccessTotal := item.PaymentSuccessCount + item.RenewalSuccessCount
+		item.ClickThroughRate = safeRatioValue(int64(item.ClickCount), int64(item.ExposureCount))
+		item.UpgradePerClickRate = safeRatioValue(int64(item.UpgradeIntentCount), int64(item.ClickCount))
+		item.UpgradePerExposureRate = safeRatioValue(int64(item.UpgradeIntentCount), int64(item.ExposureCount))
+		item.PaidPerUpgradeRate = safeRatioValue(int64(paidSuccessTotal), int64(item.UpgradeIntentCount))
+		item.PaidPerClickRate = safeRatioValue(int64(paidSuccessTotal), int64(item.ClickCount))
+		item.PaidPerExposureRate = safeRatioValue(int64(paidSuccessTotal), int64(item.ExposureCount))
+		if itemLastEventAt.Valid {
+			item.LastEventAt = itemLastEventAt.Time.Format(time.RFC3339)
+		}
+		summary.Items = append(summary.Items, item)
+		summary.UserStageBreakdown = append(summary.UserStageBreakdown, model.AdminExperimentAnalyticsUserStageItem{
+			ExperimentKey:          item.ExperimentKey,
+			VariantKey:             item.VariantKey,
+			PageKey:                item.PageKey,
+			UserStage:              item.UserStage,
+			ExposureCount:          item.ExposureCount,
+			ClickCount:             item.ClickCount,
+			UpgradeIntentCount:     item.UpgradeIntentCount,
+			PaymentSuccessCount:    item.PaymentSuccessCount,
+			RenewalSuccessCount:    item.RenewalSuccessCount,
+			ClickThroughRate:       item.ClickThroughRate,
+			UpgradePerClickRate:    item.UpgradePerClickRate,
+			UpgradePerExposureRate: item.UpgradePerExposureRate,
+			PaidPerUpgradeRate:     item.PaidPerUpgradeRate,
+			PaidPerClickRate:       item.PaidPerClickRate,
+			PaidPerExposureRate:    item.PaidPerExposureRate,
+			LastEventAt:            item.LastEventAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return summary, err
+	}
+
+	pageRows, err := r.db.Query(`
+SELECT
+	page_key,
+	COALESCE(SUM(CASE WHEN event_type = 'EXPOSURE' THEN 1 ELSE 0 END), 0) AS exposure_count,
+	COALESCE(SUM(CASE WHEN event_type = 'CLICK' THEN 1 ELSE 0 END), 0) AS click_count,
+	COALESCE(SUM(CASE WHEN event_type = 'UPGRADE_INTENT' THEN 1 ELSE 0 END), 0) AS upgrade_intent_count,
+	COALESCE(SUM(CASE WHEN event_type = 'PAYMENT_SUCCESS' THEN 1 ELSE 0 END), 0) AS payment_success_count,
+	COALESCE(SUM(CASE WHEN event_type = 'RENEWAL_SUCCESS' THEN 1 ELSE 0 END), 0) AS renewal_success_count,
+	MAX(created_at) AS last_event_at
+FROM experiment_events
+WHERE created_at >= ?
+GROUP BY page_key
+ORDER BY payment_success_count DESC, upgrade_intent_count DESC, click_count DESC, exposure_count DESC, last_event_at DESC
+LIMIT 20`, since)
+	if err != nil {
+		return summary, err
+	}
+	defer pageRows.Close()
+
+	for pageRows.Next() {
+		var item model.AdminExperimentAnalyticsPageItem
+		var itemLastEventAt sql.NullTime
+		if err := pageRows.Scan(
+			&item.PageKey,
+			&item.ExposureCount,
+			&item.ClickCount,
+			&item.UpgradeIntentCount,
+			&item.PaymentSuccessCount,
+			&item.RenewalSuccessCount,
+			&itemLastEventAt,
+		); err != nil {
+			return summary, err
+		}
+		paidSuccessTotal := item.PaymentSuccessCount + item.RenewalSuccessCount
+		item.ClickThroughRate = safeRatioValue(int64(item.ClickCount), int64(item.ExposureCount))
+		item.UpgradePerClickRate = safeRatioValue(int64(item.UpgradeIntentCount), int64(item.ClickCount))
+		item.PaidPerUpgradeRate = safeRatioValue(int64(paidSuccessTotal), int64(item.UpgradeIntentCount))
+		item.PaidPerExposureRate = safeRatioValue(int64(paidSuccessTotal), int64(item.ExposureCount))
+		if itemLastEventAt.Valid {
+			item.LastEventAt = itemLastEventAt.Time.Format(time.RFC3339)
+		}
+		summary.PageBreakdown = append(summary.PageBreakdown, item)
+	}
+	if err := pageRows.Err(); err != nil {
+		return summary, err
+	}
+
+	trendRows, err := r.db.Query(`
+SELECT
+	DATE(created_at) AS metric_date,
+	COALESCE(SUM(CASE WHEN event_type = 'EXPOSURE' THEN 1 ELSE 0 END), 0) AS exposure_count,
+	COALESCE(SUM(CASE WHEN event_type = 'CLICK' THEN 1 ELSE 0 END), 0) AS click_count,
+	COALESCE(SUM(CASE WHEN event_type = 'UPGRADE_INTENT' THEN 1 ELSE 0 END), 0) AS upgrade_intent_count,
+	COALESCE(SUM(CASE WHEN event_type = 'PAYMENT_SUCCESS' THEN 1 ELSE 0 END), 0) AS payment_success_count,
+	COALESCE(SUM(CASE WHEN event_type = 'RENEWAL_SUCCESS' THEN 1 ELSE 0 END), 0) AS renewal_success_count
+FROM experiment_events
+WHERE created_at >= ?
+GROUP BY DATE(created_at)
+ORDER BY metric_date ASC`, since)
+	if err != nil {
+		return summary, err
+	}
+	defer trendRows.Close()
+
+	for trendRows.Next() {
+		var metricDate time.Time
+		var point model.AdminExperimentAnalyticsTrendPoint
+		if err := trendRows.Scan(
+			&metricDate,
+			&point.ExposureCount,
+			&point.ClickCount,
+			&point.UpgradeIntentCount,
+			&point.PaymentSuccessCount,
+			&point.RenewalSuccessCount,
+		); err != nil {
+			return summary, err
+		}
+		paidSuccessTotal := point.PaymentSuccessCount + point.RenewalSuccessCount
+		point.Date = metricDate.Format("2006-01-02")
+		point.ClickThroughRate = safeRatioValue(int64(point.ClickCount), int64(point.ExposureCount))
+		point.UpgradePerClickRate = safeRatioValue(int64(point.UpgradeIntentCount), int64(point.ClickCount))
+		point.PaidPerExposureRate = safeRatioValue(int64(paidSuccessTotal), int64(point.ExposureCount))
+		summary.DailyTrend = append(summary.DailyTrend, point)
+	}
+	if err := trendRows.Err(); err != nil {
+		return summary, err
+	}
+
+	payRows, err := r.db.Query(`
+SELECT pay_channel, payment_success_count, renewal_success_count, last_event_at
+FROM (
+	SELECT
+		COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.pay_channel')), ''), 'UNKNOWN') AS pay_channel,
+		COALESCE(SUM(CASE WHEN event_type = 'PAYMENT_SUCCESS' THEN 1 ELSE 0 END), 0) AS payment_success_count,
+		COALESCE(SUM(CASE WHEN event_type = 'RENEWAL_SUCCESS' THEN 1 ELSE 0 END), 0) AS renewal_success_count,
+		MAX(created_at) AS last_event_at
+	FROM experiment_events
+	WHERE created_at >= ?
+	  AND event_type IN ('PAYMENT_SUCCESS', 'RENEWAL_SUCCESS')
+	GROUP BY COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.pay_channel')), ''), 'UNKNOWN')
+) pay_summary
+ORDER BY (payment_success_count + renewal_success_count) DESC, last_event_at DESC`, since)
+	if err != nil {
+		return summary, err
+	}
+	defer payRows.Close()
+
+	for payRows.Next() {
+		var item model.AdminExperimentAnalyticsPayChannelItem
+		var itemLastEventAt sql.NullTime
+		if err := payRows.Scan(
+			&item.PayChannel,
+			&item.PaymentSuccessCount,
+			&item.RenewalSuccessCount,
+			&itemLastEventAt,
+		); err != nil {
+			return summary, err
+		}
+		item.PaidSuccessCount = item.PaymentSuccessCount + item.RenewalSuccessCount
+		item.PaidShareRate = safeRatioValue(int64(item.PaidSuccessCount), int64(paidSuccessTotal))
+		if itemLastEventAt.Valid {
+			item.LastEventAt = itemLastEventAt.Time.Format(time.RFC3339)
+		}
+		summary.PayChannelBreakdown = append(summary.PayChannelBreakdown, item)
+	}
+	if err := payRows.Err(); err != nil {
+		return summary, err
+	}
+
+	deviceRows, err := r.db.Query(`
+SELECT
+	experiment_key,
+	variant_key,
+	page_key,
+	device_type,
+	exposure_count,
+	click_count,
+	upgrade_intent_count,
+	payment_success_count,
+	renewal_success_count,
+	last_event_at
+FROM (
+	SELECT
+		experiment_key,
+		variant_key,
+		page_key,
+		COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.device_type')), ''), 'UNKNOWN') AS device_type,
+		COALESCE(SUM(CASE WHEN event_type = 'EXPOSURE' THEN 1 ELSE 0 END), 0) AS exposure_count,
+		COALESCE(SUM(CASE WHEN event_type = 'CLICK' THEN 1 ELSE 0 END), 0) AS click_count,
+		COALESCE(SUM(CASE WHEN event_type = 'UPGRADE_INTENT' THEN 1 ELSE 0 END), 0) AS upgrade_intent_count,
+		COALESCE(SUM(CASE WHEN event_type = 'PAYMENT_SUCCESS' THEN 1 ELSE 0 END), 0) AS payment_success_count,
+		COALESCE(SUM(CASE WHEN event_type = 'RENEWAL_SUCCESS' THEN 1 ELSE 0 END), 0) AS renewal_success_count,
+		MAX(created_at) AS last_event_at
+	FROM experiment_events
+	WHERE created_at >= ?
+	GROUP BY experiment_key, variant_key, page_key, COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.device_type')), ''), 'UNKNOWN')
+) device_summary
+ORDER BY (payment_success_count + renewal_success_count) DESC, upgrade_intent_count DESC, click_count DESC, exposure_count DESC, last_event_at DESC
+LIMIT 120`, since)
+	if err != nil {
+		return summary, err
+	}
+	defer deviceRows.Close()
+
+	for deviceRows.Next() {
+		var item model.AdminExperimentAnalyticsDeviceItem
+		var itemLastEventAt sql.NullTime
+		if err := deviceRows.Scan(
+			&item.ExperimentKey,
+			&item.VariantKey,
+			&item.PageKey,
+			&item.DeviceType,
+			&item.ExposureCount,
+			&item.ClickCount,
+			&item.UpgradeIntentCount,
+			&item.PaymentSuccessCount,
+			&item.RenewalSuccessCount,
+			&itemLastEventAt,
+		); err != nil {
+			return summary, err
+		}
+		paidSuccessTotal := item.PaymentSuccessCount + item.RenewalSuccessCount
+		item.ClickThroughRate = safeRatioValue(int64(item.ClickCount), int64(item.ExposureCount))
+		item.UpgradePerClickRate = safeRatioValue(int64(item.UpgradeIntentCount), int64(item.ClickCount))
+		item.UpgradePerExposureRate = safeRatioValue(int64(item.UpgradeIntentCount), int64(item.ExposureCount))
+		item.PaidPerUpgradeRate = safeRatioValue(int64(paidSuccessTotal), int64(item.UpgradeIntentCount))
+		item.PaidPerClickRate = safeRatioValue(int64(paidSuccessTotal), int64(item.ClickCount))
+		item.PaidPerExposureRate = safeRatioValue(int64(paidSuccessTotal), int64(item.ExposureCount))
+		if itemLastEventAt.Valid {
+			item.LastEventAt = itemLastEventAt.Time.Format(time.RFC3339)
+		}
+		summary.DeviceBreakdown = append(summary.DeviceBreakdown, item)
+	}
+	if err := deviceRows.Err(); err != nil {
+		return summary, err
+	}
+
+	variantTrendRows, err := r.db.Query(`
+SELECT
+	DATE(created_at) AS metric_date,
+	experiment_key,
+	variant_key,
+	page_key,
+	COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.device_type')), ''), 'UNKNOWN') AS device_type,
+	COALESCE(NULLIF(user_stage, ''), 'UNKNOWN') AS user_stage,
+	COALESCE(SUM(CASE WHEN event_type = 'EXPOSURE' THEN 1 ELSE 0 END), 0) AS exposure_count,
+	COALESCE(SUM(CASE WHEN event_type = 'CLICK' THEN 1 ELSE 0 END), 0) AS click_count,
+	COALESCE(SUM(CASE WHEN event_type = 'UPGRADE_INTENT' THEN 1 ELSE 0 END), 0) AS upgrade_intent_count,
+	COALESCE(SUM(CASE WHEN event_type = 'PAYMENT_SUCCESS' THEN 1 ELSE 0 END), 0) AS payment_success_count,
+	COALESCE(SUM(CASE WHEN event_type = 'RENEWAL_SUCCESS' THEN 1 ELSE 0 END), 0) AS renewal_success_count
+FROM experiment_events
+WHERE created_at >= ?
+GROUP BY DATE(created_at), experiment_key, variant_key, page_key,
+	COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.device_type')), ''), 'UNKNOWN'),
+	COALESCE(NULLIF(user_stage, ''), 'UNKNOWN')
+ORDER BY metric_date ASC, experiment_key ASC, variant_key ASC, page_key ASC
+LIMIT 360`, since)
+	if err != nil {
+		return summary, err
+	}
+	defer variantTrendRows.Close()
+
+	for variantTrendRows.Next() {
+		var metricDate time.Time
+		var point model.AdminExperimentAnalyticsVariantTrendPoint
+		if err := variantTrendRows.Scan(
+			&metricDate,
+			&point.ExperimentKey,
+			&point.VariantKey,
+			&point.PageKey,
+			&point.DeviceType,
+			&point.UserStage,
+			&point.ExposureCount,
+			&point.ClickCount,
+			&point.UpgradeIntentCount,
+			&point.PaymentSuccessCount,
+			&point.RenewalSuccessCount,
+		); err != nil {
+			return summary, err
+		}
+		paidSuccessTotal := point.PaymentSuccessCount + point.RenewalSuccessCount
+		point.Date = metricDate.Format("2006-01-02")
+		point.ClickThroughRate = safeRatioValue(int64(point.ClickCount), int64(point.ExposureCount))
+		point.UpgradePerClickRate = safeRatioValue(int64(point.UpgradeIntentCount), int64(point.ClickCount))
+		point.PaidPerExposureRate = safeRatioValue(int64(paidSuccessTotal), int64(point.ExposureCount))
+		summary.VariantDailyTrend = append(summary.VariantDailyTrend, point)
+	}
+	if err := variantTrendRows.Err(); err != nil {
+		return summary, err
+	}
+
+	return summary, nil
 }
 
 func (r *MySQLGrowthRepo) AdminListVIPQuotaConfigs(memberLevel string, status string, page int, pageSize int) ([]model.VIPQuotaConfig, int, error) {
@@ -7380,17 +8345,65 @@ VALUES (?, ?, ?, ?, ?, ?)`,
 	return id, nil
 }
 
+func cloneDataSourceConfigMap(value map[string]interface{}) map[string]interface{} {
+	if len(value) == 0 {
+		return map[string]interface{}{}
+	}
+	clone := make(map[string]interface{}, len(value))
+	for key, item := range value {
+		clone[key] = item
+	}
+	return clone
+}
+
+func mergeDataSourceConfigMap(existing map[string]interface{}, incoming map[string]interface{}) map[string]interface{} {
+	merged := cloneDataSourceConfigMap(existing)
+	for key, value := range incoming {
+		merged[key] = value
+	}
+	return merged
+}
+
 func (r *MySQLGrowthRepo) AdminUpdateDataSource(sourceKey string, item model.DataSource) error {
 	sourceKey = strings.TrimSpace(sourceKey)
 	if sourceKey == "" {
 		return sql.ErrNoRows
 	}
 	configKey := "data_source." + sourceKey
+	var existingConfigValue string
+	if err := r.db.QueryRow("SELECT config_value FROM system_configs WHERE config_key = ?", configKey).Scan(&existingConfigValue); err != nil {
+		return err
+	}
+	var existingPayload struct {
+		Name       string                 `json:"name"`
+		SourceType string                 `json:"source_type"`
+		Status     string                 `json:"status"`
+		Config     map[string]interface{} `json:"config"`
+	}
+	if err := json.Unmarshal([]byte(existingConfigValue), &existingPayload); err != nil {
+		existingPayload.Config = map[string]interface{}{}
+	}
+	name := strings.TrimSpace(item.Name)
+	if name == "" {
+		name = strings.TrimSpace(existingPayload.Name)
+	}
+	sourceType := strings.ToUpper(strings.TrimSpace(item.SourceType))
+	if sourceType == "" {
+		sourceType = strings.ToUpper(strings.TrimSpace(existingPayload.SourceType))
+	}
+	status := strings.ToUpper(strings.TrimSpace(item.Status))
+	if status == "" {
+		status = strings.ToUpper(strings.TrimSpace(existingPayload.Status))
+	}
+	if status == "" {
+		status = "ACTIVE"
+	}
+	mergedConfig := mergeDataSourceConfigMap(existingPayload.Config, item.Config)
 	payloadBytes, err := json.Marshal(map[string]interface{}{
-		"name":        item.Name,
-		"source_type": strings.ToUpper(strings.TrimSpace(item.SourceType)),
-		"status":      strings.ToUpper(strings.TrimSpace(item.Status)),
-		"config":      item.Config,
+		"name":        name,
+		"source_type": sourceType,
+		"status":      status,
+		"config":      mergedConfig,
 	})
 	if err != nil {
 		return err
@@ -7400,7 +8413,7 @@ func (r *MySQLGrowthRepo) AdminUpdateDataSource(sourceKey string, item model.Dat
 UPDATE system_configs
 SET config_value = ?, description = ?, updated_by = ?, updated_at = ?
 WHERE config_key = ?`,
-		string(payloadBytes), item.Name, "admin", time.Now(), configKey,
+		string(payloadBytes), name, "admin", time.Now(), configKey,
 	)
 	if err != nil {
 		return err
@@ -7455,13 +8468,36 @@ func (r *MySQLGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model.Da
 		result.Message = "data source is disabled"
 		result.FailureCategory = "DISABLED"
 	} else {
-		isTushare := strings.EqualFold(strings.TrimSpace(item.SourceKey), "TUSHARE") ||
-			strings.EqualFold(parseDataSourceStringConfig(item.Config, "provider", "vendor"), "TUSHARE")
+		provider := strings.ToUpper(parseDataSourceStringConfig(item.Config, "provider", "vendor"))
+		isTushare := strings.EqualFold(strings.TrimSpace(item.SourceKey), "TUSHARE") || provider == "TUSHARE"
+		isAkshare := strings.EqualFold(strings.TrimSpace(item.SourceKey), "AKSHARE") || provider == "AKSHARE"
 		endpoint := parseDataSourceStringConfig(item.Config, "endpoint", "quotes_endpoint")
 		if isTushare && strings.TrimSpace(endpoint) == "" {
 			endpoint = "https://api.tushare.pro"
 		}
-		if endpoint == "" {
+		timeoutMS := parseDataSourceTimeoutMS(item.Config)
+		retryTimes := parseDataSourceRetryTimes(item.Config)
+		retryIntervalMS := parseDataSourceRetryIntervalMS(item.Config)
+		result.MaxAttempts = retryTimes + 1
+
+		if isAkshare {
+			for attempt := 1; attempt <= result.MaxAttempts; attempt++ {
+				result.Attempts = attempt
+				attemptResult := performAkshareDataSourceHealthCheckAttempt(item.Config, timeoutMS)
+				result.Status = attemptResult.Status
+				result.Reachable = attemptResult.Reachable
+				result.HTTPStatus = attemptResult.HTTPStatus
+				result.LatencyMS = attemptResult.LatencyMS
+				result.Message = attemptResult.Message
+				result.FailureCategory = attemptResult.FailureCategory
+				if result.Status == "HEALTHY" || result.Status == "UNKNOWN" {
+					break
+				}
+				if attempt < result.MaxAttempts && retryIntervalMS > 0 {
+					time.Sleep(time.Duration(retryIntervalMS) * time.Millisecond)
+				}
+			}
+		} else if endpoint == "" {
 			result.Message = "endpoint not configured"
 			result.FailureCategory = "CONFIG_ERROR"
 		} else {
@@ -7473,11 +8509,6 @@ func (r *MySQLGrowthRepo) AdminCheckDataSourceHealth(sourceKey string) (model.Da
 				result.Message = "unsupported endpoint scheme"
 				result.FailureCategory = "CONFIG_ERROR"
 			} else {
-				timeoutMS := parseDataSourceTimeoutMS(item.Config)
-				retryTimes := parseDataSourceRetryTimes(item.Config)
-				retryIntervalMS := parseDataSourceRetryIntervalMS(item.Config)
-				result.MaxAttempts = retryTimes + 1
-
 				tushareToken := ""
 				if isTushare {
 					tushareToken = parseDataSourceStringConfig(item.Config, "token", "api_token", "tushare_token")
@@ -7657,15 +8688,7 @@ func (r *MySQLGrowthRepo) getDataSourceBySourceKey(sourceKey string) (model.Data
 	if err := r.ensureBuiltinDataSources(); err != nil {
 		return model.DataSource{}, err
 	}
-	candidates := []string{sourceKey}
-	lowerKey := strings.ToLower(sourceKey)
-	upperKey := strings.ToUpper(sourceKey)
-	if lowerKey != sourceKey {
-		candidates = append(candidates, lowerKey)
-	}
-	if upperKey != sourceKey && upperKey != lowerKey {
-		candidates = append(candidates, upperKey)
-	}
+	candidates := buildDataSourceLookupCandidates(sourceKey)
 	seen := make(map[string]struct{})
 	for _, candidate := range candidates {
 		trimmedCandidate := strings.TrimSpace(candidate)
@@ -7732,9 +8755,43 @@ LIMIT 1`, configKey).Scan(&id, &storedConfigKey, &configValue, &desc, &updatedAt
 	return model.DataSource{}, sql.ErrNoRows
 }
 
+func buildDataSourceLookupCandidates(sourceKey string) []string {
+	trimmed := strings.TrimSpace(sourceKey)
+	if trimmed == "" {
+		return nil
+	}
+	items := []string{trimmed}
+	lowerKey := strings.ToLower(trimmed)
+	upperKey := strings.ToUpper(trimmed)
+	if lowerKey != trimmed {
+		items = append(items, lowerKey)
+	}
+	if upperKey != trimmed && upperKey != lowerKey {
+		items = append(items, upperKey)
+	}
+	switch upperKey {
+	case "MOCK":
+		items = append(items, "mock_stock", "MOCK_STOCK")
+	}
+	seen := make(map[string]struct{}, len(items))
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		normalized := strings.TrimSpace(item)
+		if normalized == "" {
+			continue
+		}
+		key := strings.ToLower(normalized)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result
+}
+
 func (r *MySQLGrowthRepo) ensureBuiltinDataSources() error {
 	now := time.Now()
-	const defaultStockQuoteSourceConfigKey = "stock.quotes.default_source_key"
 	type builtinDataSource struct {
 		ID          string
 		SourceKey   string
@@ -7754,15 +8811,34 @@ func (r *MySQLGrowthRepo) ensureBuiltinDataSources() error {
 			ConfigValue: `{"name":"Tushare","source_type":"STOCK","status":"ACTIVE","config":{"provider":"TUSHARE","endpoint":"https://api.tushare.pro","token":"","retry_times":1,"fail_threshold":3,"retry_interval_ms":500,"health_timeout_ms":8000,"alert_receiver_id":"admin_001"}}`,
 			Description: "内置Tushare股票行情数据源",
 		},
+		{
+			ID:          "cfg_data_source_akshare",
+			SourceKey:   "akshare",
+			ConfigValue: `{"name":"AkShare","source_type":"MARKET","status":"ACTIVE","config":{"provider":"AKSHARE","python_bin":"../services/strategy-engine/.venv/bin/python","bridge_script":"../services/strategy-engine/app/tools/market_bridge.py","retry_times":0,"fail_threshold":3,"retry_interval_ms":300,"health_timeout_ms":10000,"alert_receiver_id":"admin_001"}}`,
+			Description: "内置 AkShare 多市场数据源",
+		},
+		{
+			ID:          "cfg_data_source_tickermd",
+			SourceKey:   "tickermd",
+			ConfigValue: `{"name":"TickerMD","source_type":"MARKET","status":"ACTIVE","config":{"provider":"TICKERMD","endpoint":"http://39.107.99.235:1008","quotes_endpoint":"http://39.107.99.235:1008/getQuote.php","kline_endpoint":"http://39.107.99.235:1008/redis.php","ws_endpoint":"ws://39.107.99.235/ws","retry_times":1,"fail_threshold":3,"retry_interval_ms":500,"health_timeout_ms":8000,"alert_receiver_id":"admin_001"}}`,
+			Description: "内置 TickerMD 行情备份数据源",
+		},
+		{
+			ID:          "cfg_data_source_myself",
+			SourceKey:   "myself",
+			ConfigValue: `{"name":"Myself","source_type":"MARKET","status":"ACTIVE","config":{"provider":"MYSELF","endpoint":"https://qt.gtimg.cn/q=s_sh000001","stock_kline_endpoint_tencent":"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get","stock_kline_endpoint_sina":"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData","futures_kline_endpoint_sina":"https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20_TEST=/InnerFuturesNewService.getDailyKLine","referer":"https://finance.sina.com.cn","retry_times":1,"fail_threshold":3,"retry_interval_ms":500,"health_timeout_ms":8000,"alert_receiver_id":"admin_001"}}`,
+			Description: "内置 Myself 新浪/腾讯聚合行情数据源",
+		},
 	}
 	for _, item := range builtins {
 		configKey := "data_source." + item.SourceKey
 		_, err := r.db.Exec(`
-INSERT INTO system_configs (id, config_key, config_value, description, updated_by, updated_at)
-SELECT ?, ?, ?, ?, ?, ?
-WHERE NOT EXISTS (
-  SELECT 1 FROM system_configs WHERE LOWER(config_key) = LOWER(?)
-)`,
+	INSERT INTO system_configs (id, config_key, config_value, description, updated_by, updated_at)
+	SELECT ?, ?, ?, ?, ?, ?
+	FROM DUAL
+	WHERE NOT EXISTS (
+	  SELECT 1 FROM system_configs WHERE LOWER(config_key) = LOWER(?)
+	)`,
 			item.ID,
 			configKey,
 			item.ConfigValue,
@@ -7775,22 +8851,61 @@ WHERE NOT EXISTS (
 			return err
 		}
 	}
-	_, err := r.db.Exec(`
-INSERT INTO system_configs (id, config_key, config_value, description, updated_by, updated_at)
-SELECT ?, ?, ?, ?, ?, ?
-WHERE NOT EXISTS (
-  SELECT 1 FROM system_configs WHERE LOWER(config_key) = LOWER(?)
-)`,
-		newID("cfg"),
-		defaultStockQuoteSourceConfigKey,
-		"TUSHARE",
-		"股票行情默认数据源",
-		"system",
-		now,
-		defaultStockQuoteSourceConfigKey,
-	)
-	if err != nil {
-		return err
+	defaultConfigs := []struct {
+		Key         string
+		Value       string
+		Description string
+	}{
+		{
+			Key:         "stock.quotes.default_source_key",
+			Value:       "TUSHARE",
+			Description: "股票行情默认数据源",
+		},
+		{
+			Key:         "futures.quotes.default_source_key",
+			Value:       "TUSHARE",
+			Description: "期货行情默认数据源",
+		},
+		{
+			Key:         marketStockPriorityConfigKey,
+			Value:       "TUSHARE,AKSHARE,TICKERMD,MOCK",
+			Description: "股票日线多源优先级",
+		},
+		{
+			Key:         marketFuturesPriorityConfigKey,
+			Value:       "TUSHARE,TICKERMD,AKSHARE,MOCK",
+			Description: "期货日线多源优先级",
+		},
+		{
+			Key:         marketNewsPriorityConfigKey,
+			Value:       "AKSHARE,TUSHARE",
+			Description: "市场资讯多源优先级",
+		},
+		{
+			Key:         "market.news.default_source_key",
+			Value:       "AKSHARE",
+			Description: "市场资讯默认数据源",
+		},
+	}
+	for _, item := range defaultConfigs {
+		_, err := r.db.Exec(`
+	INSERT INTO system_configs (id, config_key, config_value, description, updated_by, updated_at)
+	SELECT ?, ?, ?, ?, ?, ?
+	FROM DUAL
+	WHERE NOT EXISTS (
+	  SELECT 1 FROM system_configs WHERE LOWER(config_key) = LOWER(?)
+	)`,
+			newID("cfg"),
+			item.Key,
+			item.Value,
+			item.Description,
+			"system",
+			now,
+			item.Key,
+		)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -9808,8 +10923,9 @@ VALUES (?, ?, ?, ?, 'SYSTEM', 'UNREAD', ?)`,
 
 func (r *MySQLGrowthRepo) isVIPUser(userID string) (bool, error) {
 	var memberLevel string
+	var kycStatus string
 	var vipExpireAt sql.NullTime
-	err := r.db.QueryRow("SELECT member_level, vip_expire_at FROM users WHERE id = ?", userID).Scan(&memberLevel, &vipExpireAt)
+	err := r.db.QueryRow("SELECT member_level, kyc_status, vip_expire_at FROM users WHERE id = ?", userID).Scan(&memberLevel, &kycStatus, &vipExpireAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
@@ -9835,11 +10951,12 @@ WHERE id = ? AND member_level LIKE 'VIP%'`, now, userID); err != nil {
 		}
 		return false, nil
 	}
-	return true, nil
+	return resolveMembershipActivationState(memberLevel, kycStatus, vipExpireAt) == "ACTIVE", nil
 }
 
 func newID(prefix string) string {
-	return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
+	seq := repoIDSequence.Add(1)
+	return fmt.Sprintf("%s_%d_%d", prefix, time.Now().UnixNano(), seq)
 }
 
 func nullableString(value string) interface{} {
@@ -9855,6 +10972,162 @@ func formatNullTime(value sql.NullTime) string {
 		return value.Time.Format(time.RFC3339)
 	}
 	return ""
+}
+
+type marketRhythmTaskTemplate struct {
+	Slot    string
+	TaskKey string
+}
+
+func defaultMarketRhythmTaskTemplates() []marketRhythmTaskTemplate {
+	return []marketRhythmTaskTemplate{
+		{Slot: "08:30", TaskKey: "morning_stock_publish"},
+		{Slot: "11:30", TaskKey: "midday_news_publish"},
+		{Slot: "15:30", TaskKey: "close_tracking_review"},
+		{Slot: "周末", TaskKey: "weekend_review_digest"},
+	}
+}
+
+func normalizeMarketRhythmDate(raw string) (string, error) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return time.Now().Format("2006-01-02"), nil
+	}
+	parsed, err := time.Parse("2006-01-02", text)
+	if err != nil {
+		return "", err
+	}
+	return parsed.Format("2006-01-02"), nil
+}
+
+func normalizeMarketRhythmStatus(raw string) string {
+	switch strings.ToUpper(strings.TrimSpace(raw)) {
+	case "TODO":
+		return "TODO"
+	case "IN_PROGRESS":
+		return "IN_PROGRESS"
+	case "DONE":
+		return "DONE"
+	case "BLOCKED":
+		return "BLOCKED"
+	default:
+		return ""
+	}
+}
+
+func normalizeStringList(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		text := strings.TrimSpace(item)
+		if text == "" {
+			continue
+		}
+		if _, exists := seen[text]; exists {
+			continue
+		}
+		seen[text] = struct{}{}
+		result = append(result, text)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func marshalStringList(items []string) (string, error) {
+	if len(items) == 0 {
+		return "", nil
+	}
+	payload, err := json.Marshal(items)
+	if err != nil {
+		return "", err
+	}
+	return string(payload), nil
+}
+
+func parseStringList(raw sql.NullString) []string {
+	text := strings.TrimSpace(raw.String)
+	if !raw.Valid || text == "" {
+		return nil
+	}
+	var items []string
+	if err := json.Unmarshal([]byte(text), &items); err == nil {
+		return normalizeStringList(items)
+	}
+	parts := strings.FieldsFunc(text, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r'
+	})
+	return normalizeStringList(parts)
+}
+
+func scanMarketRhythmTask(scanner interface {
+	Scan(dest ...interface{}) error
+}) (model.MarketRhythmTask, error) {
+	var item model.MarketRhythmTask
+	var taskDate time.Time
+	var sourceLinksJSON sql.NullString
+	var completedAt sql.NullTime
+	var createdAt sql.NullTime
+	var updatedAt sql.NullTime
+	if err := scanner.Scan(
+		&item.ID,
+		&taskDate,
+		&item.Slot,
+		&item.TaskKey,
+		&item.Status,
+		&item.Owner,
+		&item.Notes,
+		&sourceLinksJSON,
+		&completedAt,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
+		return model.MarketRhythmTask{}, err
+	}
+	item.Date = taskDate.Format("2006-01-02")
+	item.SourceLinks = parseStringList(sourceLinksJSON)
+	if completedAt.Valid {
+		item.CompletedAt = completedAt.Time.Format(time.RFC3339)
+	}
+	if createdAt.Valid {
+		item.CreatedAt = createdAt.Time.Format(time.RFC3339)
+	}
+	if updatedAt.Valid {
+		item.UpdatedAt = updatedAt.Time.Format(time.RFC3339)
+	}
+	return item, nil
+}
+
+func getMarketRhythmTaskByIDTx(tx *sql.Tx, id string) (model.MarketRhythmTask, error) {
+	row := tx.QueryRow(`
+SELECT id, task_date, slot, task_key, status, COALESCE(owner, ''), COALESCE(notes, ''), source_links_json, completed_at, created_at, updated_at
+FROM market_rhythm_tasks
+WHERE id = ?
+LIMIT 1`, id)
+	return scanMarketRhythmTask(row)
+}
+
+func (r *MySQLGrowthRepo) adminGetMarketRhythmTaskByID(id string) (model.MarketRhythmTask, error) {
+	row := r.db.QueryRow(`
+SELECT id, task_date, slot, task_key, status, COALESCE(owner, ''), COALESCE(notes, ''), source_links_json, completed_at, created_at, updated_at
+FROM market_rhythm_tasks
+WHERE id = ?
+LIMIT 1`, id)
+	return scanMarketRhythmTask(row)
+}
+
+func marketRhythmCompletedAtValue(existing string, status string) interface{} {
+	if normalizeMarketRhythmStatus(status) != "DONE" {
+		return nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(existing)); err == nil {
+		return parsed
+	}
+	return time.Now()
 }
 
 func vipRemainingDays(expireAt sql.NullTime, now time.Time) int {
@@ -9892,6 +11165,25 @@ func vipStatusFromLevelAndExpire(memberLevel string, expireAt sql.NullTime, now 
 func resolveVIPStatusAndDays(memberLevel string, expireAt sql.NullTime) (string, int) {
 	now := time.Now()
 	return vipStatusFromLevelAndExpire(memberLevel, expireAt, now), vipRemainingDays(expireAt, now)
+}
+
+func isVerifiedKYCStatus(status string) bool {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "APPROVED", "VERIFIED":
+		return true
+	default:
+		return false
+	}
+}
+
+func resolveMembershipActivationState(memberLevel string, kycStatus string, vipExpireAt sql.NullTime) string {
+	if vipStatusFromLevelAndExpire(memberLevel, vipExpireAt, time.Now()) != "ACTIVE" {
+		return "NON_MEMBER"
+	}
+	if isVerifiedKYCStatus(kycStatus) {
+		return "ACTIVE"
+	}
+	return "PAID_PENDING_KYC"
 }
 
 func parseRepoConfigBool(raw string, fallback bool) bool {
@@ -11966,6 +13258,54 @@ func buildDefaultDailyStockCandidates(validFrom time.Time, validTo time.Time) []
 		samples[index].RiskNote = "仅供参考，不构成投资建议"
 	}
 	return samples
+}
+
+func normalizeStockRecommendationLifecycleStatus(status string) string {
+	return strings.ToUpper(strings.TrimSpace(status))
+}
+
+func allowedStockRecommendationTransitions(status string) []string {
+	switch normalizeStockRecommendationLifecycleStatus(status) {
+	case "DRAFT":
+		return []string{"REVIEW_PENDING", "PUBLISHED", "DISABLED", "INVALIDATED"}
+	case "REVIEW_PENDING":
+		return []string{"DRAFT", "PUBLISHED", "DISABLED", "INVALIDATED"}
+	case "PUBLISHED":
+		return []string{"REVIEW_PENDING", "TRACKING", "HIT_TAKE_PROFIT", "HIT_STOP_LOSS", "INVALIDATED", "REVIEWED", "DISABLED"}
+	case "TRACKING":
+		return []string{"PUBLISHED", "HIT_TAKE_PROFIT", "HIT_STOP_LOSS", "INVALIDATED", "REVIEWED", "DISABLED"}
+	case "HIT_TAKE_PROFIT":
+		return []string{"TRACKING", "REVIEWED", "DISABLED"}
+	case "HIT_STOP_LOSS":
+		return []string{"TRACKING", "REVIEWED", "DISABLED"}
+	case "INVALIDATED":
+		return []string{"DRAFT", "REVIEWED", "DISABLED"}
+	case "REVIEWED":
+		return []string{"PUBLISHED", "TRACKING", "DISABLED"}
+	case "ACTIVE":
+		return []string{"PUBLISHED", "REVIEW_PENDING", "TRACKING", "HIT_TAKE_PROFIT", "HIT_STOP_LOSS", "INVALIDATED", "REVIEWED", "DISABLED"}
+	case "DISABLED":
+		return []string{"DRAFT", "REVIEW_PENDING", "PUBLISHED"}
+	default:
+		return []string{}
+	}
+}
+
+func canTransitionStockRecommendationStatus(currentStatus string, targetStatus string) bool {
+	currentStatus = normalizeStockRecommendationLifecycleStatus(currentStatus)
+	targetStatus = normalizeStockRecommendationLifecycleStatus(targetStatus)
+	if currentStatus == "" || targetStatus == "" {
+		return false
+	}
+	if currentStatus == targetStatus {
+		return true
+	}
+	for _, allowed := range allowedStockRecommendationTransitions(currentStatus) {
+		if allowed == targetStatus {
+			return true
+		}
+	}
+	return false
 }
 
 func parseFlexibleDateTime(value string) (time.Time, error) {

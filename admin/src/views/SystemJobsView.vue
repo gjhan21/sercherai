@@ -18,7 +18,7 @@ import {
   updateSchedulerJobDefinition,
   updateSchedulerJobDefinitionStatus
 } from "../api/admin";
-import { getAccessToken } from "../lib/session";
+import { getAccessToken, hasPermission } from "../lib/session";
 
 const metricsLoading = ref(false);
 const defsLoading = ref(false);
@@ -36,10 +36,19 @@ const batchRetryConcurrency = ref(3);
 
 const errorMessage = ref("");
 const message = ref("");
+const canEditSystemJobs = hasPermission("system_job.edit");
 
 const metricFilter = reactive({
   job_name: ""
 });
+
+function ensureCanEditSystemJobs() {
+  if (canEditSystemJobs) {
+    return true;
+  }
+  errorMessage.value = "当前账号只有查看权限，无法修改任务配置、手动触发或重跑任务";
+  return false;
+}
 
 const metrics = ref({
   today_total: 0,
@@ -717,6 +726,9 @@ function handleNewsSyncDetailPageChange(nextPage) {
 }
 
 async function retryNewsSyncDetailItem(row) {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
   if (!currentRun.value?.id || !isTushareRun(currentRun.value)) {
     return;
   }
@@ -930,6 +942,9 @@ async function refreshAll() {
 }
 
 function openCreateDefinition() {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
   if (!supportedJobOptions.value.length && !supportedJobsLoading.value) {
     fetchSupportedJobs();
   }
@@ -938,6 +953,9 @@ function openCreateDefinition() {
 }
 
 function openEditDefinition(item) {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
   if (!supportedJobOptions.value.length && !supportedJobsLoading.value) {
     fetchSupportedJobs();
   }
@@ -955,6 +973,9 @@ function openEditDefinition(item) {
 }
 
 async function submitDefinition() {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
   const cronExpr = buildDefinitionCronExpression();
   const payload = {
     job_name: definitionForm.job_name.trim(),
@@ -990,6 +1011,10 @@ async function submitDefinition() {
 }
 
 async function updateDefinitionStatus(item, nextStatus) {
+  if (!ensureCanEditSystemJobs()) {
+    definitionStatusMap.value[item.id] = item.status || "ACTIVE";
+    return;
+  }
   const status = String(nextStatus || definitionStatusMap.value[item.id] || "").trim();
   if (!status || status === item.status) {
     return;
@@ -1010,12 +1035,19 @@ async function updateDefinitionStatus(item, nextStatus) {
 }
 
 function onDefinitionStatusSwitch(item, active) {
+  if (!ensureCanEditSystemJobs()) {
+    definitionStatusMap.value[item.id] = item.status || "ACTIVE";
+    return;
+  }
   const nextStatus = active ? "ACTIVE" : "DISABLED";
   definitionStatusMap.value[item.id] = nextStatus;
   updateDefinitionStatus(item, nextStatus);
 }
 
 async function removeDefinition(item) {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
   const id = String(item?.id || "").trim();
   if (!id) {
     errorMessage.value = "任务定义ID为空，无法删除";
@@ -1055,6 +1087,9 @@ async function removeDefinition(item) {
 }
 
 async function submitTrigger() {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
   const newsSources = parseTextList(triggerForm.news_sources_text);
   const symbols = parseTextList(triggerForm.symbols_text).map((item) => item.toUpperCase());
   const syncTypes = Array.from(
@@ -1096,6 +1131,9 @@ async function submitTrigger() {
 }
 
 async function retryRun(runID) {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
   const payload = cleanupPayload({
     simulate_status: retrySimMap.value[runID] || "",
     result_summary: (retrySummaryMap.value[runID] || "").trim(),
@@ -1160,6 +1198,9 @@ function applyFailedRunFilter() {
 }
 
 async function retryFailedRunsCurrentPage() {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
   const failedRuns = (runs.value || []).filter((item) => String(item?.status || "").toUpperCase() === "FAILED");
   if (failedRuns.length === 0) {
     errorMessage.value = "";
@@ -1452,6 +1493,9 @@ function resetAutoRetryForm() {
 }
 
 async function saveAutoRetryConfig() {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
   const maxRetries = Math.max(0, Math.min(5, Number.parseInt(String(autoRetryForm.max_retries), 10) || 0));
   const backoffSeconds = Math.max(0, Math.min(60, Number.parseInt(String(autoRetryForm.backoff_seconds), 10) || 0));
   const jobs = Array.from(
@@ -1729,8 +1773,15 @@ onMounted(refreshAll);
         <h3 style="margin: 0">自动重试配置</h3>
         <div class="inline-actions inline-actions--left">
           <el-button :loading="autoRetryLoading" @click="fetchAutoRetryConfigs">刷新配置</el-button>
-          <el-button @click="resetAutoRetryForm">重置编辑</el-button>
-          <el-button type="primary" :loading="savingAutoRetry" @click="saveAutoRetryConfig">保存配置</el-button>
+          <el-button v-if="canEditSystemJobs" @click="resetAutoRetryForm">重置编辑</el-button>
+          <el-button
+            v-if="canEditSystemJobs"
+            type="primary"
+            :loading="savingAutoRetry"
+            @click="saveAutoRetryConfig"
+          >
+            保存配置
+          </el-button>
         </div>
       </div>
       <div class="grid grid-4" v-loading="autoRetryLoading || savingAutoRetry">
@@ -1760,13 +1811,27 @@ onMounted(refreshAll);
       <el-form label-width="140px" style="margin-top: 10px">
         <div class="dialog-grid">
           <el-form-item label="启用自动重试">
-            <el-switch v-model="autoRetryForm.enabled" />
+            <el-switch v-model="autoRetryForm.enabled" :disabled="!canEditSystemJobs" />
           </el-form-item>
           <el-form-item label="最大重试次数(0-5)">
-            <el-input-number v-model="autoRetryForm.max_retries" :min="0" :max="5" :step="1" controls-position="right" />
+            <el-input-number
+              v-model="autoRetryForm.max_retries"
+              :min="0"
+              :max="5"
+              :step="1"
+              controls-position="right"
+              :disabled="!canEditSystemJobs"
+            />
           </el-form-item>
           <el-form-item label="退避秒数(0-60)">
-            <el-input-number v-model="autoRetryForm.backoff_seconds" :min="0" :max="60" :step="1" controls-position="right" />
+            <el-input-number
+              v-model="autoRetryForm.backoff_seconds"
+              :min="0"
+              :max="60"
+              :step="1"
+              controls-position="right"
+              :disabled="!canEditSystemJobs"
+            />
           </el-form-item>
           <el-form-item label="允许自动重试任务">
             <el-select
@@ -1778,6 +1843,7 @@ onMounted(refreshAll);
               clearable
               collapse-tags
               collapse-tags-tooltip
+              :disabled="!canEditSystemJobs"
               placeholder="不选表示不过滤任务"
             >
               <el-option
@@ -1851,7 +1917,7 @@ onMounted(refreshAll);
       </el-table>
     </div>
 
-    <div class="card" style="margin-bottom: 12px">
+    <div v-if="canEditSystemJobs" class="card" style="margin-bottom: 12px">
       <div class="section-header">
         <h3 style="margin: 0">手动触发任务</h3>
       </div>
@@ -1957,7 +2023,7 @@ onMounted(refreshAll);
     <div class="card" style="margin-bottom: 12px">
       <div class="section-header">
         <h3 style="margin: 0">任务定义</h3>
-        <el-button type="primary" @click="openCreateDefinition">新增任务定义</el-button>
+        <el-button v-if="canEditSystemJobs" type="primary" @click="openCreateDefinition">新增任务定义</el-button>
       </div>
 
       <div class="toolbar">
@@ -1989,6 +2055,7 @@ onMounted(refreshAll);
         <el-table-column label="状态" min-width="150">
           <template #default="{ row }">
             <el-switch
+              v-if="canEditSystemJobs"
               :model-value="(definitionStatusMap[row.id] || row.status) === 'ACTIVE'"
               inline-prompt
               active-text="启用"
@@ -1996,6 +2063,9 @@ onMounted(refreshAll);
               :loading="Boolean(definitionStatusSavingMap[row.id])"
               @change="(active) => onDefinitionStatusSwitch(row, active)"
             />
+            <el-tag v-else :type="statusTagType(row.status)">
+              {{ formatDefinitionStatus(row.status) }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="最近运行时间" min-width="180">
@@ -2016,16 +2086,18 @@ onMounted(refreshAll);
         <el-table-column label="操作" align="right" min-width="190">
           <template #default="{ row }">
             <div class="inline-actions">
-              <el-button size="small" @click="openEditDefinition(row)">编辑</el-button>
-              <el-button
-                size="small"
-                type="danger"
-                plain
-                :loading="Boolean(definitionDeletingMap[row.id])"
-                @click="removeDefinition(row)"
-              >
-                删除
-              </el-button>
+              <template v-if="canEditSystemJobs">
+                <el-button size="small" @click="openEditDefinition(row)">编辑</el-button>
+                <el-button
+                  size="small"
+                  type="danger"
+                  plain
+                  :loading="Boolean(definitionDeletingMap[row.id])"
+                  @click="removeDefinition(row)"
+                >
+                  删除
+                </el-button>
+              </template>
             </div>
           </template>
         </el-table-column>
@@ -2054,8 +2126,9 @@ onMounted(refreshAll);
         <el-select v-model="runFilters.status" clearable placeholder="全部状态" style="width: 150px">
           <el-option v-for="item in runStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
         </el-select>
-        <el-text type="info">批量并发</el-text>
+        <el-text v-if="canEditSystemJobs" type="info">批量并发</el-text>
         <el-input-number
+          v-if="canEditSystemJobs"
           v-model="batchRetryConcurrency"
           :min="1"
           :max="10"
@@ -2063,7 +2136,13 @@ onMounted(refreshAll);
           controls-position="right"
           style="width: 180px"
         />
-        <el-button :loading="batchRetryingFailed" @click="retryFailedRunsCurrentPage">一键重跑当前页失败任务</el-button>
+        <el-button
+          v-if="canEditSystemJobs"
+          :loading="batchRetryingFailed"
+          @click="retryFailedRunsCurrentPage"
+        >
+          一键重跑当前页失败任务
+        </el-button>
         <el-button @click="applyFailedRunFilter">只看失败</el-button>
         <el-button :loading="exportingRuns" @click="exportRunFilteredCSV">导出筛选CSV</el-button>
         <el-button @click="exportRunCurrentPageCSV">导出当前页CSV</el-button>
@@ -2148,12 +2227,14 @@ onMounted(refreshAll);
               <el-button size="small" @click="openRunDetail(row)">
                 {{ isTushareRun(row) ? "同步明细" : isFuturesRun(row) ? "评估明细" : "详情" }}
               </el-button>
-              <el-select v-model="retrySimMap[row.id]" size="small" clearable placeholder="模拟状态" style="width: 130px">
-                <el-option v-for="item in simulateStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
-              </el-select>
-              <el-input v-model="retrySummaryMap[row.id]" size="small" placeholder="重跑摘要" style="width: 130px" />
-              <el-input v-model="retryErrorMap[row.id]" size="small" placeholder="重跑错误信息" style="width: 140px" />
-              <el-button size="small" type="primary" @click="retryRun(row.id)">重跑</el-button>
+              <template v-if="canEditSystemJobs">
+                <el-select v-model="retrySimMap[row.id]" size="small" clearable placeholder="模拟状态" style="width: 130px">
+                  <el-option v-for="item in simulateStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
+                </el-select>
+                <el-input v-model="retrySummaryMap[row.id]" size="small" placeholder="重跑摘要" style="width: 130px" />
+                <el-input v-model="retryErrorMap[row.id]" size="small" placeholder="重跑错误信息" style="width: 140px" />
+                <el-button size="small" type="primary" @click="retryRun(row.id)">重跑</el-button>
+              </template>
             </div>
           </template>
         </el-table-column>
@@ -2299,6 +2380,7 @@ onMounted(refreshAll);
             <el-table-column label="操作" align="right" min-width="120">
               <template #default="{ row }">
                 <el-button
+                  v-if="canEditSystemJobs"
                   size="small"
                   type="danger"
                   plain
@@ -2509,7 +2591,12 @@ onMounted(refreshAll);
 
       <template #footer>
         <el-button @click="definitionFormVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submittingDefinition" @click="submitDefinition">
+        <el-button
+          v-if="canEditSystemJobs"
+          type="primary"
+          :loading="submittingDefinition"
+          @click="submitDefinition"
+        >
           {{ definitionFormMode === "create" ? "创建" : "更新" }}
         </el-button>
       </template>

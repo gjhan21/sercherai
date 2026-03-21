@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>资讯中心 Demo</title>
+    <link rel="stylesheet" href="./supported-demos.css" />
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="container topbar-inner">
+        <div class="toplinks">
+          <a href="./supported-review-index.html">Demo总览</a>
+          <a href="./china-style-supported-demo.html">首页</a>
+          <a href="./news-supported-demo.html">资讯</a>
+          <a href="./membership-supported-demo.html">会员</a>
+        </div>
+        <div class="topbar-right">
+          <span>对应真实页面：/news</span>
+        </div>
+      </div>
+    </div>
+
+    <header class="site-header">
+      <div class="container site-header-inner">
+        <div class="brand">
+          <div class="brand-mark">N</div>
+          <div>
+            <h1>资讯中心</h1>
+            <p>首页“研报区”进入深度阅读后的正文与权限承接页</p>
+          </div>
+        </div>
+        <div class="banner-note">当前资讯页已经支持新闻、研报、期刊、文章详情、附件和 VIP 锁内容，所以 demo 只围绕这几条真实能力展开。</div>
+      </div>
+    </header>
+
+    <nav class="demo-nav">
+      <div class="container demo-nav-inner">
+        <div class="nav-row">
+          <a href="./china-style-supported-demo.html">首页</a>
+          <a href="./strategy-supported-demo.html">策略</a>
+          <a href="./watchlist-supported-demo.html">关注</a>
+          <a class="active" href="./news-supported-demo.html">资讯</a>
+          <a href="./membership-supported-demo.html">会员</a>
+          <a href="./auth-supported-demo.html">登录</a>
+        </div>
+        <div class="nav-hint">真实 API：public/news/articles news/articles attachments</div>
+      </div>
+    </nav>
+
+    <main class="page container">
+      <section class="panel hero">
+        <span class="eyebrow">资讯页定位</span>
+        <h2 class="page-title">首页先做研报导读，资讯页继续承接正文、附件和权限，不把所有内容都挤在首页。</h2>
+        <p class="page-desc">
+          中文 PC 财经站里，资讯页应该兼顾“快速筛选”和“深度阅读”两件事。当前前端已经具备分类、详情、附件和权限分层，所以这版 demo 会把左侧作为正文阅读区，右侧作为分类、权限和栏目提示区。
+        </p>
+
+        <div class="hero-layout-2">
+          <article class="lead-panel">
+            <div class="lead-head">
+              <div>
+                <span class="lead-kicker">内容阅读中心</span>
+                <h3 class="lead-title">新闻负责盘中动态，研报负责深度判断，期刊负责方法论沉淀，三者分工必须清楚。</h3>
+              </div>
+              <span class="lead-badge">不是热点瀑布流</span>
+            </div>
+            <p class="lead-desc">
+              首页已经把“研报解读”抬出来了，资讯页就不该再只是一个标题列表。这里要让用户能继续筛选新闻 / 研报 / 期刊，打开详情，看摘要、正文和附件，并通过权限锁自然承接到登录或会员，而不是突然中断阅读。
+            </p>
+            <div class="badge-row">
+              <span class="lead-badge">新闻 / 研报 / 期刊</span>
+              <span class="lead-badge">详情正文</span>
+              <span class="lead-badge">附件下载</span>
+              <span class="lead-badge">游客 / 登录 / VIP</span>
+            </div>
+          </article>
+
+          <aside class="side-stack">
+            <article class="aside-panel">
+              <h4>和首页的关系</h4>
+              <p>首页负责导读，资讯页负责深读。尤其是研报解读，全文、附件和权限判断都应在这里承接。</p>
+            </article>
+            <article class="aside-panel">
+              <h4>这页最重要的体验</h4>
+              <p>点开一篇研报之后，标题、摘要、正文、附件和权限提示都在同一条阅读链上，不要让用户来回跳。</p>
+            </article>
+            <article class="aside-panel">
+              <h4>刻意不做</h4>
+              <p>不做短视频流、讨论社区、内容推荐瀑布流，也不做直播栏目。</p>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="main-side-layout-wide">
+        <div class="content-stack">
+          <article class="pale-panel">
+            <div class="lead-head">
+              <div>
+                <span class="eyebrow">今日焦点研报</span>
+                <h4>机构研报：关注景气赛道估值切换窗口</h4>
+              </div>
+              <div class="hint-row">
+                <span class="tag">研报</span>
+                <span class="metric">11:12</span>
+                <span class="metric">公开摘要</span>
+              </div>
+            </div>
+            <p>
+              这篇研报在首页已经被做成“导读式解读”，到了资讯页，就应该继续承接正文、附件和权限，而不是再重复一句摘要。用户到这里，是想进一步确认机构观点、附件材料和完整结论。
+            </p>
+            <div class="card-grid-3" style="margin-top: 16px;">
+              <article class="data-card">
+                <strong>摘要</strong>
+                <p>机构建议关注景气向上赛道的估值切换窗口，但强调需要等待更强确认。</p>
+              </article>
+              <article class="data-card">
+                <strong>正文</strong>
+                <p>登录后可看更完整段落；VIP 用户可继续看全文和深度附件。</p>
+              </article>
+              <article class="data-card">
+                <strong>附件</strong>
+                <p>研究附件继续留在详情页，不回塞列表页，避免打断阅读路径。</p>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel section">
+            <div class="section-head">
+              <div>
+                <h3>资讯主列表</h3>
+                <p>用清晰分类承接新闻、研报、期刊，而不是把所有内容做成一条混合流。</p>
+              </div>
+              <span class="api-badge">listNewsCategories / listNewsArticles</span>
+            </div>
+            <div class="tab-row">
+              <span class="tab active">新闻</span>
+              <span class="tab">研报</span>
+              <span class="tab">期刊</span>
+            </div>
+            <div class="mini-list" style="margin-top: 14px;">
+              <article class="info-card">
+                <div class="row-head">
+                  <div>
+                    <h4>工信部再次提及算力基础设施建设</h4>
+                    <p class="soft-meta">新闻 · 09:18 · 高影响事件</p>
+                  </div>
+                  <span class="metric">公开</span>
+                </div>
+                <p>首页只给摘要，这里继续承接完整阅读和与策略页的联动理解。</p>
+              </article>
+              <article class="info-card">
+                <div class="row-head">
+                  <div>
+                    <h4>机构研报：关注景气赛道估值切换窗口</h4>
+                    <p class="soft-meta">研报 · 11:12 · 参数优化参考</p>
+                  </div>
+                  <span class="metric">摘要公开</span>
+                </div>
+                <p>适合和策略页联动理解，对第二梯队观察样本更有参考价值。</p>
+              </article>
+              <article class="info-card">
+                <div class="row-head">
+                  <div>
+                    <h4>周度策略期刊：波动率管理与仓位纪律</h4>
+                    <p class="soft-meta">期刊 · 周更内容</p>
+                  </div>
+                  <span class="metric">方法论</span>
+                </div>
+                <p>更适合长期阅读和会员节奏，不必和盘中快讯抢主位。</p>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel section">
+            <div class="section-head">
+              <div>
+                <h3>文章详情区</h3>
+                <p>当前已有详情与附件能力，重点是把阅读和权限链路留在同一页。</p>
+              </div>
+              <span class="api-badge">getNewsArticleDetail / listNewsAttachments</span>
+            </div>
+            <div class="card-grid-2">
+              <article class="line-panel">
+                <h4>正文结构</h4>
+                <p>标题、时间、作者、摘要、正文、附件是天然的中文阅读顺序，应该纵向排清楚，不必拆成很多零散小卡。</p>
+              </article>
+              <article class="line-panel">
+                <h4>权限锁内容</h4>
+                <p>当前已经支持“摘要可看、全文和附件需登录或开通会员”，这条链路建议继续保留并做得更明确。</p>
+              </article>
+            </div>
+          </article>
+        </div>
+
+        <aside class="side-stack">
+          <article class="aside-panel">
+            <h4>访问阶段与 CTA</h4>
+            <p>游客先看公开摘要，注册用户继续把资讯和关注串起来，VIP 再看全文和附件，这是一条自然转化链。</p>
+          </article>
+          <article class="aside-panel">
+            <h4>研报区为什么重要</h4>
+            <p>研报是产品差异化重点，所以列表里不能被普通新闻完全淹没，应该始终有独立存在感。</p>
+          </article>
+          <article class="aside-panel">
+            <h4>页面关系</h4>
+            <p>首页导流进资讯，策略页读取相关资讯支撑，关注页承接资讯变化，会员页承接全文和附件的权限转化。</p>
+          </article>
+        </aside>
+      </section>
+
+      <section class="panel section">
+        <div class="section-head">
+          <div>
+            <h3>这页刻意不做什么</h3>
+            <p>因为当前前端没承接，这些内容不应该被硬塞进资讯中心。</p>
+          </div>
+        </div>
+        <div class="card-grid-3">
+          <article class="route-card">
+            <strong>不做讨论社区</strong>
+            <p>当前没有评论、观点流、用户互动能力，不要硬改成雪球式社区页。</p>
+          </article>
+          <article class="route-card">
+            <strong>不做算法瀑布流</strong>
+            <p>当前页面以分类为主，不要擅自改成无限推荐流。</p>
+          </article>
+          <article class="route-card">
+            <strong>不做视频栏目</strong>
+            <p>当前只承接文章与附件，不拓展直播、短视频、音频专区。</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <div class="footer-grid">
+          <section class="footer-col">
+            <h4>真实承接</h4>
+            <ul>
+              <li>新闻</li>
+              <li>研报</li>
+              <li>期刊</li>
+              <li>文章详情</li>
+              <li>附件下载</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>权限链</h4>
+            <ul>
+              <li>游客看摘要</li>
+              <li>登录看更多</li>
+              <li>会员看正文与附件</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>页面关系</h4>
+            <ul>
+              <li>首页导流进资讯</li>
+              <li>策略页读取相关资讯</li>
+              <li>关注页承接资讯变化</li>
+              <li>会员页承接权限升级</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>审查重点</h4>
+            <p>资讯页是否清楚承担了“深度阅读页”和“权限转化页”两个角色，而不是只剩标题列表。</p>
+          </section>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

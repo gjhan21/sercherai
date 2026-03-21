@@ -34,6 +34,9 @@ type Config struct {
 	AttachmentUploadDir        string
 	AttachmentUploadMaxMB      int
 	PaymentSigningSecret       string
+	StrategyEngineBaseURL      string
+	StrategyEngineTimeoutMS    int
+	StrategyEnginePollMS       int
 }
 
 func Load() Config {
@@ -67,6 +70,9 @@ func Load() Config {
 		AttachmentUploadDir:        getEnv("ATTACHMENT_UPLOAD_DIR", "./uploads"),
 		AttachmentUploadMaxMB:      getEnvInt("ATTACHMENT_UPLOAD_MAX_MB", 20),
 		PaymentSigningSecret:       getEnv("PAYMENT_SIGNING_SECRET", ""),
+		StrategyEngineBaseURL:      getEnv("STRATEGY_ENGINE_BASE_URL", ""),
+		StrategyEngineTimeoutMS:    getEnvInt("STRATEGY_ENGINE_TIMEOUT_MS", 15000),
+		StrategyEnginePollMS:       getEnvInt("STRATEGY_ENGINE_POLL_MS", 250),
 	}
 }
 

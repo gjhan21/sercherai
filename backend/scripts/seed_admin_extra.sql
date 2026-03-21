@@ -3,7 +3,7 @@ VALUES
   ('u_demo_002', '13800000002', 'demo2@sercherai.local', 'a03c32fcd351cba2d9738622b083bed022ef07793bd92b59faea0207653f371d', 'ACTIVE', 'PENDING', 'FREE', NOW(), NOW()),
   ('u_demo_003', '13800000003', 'demo3@sercherai.local', 'a03c32fcd351cba2d9738622b083bed022ef07793bd92b59faea0207653f371d', 'DISABLED', 'REJECTED', 'VIP2', NOW(), NOW()),
   ('u_demo_004', '13800000004', 'demo4@sercherai.local', 'a03c32fcd351cba2d9738622b083bed022ef07793bd92b59faea0207653f371d', 'ACTIVE', 'APPROVED', 'VIP2', NOW(), NOW()),
-  ('admin_002', '13800000010', 'admin2@sercherai.local', 'a03c32fcd351cba2d9738622b083bed022ef07793bd92b59faea0207653f371d', 'ACTIVE', 'APPROVED', 'VIP3', NOW(), NOW()),
+  ('admin_002', '19900000002', 'admin2@sercherai.local', 'a03c32fcd351cba2d9738622b083bed022ef07793bd92b59faea0207653f371d', 'ACTIVE', 'APPROVED', 'VIP3', NOW(), NOW()),
   ('admin_003', '13800000011', 'admin3@sercherai.local', 'a03c32fcd351cba2d9738622b083bed022ef07793bd92b59faea0207653f371d', 'ACTIVE', 'APPROVED', 'VIP3', NOW(), NOW())
 ON DUPLICATE KEY UPDATE
   email = VALUES(email),
@@ -68,8 +68,8 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO news_articles (id, category_id, title, summary, content, cover_url, tags, visibility, status, published_at, author_id, created_at, updated_at)
 VALUES
-  ('article_demo_002', 'nc_demo_002', '量化策略周报', '示例周报摘要', '用于 admin 管理端联调的策略周报正文。', 'https://images.unsplash.com/photo-1556157382-97eda2d62296?auto=format&fit=crop&w=1200&q=80', JSON_ARRAY('策略', '周报'), 'VIP', 'PUBLISHED', NOW(), 'admin_001', NOW(), NOW()),
-  ('article_demo_003', 'nc_demo_001', '热点快评', '待审核稿件', '该稿件用于审核中心待处理演示。', 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=1200&q=80', JSON_ARRAY('热点', '快评'), 'PUBLIC', 'DRAFT', NULL, 'admin_001', NOW(), NOW())
+  ('article_demo_002', 'nc_demo_002', '量化策略周报', '示例周报摘要', '用于 admin 管理端联调的策略周报正文。', 'https://images.unsplash.com/photo-1556157382-97eda2d62296?auto=format&fit=crop&w=1200&q=80', '["策略","周报"]', 'VIP', 'PUBLISHED', NOW(), 'admin_001', NOW(), NOW()),
+  ('article_demo_003', 'nc_demo_001', '热点快评', '待审核稿件', '该稿件用于审核中心待处理演示。', 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=1200&q=80', '["热点","快评"]', 'PUBLIC', 'DRAFT', NULL, 'admin_001', NOW(), NOW())
 ON DUPLICATE KEY UPDATE
   summary = VALUES(summary),
   content = VALUES(content),

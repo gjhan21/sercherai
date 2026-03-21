@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { createUserMessages, listUserMessages } from "../api/admin";
+import { hasPermission } from "../lib/session";
 
 const loading = ref(false);
 const sending = ref(false);
@@ -29,6 +30,7 @@ const composeForm = reactive({
 
 const typeOptions = ["SYSTEM", "STRATEGY", "ALERT", "NEWS"];
 const readStatusOptions = ["UNREAD", "READ"];
+const canEditUsers = hasPermission("users.edit");
 
 const canSend = computed(() => {
   if (!composeForm.title.trim() || !composeForm.content.trim() || !composeForm.type.trim()) {
@@ -73,6 +75,14 @@ function formatDateTime(value) {
   return new Date(ts).toLocaleString("zh-CN", { hour12: false });
 }
 
+function ensureCanEditUsers() {
+  if (canEditUsers) {
+    return true;
+  }
+  errorMessage.value = "当前账号只有查看权限，无法发送用户消息";
+  return false;
+}
+
 async function fetchMessages() {
   loading.value = true;
   errorMessage.value = "";
@@ -115,6 +125,9 @@ function handlePageChange(nextPage) {
 }
 
 async function handleSendMessages() {
+  if (!ensureCanEditUsers()) {
+    return;
+  }
   if (sending.value || !canSend.value) {
     return;
   }
@@ -184,14 +197,14 @@ onMounted(fetchMessages);
       </el-table>
     </div>
 
-    <div class="card" style="margin-bottom: 12px">
+    <div v-if="canEditUsers" class="card" style="margin-bottom: 12px">
       <div class="section-title">发送消息</div>
       <div class="send-grid">
         <label class="field">
           <span>发送范围</span>
           <el-radio-group v-model="composeForm.send_mode">
-            <el-radio-button label="SINGLE">指定用户</el-radio-button>
-            <el-radio-button label="ALL_ACTIVE">全部活跃用户</el-radio-button>
+            <el-radio-button value="SINGLE">指定用户</el-radio-button>
+            <el-radio-button value="ALL_ACTIVE">全部活跃用户</el-radio-button>
           </el-radio-group>
         </label>
 

@@ -27,7 +27,7 @@ export function hasPermission(code) {
   }
   const codes = getPermissionCodes();
   if (!codes.length) {
-    return true;
+    return false;
   }
   if (codes.includes("*")) {
     return true;

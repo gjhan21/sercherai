@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>我的关注 Demo</title>
+    <link rel="stylesheet" href="./supported-demos.css" />
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="container topbar-inner">
+        <div class="toplinks">
+          <a href="./supported-review-index.html">Demo总览</a>
+          <a href="./china-style-supported-demo.html">首页</a>
+          <a href="./watchlist-supported-demo.html">关注</a>
+          <a href="./news-supported-demo.html">资讯</a>
+        </div>
+        <div class="topbar-right">
+          <span>对应真实页面：/watchlist</span>
+        </div>
+      </div>
+    </div>
+
+    <header class="site-header">
+      <div class="container site-header-inner">
+        <div class="brand">
+          <div class="brand-mark">W</div>
+          <div>
+            <h1>我的关注</h1>
+            <p>从“保存一只股票”升级为“持续看变化”的专属回访页</p>
+          </div>
+        </div>
+        <div class="banner-note">这页的核心不是收藏，而是持续跟踪：状态变化、资讯变化、风险边界变化、版本变化都应该在这里集中查看。</div>
+      </div>
+    </header>
+
+    <nav class="demo-nav">
+      <div class="container demo-nav-inner">
+        <div class="nav-row">
+          <a href="./china-style-supported-demo.html">首页</a>
+          <a href="./strategy-supported-demo.html">策略</a>
+          <a href="./archive-supported-demo.html">档案</a>
+          <a class="active" href="./watchlist-supported-demo.html">关注</a>
+          <a href="./news-supported-demo.html">资讯</a>
+          <a href="./membership-supported-demo.html">会员</a>
+        </div>
+        <div class="nav-hint">真实承接：本地关注 + 后端状态变化 + 资讯变化 + 版本对照</div>
+      </div>
+    </nav>
+
+    <main class="page container">
+      <section class="panel hero">
+        <span class="eyebrow">关注页定位</span>
+        <h2 class="page-title">首页负责“今天看谁”，关注页负责“你之前看过的现在变成什么样了”。</h2>
+        <p class="page-desc">
+          中文用户对“我的关注”的期待不是收藏夹，而是一个回访工作台。所以这页应该把变化放到第一位，让用户每次回来先看状态和边界有没有变，再决定回策略页、档案页还是资讯页继续看。
+        </p>
+
+        <div class="hero-layout-2">
+          <article class="lead-panel">
+            <div class="lead-head">
+              <div>
+                <span class="lead-kicker">变化工作台</span>
+                <h3 class="lead-title">把状态变化、资讯变化、风险边界变化和版本变化拆开看，用户才知道今天该先处理哪一只。</h3>
+              </div>
+              <span class="lead-badge">不是普通收藏列表</span>
+            </div>
+            <p class="lead-desc">
+              当前关注页最有价值的地方，是能把“我关注时的判断”和“今天最新判断”放在一起看。因此这版 demo 会保留优先级、变化摘要、回访节奏和阶段能力差异，不做社交讨论区，也不复制档案页的完整历史样本。
+            </p>
+            <div class="badge-row">
+              <span class="lead-badge">关注股票 3 只</span>
+              <span class="lead-badge">资讯变化 7 条</span>
+              <span class="lead-badge">最近刷新 09:46</span>
+              <span class="lead-badge">支持版本对照</span>
+            </div>
+          </article>
+
+          <aside class="side-stack">
+            <article class="aside-panel">
+              <h4>用户回来先看什么</h4>
+              <p>先看哪只进入止盈、止损或失效阶段，再看有没有资讯强化，最后才去看长篇解释。</p>
+            </article>
+            <article class="aside-panel">
+              <h4>为什么这页不能只放列表</h4>
+              <p>如果没有变化视角，用户每次回来都要重新理解一次上下文，关注页就失去了回访价值。</p>
+            </article>
+            <article class="aside-panel">
+              <h4>刻意不做</h4>
+              <p>不做大盘行情中心，不做社交讨论区，也不复制档案页的完整复盘结构。</p>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="main-side-layout">
+        <div class="content-stack">
+          <article class="pale-panel">
+            <div class="lead-head">
+              <div>
+                <span class="eyebrow">优先跟踪样本</span>
+                <h4>比亚迪 002594</h4>
+              </div>
+              <div class="hint-row">
+                <span class="tag">高优先</span>
+                <span class="metric">状态：持续跟踪</span>
+                <span class="metric state-good">累计 +5.3%</span>
+              </div>
+            </div>
+            <p>
+              加入关注时的核心逻辑是主线没有破坏、资讯仍在强化、风险边界可定义。今天回到关注页，不是重新看一遍介绍，而是确认这三个条件有没有发生变化。
+            </p>
+            <div class="card-grid-2" style="margin-top: 16px;">
+              <article class="compact-card">
+                <strong>状态变化</strong>
+                <p>当前仍处于持续跟踪阶段，没有进入止盈或止损，但优先级依旧最高。</p>
+              </article>
+              <article class="compact-card">
+                <strong>资讯变化</strong>
+                <p>新增 3 条正向资讯，继续强化原始推荐逻辑。</p>
+              </article>
+              <article class="compact-card">
+                <strong>风险边界变化</strong>
+                <p>止盈与止损边界暂未变更，说明原始纪律仍有效。</p>
+              </article>
+              <article class="compact-card">
+                <strong>版本变化</strong>
+                <p>加入关注时 vs 当前 explanation，核心结论没有反转，但表达更收敛。</p>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel section">
+            <div class="data-table-head">
+              <div>
+                <strong>我的关注主列表</strong>
+                <p>按“今天最该先处理谁”来排，不按单纯加入时间排序。</p>
+              </div>
+              <span class="api-badge">watchlist + recommendation detail</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>标的</th>
+                    <th>当前状态</th>
+                    <th>最新变化</th>
+                    <th>下一动作</th>
+                    <th>建议跳转</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td data-label="标的">比亚迪 002594</td>
+                    <td data-label="当前状态">持续跟踪</td>
+                    <td data-label="最新变化">资讯强化 3 条，结论未反转</td>
+                    <td data-label="下一动作">继续看承接</td>
+                    <td data-label="建议跳转">策略页</td>
+                  </tr>
+                  <tr>
+                    <td data-label="标的">中兴通讯 000063</td>
+                    <td data-label="当前状态">观察</td>
+                    <td data-label="最新变化">事件相关性提升，等待更强确认</td>
+                    <td data-label="下一动作">回看事件雷达</td>
+                    <td data-label="建议跳转">策略页</td>
+                  </tr>
+                  <tr>
+                    <td data-label="标的">宁德时代 300750.SZ</td>
+                    <td data-label="当前状态">风险升高</td>
+                    <td data-label="最新变化">板块情绪转弱，边界收紧</td>
+                    <td data-label="下一动作">优先看失效原因</td>
+                    <td data-label="建议跳转">档案页</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="panel section">
+            <div class="section-head">
+              <div>
+                <h3>变化信息如何拆层</h3>
+                <p>把变化拆成四层，用户才能在几十秒内知道今天该先处理什么。</p>
+              </div>
+            </div>
+            <div class="card-grid-2">
+              <article class="route-card">
+                <strong>状态变化</strong>
+                <p>先确认有没有进入跟踪、止盈、止损或失效阶段，这是最高优先级信息。</p>
+              </article>
+              <article class="route-card">
+                <strong>资讯变化</strong>
+                <p>再看有没有新的资讯支撑或新的风险提示，决定是否继续跟踪。</p>
+              </article>
+              <article class="route-card">
+                <strong>风险边界变化</strong>
+                <p>继续承接 stop loss / take profit / invalid condition 的边界变化。</p>
+              </article>
+              <article class="route-card">
+                <strong>结论变化</strong>
+                <p>最后看 explanation 和角色分歧是不是变了，这决定是否需要回策略页深看。</p>
+              </article>
+            </div>
+          </article>
+        </div>
+
+        <aside class="side-stack">
+          <article class="aside-panel">
+            <h4>回访节奏</h4>
+            <p>09:30 看状态变化，11:30 看资讯变化，15:30 看收盘跟踪结果，这一节奏当前页应继续保留。</p>
+          </article>
+          <article class="aside-panel">
+            <h4>阶段能力差异</h4>
+            <p>游客先用本地关注建立习惯，注册用户把关注和资讯串起来，会员重点看完整解释链和更深变化。</p>
+          </article>
+          <article class="aside-panel">
+            <h4>和其他页面关系</h4>
+            <p>从首页和策略页加关注，来这里看持续变化；若出现结果归档，再去档案页做完整复盘。</p>
+          </article>
+        </aside>
+      </section>
+
+      <section class="panel section">
+        <div class="section-head">
+          <div>
+            <h3>这页不该拓展什么</h3>
+            <p>为了和真实前端能力一致，以下内容不建议放进关注页。</p>
+          </div>
+        </div>
+        <div class="card-grid-3">
+          <article class="route-card">
+            <strong>不做大盘行情中心</strong>
+            <p>关注页是“我的变化入口”，不是综合行情页。</p>
+          </article>
+          <article class="route-card">
+            <strong>不做社交讨论区</strong>
+            <p>当前前端没有评论、观点流和互动承接，不应强行拓展。</p>
+          </article>
+          <article class="route-card">
+            <strong>不复制档案页</strong>
+            <p>完整历史样本、来源说明和全量版本对照依旧交给档案页。</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <div class="footer-grid">
+          <section class="footer-col">
+            <h4>真实承接</h4>
+            <ul>
+              <li>关注列表</li>
+              <li>状态变化</li>
+              <li>资讯变化</li>
+              <li>风险边界变化</li>
+              <li>版本对照</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>关键关系</h4>
+            <ul>
+              <li>从首页加入关注</li>
+              <li>从策略页加入关注</li>
+              <li>与资讯页联动</li>
+              <li>与档案页形成闭环</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>建议保留</h4>
+            <ul>
+              <li>回访节奏</li>
+              <li>阶段能力差异</li>
+              <li>多次变化记录</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>审查重点</h4>
+            <p>关注页是否真的让用户“回来先看变化”，而不是退化成一个普通收藏列表。</p>
+          </section>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

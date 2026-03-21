@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>首页双主区 Demo</title>
+    <link rel="stylesheet" href="./supported-demos.css" />
+    <style>
+      .hero-layout,
+      .recommend-layout,
+      .research-layout,
+      .route-grid,
+      .reason-grid,
+      .interpret-grid,
+      .decision-strip {
+        display: grid;
+        gap: 16px;
+      }
+
+      .hero-layout {
+        grid-template-columns: minmax(0, 1.45fr) 360px;
+        margin-top: 16px;
+      }
+
+      .hero-summary {
+        display: grid;
+        gap: 10px;
+      }
+
+      .hero-summary .item {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      }
+
+      .recommend-layout {
+        grid-template-columns: minmax(0, 1.55fr) 360px;
+        margin-top: 16px;
+      }
+
+      .research-layout {
+        grid-template-columns: minmax(0, 1.35fr) 360px;
+        margin-top: 16px;
+      }
+
+      .lead-card {
+        padding: 20px;
+        border: 1px solid rgba(19, 54, 103, 0.12);
+        border-radius: 18px;
+        background:
+          linear-gradient(135deg, rgba(19, 54, 103, 0.96) 0%, rgba(36, 87, 167, 0.92) 100%),
+          #133667;
+        color: #fff;
+      }
+
+      .lead-top,
+      .mini-head,
+      .report-head,
+      .item-inline {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .lead-kicker,
+      .mini-note,
+      .report-meta,
+      .subtle {
+        color: rgba(255, 255, 255, 0.76);
+        font-size: 12px;
+      }
+
+      .lead-title {
+        margin: 10px 0 8px;
+        font-size: 34px;
+        line-height: 1.2;
+      }
+
+      .lead-desc {
+        margin: 0;
+        max-width: 820px;
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 15px;
+        line-height: 1.8;
+      }
+
+      .lead-tags,
+      .inline-tags,
+      .proof-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .lead-chip,
+      .proof-list span {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 0 12px;
+        border-radius: 999px;
+        color: #eaf2ff;
+        font-size: 12px;
+        font-weight: 700;
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      .decision-strip,
+      .reason-grid,
+      .interpret-grid,
+      .route-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-top: 16px;
+      }
+
+      .decision-card,
+      .reason-card,
+      .interpret-card,
+      .route-card,
+      .stack-card,
+      .news-card {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--panel-soft);
+      }
+
+      .decision-card strong,
+      .reason-card strong,
+      .interpret-card strong,
+      .route-card strong,
+      .stack-card strong,
+      .news-card strong {
+        display: block;
+        font-size: 15px;
+      }
+
+      .decision-card p,
+      .reason-card p,
+      .interpret-card p,
+      .route-card p,
+      .stack-card p,
+      .news-card p {
+        margin: 8px 0 0;
+        color: var(--text-2);
+        font-size: 13px;
+        line-height: 1.75;
+      }
+
+      .decision-card {
+        border-color: rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .decision-card strong,
+      .decision-card p {
+        color: #fff;
+      }
+
+      .stack {
+        display: grid;
+        gap: 16px;
+      }
+
+      .stack-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .stack-card .metrics,
+      .news-card .metrics,
+      .item .metrics {
+        margin-top: 10px;
+      }
+
+      .report-focus {
+        padding: 18px;
+        border: 1px solid rgba(36, 87, 167, 0.16);
+        border-radius: 18px;
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+      }
+
+      .report-focus h4 {
+        margin: 10px 0 8px;
+        font-size: 28px;
+        line-height: 1.35;
+      }
+
+      .report-focus .report-meta {
+        color: var(--text-3);
+      }
+
+      .report-focus p {
+        margin: 0;
+        color: var(--text-2);
+        font-size: 14px;
+        line-height: 1.8;
+      }
+
+      .table-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .table-head p {
+        margin: 4px 0 0;
+        color: var(--text-3);
+        font-size: 13px;
+      }
+
+      .history-tip {
+        margin-top: 12px;
+      }
+
+      .history-tip p {
+        margin: 0;
+      }
+
+      .footer-note-strong {
+        color: #fff;
+      }
+
+      @media (max-width: 1200px) {
+        .hero-layout,
+        .recommend-layout,
+        .research-layout,
+        .decision-strip,
+        .reason-grid,
+        .interpret-grid,
+        .route-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .lead-title,
+        .page-title {
+          font-size: 28px;
+        }
+      }
+
+      @media (max-width: 768px) {
+        .lead-card,
+        .report-focus {
+          padding: 16px;
+        }
+
+        .hero-summary .item,
+        .stack-card,
+        .news-card,
+        .decision-card,
+        .reason-card,
+        .interpret-card,
+        .route-card {
+          padding: 12px;
+        }
+
+        .lead-top,
+        .mini-head,
+        .report-head,
+        .item-inline,
+        .table-head {
+          display: grid;
+        }
+
+        .lead-title,
+        .page-title {
+          font-size: 24px;
+        }
+
+        .report-focus h4 {
+          font-size: 22px;
+        }
+
+        .lead-desc,
+        .report-focus p {
+          font-size: 14px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="container topbar-inner">
+        <div class="toplinks">
+          <a href="./supported-review-index.html">Demo总览</a>
+          <a href="./china-style-supported-demo.html">首页</a>
+          <a href="./strategy-supported-demo.html">策略</a>
+          <a href="./archive-supported-demo.html">档案</a>
+          <a href="./news-supported-demo.html">资讯</a>
+        </div>
+        <div class="topbar-right">
+          <span>首页只保留两大核心主区：推荐区 + 研报区</span>
+        </div>
+      </div>
+    </div>
+
+    <header class="site-header">
+      <div class="container site-header-inner">
+        <div class="brand">
+          <div class="brand-mark">H</div>
+          <div>
+            <h1>SercherAI 首页 Demo</h1>
+            <p>基于当前真实能力重做的中文投资站首页结构</p>
+          </div>
+        </div>
+        <div class="banner-note">
+          演示范围严格基于当前前端已支持的推荐、历史档案、研报/新闻/期刊、详情与附件能力，不加入大盘指数、题材榜、下载二维码等扩展内容。
+        </div>
+      </div>
+    </header>
+
+    <nav class="demo-nav">
+      <div class="container demo-nav-inner">
+        <div class="nav-row">
+          <a class="active" href="./china-style-supported-demo.html">首页</a>
+          <a href="./strategy-supported-demo.html">策略</a>
+          <a href="./archive-supported-demo.html">档案</a>
+          <a href="./watchlist-supported-demo.html">关注</a>
+          <a href="./news-supported-demo.html">资讯</a>
+          <a href="./membership-supported-demo.html">会员</a>
+          <a href="./profile-supported-demo.html">我的</a>
+        </div>
+        <div class="nav-hint">审查重点：第一屏是否先回答“今天看什么、为什么看、后面去哪里继续看”。</div>
+      </div>
+    </nav>
+
+    <main class="page container">
+      <section class="panel hero">
+        <span class="eyebrow">首页重心</span>
+        <h2 class="page-title">今天先看推荐，再看研报解读，让用户一进来就知道该怎么判断。</h2>
+        <p class="page-desc">
+          这版首页不再做“入口大全”，而是先把决策最需要的两块内容摆正：第一主区是股票/期货推荐，负责回答今天做什么、为什么做、怎么止盈止损；第二主区是研报/市场资讯，负责回答今天的逻辑有没有被机构观点和资讯继续验证。
+        </p>
+
+        <div class="chips" style="margin-top: 14px;">
+          <span class="chip">股票主推荐</span>
+          <span class="chip">期货套利方案</span>
+          <span class="chip">历史推荐样本</span>
+          <span class="tag">研报解读</span>
+          <span class="tag">市场资讯</span>
+        </div>
+
+        <div class="hero-layout">
+          <article class="lead-card">
+            <div class="lead-top">
+              <div>
+                <span class="lead-kicker">首页第一屏建议</span>
+                <h3 class="lead-title">主推荐放中间，研报放右侧并做解读，不再让用户自己翻找重点。</h3>
+              </div>
+              <span class="lead-chip">更像中文 PC 金融站，而不是 H5 卡片流</span>
+            </div>
+            <p class="lead-desc">
+              首页的任务不是把所有模块平均铺开，而是先把“今天应该先看哪一只、为什么现在看、历史上这套逻辑表现怎样、有没有新的研报继续强化”这条链路讲清楚。用户如果还想看完整版本差异、止盈止损原因和研报附件，再顺着入口进入档案页和资讯页。
+            </p>
+
+            <div class="lead-tags">
+              <span class="lead-chip">主推荐评分 91.2</span>
+              <span class="lead-chip">观察清单 4 只</span>
+              <span class="lead-chip">期货方案 2 套</span>
+              <span class="lead-chip">资讯线索 3 条</span>
+            </div>
+
+            <div class="decision-strip">
+              <article class="decision-card">
+                <strong>为什么是中文站风格</strong>
+                <p>第一屏先给判断结论和处理路径，用户不需要先理解产品结构，阅读顺序更接近日常财经门户和券商资讯站。</p>
+              </article>
+              <article class="decision-card">
+                <strong>为什么不做更多板块</strong>
+                <p>当前真实能力已经足够支撑推荐、档案和研报链路，再加大盘或题材榜只会抢走最重要的信息注意力。</p>
+              </article>
+              <article class="decision-card">
+                <strong>详细内容去哪看</strong>
+                <p>完整策略解释和跟踪进入策略页，历史止盈止损原因进入档案页，研报正文和附件进入资讯页。</p>
+              </article>
+            </div>
+          </article>
+
+          <aside class="hero-summary">
+            <article class="item">
+              <strong>这版首页只承诺两件事</strong>
+              <p>一是把今天值得看的推荐摆到最前；二是把最有差异化的研报内容做成首页第二主区。</p>
+            </article>
+            <article class="item">
+              <strong>这版首页故意不做</strong>
+              <p>上证指数、北向资金、题材热榜、下载入口、客服门户、企业官网式导航，这些都不该抢首页主位。</p>
+            </article>
+            <article class="item">
+              <strong>真实承接页</strong>
+              <p>/strategies 看更完整推荐解释，/archive 看历史样本与止盈止损原因，/news 看研报详情、正文和附件。</p>
+            </article>
+            <article class="item">
+              <strong>审查时主要看</strong>
+              <p>推荐区和研报区是不是已经足够支撑用户回访，如果够，就不要再往首页塞更多“看起来很热闹”的内容。</p>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel section" style="margin-top: 16px;">
+        <div class="section-head">
+          <div>
+            <h3>股票 / 期货推荐区</h3>
+            <p>首页第一主区，围绕“今天做什么、为什么做、做完怎么收”来组织，而不是把推荐散落到多张小卡片里。</p>
+          </div>
+          <span class="api-badge">/home + market APIs</span>
+        </div>
+
+        <div class="recommend-layout">
+          <div class="stack">
+            <article class="lead-card">
+              <div class="lead-top">
+                <div>
+                  <span class="lead-kicker">今日主推荐</span>
+                  <h3 class="lead-title" style="margin-bottom: 6px;">600036.SH 招商银行</h3>
+                </div>
+                <div class="inline-tags">
+                  <span class="lead-chip">风险：中等</span>
+                  <span class="lead-chip">建议轻仓跟踪</span>
+                </div>
+              </div>
+              <p class="lead-desc">
+                量价结构共振，防御属性与资金承接同时成立，适合放在首页主位。首页这里直接给“为什么选”和“止盈止损边界”，让用户先完成今天的第一轮判断。
+              </p>
+
+              <div class="proof-list">
+                <span>资金流方向确认</span>
+                <span>防御板块承接</span>
+                <span>策略版本可追溯</span>
+              </div>
+
+              <div class="reason-grid">
+                <article class="decision-card">
+                  <strong>为什么现在选它</strong>
+                  <p>盘前风险偏好回落，银行与高股息板块相对更强，主推荐更适合用防御属性明确的标的承接。</p>
+                </article>
+                <article class="decision-card">
+                  <strong>今天主要看什么验证</strong>
+                  <p>如果量能继续配合、防御板块继续走强，推荐逻辑成立；如果资金快速切回高波动成长，优先降级到观察池。</p>
+                </article>
+                <article class="decision-card">
+                  <strong>如果走错了怎么办</strong>
+                  <p>上涨 6%-10% 分批止盈，跌破 33.80 止损；若后续资讯与研报发生反向验证，则转入档案做失效复盘。</p>
+                </article>
+              </div>
+            </article>
+
+            <article class="panel section">
+              <div class="table-head">
+                <div>
+                  <strong>历史推荐样本预览</strong>
+                  <p>首页先给用户结果和原因摘要，完整的止盈/止损过程继续承接到档案页。</p>
+                </div>
+                <span class="tag">承接 /archive</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>标的</th>
+                      <th>当时推荐理由</th>
+                      <th>累计涨跌</th>
+                      <th>相对基准</th>
+                      <th>后续结果 / 原因</th>
+                      <th>继续查看</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td data-label="标的">贵州茅台<br /><span class="subtle">600519.SH</span></td>
+                      <td data-label="当时推荐理由">消费龙头估值修复，资金流与基本面共振。</td>
+                      <td data-label="累计涨跌" style="color: var(--up); font-weight: 700;">+2.32%</td>
+                      <td data-label="相对基准" style="color: var(--up); font-weight: 700;">+1.11%</td>
+                      <td data-label="后续结果 / 原因">已复盘：推荐周期结束，适合回看完整兑现过程和版本变化。</td>
+                      <td data-label="继续查看">档案页查看</td>
+                    </tr>
+                    <tr>
+                      <td data-label="标的">宁德时代<br /><span class="subtle">300750.SZ</span></td>
+                      <td data-label="当时推荐理由">趋势尝试修复，但量能与板块情绪未持续确认。</td>
+                      <td data-label="累计涨跌" style="color: var(--down); font-weight: 700;">-1.82%</td>
+                      <td data-label="相对基准" style="color: var(--down); font-weight: 700;">-1.42%</td>
+                      <td data-label="后续结果 / 原因">已失效：逻辑失效不等于简单亏损，重点应该回看为什么失效。</td>
+                      <td data-label="继续查看">档案页查看</td>
+                    </tr>
+                    <tr>
+                      <td data-label="标的">中国平安<br /><span class="subtle">601318.SH</span></td>
+                      <td data-label="当时推荐理由">高股息与低估值防御逻辑成立。</td>
+                      <td data-label="累计涨跌" style="color: var(--up); font-weight: 700;">+1.81%</td>
+                      <td data-label="相对基准" style="color: var(--up); font-weight: 700;">+0.91%</td>
+                      <td data-label="后续结果 / 原因">已止盈：推荐进入兑现阶段，更适合回看止盈过程而不是继续追价。</td>
+                      <td data-label="继续查看">档案页查看</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="callout history-tip">
+                <strong>首页只展示样本摘要</strong>
+                <p>历史推荐理由、历史涨跌、止盈/止损原因都可以在首页先给一眼可判断的信息，但完整版本差异、来源说明和时间线应继续放在档案页，不要塞回首页。</p>
+              </div>
+            </article>
+          </div>
+
+          <aside class="stack">
+            <article class="panel section">
+              <div class="section-head">
+                <div>
+                  <h3>推荐池预览</h3>
+                  <p>基于首页现有观察清单能力，先把前 4 只做成更容易扫读的中文样式。</p>
+                </div>
+                <span class="tag">4 只</span>
+              </div>
+              <div class="stack-list">
+                <article class="stack-card">
+                  <div class="mini-head">
+                    <strong>1. 招商银行 600036.SH</strong>
+                    <span class="metric">中风险</span>
+                  </div>
+                  <p>量价结构共振，适合作为今天的主推荐。</p>
+                  <div class="metrics">
+                    <span class="metric up">预期上涨 6%-10%</span>
+                    <span class="metric">跌破 33.80 止损</span>
+                  </div>
+                </article>
+                <article class="stack-card">
+                  <div class="mini-head">
+                    <strong>2. 宁德时代 300750.SZ</strong>
+                    <span class="metric">中风险</span>
+                  </div>
+                  <p>趋势延续，资金净流入，但更适合作为第二梯队观察。</p>
+                  <div class="metrics">
+                    <span class="metric up">预期上涨 5%-9%</span>
+                    <span class="metric">跌破 139.20 止损</span>
+                  </div>
+                </article>
+                <article class="stack-card">
+                  <div class="mini-head">
+                    <strong>3. 隆基绿能 601012.SH</strong>
+                    <span class="metric">高风险</span>
+                  </div>
+                  <p>反弹确认阶段，逻辑有弹性，但需要更强的量能验证。</p>
+                  <div class="metrics">
+                    <span class="metric">上涨 3%-6% 止盈</span>
+                    <span class="metric">跌破 21.50 止损</span>
+                  </div>
+                </article>
+                <article class="stack-card">
+                  <div class="mini-head">
+                    <strong>4. 五粮液 000858.SZ</strong>
+                    <span class="metric">低风险</span>
+                  </div>
+                  <p>估值修复加防御属性，适合作为稳健型备选。</p>
+                  <div class="metrics">
+                    <span class="metric up">上涨 4%-7% 止盈</span>
+                    <span class="metric">跌破 145.00 止损</span>
+                  </div>
+                </article>
+              </div>
+            </article>
+
+            <article class="panel section">
+              <div class="section-head">
+                <div>
+                  <h3>期货套利方案</h3>
+                  <p>首页不做复杂下单终端，只保留当前已有的套利摘要、点位和纪律。</p>
+                </div>
+                <span class="api-badge">futures/arbitrage</span>
+              </div>
+              <div class="stack-list">
+                <article class="stack-card">
+                  <strong>IF 主连 - IC 主连</strong>
+                  <p>日历套利 · 观察状态，适合作为股票主推荐之外的第二决策入口。</p>
+                  <div class="metrics">
+                    <span class="metric">触发 186</span>
+                    <span class="metric up">止盈 132</span>
+                    <span class="metric">止损 208</span>
+                  </div>
+                </article>
+                <article class="stack-card">
+                  <strong>IH 主连 - IF 主连</strong>
+                  <p>跨品种套利 · 观察状态，当前更强调点位纪律而不是情绪追单。</p>
+                  <div class="metrics">
+                    <span class="metric">触发 -76</span>
+                    <span class="metric up">止盈 -42</span>
+                    <span class="metric">止损 -94</span>
+                  </div>
+                </article>
+              </div>
+            </article>
+
+            <article class="panel section">
+              <div class="section-head">
+                <div>
+                  <h3>执行纪律</h3>
+                  <p>来自当前首页已有 guidance / methods 能力，适合作为右侧常驻说明。</p>
+                </div>
+              </div>
+              <div class="stack-list">
+                <article class="stack-card">
+                  <strong>步骤 1</strong>
+                  <p>当价差进入 120-150 区间，且方向确认后，再执行首笔建仓。</p>
+                </article>
+                <article class="stack-card">
+                  <strong>步骤 2</strong>
+                  <p>平仓参考区间 80-100，到达目标后分批止盈，不把纪律交给盘中情绪。</p>
+                </article>
+                <article class="stack-card">
+                  <strong>步骤 3</strong>
+                  <p>当价差进入 165-180 区间时立即止损，出现“相关性失效”则暂停策略。</p>
+                </article>
+              </div>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel section" style="margin-top: 16px;">
+        <div class="section-head">
+          <div>
+            <h3>研报 / 市场资讯区</h3>
+            <p>首页第二主区，突出“别的地方没有”的研报价值，同时把市场资讯作为辅助验证，不再让研报淹没在资讯流里。</p>
+          </div>
+          <span class="api-badge">/home + /news</span>
+        </div>
+
+        <div class="research-layout">
+          <div class="stack">
+            <article class="report-focus">
+              <div class="report-head">
+                <div>
+                  <span class="eyebrow">今日研报焦点</span>
+                  <h4>机构上调两融余额敏感行业评级，首页直接给出一段“能看懂、能行动”的研报解读。</h4>
+                </div>
+                <div class="inline-tags">
+                  <span class="tag">研报</span>
+                  <span class="chip">差异化重点</span>
+                </div>
+              </div>
+              <p class="report-meta">来源：研究团队 · 2026/02/28 08:55 · 对应真实能力：研报详情、正文、附件、VIP 权限控制</p>
+              <p style="margin-top: 12px;">
+                这篇研报的摘要是“景气向上赛道的估值切换窗口正在打开”。如果只把标题丢在资讯流里，用户很难理解它和今天推荐之间有什么关系；所以首页应该先做一层导读，把它转化成今天的判断语言。
+              </p>
+
+              <div class="interpret-grid">
+                <article class="interpret-card">
+                  <strong>这篇研报在说什么</strong>
+                  <p>机构认为融资情绪回暖后，部分成长行业会出现估值切换窗口，但并不意味着所有高弹性赛道都可以立即追。</p>
+                </article>
+                <article class="interpret-card">
+                  <strong>它对今天推荐有什么影响</strong>
+                  <p>当前主推荐仍然应该放在更稳的防御标的上，但成长赛道可以进入第二梯队观察池，等待量能与资讯继续确认。</p>
+                </article>
+                <article class="interpret-card">
+                  <strong>用户今天该怎么用</strong>
+                  <p>先按首页主推荐执行，再把研报提到的行业放入关注；若盘中出现量能配合，再去策略页看是否升级为新推荐。</p>
+                </article>
+              </div>
+
+              <div class="callout" style="margin-top: 16px;">
+                <strong>这里的“研报解读”不是新增后台能力</strong>
+                <p>它只是基于当前 `report` 内容、文章详情和附件能力，在首页多做一层摘要式导读。全文、附件和权限判断仍然继续承接到资讯页。</p>
+              </div>
+            </article>
+
+            <article class="panel section">
+              <div class="table-head">
+                <div>
+                  <strong>市场资讯联动</strong>
+                  <p>资讯不是与研报平级抢主位，而是作为“今天判断是否继续成立”的辅助验证。</p>
+                </div>
+                <span class="tag">新闻 / 研报 / 期刊</span>
+              </div>
+              <div class="route-grid">
+                <article class="news-card">
+                  <strong>新闻</strong>
+                  <p>盘前资金风格切换，银行与高股息板块走强。这个信息会直接强化首页主推荐的防御逻辑。</p>
+                </article>
+                <article class="news-card">
+                  <strong>研报</strong>
+                  <p>机构上调两融余额敏感行业评级。这个信息不直接替代主推荐，但会影响第二梯队观察名单。</p>
+                </article>
+                <article class="news-card">
+                  <strong>期刊</strong>
+                  <p>周度策略期刊强调先控制回撤，再放大胜率，适合作为右侧的长期方法论提示。</p>
+                </article>
+              </div>
+            </article>
+          </div>
+
+          <aside class="stack">
+            <article class="panel section">
+              <div class="section-head">
+                <div>
+                  <h3>每日研报更新</h3>
+                  <p>直接把“研报”从资讯流中拎出来，做成首页可持续回访的栏目。</p>
+                </div>
+                <span class="tag">重点栏目</span>
+              </div>
+              <div class="stack-list">
+                <article class="stack-card">
+                  <div class="item-inline">
+                    <strong>中金研究：银行板块防御属性仍具配置价值</strong>
+                    <span class="metric">VIP</span>
+                  </div>
+                  <p>适合与首页主推荐联动，点击后进入资讯页查看正文与附件。</p>
+                </article>
+                <article class="stack-card">
+                  <div class="item-inline">
+                    <strong>华泰策略：成长赛道需等待量能确认</strong>
+                    <span class="metric">VIP</span>
+                  </div>
+                  <p>适合放到第二梯队观察池，不建议直接抢走主推荐位置。</p>
+                </article>
+                <article class="stack-card">
+                  <div class="item-inline">
+                    <strong>策略周刊：波动率管理与仓位纪律</strong>
+                    <span class="metric">公开</span>
+                  </div>
+                  <p>适合作为长期阅读栏目，帮助解释首页为什么强调止盈止损和回撤控制。</p>
+                </article>
+              </div>
+            </article>
+
+            <article class="panel section">
+              <div class="section-head">
+                <div>
+                  <h3>市场资讯快讯</h3>
+                  <p>只保留与推荐和研报强相关的几条，不把首页做成滚动快讯墙。</p>
+                </div>
+              </div>
+              <div class="stack-list">
+                <article class="stack-card">
+                  <strong>盘前资金风格切换，银行与高股息板块走强</strong>
+                  <p>这条资讯和招商银行主推荐形成直接验证关系，应该出现在研报区旁边而不是页面底部。</p>
+                </article>
+                <article class="stack-card">
+                  <strong>景气赛道估值切换窗口被机构再次提及</strong>
+                  <p>如果后续市场量能跟上，这条线索会从研报摘要进入策略页更深层承接。</p>
+                </article>
+              </div>
+            </article>
+
+            <article class="panel section">
+              <div class="section-head">
+                <div>
+                  <h3>点击后的承接关系</h3>
+                  <p>首页只做导读，深内容必须有去处。</p>
+                </div>
+              </div>
+              <div class="stack-list">
+                <article class="stack-card">
+                  <strong>点主推荐</strong>
+                  <p>进入策略页，看更完整的 explanation、风险框架、绩效跟踪和版本历史。</p>
+                </article>
+                <article class="stack-card">
+                  <strong>点历史样本</strong>
+                  <p>进入档案页，看完整时间线、止盈/止损原因、来源说明和版本差异。</p>
+                </article>
+                <article class="stack-card">
+                  <strong>点研报</strong>
+                  <p>进入资讯页，看正文、附件、权限状态和分类切换，首页只保留解读摘要。</p>
+                </article>
+              </div>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel section" style="margin-top: 16px;">
+        <div class="section-head">
+          <div>
+            <h3>这版首页的审查结论标准</h3>
+            <p>如果下面三件事都成立，首页方向基本就对了。</p>
+          </div>
+        </div>
+        <div class="route-grid" style="margin-top: 0;">
+          <article class="route-card">
+            <strong>1. 推荐区是不是已经足够强</strong>
+            <p>用户进首页后，能不能立刻知道今天主推荐是谁、为什么选、止盈止损在哪、历史样本表现怎样。</p>
+          </article>
+          <article class="route-card">
+            <strong>2. 研报区是不是有独特价值</strong>
+            <p>研报有没有被单独抬出来，并且通过“解读一篇研报”让用户感受到这是区别于普通资讯站的内容。</p>
+          </article>
+          <article class="route-card">
+            <strong>3. 深内容是不是有承接</strong>
+            <p>完整策略逻辑、历史样本详情、研报正文与附件都已经有真实页面接住，而不是在首页伪装完整闭环。</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <div class="footer-grid">
+          <section class="footer-col">
+            <h4>首页应该长期保留</h4>
+            <ul>
+              <li>今日主推荐</li>
+              <li>推荐理由与止盈止损</li>
+              <li>历史推荐样本预览</li>
+              <li>期货套利方案摘要</li>
+              <li>研报焦点与研报解读</li>
+              <li>市场资讯联动</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>真实承接页面</h4>
+            <ul>
+              <li>/strategies 看完整推荐解释</li>
+              <li>/archive 看历史样本与止盈止损原因</li>
+              <li>/news 看研报正文、附件和分类</li>
+              <li>/watchlist 做持续跟踪</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>首页不该继续加</h4>
+            <ul>
+              <li>大盘指数总览</li>
+              <li>题材热榜</li>
+              <li>下载二维码</li>
+              <li>客服门户与开放平台</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>说明</h4>
+            <p>
+              <span class="footer-note-strong">研报解读</span> 是首页摘要卡，不是新增后台栏目。
+              <span class="footer-note-strong">历史止盈/止损原因</span> 首页只做样本预览，完整说明继续由档案页承接。
+            </p>
+          </section>
+        </div>
+        <div class="footer-links">
+          <a href="./supported-review-index.html">返回 demo 总览</a>
+          <a href="./strategy-supported-demo.html">查看策略页承接</a>
+          <a href="./archive-supported-demo.html">查看档案页承接</a>
+          <a href="./news-supported-demo.html">查看资讯页承接</a>
+        </div>
+        <p class="footer-note">
+          当前页面为结构审查 demo，所有示例内容都以现有前端字段和真实承接页为边界，用于确认中文风格、信息层级与入口关系，不代表已新增后台能力。
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

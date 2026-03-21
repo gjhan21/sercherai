@@ -9,7 +9,7 @@ import {
   updateUserSubscription,
   updateUserStatus
 } from "../api/admin";
-import { getAccessToken } from "../lib/session";
+import { getAccessToken, hasPermission } from "../lib/session";
 
 const loading = ref(false);
 const exportingFiltered = ref(false);
@@ -93,6 +93,7 @@ const registrationSourceOptions = [
 ];
 const subscriptionStatusOptions = ["ACTIVE", "PAUSED"];
 const subscriptionFrequencyOptions = ["INSTANT", "DAILY", "WEEKLY"];
+const canEditUsers = hasPermission("users.edit");
 
 const selectedCount = computed(() => selectedRows.value.length);
 const failedBatchRows = computed(() => batchResultRows.value.filter((row) => row.result === "FAILED"));
@@ -231,6 +232,14 @@ function normalizeErrorMessage(error, fallback) {
   return error?.message || fallback || "操作失败";
 }
 
+function ensureCanEditUsers() {
+  if (canEditUsers) {
+    return true;
+  }
+  errorMessage.value = "当前账号只有查看权限，无法修改用户状态、KYC、会员等级或订阅配置";
+  return false;
+}
+
 async function fetchUsers(options = {}) {
   const { keepMessage = false } = options;
   loading.value = true;
@@ -275,6 +284,9 @@ async function fetchUsers(options = {}) {
 }
 
 async function handleUpdateStatus(user) {
+  if (!ensureCanEditUsers()) {
+    return;
+  }
   const target = (draftStatusMap.value[user.id] || "").trim();
   if (!target || target === user.status) {
     return;
@@ -291,6 +303,9 @@ async function handleUpdateStatus(user) {
 }
 
 async function handleUpdateKYC(user) {
+  if (!ensureCanEditUsers()) {
+    return;
+  }
   const target = (draftKYCMap.value[user.id] || "").trim();
   if (!target || target === user.kyc_status) {
     return;
@@ -307,6 +322,9 @@ async function handleUpdateKYC(user) {
 }
 
 async function handleUpdateMemberLevel(user) {
+  if (!ensureCanEditUsers()) {
+    return;
+  }
   const target = (draftLevelMap.value[user.id] || "").trim();
   if (!target || target === user.member_level) {
     return;
@@ -448,6 +466,9 @@ async function openUserCenter(user) {
 }
 
 async function handleSaveCenterSubscription(row) {
+  if (!ensureCanEditUsers()) {
+    return;
+  }
   if (!centerTargetUserID.value || !row?.id) {
     return;
   }
@@ -500,6 +521,9 @@ function openBatchResultDialog(title, rows) {
 }
 
 async function runBatchUpdate(config) {
+  if (!ensureCanEditUsers()) {
+    return;
+  }
   const target = (config.targetValue || "").trim();
   if (!target) {
     errorMessage.value = config.emptyTargetMessage || "请先设置目标值";
@@ -929,7 +953,7 @@ onMounted(fetchUsers);
       </div>
     </div>
 
-    <div class="card" style="margin-bottom: 12px">
+    <div v-if="canEditUsers" class="card" style="margin-bottom: 12px">
       <div class="section-header">
         <h3 style="margin: 0">批量操作</h3>
         <el-text type="info">已勾选 {{ selectedCount }} 个用户</el-text>
@@ -993,7 +1017,7 @@ onMounted(fetchUsers);
         empty-text="暂无用户数据"
         @selection-change="handleSelectionChange"
       >
-        <el-table-column type="selection" width="52" reserve-selection />
+        <el-table-column v-if="canEditUsers" type="selection" width="52" reserve-selection />
         <el-table-column prop="id" label="用户ID" min-width="160" />
         <el-table-column prop="phone" label="手机号" min-width="130" />
         <el-table-column label="邮箱" min-width="180">
@@ -1021,10 +1045,12 @@ onMounted(fetchUsers);
           <template #default="{ row }">
             <div class="inline-actions">
               <el-tag :type="statusTagType(row.status)">{{ row.status || "-" }}</el-tag>
-              <el-select v-model="draftStatusMap[row.id]" style="width: 120px">
-                <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
-              </el-select>
-              <el-button size="small" @click="handleUpdateStatus(row)">保存</el-button>
+              <template v-if="canEditUsers">
+                <el-select v-model="draftStatusMap[row.id]" style="width: 120px">
+                  <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
+                </el-select>
+                <el-button size="small" @click="handleUpdateStatus(row)">保存</el-button>
+              </template>
             </div>
           </template>
         </el-table-column>
@@ -1033,10 +1059,12 @@ onMounted(fetchUsers);
           <template #default="{ row }">
             <div class="inline-actions">
               <el-tag :type="kycTagType(row.kyc_status)">{{ row.kyc_status || "-" }}</el-tag>
-              <el-select v-model="draftKYCMap[row.id]" style="width: 120px">
-                <el-option v-for="item in kycStatusOptions" :key="item" :label="item" :value="item" />
-              </el-select>
-              <el-button size="small" @click="handleUpdateKYC(row)">保存</el-button>
+              <template v-if="canEditUsers">
+                <el-select v-model="draftKYCMap[row.id]" style="width: 120px">
+                  <el-option v-for="item in kycStatusOptions" :key="item" :label="item" :value="item" />
+                </el-select>
+                <el-button size="small" @click="handleUpdateKYC(row)">保存</el-button>
+              </template>
             </div>
           </template>
         </el-table-column>
@@ -1044,8 +1072,11 @@ onMounted(fetchUsers);
         <el-table-column label="会员等级" min-width="260">
           <template #default="{ row }">
             <div class="inline-actions">
-              <el-input v-model="draftLevelMap[row.id]" style="width: 120px" />
-              <el-button size="small" @click="handleUpdateMemberLevel(row)">保存</el-button>
+              <template v-if="canEditUsers">
+                <el-input v-model="draftLevelMap[row.id]" style="width: 120px" />
+                <el-button size="small" @click="handleUpdateMemberLevel(row)">保存</el-button>
+              </template>
+              <span v-else>{{ row.member_level || "-" }}</span>
             </div>
           </template>
         </el-table-column>
@@ -1267,37 +1298,43 @@ onMounted(fetchUsers);
               <el-table-column prop="scope" label="范围" min-width="120" />
               <el-table-column label="频率" min-width="140">
                 <template #default="{ row }">
-                  <el-select
-                    v-model="centerSubscriptionDraft[row.id].frequency"
-                    size="small"
-                    style="width: 110px"
-                  >
-                    <el-option
-                      v-for="item in subscriptionFrequencyOptions"
-                      :key="item"
-                      :label="mapSubscriptionFrequency(item)"
-                      :value="item"
-                    />
-                  </el-select>
+                  <template v-if="canEditUsers">
+                    <el-select
+                      v-model="centerSubscriptionDraft[row.id].frequency"
+                      size="small"
+                      style="width: 110px"
+                    >
+                      <el-option
+                        v-for="item in subscriptionFrequencyOptions"
+                        :key="item"
+                        :label="mapSubscriptionFrequency(item)"
+                        :value="item"
+                      />
+                    </el-select>
+                  </template>
+                  <span v-else>{{ mapSubscriptionFrequency(row.frequency) }}</span>
                 </template>
               </el-table-column>
               <el-table-column label="状态" min-width="100">
                 <template #default="{ row }">
-                  <el-select
-                    v-model="centerSubscriptionDraft[row.id].status"
-                    size="small"
-                    style="width: 110px"
-                  >
-                    <el-option
-                      v-for="item in subscriptionStatusOptions"
-                      :key="item"
-                      :label="mapDisplayStatus(item, 'subscription')"
-                      :value="item"
-                    />
-                  </el-select>
+                  <template v-if="canEditUsers">
+                    <el-select
+                      v-model="centerSubscriptionDraft[row.id].status"
+                      size="small"
+                      style="width: 110px"
+                    >
+                      <el-option
+                        v-for="item in subscriptionStatusOptions"
+                        :key="item"
+                        :label="mapDisplayStatus(item, 'subscription')"
+                        :value="item"
+                      />
+                    </el-select>
+                  </template>
+                  <span v-else>{{ mapDisplayStatus(row.status, "subscription") }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" min-width="110">
+              <el-table-column v-if="canEditUsers" label="操作" min-width="110">
                 <template #default="{ row }">
                   <el-button
                     size="small"

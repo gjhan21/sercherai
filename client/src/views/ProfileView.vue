@@ -6,28 +6,138 @@
         <div>
           <h1>{{ displayProfile.name }}</h1>
           <p>
-            {{ vipInfo.level }} · KYC {{ displayProfile.kycStatus }} · 最近更新
+            {{ vipInfo.level }} · {{ activationStateLabel }} · KYC {{ displayProfile.kycStatus }} · 最近更新
             {{ lastUpdatedAt || "-" }}
           </p>
         </div>
       </div>
       <div class="actions">
-        <button class="primary" type="button" @click="loadUserCenterData">刷新数据</button>
-        <button class="ghost" type="button" @click="openSecurityPanel">账户安全</button>
+        <button class="primary finance-primary-btn" type="button" @click="loadUserCenterData">刷新数据</button>
+        <button class="ghost finance-ghost-btn" type="button" @click="openSecurityPanel">账户安全</button>
       </div>
     </header>
 
-    <article class="card query-card">
+    <StatePanel
+      :tone="profileRhythmStatus.tone"
+      :eyebrow="profileRhythmStatus.eyebrow"
+      :title="profileRhythmStatus.title"
+      :description="profileRhythmStatus.desc"
+    >
+      <template #actions>
+        <button type="button" class="finance-primary-btn" @click="handleAction(profileRhythmStatus.primaryAction)">
+          {{ profileRhythmStatus.primaryAction.label }}
+        </button>
+        <button class="ghost finance-ghost-btn" type="button" @click="handleAction(profileRhythmStatus.secondaryAction)">
+          {{ profileRhythmStatus.secondaryAction.label }}
+        </button>
+      </template>
+    </StatePanel>
+
+    <section class="profile-workbench-layout finance-dual-rail">
+      <div class="profile-main-stack finance-stack-tight">
+        <article class="card profile-focus-card finance-section-card">
+          <header class="profile-focus-head finance-section-head-grid">
+            <div>
+              <p class="section-kicker">账户身份概览</p>
+              <h2 class="section-title">先查看账户状态和待办，再进入查询中心。</h2>
+              <p class="section-subtitle">
+                查看账户状态、今日重点和待处理事项。
+              </p>
+            </div>
+            <div class="profile-focus-actions finance-action-row">
+              <button class="primary finance-primary-btn" type="button" @click="loadUserCenterData">刷新账户数据</button>
+              <button class="ghost finance-ghost-btn" type="button" @click="handleAction(profileRhythmStatus.primaryAction)">
+                {{ profileRhythmStatus.primaryAction.label }}
+              </button>
+            </div>
+          </header>
+
+          <div class="profile-overview-grid finance-card-grid finance-card-grid-2">
+            <article v-for="item in profileOverviewRows" :key="item.label" class="finance-card-surface">
+              <p>{{ item.label }}</p>
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.note }}</span>
+            </article>
+          </div>
+
+          <div class="profile-guide-grid finance-card-grid finance-card-grid-3">
+            <article v-for="item in profileGuideRows" :key="item.title" class="finance-card-surface">
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.desc }}</p>
+            </article>
+          </div>
+        </article>
+
+        <article class="card rhythm-card">
+          <header class="rhythm-head">
+            <div>
+              <p class="section-kicker">今日行动板</p>
+              <h2 class="section-title">根据今日节奏安排查看顺序。</h2>
+              <p class="section-subtitle">
+                08:30 看主推荐，11:30 看资讯，15:30 回关注清单，周末做历史复盘。
+              </p>
+            </div>
+            <div class="rhythm-pill finance-summary-pill">
+              <p>今日节奏</p>
+              <strong>{{ vipInfo.level }}</strong>
+              <small>{{ vipInfo.status }} · 未读 {{ unreadMessageCount }} 条</small>
+            </div>
+          </header>
+
+          <div class="rhythm-grid">
+            <article v-for="entry in profileCadenceEntries" :key="entry.slot" class="rhythm-item finance-card-surface">
+              <p class="rhythm-slot">{{ entry.slot }}</p>
+              <h3>{{ entry.title }}</h3>
+              <p class="rhythm-desc">{{ entry.desc }}</p>
+              <div class="rhythm-tags">
+                <span class="finance-pill finance-pill-compact finance-pill-info">{{ entry.highlight }}</span>
+                <span class="finance-pill finance-pill-compact finance-pill-neutral">{{ entry.supporting }}</span>
+              </div>
+              <div class="rhythm-actions">
+                <button type="button" class="finance-primary-btn" @click="handleAction(entry.primaryAction)">
+                  {{ entry.primaryAction.label }}
+                </button>
+                <button class="ghost finance-ghost-btn" type="button" @click="handleAction(entry.secondaryAction)">
+                  {{ entry.secondaryAction.label }}
+                </button>
+              </div>
+            </article>
+          </div>
+        </article>
+
+        <article class="card todo-card">
+          <header class="finance-copy-stack">
+            <h2 class="section-title">待办中心</h2>
+            <p class="section-subtitle">把高频操作前置，减少跳转。</p>
+          </header>
+          <ul>
+            <li v-for="todo in todos" :key="todo.title" class="finance-list-card finance-list-card-panel">
+              <span class="dot" :class="todo.level" />
+              <div>
+                <p class="title">{{ todo.title }}</p>
+                <p class="note">{{ todo.note }}</p>
+              </div>
+              <div class="todo-actions">
+                <button type="button" class="finance-mini-btn finance-mini-btn-soft" @click="handleAction(todo.action)">
+                  {{ todo.actionLabel }}
+                </button>
+              </div>
+            </li>
+          </ul>
+        </article>
+
+        <article class="card query-card">
       <header class="query-head">
         <div>
-          <h2 class="section-title">客户信息查询中心</h2>
-          <p class="section-subtitle">支持查询 VIP、支付、阅读、订阅及其他信息。</p>
+          <h2 class="section-title">账户确认与管理中心</h2>
+          <p class="section-subtitle">核对 VIP、支付、阅读、订阅、通知与邀请信息。</p>
         </div>
         <div class="range-switch">
           <button
             v-for="range in timeRanges"
             :key="range"
             type="button"
+            class="finance-toggle-btn"
             :class="{ active: activeRange === range }"
             @click="activeRange = range"
           >
@@ -41,6 +151,7 @@
           v-for="item in modules"
           :key="item.key"
           type="button"
+          class="finance-toggle-btn finance-toggle-btn-block"
           :class="{ active: activeModule === item.key }"
           @click="activeModule = item.key"
         >
@@ -48,47 +159,89 @@
         </button>
       </nav>
 
-      <div class="query-tip">
+      <div class="query-tip finance-info-box">
         <p>当前查询：{{ currentModule.label }}</p>
         <p>时间范围：{{ activeRange }}</p>
       </div>
 
-      <div v-if="loading" class="state-box">正在加载 API 数据...</div>
-      <div v-else-if="loadError" class="state-box warning">API 加载失败：{{ loadError }}</div>
+      <div v-if="loading" class="state-box finance-note-strip finance-note-strip-info">正在加载账户数据...</div>
+      <div v-else-if="loadError" class="state-box finance-note-strip finance-note-strip-warning">数据加载失败：{{ loadError }}</div>
 
       <section class="query-body">
         <template v-if="activeModule === 'vip'">
           <div class="vip-panel">
             <article class="vip-main">
               <p class="vip-level">{{ vipInfo.level }}</p>
-              <h3>VIP 有效期至 {{ vipInfo.expireAt }}</h3>
-              <p>下次续费时间：{{ vipInfo.nextRenewAt }}，剩余 {{ vipInfo.remainingDays }} 天</p>
+              <h3>{{ isPaidPendingKYC ? activationPromptTitle : `VIP 有效期至 ${vipInfo.expireAt}` }}</h3>
+              <p>
+                {{
+                  isPaidPendingKYC
+                    ? activationPromptDesc
+                    : `下次续费时间：${vipInfo.nextRenewAt}，剩余 ${vipInfo.remainingDays} 天`
+                }}
+              </p>
             </article>
             <div class="summary-grid">
-              <article v-for="item in vipMetrics" :key="item.label">
+              <article v-for="item in vipMetrics" :key="item.label" class="finance-summary-pill">
                 <p>{{ item.label }}</p>
                 <strong>{{ item.value }}</strong>
               </article>
             </div>
           </div>
           <div class="benefits-grid">
-            <article v-for="item in vipBenefits" :key="item.title">
+            <article v-for="item in vipBenefits" :key="item.title" class="finance-card-surface">
               <h4>{{ item.title }}</h4>
               <p>{{ item.desc }}</p>
             </article>
+          </div>
+          <div v-if="isPaidPendingKYC" class="activation-panel">
+            <div class="activation-copy finance-card-surface">
+              <p class="section-kicker">待实名激活</p>
+              <h4>{{ activationPromptTitle }}</h4>
+              <p>{{ activationPromptDesc }}</p>
+              <div class="activation-tags">
+                <span class="finance-pill finance-pill-roomy finance-pill-info">会员等级 {{ vipInfo.level }}</span>
+                <span class="finance-pill finance-pill-roomy finance-pill-info">激活状态 {{ activationStateLabel }}</span>
+                <span class="finance-pill finance-pill-roomy finance-pill-info">KYC {{ displayProfile.kycStatus }}</span>
+              </div>
+            </div>
+            <div class="activation-form-wrap finance-card-surface">
+              <p v-if="kycActionError" class="state-box finance-note-strip finance-note-strip-warning">{{ kycActionError }}</p>
+              <p v-else-if="kycActionMessage" class="state-box finance-note-strip finance-note-strip-info">{{ kycActionMessage }}</p>
+              <p v-if="!canSubmitKYC" class="state-box finance-note-strip finance-note-strip-info">
+                {{
+                  currentKYCStatusRaw === "PENDING"
+                    ? "实名材料已提交，审核通过后会自动激活高级权益。"
+                    : "当前状态无需重复提交实名材料。"
+                }}
+              </p>
+              <form v-else class="kyc-form" @submit.prevent="handleSubmitKYC">
+                <label>
+                  真实姓名
+                  <input v-model.trim="kycForm.real_name" placeholder="请输入真实姓名" />
+                </label>
+                <label>
+                  身份证号
+                  <input v-model.trim="kycForm.id_number" placeholder="请输入身份证号" />
+                </label>
+                <button type="submit" :disabled="kycSubmitting">
+                  {{ kycSubmitting ? "提交中..." : "提交实名信息" }}
+                </button>
+              </form>
+            </div>
           </div>
         </template>
 
         <template v-else-if="activeModule === 'payment'">
           <div class="summary-grid">
-            <article v-for="item in paymentSummary" :key="item.label">
+            <article v-for="item in paymentSummary" :key="item.label" class="finance-summary-pill">
               <p>{{ item.label }}</p>
               <strong>{{ item.value }}</strong>
             </article>
           </div>
 
-          <div class="payment-table-wrap">
-            <table class="payment-table">
+          <div class="payment-table-wrap finance-table-wrap">
+            <table class="payment-table finance-data-table">
               <thead>
                 <tr>
                   <th>订单号</th>
@@ -107,7 +260,7 @@
                   <td>{{ item.amount }}</td>
                   <td>{{ item.method }}</td>
                   <td>
-                    <span class="status" :class="paymentStatusClass(item.status)">
+                    <span class="status finance-pill finance-pill-compact" :class="paymentStatusClass(item.status)">
                       {{ item.status }}
                     </span>
                   </td>
@@ -117,15 +270,15 @@
           </div>
 
           <div class="payment-mobile">
-            <article v-for="item in paymentRecords" :key="`m-${item.orderNo}`">
+            <article v-for="item in paymentRecords" :key="`m-${item.orderNo}`" class="finance-list-card finance-list-card-panel">
               <div class="top-line">
                 <p>{{ item.product }}</p>
                 <span>{{ item.amount }}</span>
               </div>
-              <div class="meta-line">
+              <div class="meta-line finance-meta-line">
                 <span>{{ item.time }}</span>
                 <span>{{ item.method }}</span>
-                <span class="status" :class="paymentStatusClass(item.status)">{{ item.status }}</span>
+                <span class="status finance-pill finance-pill-compact" :class="paymentStatusClass(item.status)">{{ item.status }}</span>
               </div>
               <p class="order">订单号：{{ item.orderNo }}</p>
             </article>
@@ -134,20 +287,20 @@
 
         <template v-else-if="activeModule === 'reading'">
           <div class="summary-grid">
-            <article v-for="item in readingStats" :key="item.label">
+            <article v-for="item in readingStats" :key="item.label" class="finance-summary-pill">
               <p>{{ item.label }}</p>
               <strong>{{ item.value }}</strong>
             </article>
           </div>
 
           <div class="log-list">
-            <article v-for="item in readingLogs" :key="item.id">
+            <article v-for="item in readingLogs" :key="item.id" class="finance-list-card finance-list-card-panel">
               <div class="top-line">
                 <p>{{ item.title }}</p>
                 <span>{{ item.type }}</span>
               </div>
               <p class="desc">{{ item.desc }}</p>
-              <div class="meta-line">
+              <div class="meta-line finance-meta-line">
                 <span>{{ item.time }}</span>
                 <span>阅读时长 {{ item.duration }}</span>
                 <span>完成度 {{ item.progress }}</span>
@@ -157,7 +310,7 @@
         </template>
 
         <template v-else-if="activeModule === 'subscription'">
-          <div class="subscription-create">
+          <div class="subscription-create finance-card-surface">
             <label>
               订阅类型
               <select v-model="newSubscriptionForm.type">
@@ -178,23 +331,33 @@
               订阅范围
               <input v-model.trim="newSubscriptionForm.scope" placeholder="如：ALL / A股 / 沪深300" />
             </label>
-            <button type="button" :disabled="creatingSubscription" @click="handleCreateSubscription">
+            <button
+              type="button"
+              class="finance-mini-btn finance-mini-btn-primary"
+              :disabled="creatingSubscription"
+              @click="handleCreateSubscription"
+            >
               {{ creatingSubscription ? "创建中..." : "新增订阅" }}
             </button>
           </div>
-          <p v-if="subscriptionActionError" class="state-box warning">{{ subscriptionActionError }}</p>
-          <p v-else-if="subscriptionActionMessage" class="state-box">{{ subscriptionActionMessage }}</p>
+          <p v-if="subscriptionActionError" class="state-box finance-note-strip finance-note-strip-warning">{{ subscriptionActionError }}</p>
+          <p
+            v-else-if="subscriptionActionMessage"
+            class="state-box finance-note-strip finance-note-strip-info"
+          >
+            {{ subscriptionActionMessage }}
+          </p>
 
           <div class="subscription-grid">
-            <article v-for="item in subscriptionItems" :key="item.id" class="subscription-item">
+            <article v-for="item in subscriptionItems" :key="item.id" class="subscription-item finance-list-card">
               <div class="top-line">
                 <p>{{ item.name }}</p>
-                <span class="status" :class="subscriptionStatusClass(item.status)">
+                <span class="status finance-pill finance-pill-compact" :class="subscriptionStatusClass(item.status)">
                   {{ item.status }}
                 </span>
               </div>
               <p class="desc">{{ item.desc }}</p>
-              <div class="meta-line">
+              <div class="meta-line finance-meta-line">
                 <span>周期：{{ item.cycle }}</span>
                 <span>范围：{{ item.scope }}</span>
                 <span>{{ item.price }}</span>
@@ -202,7 +365,7 @@
               <div class="subscription-actions">
                 <button
                   type="button"
-                  class="secondary"
+                  class="secondary finance-mini-btn finance-mini-btn-soft"
                   :disabled="item.saving"
                   @click="handleRotateSubscriptionFrequency(item)"
                 >
@@ -210,6 +373,7 @@
                 </button>
                 <button
                   type="button"
+                  class="finance-mini-btn finance-mini-btn-primary"
                   :disabled="item.saving"
                   @click="handleToggleSubscriptionStatus(item)"
                 >
@@ -222,29 +386,29 @@
 
         <template v-else-if="activeModule === 'message'">
           <div class="summary-grid">
-            <article v-for="item in messageStats" :key="item.label">
+            <article v-for="item in messageStats" :key="item.label" class="finance-summary-pill">
               <p>{{ item.label }}</p>
               <strong>{{ item.value }}</strong>
             </article>
           </div>
 
           <div class="message-list">
-            <article v-for="item in messageItems" :key="item.id" class="message-item">
+            <article v-for="item in messageItems" :key="item.id" class="message-item finance-list-card">
               <div class="top-line">
                 <p>{{ item.title }}</p>
-                <span class="status" :class="item.readStatusRaw === 'READ' ? 'success' : 'pending'">
+                <span class="status finance-pill finance-pill-compact" :class="item.readStatusRaw === 'READ' ? 'success' : 'pending'">
                   {{ item.readStatus }}
                 </span>
               </div>
               <p class="desc">{{ item.content }}</p>
-              <div class="meta-line">
+              <div class="meta-line finance-meta-line">
                 <span>{{ item.type }}</span>
                 <span>{{ item.time }}</span>
               </div>
               <div class="message-actions">
                 <button
                   type="button"
-                  class="secondary"
+                  class="secondary finance-mini-btn finance-mini-btn-soft"
                   :disabled="item.readStatusRaw === 'READ' || item.loading"
                   @click="handleReadMessage(item)"
                 >
@@ -257,14 +421,14 @@
 
         <template v-else-if="activeModule === 'invite'">
           <div class="summary-grid">
-            <article v-for="item in inviteStats" :key="item.label">
+            <article v-for="item in inviteStats" :key="item.label" class="finance-summary-pill">
               <p>{{ item.label }}</p>
               <strong>{{ item.value }}</strong>
             </article>
           </div>
 
           <div class="other-grid">
-            <article>
+            <article class="finance-card-surface">
               <h4>我的注册来源</h4>
               <div class="kv-list">
                 <p>
@@ -285,9 +449,9 @@
                 </p>
               </div>
             </article>
-            <article>
+            <article class="finance-card-surface">
               <h4>我的分享链接</h4>
-              <div class="invite-create">
+              <div class="invite-create finance-card-surface">
                 <label>
                   渠道
                   <select v-model="newShareLinkChannel">
@@ -296,12 +460,17 @@
                     </option>
                   </select>
                 </label>
-                <button type="button" :disabled="creatingShareLink" @click="handleCreateShareLink">
+                <button
+                  type="button"
+                  class="finance-mini-btn finance-mini-btn-primary"
+                  :disabled="creatingShareLink"
+                  @click="handleCreateShareLink"
+                >
                   {{ creatingShareLink ? "创建中..." : "新增分享链接" }}
                 </button>
               </div>
-              <p v-if="inviteActionError" class="state-box warning">{{ inviteActionError }}</p>
-              <p v-else-if="inviteActionMessage" class="state-box">{{ inviteActionMessage }}</p>
+              <p v-if="inviteActionError" class="state-box finance-note-strip finance-note-strip-warning">{{ inviteActionError }}</p>
+              <p v-else-if="inviteActionMessage" class="state-box finance-note-strip finance-note-strip-info">{{ inviteActionMessage }}</p>
               <div class="kv-list">
                 <p v-if="shareLinks.length === 0">
                   <span>链接状态</span>
@@ -310,7 +479,12 @@
                 <p v-for="item in shareLinks" :key="item.id" class="invite-link-row">
                   <span>{{ item.code }} · {{ mapShareChannel(item.channel) }} · {{ item.status }}</span>
                   <strong>
-                    <button type="button" :disabled="item.copying" @click="handleCopyInviteLink(item)">
+                    <button
+                      type="button"
+                      class="finance-mini-btn finance-mini-btn-soft"
+                      :disabled="item.copying"
+                      @click="handleCopyInviteLink(item)"
+                    >
                       {{ item.copying ? "复制中..." : "复制链接" }}
                     </button>
                   </strong>
@@ -319,8 +493,8 @@
             </article>
           </div>
 
-          <div class="payment-table-wrap">
-            <table class="payment-table">
+          <div class="payment-table-wrap finance-table-wrap">
+            <table class="payment-table finance-data-table">
               <thead>
                 <tr>
                   <th>被邀请用户</th>
@@ -343,12 +517,12 @@
           </div>
 
           <div class="payment-mobile">
-            <article v-if="inviteRecords.length === 0">
+            <article v-if="inviteRecords.length === 0" class="finance-list-card finance-list-card-panel">
               <div class="top-line">
                 <p>暂无邀请记录</p>
               </div>
             </article>
-            <article v-for="item in inviteRecords" :key="`invite-${item.id}`">
+            <article v-for="item in inviteRecords" :key="`invite-${item.id}`" class="finance-list-card finance-list-card-panel">
               <div class="top-line">
                 <p>{{ item.inviteeUser }}</p>
                 <span>{{ item.status }}</span>
@@ -364,7 +538,7 @@
 
         <template v-else>
           <div class="other-grid">
-            <article v-for="item in otherInfos" :key="item.title">
+            <article v-for="item in otherInfos" :key="item.title" class="finance-card-surface">
               <h4>{{ item.title }}</h4>
               <div class="kv-list">
                 <p v-for="row in item.rows" :key="`${item.title}-${row.key}`">
@@ -376,43 +550,80 @@
           </div>
         </template>
       </section>
-    </article>
+        </article>
 
-    <div class="bottom-grid">
-      <article class="card todo-card">
-        <header>
-          <h2 class="section-title">待办中心</h2>
-          <p class="section-subtitle">把高频操作前置，减少跳转。</p>
-        </header>
-        <ul>
-          <li v-for="todo in todos" :key="todo.title">
-            <span class="dot" :class="todo.level" />
+        <article class="card quick-card">
+          <header class="finance-copy-stack">
+            <h2 class="section-title">快捷入口</h2>
+            <p class="section-subtitle">常用操作统一收敛到个人中心。</p>
+          </header>
+          <div class="quick-grid">
+            <article v-for="item in quickActions" :key="item.title" class="quick-item finance-card-surface">
+              <h3>{{ item.title }}</h3>
+              <p>{{ item.desc }}</p>
+              <button type="button" class="finance-mini-btn finance-mini-btn-soft" @click="handleAction(item.action)">
+                {{ item.actionLabel }}
+              </button>
+            </article>
+          </div>
+        </article>
+      </div>
+
+      <aside class="profile-side-rail finance-stack-tight finance-sticky-side">
+        <article class="card profile-side-card finance-section-card">
+          <header class="section-head compact">
             <div>
-              <p class="title">{{ todo.title }}</p>
-              <p class="note">{{ todo.note }}</p>
+              <h2 class="section-title">账户摘要</h2>
+              <p class="section-subtitle">会员、实名和消息状态在侧栏长期可见。</p>
             </div>
-          </li>
-        </ul>
-      </article>
+          </header>
+          <div class="profile-side-list finance-card-stack">
+            <article v-for="item in profileAccountSummaryRows" :key="item.label" class="finance-card-surface">
+              <strong>{{ item.label }}</strong>
+              <p>{{ item.value }}</p>
+            </article>
+          </div>
+        </article>
 
-      <article class="card quick-card">
-        <header>
-          <h2 class="section-title">快捷入口</h2>
-          <p class="section-subtitle">常用操作统一收敛到个人中心。</p>
-        </header>
-        <div class="quick-grid">
-          <article v-for="item in menus" :key="item.title" class="quick-item">
-            <h3>{{ item.title }}</h3>
-            <p>{{ item.desc }}</p>
-          </article>
-        </div>
-      </article>
-    </div>
+        <article class="card profile-side-card finance-section-card">
+          <header class="section-head compact">
+            <div>
+              <h2 class="section-title">待处理事项</h2>
+              <p class="section-subtitle">把今天最影响回访节奏的事项收在这里。</p>
+            </div>
+          </header>
+          <div class="profile-side-list finance-card-stack">
+            <article v-for="item in profilePendingRows" :key="item.title" class="finance-card-surface">
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.desc }}</p>
+            </article>
+          </div>
+        </article>
+
+        <article class="card profile-side-card finance-section-card">
+          <header class="section-head compact">
+            <div>
+              <h2 class="section-title">状态快照</h2>
+              <p class="section-subtitle">持续盯住会员、实名、通知和订阅，不用反复切模块。</p>
+            </div>
+          </header>
+          <div class="profile-status-grid finance-card-grid finance-card-grid-2">
+            <article v-for="item in profileStatusRows" :key="item.label" class="finance-card-surface">
+              <p>{{ item.label }}</p>
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.note }}</span>
+            </article>
+          </div>
+        </article>
+      </aside>
+    </section>
   </section>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
+import StatePanel from "../components/StatePanel.vue";
 import {
   createShareLink,
   createSubscription,
@@ -427,11 +638,11 @@ import {
   listShareLinks,
   listSubscriptions,
   readMessage,
+  submitKYC,
   updateSubscription
 } from "../api/userCenter";
 import { shouldUseDemoFallback } from "../lib/fallback-policy";
 import {
-  menus,
   modules,
   shareChannelOptions,
   subscriptionFrequencyOptions,
@@ -444,6 +655,7 @@ import {
   formatAmount,
   formatDateTime,
   inRange,
+  mapActivationState,
   mapContentType,
   mapInviteLinkStatus,
   mapInviteRiskFlag,
@@ -482,6 +694,7 @@ import {
 } from "./profile/fallback";
 
 const useDemoFallback = shouldUseDemoFallback();
+const router = useRouter();
 
 const activeModule = ref("vip");
 const activeRange = ref(timeRanges[1] || timeRanges[0] || "全部");
@@ -505,6 +718,13 @@ const newSubscriptionForm = ref({
   frequency: "DAILY",
   scope: "ALL"
 });
+const kycForm = ref({
+  real_name: "",
+  id_number: ""
+});
+const kycSubmitting = ref(false);
+const kycActionMessage = ref("");
+const kycActionError = ref("");
 
 const rawProfile = ref(useDemoFallback ? { ...fallbackProfile } : {});
 const rawQuota = ref(useDemoFallback ? { ...fallbackQuota } : {});
@@ -518,13 +738,52 @@ const rawInviteRecords = ref(useDemoFallback ? [...fallbackInviteRecords] : []);
 const rawInviteSummary = ref(useDemoFallback ? { ...fallbackInviteSummary } : {});
 
 const currentModule = computed(() => modules.find((item) => item.key === activeModule.value) || modules[0]);
+const currentKYCStatusRaw = computed(() =>
+  String(rawQuota.value?.kyc_status || rawProfile.value?.kyc_status || "").toUpperCase()
+);
+const currentActivationState = computed(() => {
+  const activationState = String(
+    rawProfile.value?.activation_state || rawQuota.value?.activation_state || ""
+  ).toUpperCase();
+  if (activationState) {
+    return activationState;
+  }
+  const level = String(rawProfile.value?.member_level || rawQuota.value?.member_level || "").toUpperCase();
+  if (!level.startsWith("VIP")) {
+    return "NON_MEMBER";
+  }
+  const vipStatus = String(rawQuota.value?.vip_status || rawProfile.value?.vip_status || "").toUpperCase();
+  if (vipStatus === "EXPIRED") {
+    return "NON_MEMBER";
+  }
+  return currentKYCStatusRaw.value === "APPROVED" || currentKYCStatusRaw.value === "VERIFIED"
+    ? "ACTIVE"
+    : "PAID_PENDING_KYC";
+});
+const activationStateLabel = computed(() => mapActivationState(currentActivationState.value));
+const isPaidPendingKYC = computed(() => currentActivationState.value === "PAID_PENDING_KYC");
+const canSubmitKYC = computed(() => isPaidPendingKYC.value && currentKYCStatusRaw.value !== "PENDING");
+const activationPromptTitle = computed(() =>
+  currentKYCStatusRaw.value === "REJECTED"
+    ? "实名未通过，请重新提交后激活高级权益"
+    : "会员已开通，待实名激活高级权益"
+);
+const activationPromptDesc = computed(() => {
+  if (currentKYCStatusRaw.value === "PENDING") {
+    return "实名材料已提交，审核通过后会自动激活完整策略档案、VIP 资讯、盘中跟踪与复盘能力。";
+  }
+  if (currentKYCStatusRaw.value === "REJECTED") {
+    return "你的会员资格仍然保留，但高级权益会继续冻结，直到重新提交实名并审核通过。";
+  }
+  return "你已经完成会员支付，但完整策略档案、VIP 资讯和跟踪能力会在实名通过后统一激活。";
+});
 
 const displayProfile = computed(() => ({
   name: rawProfile.value?.id ? `用户 ${rawProfile.value.id}` : "当前用户",
   phone: rawProfile.value?.phone || "-",
   email: rawProfile.value?.email || "-",
-  kycStatus: mapKYCStatus(rawProfile.value?.kyc_status),
-  memberLevel: rawProfile.value?.member_level || "FREE"
+  kycStatus: mapKYCStatus(currentKYCStatusRaw.value),
+  memberLevel: rawProfile.value?.member_level || rawQuota.value?.member_level || "FREE"
 }));
 
 const paymentRecords = computed(() => {
@@ -600,7 +859,9 @@ const vipInfo = computed(() => {
   const remainingDays = Number.isFinite(serverRemaining) && serverRemaining > 0 ? serverRemaining : computedRemaining;
   const expireAt = formatDateTime(expireRaw);
   const nextRenewAt = expireAt;
-  const status = mapVIPStatus(rawQuota.value?.vip_status || rawProfile.value?.vip_status, displayProfile.value.memberLevel);
+  const status = isPaidPendingKYC.value
+    ? "待实名激活"
+    : mapVIPStatus(rawQuota.value?.vip_status || rawProfile.value?.vip_status, displayProfile.value.memberLevel);
 
   return {
     level: levelText,
@@ -613,6 +874,7 @@ const vipInfo = computed(() => {
 
 const vipMetrics = computed(() => [
   { label: "会员等级", value: vipInfo.value.level },
+  { label: "激活状态", value: activationStateLabel.value },
   { label: "会员状态", value: vipInfo.value.status },
   {
     label: "文档阅读配额",
@@ -646,9 +908,23 @@ const vipBenefits = computed(() => [
   },
   {
     title: "会员续费状态",
-    desc: `当前会员状态：${vipInfo.value.status}，到期时间：${vipInfo.value.expireAt}。`
+    desc: isPaidPendingKYC.value
+      ? `${activationPromptDesc.value} 当前到期时间：${vipInfo.value.expireAt}。`
+      : `当前会员状态：${vipInfo.value.status}，到期时间：${vipInfo.value.expireAt}。`
   }
 ]);
+
+const vipLevelRaw = computed(() => String(displayProfile.value.memberLevel || rawQuota.value?.member_level || "").toUpperCase());
+const isVIPActive = computed(() => {
+  if (currentActivationState.value) {
+    return currentActivationState.value === "ACTIVE";
+  }
+  const quotaStatus = String(rawQuota.value?.vip_status || rawProfile.value?.vip_status || "").toUpperCase();
+  if (quotaStatus === "ACTIVE") {
+    return true;
+  }
+  return vipLevelRaw.value.startsWith("VIP") && quotaStatus !== "EXPIRED";
+});
 
 const paymentSummary = computed(() => {
   const paid = paymentRecords.value.filter((item) => item.status === "已支付");
@@ -665,6 +941,10 @@ const paymentSummary = computed(() => {
     { label: "退款金额", value: formatAmount(refundAmount) }
   ];
 });
+
+const pendingPaymentCount = computed(
+  () => paymentRecords.value.filter((item) => item.status === "处理中").length
+);
 
 const readingStats = computed(() => {
   const items = readingLogs.value;
@@ -711,6 +991,10 @@ const messageStats = computed(() => {
     { label: "策略提醒", value: `${strategy} 条` }
   ];
 });
+
+const unreadMessageCount = computed(
+  () => messageItems.value.filter((item) => item.readStatusRaw !== "READ").length
+);
 
 const shareLinks = computed(() =>
   (rawShareLinks.value || []).map((item) => ({
@@ -778,6 +1062,183 @@ const inviteStats = computed(() => {
   ];
 });
 
+const activeSubscriptionCount = computed(
+  () => subscriptionItems.value.filter((item) => item.statusRaw === "ACTIVE").length
+);
+
+const profileRhythmStatus = computed(() => {
+  if (loading.value) {
+    return {
+      tone: "info",
+      eyebrow: "同步中",
+      title: "正在刷新个人中心数据",
+      desc: "同步完成后，会按你当前状态给出下一步动作。",
+      primaryAction: { type: "route", value: "/strategies", label: "先看主推荐" },
+      secondaryAction: { type: "module", value: "vip", label: "查看 VIP 情况" }
+    };
+  }
+  if (loadError.value) {
+    return {
+      tone: "warning",
+      eyebrow: "需处理",
+      title: "个人中心部分数据加载失败",
+      desc: loadError.value,
+      primaryAction: { type: "route", value: "/membership", label: "回会员中心核对" },
+      secondaryAction: { type: "module", value: "payment", label: "查看支付情况" }
+    };
+  }
+  if (pendingPaymentCount.value > 0) {
+    return {
+      tone: "warning",
+      eyebrow: "待完成",
+      title: `还有 ${pendingPaymentCount.value} 笔订单待处理，别让会员权益断档`,
+      desc: "先回会员中心完成支付，再回这里核对支付记录和通知提醒。",
+      primaryAction: { type: "route", value: "/membership", label: "去完成支付" },
+      secondaryAction: { type: "module", value: "payment", label: "查看支付明细" }
+    };
+  }
+  if (isPaidPendingKYC.value) {
+    return {
+      tone: "warning",
+      eyebrow: "待实名激活",
+      title: activationPromptTitle.value,
+      desc: `${activationPromptDesc.value} 当前实名状态：${displayProfile.value.kycStatus}。`,
+      primaryAction: {
+        type: "module",
+        value: "vip",
+        label: currentKYCStatusRaw.value === "PENDING" ? "查看激活进度" : "提交实名信息"
+      },
+      secondaryAction: { type: "route", value: "/archive", label: "先看公开历史样本" }
+    };
+  }
+  if (unreadMessageCount.value > 0) {
+    return {
+      tone: "info",
+      eyebrow: "有提醒",
+      title: `你还有 ${unreadMessageCount.value} 条未读通知，建议在 15:30 集中处理`,
+      desc: "先去关注页看盘后变化，再回个人中心把提醒清掉。",
+      primaryAction: { type: "route", value: "/watchlist", label: "先去我的关注" },
+      secondaryAction: { type: "module", value: "message", label: "处理未读通知" }
+    };
+  }
+  if (!isVIPActive.value) {
+    return {
+      tone: "info",
+      eyebrow: "升级前节奏",
+      title: "先用公开入口形成回访习惯，再决定是否升级会员",
+      desc: "今天建议先跑一遍 08:30 / 11:30 / 15:30 / 周末 的完整节奏。",
+      primaryAction: { type: "route", value: "/strategies", label: "开始今日节奏" },
+      secondaryAction: { type: "route", value: "/membership", label: "查看套餐方案" }
+    };
+  }
+  return {
+    tone: "success",
+    eyebrow: "会员已开通",
+    title: "个人中心是你的账户总览和待办入口",
+    desc: "可在这里安排节奏、处理提醒、检查订阅和查看复盘进度。",
+    primaryAction: { type: "route", value: "/news", label: "去看午盘资讯" },
+    secondaryAction: { type: "module", value: "subscription", label: "管理订阅频率" }
+  };
+});
+
+const profileCadenceEntries = computed(() => {
+  if (isPaidPendingKYC.value) {
+    return [
+      {
+        slot: "08:30",
+        title: "先把实名激活动作补齐",
+        desc: "完整主推荐解释链会在实名通过后开启，先把激活动作放在今天的第一步。",
+        highlight: "入口：个人中心 VIP 模块",
+        supporting: `实名状态 ${displayProfile.value.kycStatus}`,
+        primaryAction: {
+          type: "module",
+          value: "vip",
+          label: currentKYCStatusRaw.value === "PENDING" ? "查看激活进度" : "提交实名信息"
+        },
+        secondaryAction: { type: "route", value: "/strategies", label: "先看公开主推荐" }
+      },
+      {
+        slot: "11:30",
+        title: "午盘继续看公开资讯",
+        desc: `当前有效订阅 ${activeSubscriptionCount.value} 项，实名完成前仍可先用公开资讯查看盘中变化。`,
+        highlight: "入口：资讯页",
+        supporting: "高级资讯权限待实名后激活",
+        primaryAction: { type: "route", value: "/news", label: "进入资讯页" },
+        secondaryAction: { type: "module", value: "subscription", label: "调整订阅" }
+      },
+      {
+        slot: "15:30",
+        title: "先保留收盘后的回访习惯",
+        desc:
+          unreadMessageCount.value > 0
+            ? `先去我的关注，再回来处理 ${unreadMessageCount.value} 条通知，避免节奏断掉。`
+            : "先去我的关注保留收盘回访习惯，等实名后再接回完整解释能力。",
+        highlight: "入口：我的关注",
+        supporting: "高级跟踪能力待实名后激活",
+        primaryAction: { type: "route", value: "/watchlist", label: "进入我的关注" },
+        secondaryAction: { type: "module", value: "message", label: "处理通知" }
+      },
+      {
+        slot: "周末",
+        title: "先用公开样本继续复盘",
+        desc: "周末先去历史档案看公开兑现样本，再回个人中心确认实名激活进度。",
+        highlight: "入口：历史档案",
+        supporting: `支付 ${paymentRecords.value.length} 条 · 激活状态 ${activationStateLabel.value}`,
+        primaryAction: { type: "route", value: "/archive", label: "进入历史档案" },
+        secondaryAction: { type: "module", value: "vip", label: "回看激活状态" }
+      }
+    ];
+  }
+
+  return [
+    {
+      slot: "08:30",
+      title: "开盘前看主推荐",
+      desc: isVIPActive.value
+        ? "先去策略页确认今日主推，再回个人中心确认会员状态和剩余有效期。"
+        : "先用公开主推荐建立每日首访理由，看完再评估是否升级。",
+      highlight: "入口：策略页",
+      supporting: `${vipInfo.value.level} · ${vipInfo.value.status}`,
+      primaryAction: { type: "route", value: "/strategies", label: "进入策略页" },
+      secondaryAction: { type: "module", value: "vip", label: "查看 VIP 情况" }
+    },
+    {
+      slot: "11:30",
+      title: "午盘回来看资讯",
+      desc: `当前有效订阅 ${activeSubscriptionCount.value} 项，可先用资讯页查看盘中变化，再回这里调订阅频率。`,
+      highlight: "入口：资讯页",
+      supporting: `订阅 ${activeSubscriptionCount.value} 项`,
+      primaryAction: { type: "route", value: "/news", label: "进入资讯页" },
+      secondaryAction: { type: "module", value: "subscription", label: "调整订阅" }
+    },
+    {
+      slot: "15:30",
+      title: "收盘回关注清单",
+      desc:
+        unreadMessageCount.value > 0
+          ? `收盘后先去我的关注，再回来处理 ${unreadMessageCount.value} 条未读通知，形成闭环。`
+          : "收盘后先去我的关注看跟踪结果，再回个人中心补齐消息和阅读记录。",
+      highlight: "入口：我的关注",
+      supporting: `未读通知 ${unreadMessageCount.value} 条`,
+      primaryAction: { type: "route", value: "/watchlist", label: "进入我的关注" },
+      secondaryAction: { type: "module", value: "message", label: "处理通知" }
+    },
+    {
+      slot: "周末",
+      title: "做周度复盘",
+      desc: "周末先去历史档案看推荐兑现，再回个人中心检查支付、邀请和账户投入产出。",
+      highlight: "入口：历史档案",
+      supporting: `支付 ${paymentRecords.value.length} 条 · 邀请 ${inviteRecords.value.length} 条`,
+      primaryAction: { type: "route", value: "/archive", label: "进入历史档案" },
+      secondaryAction: {
+        type: "module",
+        value: pendingPaymentCount.value > 0 ? "payment" : "invite",
+        label: pendingPaymentCount.value > 0 ? "回看支付明细" : "查看邀请复盘"
+      }
+    }
+  ];
+});
+
 const otherInfos = computed(() => [
   {
     title: "账户基础信息",
@@ -791,6 +1252,8 @@ const otherInfos = computed(() => [
     title: "会员与配额",
     rows: [
       { key: "会员等级", value: vipInfo.value.level },
+      { key: "激活状态", value: activationStateLabel.value },
+      { key: "实名状态", value: displayProfile.value.kycStatus },
       { key: "文档配额剩余", value: `${rawQuota.value?.doc_read_remaining ?? 0}` },
       { key: "资讯订阅剩余", value: `${rawQuota.value?.news_subscribe_remaining ?? 0}` }
     ]
@@ -817,13 +1280,194 @@ const otherInfos = computed(() => [
 ]);
 
 const todos = computed(() => [
-  { title: "开启二次验证", note: "建议 24 小时内完成", level: "high" },
+  pendingPaymentCount.value > 0
+    ? {
+        title: "完成待支付订单",
+        note: `当前还有 ${pendingPaymentCount.value} 笔订单处理中，建议优先处理。`,
+        level: "high",
+        actionLabel: "去会员中心",
+        action: { type: "route", value: "/membership" }
+      }
+    : isPaidPendingKYC.value
+      ? {
+          title: "完成实名激活",
+          note: activationPromptDesc.value,
+          level: "high",
+          actionLabel: currentKYCStatusRaw.value === "PENDING" ? "查看激活进度" : "提交实名信息",
+          action: { type: "module", value: "vip" }
+        }
+    : {
+        title: isVIPActive.value ? "确认会员有效期" : "完成会员升级决策",
+        note: isVIPActive.value
+          ? `当前 ${vipInfo.value.status}，剩余 ${vipInfo.value.remainingDays} 天。`
+          : "先跑一轮完整节奏，再决定是否升级会员。",
+        level: "high",
+        actionLabel: isVIPActive.value ? "查看 VIP 情况" : "查看套餐方案",
+        action: { type: isVIPActive.value ? "module" : "route", value: isVIPActive.value ? "vip" : "/membership" }
+      },
   {
-    title: "检查订阅自动续费",
-    note: `当前有效订阅 ${subscriptionItems.value.filter((item) => item.status === "生效中").length} 项`,
-    level: "mid"
+    title: "检查订阅节奏",
+    note: `当前有效订阅 ${activeSubscriptionCount.value} 项，确认午盘和周末频率是否匹配。`,
+    level: "mid",
+    actionLabel: "管理订阅",
+    action: { type: "module", value: "subscription" }
   },
-  { title: "导出支付与阅读记录", note: "可用于周度复盘和对账", level: "low" }
+  {
+    title: unreadMessageCount.value > 0 ? "清理未读通知" : "回顾阅读记录",
+    note:
+      unreadMessageCount.value > 0
+        ? `还有 ${unreadMessageCount.value} 条未读，适合在收盘后一并处理。`
+        : `当前范围内累计阅读 ${readingLogs.value.length} 条，可用于周度复盘。`,
+    level: "low",
+    actionLabel: unreadMessageCount.value > 0 ? "处理通知" : "查看阅读情况",
+    action: { type: "module", value: unreadMessageCount.value > 0 ? "message" : "reading" }
+  }
+]);
+
+const quickActions = computed(() => [
+  {
+    title: "会员权益中心",
+    desc: isPaidPendingKYC.value
+      ? `当前 ${vipInfo.value.level} 已开通，但还在等待实名激活。`
+      : isVIPActive.value
+        ? `当前 ${vipInfo.value.level} 生效中，适合随时检查续费和权益。`
+      : "当前还没进入会员节奏，先看方案与权益差异。",
+    actionLabel: isPaidPendingKYC.value ? "完成实名激活" : isVIPActive.value ? "查看会员页" : "去升级会员",
+    action: isPaidPendingKYC.value ? { type: "module", value: "vip" } : { type: "route", value: "/membership" }
+  },
+  {
+    title: "午盘订阅设置",
+    desc: `有效订阅 ${activeSubscriptionCount.value} 项，把盘中提醒压缩成可执行节奏。`,
+    actionLabel: "调整订阅",
+    action: { type: "module", value: "subscription" }
+  },
+  {
+    title: "通知与消息",
+    desc: unreadMessageCount.value > 0 ? `当前未读 ${unreadMessageCount.value} 条。` : "当前消息已清空，继续保持。",
+    actionLabel: "查看消息",
+    action: { type: "module", value: "message" }
+  },
+  {
+    title: "邀请与分享",
+    desc: `分享链接 ${shareLinks.value.length} 条，邀请记录 ${inviteRecords.value.length} 条。`,
+    actionLabel: "查看邀请关系",
+    action: { type: "module", value: "invite" }
+  }
+]);
+const profileOutstandingCount = computed(() => {
+  let count = 0;
+  if (pendingPaymentCount.value > 0) count += 1;
+  if (isPaidPendingKYC.value) count += 1;
+  if (!isVIPActive.value) count += 1;
+  if (unreadMessageCount.value > 0) count += 1;
+  return count;
+});
+const profileOverviewRows = computed(() => [
+  {
+    label: "会员身份",
+    value: vipInfo.value.level,
+    note: `${vipInfo.value.status} · ${activationStateLabel.value}`
+  },
+  {
+    label: "今日重点",
+    value: profileRhythmStatus.value.eyebrow,
+    note: profileRhythmStatus.value.title
+  },
+  {
+    label: "待处理事项",
+    value: `${profileOutstandingCount.value} 项`,
+    note:
+      profileOutstandingCount.value > 0
+        ? "先把支付、实名、未读消息等阻塞清掉，再进入查询中心逐项核对。"
+        : "当前主要阻塞已清空，可以直接按今日节奏执行。"
+  },
+  {
+    label: "当前查询",
+    value: currentModule.value.label,
+    note: `时间范围 ${activeRange.value} · 最近更新 ${lastUpdatedAt.value || "-"}`
+  }
+]);
+const profileGuideRows = computed(() => [
+  {
+    title: "先看今日重点",
+    desc: "先确认今天最重要的账户事项，再进入各模块查看明细。"
+  },
+  {
+    title: "状态清晰",
+    desc: "待支付、待实名激活、未读通知、未开通会员等状态都会明确显示。"
+  },
+  {
+    title: "常用入口集中",
+    desc: "可从这里继续前往会员页、资讯页、关注页和历史档案页。"
+  }
+]);
+const profileAccountSummaryRows = computed(() => [
+  { label: "账户身份", value: `${displayProfile.value.name} · ${vipInfo.value.level}` },
+  { label: "会员状态", value: `${vipInfo.value.status} · 到期 ${vipInfo.value.expireAt}` },
+  { label: "实名状态", value: `${displayProfile.value.kycStatus} · ${activationStateLabel.value}` },
+  { label: "消息与订阅", value: `未读 ${unreadMessageCount.value} 条 · 生效订阅 ${activeSubscriptionCount.value} 项` }
+]);
+const profilePendingRows = computed(() => {
+  const rows = [];
+  if (pendingPaymentCount.value > 0) {
+    rows.push({
+      title: "先处理待支付订单",
+      desc: `当前还有 ${pendingPaymentCount.value} 笔订单处理中，建议先回会员中心完成支付。`
+    });
+  }
+  if (isPaidPendingKYC.value) {
+    rows.push({
+      title: "完成实名激活",
+      desc: activationPromptDesc.value
+    });
+  }
+  if (unreadMessageCount.value > 0) {
+    rows.push({
+      title: "统一处理未读通知",
+      desc: `还有 ${unreadMessageCount.value} 条未读消息，适合在收盘后一次清掉。`
+    });
+  }
+  if (!isVIPActive.value) {
+    rows.push({
+      title: "确认是否进入会员节奏",
+      desc: "先跑完今日公开节奏，再决定是否升级会员能力。"
+    });
+  }
+  if (rows.length < 3) {
+    rows.push({
+      title: "管理订阅频率",
+      desc: `当前有效订阅 ${activeSubscriptionCount.value} 项，可继续调整午盘和周末提醒节奏。`
+    });
+  }
+  if (rows.length < 3) {
+    rows.push({
+      title: "回看查询中心",
+      desc: `当前查询聚焦 ${currentModule.value.label}，可继续核对 ${activeRange.value} 范围内的数据。`
+    });
+  }
+  return rows.slice(0, 3);
+});
+const profileStatusRows = computed(() => [
+  {
+    label: "会员有效期",
+    value: vipInfo.value.expireAt,
+    note: `剩余 ${vipInfo.value.remainingDays} 天`
+  },
+  {
+    label: "实名进度",
+    value: displayProfile.value.kycStatus,
+    note: isPaidPendingKYC.value ? activationPromptDesc.value : "当前实名状态不阻塞高级能力。"
+  },
+  {
+    label: "未读通知",
+    value: `${unreadMessageCount.value} 条`,
+    note: unreadMessageCount.value > 0 ? "建议在 15:30 和收盘后统一处理。" : "当前通知已清空，可继续保持。"
+  },
+  {
+    label: "订阅与邀请",
+    value: `${activeSubscriptionCount.value} 项订阅 / ${shareLinks.value.length} 条分享`,
+    note: `邀请记录 ${inviteRecords.value.length} 条，可在查询中心继续核对。`
+  }
 ]);
 
 async function loadUserCenterData() {
@@ -1043,6 +1687,45 @@ async function handleReadMessage(item) {
   }
 }
 
+async function handleSubmitKYC() {
+  if (!canSubmitKYC.value || kycSubmitting.value) {
+    return;
+  }
+  const payload = {
+    real_name: String(kycForm.value.real_name || "").trim(),
+    id_number: String(kycForm.value.id_number || "").trim()
+  };
+  if (!payload.real_name || !payload.id_number) {
+    kycActionError.value = "请先填写真实姓名和身份证号";
+    kycActionMessage.value = "";
+    return;
+  }
+  kycSubmitting.value = true;
+  kycActionMessage.value = "";
+  kycActionError.value = "";
+  try {
+    const result = await submitKYC(payload);
+    const nextStatus = String(result?.kyc_status || "PENDING").toUpperCase();
+    rawProfile.value = {
+      ...rawProfile.value,
+      kyc_status: nextStatus
+    };
+    rawQuota.value = {
+      ...rawQuota.value,
+      kyc_status: nextStatus
+    };
+    kycActionMessage.value =
+      nextStatus === "PENDING"
+        ? "实名材料已提交，审核通过后会自动激活高级权益。"
+        : `实名状态已更新为 ${mapKYCStatus(nextStatus)}`;
+    await loadUserCenterData();
+  } catch (error) {
+    kycActionError.value = error?.message || "提交实名失败";
+  } finally {
+    kycSubmitting.value = false;
+  }
+}
+
 async function refreshSubscriptions() {
   const subscriptionData = await listSubscriptions({ page: 1, page_size: 50 });
   applySubscriptionItems(toArray(subscriptionData?.items, rawSubscriptions.value));
@@ -1194,7 +1877,37 @@ function formatDuration(secondsValue) {
 }
 
 function openSecurityPanel() {
-  activeModule.value = "other";
+  focusModule("other");
+}
+
+function handleAction(action) {
+  if (!action?.type) {
+    return;
+  }
+  if (action.type === "route") {
+    goToRoute(action.value);
+    return;
+  }
+  if (action.type === "module") {
+    focusModule(action.value);
+  }
+}
+
+function goToRoute(path) {
+  if (!path) {
+    return;
+  }
+  router.push(path);
+}
+
+function focusModule(moduleKey) {
+  if (moduleKey) {
+    activeModule.value = moduleKey;
+  }
+  scrollToQueryCard();
+}
+
+function scrollToQueryCard() {
   if (typeof window === "undefined") {
     return;
   }
@@ -1215,6 +1928,10 @@ onMounted(() => {
   gap: 12px;
 }
 
+.profile-page > * {
+  min-width: 0;
+}
+
 .account-card {
   border-radius: 20px;
   padding: 15px;
@@ -1223,22 +1940,29 @@ onMounted(() => {
   gap: 10px;
   align-items: center;
   background:
-    radial-gradient(circle at 100% 0%, rgba(63, 127, 113, 0.16) 0%, transparent 36%),
-    radial-gradient(circle at 0% 100%, rgba(234, 215, 180, 0.2) 0%, transparent 34%),
+    radial-gradient(circle at 100% 0%, var(--color-focus-glow) 0%, transparent 36%),
+    radial-gradient(circle at 0% 100%, var(--color-line-gold-soft) 0%, transparent 34%),
     rgba(255, 255, 255, 0.93);
+}
+
+.section-kicker {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-pine-600);
 }
 
 .identity {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .avatar {
   width: 58px;
   height: 58px;
   border-radius: 16px;
-  background: linear-gradient(145deg, var(--color-pine-700), var(--color-pine-500));
+  background: var(--gradient-primary);
   color: #fff;
   font-size: 24px;
   font-family: var(--font-serif);
@@ -1250,6 +1974,8 @@ onMounted(() => {
 h1 {
   margin: 0;
   font-size: 24px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .identity p {
@@ -1264,21 +1990,153 @@ h1 {
 }
 
 .actions button {
-  border: 0;
-  border-radius: 10px;
-  padding: 9px 12px;
-  cursor: pointer;
-  font-weight: 600;
+  width: auto;
 }
 
 .actions .primary {
   color: #fff;
-  background: linear-gradient(145deg, var(--color-pine-700), var(--color-pine-500));
 }
 
 .actions .ghost {
   color: var(--color-pine-700);
-  background: rgba(239, 232, 218, 0.82);
+}
+
+.profile-focus-actions button {
+  width: auto;
+}
+
+.profile-focus-actions .primary {
+  color: #fff;
+}
+
+.profile-focus-actions .ghost {
+  color: var(--color-pine-700);
+}
+
+.profile-overview-grid article,
+.profile-guide-grid article,
+.profile-side-list article,
+.profile-status-grid article {
+  min-width: 0;
+}
+
+.profile-overview-grid p,
+.profile-overview-grid strong,
+.profile-overview-grid span,
+.profile-guide-grid strong,
+.profile-guide-grid p,
+.profile-side-list strong,
+.profile-side-list p,
+.profile-status-grid p,
+.profile-status-grid strong,
+.profile-status-grid span {
+  margin: 0;
+}
+
+.profile-overview-grid p,
+.profile-status-grid p {
+  font-size: 12px;
+  color: var(--color-text-sub);
+}
+
+.profile-overview-grid strong,
+.profile-guide-grid strong,
+.profile-side-list strong,
+.profile-status-grid strong {
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--color-pine-700);
+}
+
+.profile-overview-grid span,
+.profile-guide-grid p,
+.profile-side-list p,
+.profile-status-grid span {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--color-text-sub);
+}
+
+.rhythm-card {
+  padding: 14px;
+}
+
+.rhythm-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.rhythm-pill {
+  min-width: 200px;
+}
+
+.rhythm-pill p,
+.rhythm-pill small {
+  margin: 0;
+}
+
+.rhythm-pill strong {
+  margin: 4px 0;
+}
+
+.rhythm-grid {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.rhythm-item {
+  display: grid;
+  gap: 8px;
+}
+
+.rhythm-slot {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--color-pine-700);
+}
+
+.rhythm-item h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.rhythm-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-sub);
+}
+
+.rhythm-tags {
+  display: grid;
+  gap: 6px;
+}
+
+.rhythm-actions {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rhythm-actions button {
+  width: 100%;
+}
+
+.rhythm-actions button:not(.ghost) {
+  color: #fff;
+}
+
+.rhythm-actions .ghost {
+  color: var(--color-pine-700);
 }
 
 .query-card {
@@ -1290,6 +2148,7 @@ h1 {
   grid-template-columns: 1fr auto;
   align-items: end;
   gap: 10px;
+  min-width: 0;
 }
 
 .range-switch {
@@ -1298,19 +2157,12 @@ h1 {
 }
 
 .range-switch button {
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(252, 251, 247, 0.9);
-  color: var(--color-text-sub);
-  border-radius: 9px;
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: 12px;
+  flex-shrink: 0;
 }
 
 .range-switch button.active {
-  color: #fff;
-  border-color: transparent;
-  background: linear-gradient(145deg, var(--color-pine-700), var(--color-pine-500));
+  border-color: var(--color-border-focus-medium);
+  box-shadow: inset 0 0 0 1px var(--color-focus-fill);
 }
 
 .query-nav {
@@ -1321,51 +2173,27 @@ h1 {
 }
 
 .query-nav button {
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(252, 251, 247, 0.9);
-  border-radius: 11px;
-  padding: 9px 12px;
-  cursor: pointer;
-  font-weight: 600;
-  color: var(--color-text-sub);
+  text-align: left;
 }
 
 .query-nav button.active {
-  color: #fff;
-  border-color: transparent;
-  background: linear-gradient(145deg, var(--color-pine-700), var(--color-pine-500));
+  border-color: var(--color-border-focus-medium);
+  box-shadow: inset 0 0 0 1px var(--color-focus-fill);
 }
 
 .query-tip {
   margin-top: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  border-radius: 10px;
-  border: 1px dashed rgba(216, 223, 216, 0.95);
-  background: rgba(246, 244, 239, 0.76);
-  padding: 8px 10px;
 }
 
 .query-tip p {
-  margin: 0;
-  font-size: 12px;
-  color: var(--color-text-sub);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .state-box {
   margin-top: 10px;
-  border-radius: 10px;
-  padding: 8px 10px;
-  font-size: 12px;
-  color: var(--color-pine-700);
-  background: rgba(223, 236, 230, 0.66);
-}
-
-.state-box.warning {
-  color: #7f5f36;
-  background: rgba(234, 215, 180, 0.56);
 }
 
 .query-body {
@@ -1382,8 +2210,8 @@ h1 {
 
 .vip-main {
   border-radius: 13px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: linear-gradient(160deg, rgba(36, 83, 73, 0.95), rgba(45, 109, 95, 0.95));
+  border: 1px solid var(--color-border-soft);
+  background: linear-gradient(160deg, rgba(19, 54, 103, 0.95), rgba(30, 83, 161, 0.95));
   color: #f5faf7;
   padding: 12px;
 }
@@ -1391,7 +2219,7 @@ h1 {
 .vip-level {
   margin: 0;
   font-size: 12px;
-  color: rgba(245, 250, 247, 0.76);
+  color: rgba(248, 251, 255, 0.76);
 }
 
 .vip-main h3 {
@@ -1404,7 +2232,7 @@ h1 {
 .vip-main p {
   margin: 0;
   font-size: 13px;
-  color: rgba(245, 250, 247, 0.82);
+  color: rgba(248, 251, 255, 0.82);
 }
 
 .summary-grid {
@@ -1414,10 +2242,7 @@ h1 {
 }
 
 .summary-grid article {
-  border-radius: 11px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(255, 255, 255, 0.9);
-  padding: 9px;
+  min-width: 0;
 }
 
 .summary-grid p {
@@ -1440,10 +2265,7 @@ h1 {
 }
 
 .benefits-grid article {
-  border-radius: 11px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
+  min-width: 0;
 }
 
 .benefits-grid h4 {
@@ -1458,52 +2280,100 @@ h1 {
   line-height: 1.55;
 }
 
-.payment-table-wrap {
-  overflow-x: auto;
+.activation-panel {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.activation-copy,
+.activation-form-wrap {
+  min-width: 0;
+}
+
+.activation-copy h4 {
+  margin: 6px 0 0;
+  font-size: 16px;
+  color: var(--color-pine-700);
+}
+
+.activation-copy p:last-of-type {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-sub);
+}
+
+.activation-tags {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kyc-form {
+  display: grid;
+  gap: 10px;
+}
+
+.kyc-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text-sub);
+}
+
+.kyc-form input {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(176, 188, 208, 0.92);
+  padding: 10px 12px;
+  font: inherit;
+  background: var(--color-surface-card-elevated);
+  color: var(--color-text-main);
+}
+
+.kyc-form button {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  background: var(--gradient-primary);
+}
+
+.kyc-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 
 .payment-table {
-  width: 100%;
-  border-collapse: collapse;
   min-width: 760px;
 }
 
-.payment-table th,
-.payment-table td {
-  border-bottom: 1px solid rgba(216, 223, 216, 0.75);
-  padding: 9px 8px;
-  text-align: left;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.payment-table th {
-  font-size: 12px;
-  color: var(--color-text-sub);
-  background: rgba(246, 244, 239, 0.72);
-}
-
 .status {
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 11px;
+  font-weight: 700;
 }
 
 .status.success {
-  color: var(--color-pine-700);
-  background: rgba(223, 236, 230, 0.72);
+  color: var(--color-success);
+  background: rgba(201, 229, 211, 0.72);
+  border-color: rgba(46, 125, 50, 0.16);
 }
 
 .status.pending {
-  color: #775325;
-  background: rgba(234, 215, 180, 0.72);
+  color: var(--color-warning);
+  background: rgba(243, 228, 194, 0.84);
+  border-color: rgba(184, 130, 48, 0.16);
 }
 
 .status.refund,
 .status.inactive,
 .status.fail {
-  color: #8a3c2f;
-  background: rgba(230, 194, 185, 0.62);
+  color: var(--color-danger);
+  background: rgba(237, 198, 190, 0.68);
+  border-color: rgba(178, 58, 42, 0.14);
 }
 
 .payment-mobile {
@@ -1517,10 +2387,7 @@ h1 {
 .other-grid article,
 .todo-card li,
 .quick-item {
-  border-radius: 11px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
+  min-width: 0;
 }
 
 .top-line {
@@ -1528,27 +2395,18 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
 }
 
 .top-line p {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .top-line span {
-  font-size: 12px;
-  color: var(--color-text-sub);
-}
-
-.meta-line {
-  margin-top: 6px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.meta-line span {
   font-size: 12px;
   color: var(--color-text-sub);
 }
@@ -1583,16 +2441,10 @@ h1 {
 }
 
 .message-actions button {
-  border: 0;
-  border-radius: 8px;
-  padding: 7px 12px;
-  cursor: pointer;
-  color: var(--color-pine-700);
-  background: rgba(223, 236, 230, 0.72);
+  flex-shrink: 0;
 }
 
 .message-actions button:disabled {
-  cursor: not-allowed;
   opacity: 0.72;
 }
 
@@ -1604,10 +2456,6 @@ h1 {
 
 .subscription-create {
   margin-bottom: 8px;
-  border-radius: 11px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(246, 244, 239, 0.78);
-  padding: 10px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
@@ -1624,7 +2472,7 @@ h1 {
 .subscription-create select,
 .subscription-create input {
   border-radius: 8px;
-  border: 1px solid rgba(216, 223, 216, 0.95);
+  border: 1px solid var(--color-border-soft-heavy);
   background: #fff;
   padding: 7px 8px;
   color: var(--color-text-main);
@@ -1635,17 +2483,10 @@ h1 {
 }
 
 .subscription-create button {
-  border: 0;
-  border-radius: 10px;
-  padding: 9px 12px;
-  cursor: pointer;
-  color: #fff;
-  font-weight: 600;
-  background: linear-gradient(145deg, var(--color-pine-700), var(--color-pine-500));
+  justify-self: stretch;
 }
 
 .subscription-create button:disabled {
-  cursor: not-allowed;
   opacity: 0.72;
 }
 
@@ -1654,6 +2495,7 @@ h1 {
   display: flex;
   align-items: flex-end;
   gap: 8px;
+  min-width: 0;
 }
 
 .invite-create label {
@@ -1665,38 +2507,26 @@ h1 {
 
 .invite-create select {
   border-radius: 8px;
-  border: 1px solid rgba(216, 223, 216, 0.95);
+  border: 1px solid var(--color-border-soft-heavy);
   background: #fff;
   padding: 7px 8px;
   color: var(--color-text-main);
 }
 
 .invite-create button {
-  border: 0;
-  border-radius: 9px;
-  padding: 8px 11px;
-  color: #fff;
-  cursor: pointer;
-  background: linear-gradient(145deg, var(--color-pine-700), var(--color-pine-500));
+  flex-shrink: 0;
 }
 
 .invite-create button:disabled {
   opacity: 0.72;
-  cursor: not-allowed;
 }
 
 .invite-link-row button {
-  border: 0;
-  border-radius: 8px;
-  padding: 5px 8px;
-  color: var(--color-pine-700);
-  background: rgba(223, 236, 230, 0.72);
-  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .invite-link-row button:disabled {
   opacity: 0.72;
-  cursor: not-allowed;
 }
 
 .subscription-item .desc {
@@ -1710,26 +2540,18 @@ h1 {
   margin-top: 10px;
   display: flex;
   gap: 8px;
+  min-width: 0;
 }
 
 .subscription-item button {
   flex: 1;
-  border: 0;
-  border-radius: 10px;
-  padding: 8px 10px;
-  cursor: pointer;
-  color: #fff;
-  font-weight: 600;
-  background: linear-gradient(145deg, var(--color-pine-700), var(--color-pine-500));
 }
 
 .subscription-item button.secondary {
   color: var(--color-pine-700);
-  background: rgba(223, 236, 230, 0.72);
 }
 
 .subscription-item button:disabled {
-  cursor: not-allowed;
   opacity: 0.72;
 }
 
@@ -1758,11 +2580,15 @@ h1 {
   gap: 8px;
   font-size: 12px;
   color: var(--color-text-sub);
+  min-width: 0;
 }
 
 .kv-list strong {
   color: var(--color-text-main);
   font-size: 13px;
+  text-align: right;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .bottom-grid {
@@ -1786,8 +2612,9 @@ h1 {
 
 .todo-card li {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   gap: 8px;
+  align-items: center;
 }
 
 .dot {
@@ -1798,15 +2625,15 @@ h1 {
 }
 
 .dot.high {
-  background: #e8c07d;
+  background: var(--color-priority-high);
 }
 
 .dot.mid {
-  background: #90d0bd;
+  background: var(--color-priority-mid);
 }
 
 .dot.low {
-  background: #bcd7cf;
+  background: var(--color-priority-low);
 }
 
 .title {
@@ -1840,16 +2667,41 @@ h1 {
   line-height: 1.56;
 }
 
+.todo-actions,
+.quick-item button {
+  justify-self: end;
+}
+
+.todo-actions button,
+.quick-item button {
+  flex-shrink: 0;
+}
+
+.quick-item button {
+  margin-top: 10px;
+}
+
 @media (max-width: 1080px) {
+  .profile-focus-head,
+  .profile-guide-grid {
+    grid-template-columns: 1fr;
+  }
+
   .query-nav {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .rhythm-head {
+    grid-template-columns: 1fr;
   }
 
   .subscription-create {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .rhythm-grid,
   .vip-panel,
+  .activation-panel,
   .subscription-grid,
   .other-grid {
     grid-template-columns: 1fr;
@@ -1862,25 +2714,68 @@ h1 {
 
 @media (max-width: 980px) {
   .account-card,
+  .profile-workbench-layout,
   .query-head,
   .bottom-grid {
     grid-template-columns: 1fr;
   }
+
+  .profile-side-rail {
+    position: static;
+  }
 }
 
 @media (max-width: 760px) {
+  .account-card,
+  .profile-focus-card,
+  .profile-side-card,
+  .rhythm-card,
+  .query-card,
+  .todo-card,
+  .quick-card {
+    border-radius: 14px;
+    padding: 12px;
+  }
+
   .identity {
     align-items: flex-start;
+    gap: 8px;
+  }
+
+  .avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 14px;
+    font-size: 21px;
+  }
+
+  h1 {
+    font-size: 20px;
   }
 
   .identity p {
     line-height: 1.5;
+    font-size: 12px;
   }
 
   .actions {
     width: 100%;
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .actions button {
+    width: 100%;
+    padding: 8px 10px;
+  }
+
+  .profile-focus-actions {
+    justify-content: stretch;
+  }
+
+  .profile-focus-actions button {
+    width: 100%;
   }
 
   .range-switch,
@@ -1899,16 +2794,29 @@ h1 {
   .range-switch button,
   .query-nav button {
     flex: 0 0 auto;
-    min-width: 92px;
+    min-width: 86px;
+    padding: 8px 10px;
   }
 
   .query-tip {
     flex-direction: column;
     align-items: flex-start;
+    gap: 4px;
+  }
+
+  .vip-main h3 {
+    font-size: 20px;
+  }
+
+  .summary-grid strong {
+    font-size: 17px;
   }
 
   .summary-grid,
   .benefits-grid,
+  .activation-panel,
+  .profile-overview-grid,
+  .profile-status-grid,
   .quick-grid {
     grid-template-columns: 1fr;
   }
@@ -1923,6 +2831,47 @@ h1 {
 
   .subscription-actions {
     flex-direction: column;
+  }
+
+  .invite-create {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .invite-create button {
+    width: 100%;
+  }
+
+  .top-line {
+    align-items: flex-start;
+  }
+
+  .top-line span {
+    flex-shrink: 0;
+  }
+
+  .kv-list p {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .kv-list strong {
+    text-align: left;
+  }
+
+  .todo-card li {
+    grid-template-columns: auto 1fr;
+  }
+
+  .todo-actions {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
+  .todo-actions button,
+  .quick-item button {
+    width: 100%;
   }
 
   .payment-table-wrap {

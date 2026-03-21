@@ -35,12 +35,16 @@ type GrowthService interface {
 	GetStockRecommendationDetail(userID string, recoID string) (model.StockRecommendationDetail, error)
 	GetStockRecommendationPerformance(userID string, recoID string) ([]model.RecommendationPerformancePoint, error)
 	GetStockRecommendationInsight(userID string, recoID string) (model.StockRecommendationInsight, error)
+	GetStockRecommendationVersionHistory(userID string, recoID string) ([]model.StrategyVersionHistoryItem, error)
 	ListFuturesStrategies(userID string, contract string, status string, page int, pageSize int) ([]model.FuturesStrategy, int, error)
 	GetFuturesStrategyDetail(userID string, strategyID string) (model.FuturesStrategy, error)
 	GetFuturesStrategyInsight(userID string, strategyID string) (model.FuturesStrategyInsight, error)
+	GetFuturesStrategyVersionHistory(userID string, strategyID string) ([]model.StrategyVersionHistoryItem, error)
 	ListMembershipProducts(status string, page int, pageSize int) ([]model.MembershipProduct, int, error)
 	CreateMembershipOrder(userID string, productID string, payChannel string) (model.MembershipOrderAdmin, error)
 	ListMembershipOrders(userID string, status string, page int, pageSize int) ([]model.MembershipOrderAdmin, int, error)
+	TrackExperimentEvent(item model.ExperimentEvent) error
+	BindMembershipOrderExperiment(orderNo string, item model.ExperimentOrderAttribution) error
 	GetRewardWallet(userID string) (model.RewardWallet, error)
 	ListRewardWalletTxns(userID string, page int, pageSize int) ([]model.RewardWalletTxn, int, error)
 	CreateWithdrawRequest(userID string, amount float64) (string, error)
@@ -82,20 +86,72 @@ type GrowthService interface {
 	AdminCreateStockRecommendation(item model.StockRecommendation) (string, error)
 	AdminUpdateStockRecommendationStatus(id string, status string) error
 	AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error)
+	AdminSyncStockQuotesDetailed(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
+	AdminSyncFuturesQuotes(sourceKey string, contracts []string, days int) (model.MarketSyncResult, error)
+	AdminSyncFuturesInventory(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
+	AdminSyncMarketNews(sourceKey string, symbols []string, days int, limit int) (model.MarketSyncResult, error)
+	BuildStrategyEngineStockSelectionContext(input model.StrategyEngineStockSelectionContextRequest) (model.StrategyEngineStockSelectionContextResponse, error)
+	BuildStrategyEngineFuturesStrategyContext(input model.StrategyEngineFuturesStrategyContextRequest) (model.StrategyEngineFuturesStrategyContextResponse, error)
 	AdminSyncDocFastNewsIncremental(batchSize int) (string, error)
 	AdminSyncTushareNewsIncremental(batchSize int) (string, error)
 	AdminSyncTushareNewsIncrementalWithOptions(opts model.TushareNewsSyncOptions) (string, []model.NewsSyncRunDetail, error)
 	AdminRunVIPMembershipLifecycle() (string, error)
 	AdminGetQuantTopStocks(limit int, lookbackDays int) ([]model.StockQuantScore, error)
 	AdminGetQuantEvaluation(windowDays int, topN int) (model.StockQuantEvaluationSummary, []model.StockQuantEvaluationPoint, []model.StockQuantRiskPerformance, []model.StockQuantRotationPoint, error)
-	AdminGenerateDailyStockRecommendations(tradeDate string) (int, error)
-	AdminGenerateDailyFuturesStrategies(tradeDate string) (int, error)
+	AdminGenerateDailyStockRecommendations(tradeDate string) (model.AdminDailyStockRecommendationGenerationResult, error)
+	AdminGetStockSelectionOverview() (model.AdminStockSelectionOverview, error)
+	AdminListStockSelectionRuns(status string, reviewStatus string, profileID string, page int, pageSize int) ([]model.StockSelectionRun, int, error)
+	AdminCreateStockSelectionRun(input model.StockSelectionRunCreateRequest, operator string) (model.StockSelectionRun, error)
+	AdminGetStockSelectionRun(runID string) (model.StockSelectionRun, error)
+	AdminCompareStockSelectionRuns(runIDs []string) (model.StockSelectionRunCompareResult, error)
+	AdminListStockSelectionProfiles(status string, page int, pageSize int) ([]model.StockSelectionProfile, int, error)
+	AdminListStockSelectionProfileVersions(profileID string) ([]model.StockSelectionProfileVersion, error)
+	AdminCreateStockSelectionProfile(item model.StockSelectionProfile, changeNote string) (model.StockSelectionProfile, error)
+	AdminUpdateStockSelectionProfile(id string, item model.StockSelectionProfile, changeNote string) (model.StockSelectionProfile, error)
+	AdminPublishStockSelectionProfile(id string, operator string) (model.StockSelectionProfile, error)
+	AdminRollbackStockSelectionProfile(id string, versionNo int, changeNote string, operator string) (model.StockSelectionProfile, error)
+	AdminListStockSelectionProfileTemplates(status string, page int, pageSize int) ([]model.StockSelectionProfileTemplate, int, error)
+	AdminCreateStockSelectionProfileTemplate(item model.StockSelectionProfileTemplate) (model.StockSelectionProfileTemplate, error)
+	AdminUpdateStockSelectionProfileTemplate(id string, item model.StockSelectionProfileTemplate) (model.StockSelectionProfileTemplate, error)
+	AdminSetDefaultStockSelectionProfileTemplate(id string, operator string) (model.StockSelectionProfileTemplate, error)
+	AdminListStockSelectionRunCandidates(runID string) ([]model.StockSelectionCandidateSnapshot, error)
+	AdminListStockSelectionRunPortfolio(runID string) ([]model.StockSelectionPortfolioEntry, error)
+	AdminListStockSelectionRunEvidence(runID string, symbol string) ([]model.StockSelectionRunEvidence, error)
+	AdminListStockSelectionRunEvaluations(runID string, symbol string) ([]model.StockSelectionRunEvaluation, error)
+	AdminListStockSelectionEvaluationLeaderboard(templateID string, profileID string, marketRegime string) ([]model.StockSelectionEvaluationLeaderboardItem, error)
+	AdminListStockSelectionReviews(status string, page int, pageSize int) ([]model.StockSelectionPublishReview, int, error)
+	AdminApproveStockSelectionReview(runID string, operator string, reviewNote string, force bool, overrideReason string) (model.StockSelectionPublishReview, error)
+	AdminRejectStockSelectionReview(runID string, operator string, reviewNote string) (model.StockSelectionPublishReview, error)
+	AdminListStrategyEnginePublishHistory(jobType string) ([]model.StrategyEnginePublishRecordSummary, error)
+	AdminGetStrategyEnginePublishRecord(publishID string) (model.StrategyEnginePublishRecord, error)
+	AdminGetStrategyEnginePublishReplay(publishID string) (model.StrategyEnginePublishReplay, error)
+	AdminCompareStrategyEnginePublishVersions(leftPublishID string, rightPublishID string) (model.StrategyEnginePublishCompareResult, error)
+	AdminListStrategySeedSets(targetType string, status string, page int, pageSize int) ([]model.StrategySeedSet, int, error)
+	AdminCreateStrategySeedSet(item model.StrategySeedSet) (string, error)
+	AdminUpdateStrategySeedSet(id string, item model.StrategySeedSet) error
+	AdminListStrategyAgentProfiles(targetType string, status string, page int, pageSize int) ([]model.StrategyAgentProfile, int, error)
+	AdminCreateStrategyAgentProfile(item model.StrategyAgentProfile) (string, error)
+	AdminUpdateStrategyAgentProfile(id string, item model.StrategyAgentProfile) error
+	AdminListStrategyScenarioTemplates(targetType string, status string, page int, pageSize int) ([]model.StrategyScenarioTemplate, int, error)
+	AdminCreateStrategyScenarioTemplate(item model.StrategyScenarioTemplate) (string, error)
+	AdminUpdateStrategyScenarioTemplate(id string, item model.StrategyScenarioTemplate) error
+	AdminListStrategyPublishPolicies(targetType string, status string, page int, pageSize int) ([]model.StrategyPublishPolicy, int, error)
+	AdminCreateStrategyPublishPolicy(item model.StrategyPublishPolicy) (string, error)
+	AdminUpdateStrategyPublishPolicy(id string, item model.StrategyPublishPolicy) error
+	AdminListStrategyEngineJobs(jobType string, status string, page int, pageSize int) ([]model.StrategyEngineJobRecord, int, error)
+	AdminGetStrategyEngineJob(jobID string) (model.StrategyEngineJobRecord, error)
+	AdminPublishStrategyEngineJob(jobID string, operator string, force bool, overrideReason string) (model.StrategyEnginePublishRecord, error)
+	AdminGenerateDailyFuturesStrategies(tradeDate string) (model.AdminDailyFuturesStrategyGenerationResult, error)
 	AdminListFuturesStrategies(status string, contract string, page int, pageSize int) ([]model.FuturesStrategy, int, error)
 	AdminCreateFuturesStrategy(item model.FuturesStrategy) (string, error)
 	AdminUpdateFuturesStrategyStatus(id string, status string) error
 	AdminListMarketEvents(eventType string, symbol string, page int, pageSize int) ([]model.MarketEvent, int, error)
 	AdminCreateMarketEvent(item model.MarketEvent) (string, error)
 	AdminUpdateMarketEvent(id string, item model.MarketEvent) error
+	AdminListMarketRhythmTasks(taskDate string) ([]model.MarketRhythmTask, error)
+	AdminEnsureMarketRhythmTasks(taskDate string) ([]model.MarketRhythmTask, error)
+	AdminUpdateMarketRhythmTask(id string, owner string, notes string, sourceLinks []string, status string) (model.MarketRhythmTask, error)
+	AdminUpdateMarketRhythmTaskStatus(id string, status string, owner string, notes string) (model.MarketRhythmTask, error)
 	AdminListUsers(status string, kycStatus string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error)
 	AdminGetUserSourceSummary(status string, kycStatus string, memberLevel string, registrationSource string) (model.AdminUserSourceSummary, error)
 	AdminListBrowseHistories(userID string, contentType string, keyword string, page int, pageSize int) ([]model.AdminBrowseHistory, int, error)
@@ -116,6 +172,7 @@ type GrowthService interface {
 	AdminUpdateMembershipProductStatus(id string, status string) error
 	AdminListMembershipOrders(status string, userID string, page int, pageSize int) ([]model.MembershipOrderAdmin, int, error)
 	AdminUpdateMembershipOrderStatus(id string, status string) error
+	AdminGetExperimentAnalyticsSummary(days int) (model.AdminExperimentAnalyticsSummary, error)
 	AdminListVIPQuotaConfigs(memberLevel string, status string, page int, pageSize int) ([]model.VIPQuotaConfig, int, error)
 	AdminCreateVIPQuotaConfig(item model.VIPQuotaConfig) (string, error)
 	AdminUpdateVIPQuotaConfig(id string, item model.VIPQuotaConfig) error
@@ -172,6 +229,14 @@ func (s *growthService) DeleteBrowseHistoryItem(userID string, id string) error 
 
 func (s *growthService) ClearBrowseHistory(userID string) error {
 	return s.repo.ClearBrowseHistory(userID)
+}
+
+func (s *growthService) BuildStrategyEngineStockSelectionContext(input model.StrategyEngineStockSelectionContextRequest) (model.StrategyEngineStockSelectionContextResponse, error) {
+	return s.repo.BuildStrategyEngineStockSelectionContext(input.Normalized())
+}
+
+func (s *growthService) BuildStrategyEngineFuturesStrategyContext(input model.StrategyEngineFuturesStrategyContextRequest) (model.StrategyEngineFuturesStrategyContextResponse, error) {
+	return s.repo.BuildStrategyEngineFuturesStrategyContext(input)
 }
 
 func (s *growthService) ListRechargeRecords(userID string, status string, page int, pageSize int) ([]model.RechargeRecord, int, error) {
@@ -278,6 +343,10 @@ func (s *growthService) GetStockRecommendationInsight(userID string, recoID stri
 	return s.repo.GetStockRecommendationInsight(userID, recoID)
 }
 
+func (s *growthService) GetStockRecommendationVersionHistory(userID string, recoID string) ([]model.StrategyVersionHistoryItem, error) {
+	return s.repo.GetStockRecommendationVersionHistory(userID, recoID)
+}
+
 func (s *growthService) ListFuturesStrategies(userID string, contract string, status string, page int, pageSize int) ([]model.FuturesStrategy, int, error) {
 	return s.repo.ListFuturesStrategies(userID, contract, status, page, pageSize)
 }
@@ -290,6 +359,10 @@ func (s *growthService) GetFuturesStrategyInsight(userID string, strategyID stri
 	return s.repo.GetFuturesStrategyInsight(userID, strategyID)
 }
 
+func (s *growthService) GetFuturesStrategyVersionHistory(userID string, strategyID string) ([]model.StrategyVersionHistoryItem, error) {
+	return s.repo.GetFuturesStrategyVersionHistory(userID, strategyID)
+}
+
 func (s *growthService) ListMembershipProducts(status string, page int, pageSize int) ([]model.MembershipProduct, int, error) {
 	return s.repo.ListMembershipProducts(status, page, pageSize)
 }
@@ -300,6 +373,14 @@ func (s *growthService) CreateMembershipOrder(userID string, productID string, p
 
 func (s *growthService) ListMembershipOrders(userID string, status string, page int, pageSize int) ([]model.MembershipOrderAdmin, int, error) {
 	return s.repo.ListMembershipOrders(userID, status, page, pageSize)
+}
+
+func (s *growthService) TrackExperimentEvent(item model.ExperimentEvent) error {
+	return s.repo.TrackExperimentEvent(item)
+}
+
+func (s *growthService) BindMembershipOrderExperiment(orderNo string, item model.ExperimentOrderAttribution) error {
+	return s.repo.BindMembershipOrderExperiment(orderNo, item)
 }
 
 func (s *growthService) GetRewardWallet(userID string) (model.RewardWallet, error) {
@@ -466,6 +547,22 @@ func (s *growthService) AdminSyncStockQuotes(sourceKey string, symbols []string,
 	return s.repo.AdminSyncStockQuotes(sourceKey, symbols, days)
 }
 
+func (s *growthService) AdminSyncStockQuotesDetailed(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncStockQuotesDetailed(sourceKey, symbols, days)
+}
+
+func (s *growthService) AdminSyncFuturesQuotes(sourceKey string, contracts []string, days int) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncFuturesQuotes(sourceKey, contracts, days)
+}
+
+func (s *growthService) AdminSyncFuturesInventory(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncFuturesInventory(sourceKey, symbols, days)
+}
+
+func (s *growthService) AdminSyncMarketNews(sourceKey string, symbols []string, days int, limit int) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncMarketNews(sourceKey, symbols, days, limit)
+}
+
 func (s *growthService) AdminSyncDocFastNewsIncremental(batchSize int) (string, error) {
 	return s.repo.AdminSyncDocFastNewsIncremental(batchSize)
 }
@@ -490,11 +587,27 @@ func (s *growthService) AdminGetQuantEvaluation(windowDays int, topN int) (model
 	return s.repo.AdminGetQuantEvaluation(windowDays, topN)
 }
 
-func (s *growthService) AdminGenerateDailyStockRecommendations(tradeDate string) (int, error) {
+func (s *growthService) AdminGenerateDailyStockRecommendations(tradeDate string) (model.AdminDailyStockRecommendationGenerationResult, error) {
 	return s.repo.AdminGenerateDailyStockRecommendations(tradeDate)
 }
 
-func (s *growthService) AdminGenerateDailyFuturesStrategies(tradeDate string) (int, error) {
+func (s *growthService) AdminListStrategyEnginePublishHistory(jobType string) ([]model.StrategyEnginePublishRecordSummary, error) {
+	return s.repo.AdminListStrategyEnginePublishHistory(jobType)
+}
+
+func (s *growthService) AdminGetStrategyEnginePublishRecord(publishID string) (model.StrategyEnginePublishRecord, error) {
+	return s.repo.AdminGetStrategyEnginePublishRecord(publishID)
+}
+
+func (s *growthService) AdminGetStrategyEnginePublishReplay(publishID string) (model.StrategyEnginePublishReplay, error) {
+	return s.repo.AdminGetStrategyEnginePublishReplay(publishID)
+}
+
+func (s *growthService) AdminCompareStrategyEnginePublishVersions(leftPublishID string, rightPublishID string) (model.StrategyEnginePublishCompareResult, error) {
+	return s.repo.AdminCompareStrategyEnginePublishVersions(leftPublishID, rightPublishID)
+}
+
+func (s *growthService) AdminGenerateDailyFuturesStrategies(tradeDate string) (model.AdminDailyFuturesStrategyGenerationResult, error) {
 	return s.repo.AdminGenerateDailyFuturesStrategies(tradeDate)
 }
 
@@ -520,6 +633,22 @@ func (s *growthService) AdminCreateMarketEvent(item model.MarketEvent) (string, 
 
 func (s *growthService) AdminUpdateMarketEvent(id string, item model.MarketEvent) error {
 	return s.repo.AdminUpdateMarketEvent(id, item)
+}
+
+func (s *growthService) AdminListMarketRhythmTasks(taskDate string) ([]model.MarketRhythmTask, error) {
+	return s.repo.AdminListMarketRhythmTasks(taskDate)
+}
+
+func (s *growthService) AdminEnsureMarketRhythmTasks(taskDate string) ([]model.MarketRhythmTask, error) {
+	return s.repo.AdminEnsureMarketRhythmTasks(taskDate)
+}
+
+func (s *growthService) AdminUpdateMarketRhythmTask(id string, owner string, notes string, sourceLinks []string, status string) (model.MarketRhythmTask, error) {
+	return s.repo.AdminUpdateMarketRhythmTask(id, owner, notes, sourceLinks, status)
+}
+
+func (s *growthService) AdminUpdateMarketRhythmTaskStatus(id string, status string, owner string, notes string) (model.MarketRhythmTask, error) {
+	return s.repo.AdminUpdateMarketRhythmTaskStatus(id, status, owner, notes)
 }
 
 func (s *growthService) AdminListUsers(status string, kycStatus string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error) {
@@ -600,6 +729,10 @@ func (s *growthService) AdminListMembershipOrders(status string, userID string, 
 
 func (s *growthService) AdminUpdateMembershipOrderStatus(id string, status string) error {
 	return s.repo.AdminUpdateMembershipOrderStatus(id, status)
+}
+
+func (s *growthService) AdminGetExperimentAnalyticsSummary(days int) (model.AdminExperimentAnalyticsSummary, error) {
+	return s.repo.AdminGetExperimentAnalyticsSummary(days)
 }
 
 func (s *growthService) AdminListVIPQuotaConfigs(memberLevel string, status string, page int, pageSize int) ([]model.VIPQuotaConfig, int, error) {

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
+import { hasPermission } from "../lib/session";
 import {
   assignAdminAccountRoles,
   createAccessRole,
@@ -171,6 +172,15 @@ const allPermissionsChecked = computed(
 const allPermissionsIndeterminate = computed(
   () => roleForm.permission_codes.length > 0 && !allPermissionsChecked.value
 );
+const canEditAccess = hasPermission("access.edit");
+
+function ensureCanEditAccess() {
+  if (canEditAccess) {
+    return true;
+  }
+  ElMessage.error("当前账号只有查看权限，无法修改管理员与权限配置");
+  return false;
+}
 
 function permissionDisplayName(item) {
   const mapped = permissionLabels[item.code];
@@ -292,6 +302,9 @@ async function loadAdminAccounts(resetPage = false) {
 }
 
 function openCreateRoleDialog() {
+  if (!ensureCanEditAccess()) {
+    return;
+  }
   roleForm.id = "";
   roleForm.role_key = "";
   roleForm.role_name = "";
@@ -302,6 +315,9 @@ function openCreateRoleDialog() {
 }
 
 function openEditRoleDialog(role) {
+  if (!ensureCanEditAccess()) {
+    return;
+  }
   roleForm.id = role.id;
   roleForm.role_key = role.role_key;
   roleForm.role_name = role.role_name;
@@ -312,6 +328,9 @@ function openEditRoleDialog(role) {
 }
 
 async function submitRoleDialog() {
+  if (!ensureCanEditAccess()) {
+    return;
+  }
   if (!roleForm.role_name.trim()) {
     ElMessage.error("角色名称不能为空");
     return;
@@ -348,6 +367,9 @@ async function submitRoleDialog() {
 }
 
 async function toggleRoleStatus(role) {
+  if (!ensureCanEditAccess()) {
+    return;
+  }
   const nextStatus = role.status === "ACTIVE" ? "DISABLED" : "ACTIVE";
   await updateAccessRoleStatus(role.id, nextStatus);
   ElMessage.success(nextStatus === "ACTIVE" ? "角色已启用" : "角色已禁用");
@@ -355,6 +377,9 @@ async function toggleRoleStatus(role) {
 }
 
 function openCreateAdminDialog() {
+  if (!ensureCanEditAccess()) {
+    return;
+  }
   createAdminForm.phone = "";
   createAdminForm.password = "";
   createAdminForm.email = "";
@@ -364,6 +389,9 @@ function openCreateAdminDialog() {
 }
 
 async function submitCreateAdminDialog() {
+  if (!ensureCanEditAccess()) {
+    return;
+  }
   if (!createAdminForm.phone.trim()) {
     ElMessage.error("手机号不能为空");
     return;
@@ -398,12 +426,18 @@ async function submitCreateAdminDialog() {
 }
 
 function openAssignRoleDialog(row) {
+  if (!ensureCanEditAccess()) {
+    return;
+  }
   assignRoleForm.user_id = row.id;
   assignRoleForm.role_ids = [...(row.role_ids || [])];
   assignRoleDialogVisible.value = true;
 }
 
 async function submitAssignRoleDialog() {
+  if (!ensureCanEditAccess()) {
+    return;
+  }
   if (!assignRoleForm.role_ids.length) {
     ElMessage.error("至少选择一个角色");
     return;
@@ -420,12 +454,18 @@ async function submitAssignRoleDialog() {
 }
 
 function openResetPasswordDialog(row) {
+  if (!ensureCanEditAccess()) {
+    return;
+  }
   resetPasswordForm.user_id = row.id;
   resetPasswordForm.password = "";
   resetPasswordDialogVisible.value = true;
 }
 
 async function submitResetPasswordDialog() {
+  if (!ensureCanEditAccess()) {
+    return;
+  }
   if (!resetPasswordForm.password || resetPasswordForm.password.length < 8) {
     ElMessage.error("新密码至少 8 位");
     return;
@@ -441,6 +481,9 @@ async function submitResetPasswordDialog() {
 }
 
 async function toggleAdminStatus(row) {
+  if (!ensureCanEditAccess()) {
+    return;
+  }
   const nextStatus = row.status === "ACTIVE" ? "DISABLED" : "ACTIVE";
   await updateAdminAccountStatus(row.id, nextStatus);
   ElMessage.success(nextStatus === "ACTIVE" ? "账号已启用" : "账号已禁用");
@@ -461,6 +504,15 @@ onMounted(async () => {
       </div>
     </div>
 
+    <el-alert
+      v-if="!canEditAccess"
+      title="当前账号为只读访问权限，可查看管理员、角色与权限字典，但不能执行新增、编辑、启停、分配或重置密码。"
+      type="info"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 12px"
+    />
+
     <el-tabs v-model="activeTab" class="tabs">
       <el-tab-pane label="管理员账号" name="admins">
         <el-card shadow="never" class="block">
@@ -479,7 +531,7 @@ onMounted(async () => {
               </el-select>
               <el-button type="primary" @click="loadAdminAccounts(true)">查询</el-button>
             </div>
-            <el-button type="primary" @click="openCreateAdminDialog">新增管理员</el-button>
+            <el-button v-if="canEditAccess" type="primary" @click="openCreateAdminDialog">新增管理员</el-button>
           </div>
 
           <el-table :data="adminRows" border stripe v-loading="adminLoading">
@@ -498,13 +550,14 @@ onMounted(async () => {
             <el-table-column prop="created_at" label="创建时间" min-width="180" />
             <el-table-column label="操作" width="260" fixed="right">
               <template #default="{ row }">
-                <el-space>
+                <el-space v-if="canEditAccess">
                   <el-button link type="primary" @click="openAssignRoleDialog(row)">分配角色</el-button>
                   <el-button link type="warning" @click="openResetPasswordDialog(row)">重置密码</el-button>
                   <el-button link type="danger" @click="toggleAdminStatus(row)">
                     {{ row.status === "ACTIVE" ? "禁用" : "启用" }}
                   </el-button>
                 </el-space>
+                <el-text v-else type="info">只读</el-text>
               </template>
             </el-table-column>
           </el-table>
@@ -539,7 +592,7 @@ onMounted(async () => {
               </el-select>
               <el-button type="primary" @click="loadRoles(true)">查询</el-button>
             </div>
-            <el-button type="primary" @click="openCreateRoleDialog">新增角色</el-button>
+            <el-button v-if="canEditAccess" type="primary" @click="openCreateRoleDialog">新增角色</el-button>
           </div>
 
           <el-table :data="roleRows" border stripe v-loading="roleLoading">
@@ -557,12 +610,13 @@ onMounted(async () => {
             <el-table-column prop="updated_at" label="更新时间" min-width="180" />
             <el-table-column label="操作" width="210" fixed="right">
               <template #default="{ row }">
-                <el-space>
+                <el-space v-if="canEditAccess">
                   <el-button link type="primary" @click="openEditRoleDialog(row)">编辑</el-button>
                   <el-button link type="danger" @click="toggleRoleStatus(row)">
                     {{ row.status === "ACTIVE" ? "禁用" : "启用" }}
                   </el-button>
                 </el-space>
+                <el-text v-else type="info">只读</el-text>
               </template>
             </el-table-column>
           </el-table>

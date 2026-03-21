@@ -14,6 +14,7 @@ import {
   reviewWithdrawRequest,
   updateRiskRule
 } from "../api/admin";
+import { hasPermission } from "../lib/session";
 
 const activeTab = ref("rules");
 
@@ -99,6 +100,7 @@ const hitStatusOptions = ["PENDING", "CONFIRMED", "RELEASED"];
 const rewardStatusOptions = ["PENDING", "ISSUED", "REJECTED", "FROZEN"];
 const rewardReviewStatusOptions = ["ISSUED", "REJECTED", "FROZEN"];
 const withdrawStatusOptions = ["PENDING", "APPROVED", "REJECTED", "PAID", "FAILED"];
+const canEditRisk = hasPermission("risk.edit");
 
 function normalizeErrorMessage(error, fallback) {
   return error?.message || fallback || "操作失败";
@@ -112,6 +114,14 @@ function toSafeInt(value, fallback = 0) {
 function clearMessages() {
   errorMessage.value = "";
   message.value = "";
+}
+
+function ensureCanEditRisk() {
+  if (canEditRisk) {
+    return true;
+  }
+  errorMessage.value = "当前账号只有查看权限，无法修改风控规则或执行审核操作";
+  return false;
 }
 
 function statusTagType(status) {
@@ -135,6 +145,14 @@ function resetRuleForm() {
     threshold: 10,
     status: "ACTIVE"
   });
+}
+
+function openCreateRuleDialog() {
+  if (!ensureCanEditRisk()) {
+    return;
+  }
+  resetRuleForm();
+  ruleDialogVisible.value = true;
 }
 
 function syncRuleDrafts() {
@@ -167,6 +185,9 @@ async function fetchRules(options = {}) {
 }
 
 async function submitRule() {
+  if (!ensureCanEditRisk()) {
+    return;
+  }
   const payload = {
     rule_code: ruleForm.rule_code.trim(),
     rule_name: ruleForm.rule_name.trim(),
@@ -194,6 +215,9 @@ async function submitRule() {
 }
 
 async function saveRule(item) {
+  if (!ensureCanEditRisk()) {
+    return;
+  }
   const draft = ruleDraftMap.value[item.id] || {};
   const targetThreshold = toSafeInt(draft.threshold, item.threshold);
   const targetStatus = (draft.status || "").trim();
@@ -243,6 +267,9 @@ async function fetchRiskHitList(options = {}) {
 }
 
 function openHitReviewDialog(item, status) {
+  if (!ensureCanEditRisk()) {
+    return;
+  }
   Object.assign(hitReviewForm, {
     id: item.id,
     status,
@@ -252,6 +279,9 @@ function openHitReviewDialog(item, status) {
 }
 
 async function submitHitReview() {
+  if (!ensureCanEditRisk()) {
+    return;
+  }
   if (!hitReviewForm.id || !hitReviewForm.status) {
     errorMessage.value = "缺少风险命中审核参数";
     return;
@@ -313,6 +343,9 @@ async function fetchRewardList(options = {}) {
 }
 
 function openRewardReviewDialog(item, status) {
+  if (!ensureCanEditRisk()) {
+    return;
+  }
   Object.assign(rewardReviewForm, {
     id: item.id,
     status,
@@ -322,6 +355,9 @@ function openRewardReviewDialog(item, status) {
 }
 
 async function submitRewardReview() {
+  if (!ensureCanEditRisk()) {
+    return;
+  }
   if (!rewardReviewForm.id || !rewardReviewForm.status) {
     errorMessage.value = "缺少奖励审核参数";
     return;
@@ -382,6 +418,9 @@ async function fetchWithdrawList(options = {}) {
 }
 
 function openWithdrawReviewDialog(item, status) {
+  if (!ensureCanEditRisk()) {
+    return;
+  }
   Object.assign(withdrawReviewForm, {
     id: item.id,
     status,
@@ -391,6 +430,9 @@ function openWithdrawReviewDialog(item, status) {
 }
 
 async function submitWithdrawReview() {
+  if (!ensureCanEditRisk()) {
+    return;
+  }
   if (!withdrawReviewForm.id || !withdrawReviewForm.status) {
     errorMessage.value = "缺少提现审核参数";
     return;
@@ -440,6 +482,9 @@ async function fetchReconciliationList(options = {}) {
 }
 
 async function handleRetryReconciliation(item) {
+  if (!ensureCanEditRisk()) {
+    return;
+  }
   retryingReconID.value = item.id;
   clearMessages();
   try {
@@ -579,7 +624,7 @@ onMounted(refreshAll);
       <el-tab-pane label="风控规则" name="rules">
         <div class="card" style="margin-bottom: 12px">
           <div class="toolbar" style="margin-bottom: 0">
-            <el-button type="primary" @click="ruleDialogVisible = true">新增规则</el-button>
+            <el-button v-if="canEditRisk" type="primary" @click="openCreateRuleDialog">新增规则</el-button>
             <el-button @click="fetchRules">刷新规则</el-button>
           </div>
         </div>
@@ -592,22 +637,26 @@ onMounted(refreshAll);
             <el-table-column label="阈值" min-width="140">
               <template #default="{ row }">
                 <el-input-number
+                  v-if="canEditRisk"
                   v-model="ruleDraftMap[row.id].threshold"
                   :min="0"
                   :step="1"
                   controls-position="right"
                   style="width: 120px"
                 />
+                <span v-else>{{ row.threshold ?? "-" }}</span>
               </template>
             </el-table-column>
             <el-table-column label="状态" min-width="200">
               <template #default="{ row }">
                 <div class="inline-actions">
                   <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
-                  <el-select v-model="ruleDraftMap[row.id].status" style="width: 120px">
-                    <el-option v-for="item in ruleStatusOptions" :key="item" :label="item" :value="item" />
-                  </el-select>
-                  <el-button size="small" @click="saveRule(row)">保存</el-button>
+                  <template v-if="canEditRisk">
+                    <el-select v-model="ruleDraftMap[row.id].status" style="width: 120px">
+                      <el-option v-for="item in ruleStatusOptions" :key="item" :label="item" :value="item" />
+                    </el-select>
+                    <el-button size="small" @click="saveRule(row)">保存</el-button>
+                  </template>
                 </div>
               </template>
             </el-table-column>
@@ -639,7 +688,7 @@ onMounted(refreshAll);
             </el-table-column>
             <el-table-column label="操作" align="right" min-width="220">
               <template #default="{ row }">
-                <div class="inline-actions inline-actions--right">
+                <div v-if="canEditRisk" class="inline-actions inline-actions--right">
                   <el-button size="small" type="success" plain @click="openHitReviewDialog(row, 'CONFIRMED')">确认</el-button>
                   <el-button size="small" type="warning" plain @click="openHitReviewDialog(row, 'RELEASED')">释放</el-button>
                 </div>
@@ -688,7 +737,7 @@ onMounted(refreshAll);
             <el-table-column prop="issued_at" label="发放时间" min-width="160" />
             <el-table-column label="操作" align="right" min-width="270">
               <template #default="{ row }">
-                <div class="inline-actions inline-actions--right">
+                <div v-if="canEditRisk" class="inline-actions inline-actions--right">
                   <el-button size="small" type="success" plain @click="openRewardReviewDialog(row, 'ISSUED')">发放</el-button>
                   <el-button size="small" type="danger" plain @click="openRewardReviewDialog(row, 'REJECTED')">驳回</el-button>
                   <el-button size="small" type="warning" plain @click="openRewardReviewDialog(row, 'FROZEN')">冻结</el-button>
@@ -725,7 +774,7 @@ onMounted(refreshAll);
             <el-table-column prop="applied_at" label="申请时间" min-width="170" />
             <el-table-column label="操作" align="right" min-width="320">
               <template #default="{ row }">
-                <div class="inline-actions inline-actions--right">
+                <div v-if="canEditRisk" class="inline-actions inline-actions--right">
                   <el-button size="small" type="success" plain @click="openWithdrawReviewDialog(row, 'APPROVED')">
                     通过
                   </el-button>
@@ -772,6 +821,7 @@ onMounted(refreshAll);
             <el-table-column label="操作" align="right" min-width="130">
               <template #default="{ row }">
                 <el-button
+                  v-if="canEditRisk"
                   size="small"
                   :loading="retryingReconID === row.id"
                   @click="handleRetryReconciliation(row)"
@@ -854,7 +904,7 @@ onMounted(refreshAll);
       </el-form>
       <template #footer>
         <el-button @click="ruleDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="ruleCreating" @click="submitRule">创建</el-button>
+        <el-button v-if="canEditRisk" type="primary" :loading="ruleCreating" @click="submitRule">创建</el-button>
       </template>
     </el-dialog>
 
@@ -882,7 +932,7 @@ onMounted(refreshAll);
       </el-form>
       <template #footer>
         <el-button @click="hitReviewDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="hitReviewSubmitting" @click="submitHitReview">确认提交</el-button>
+        <el-button v-if="canEditRisk" type="primary" :loading="hitReviewSubmitting" @click="submitHitReview">确认提交</el-button>
       </template>
     </el-dialog>
 
@@ -909,7 +959,14 @@ onMounted(refreshAll);
       </el-form>
       <template #footer>
         <el-button @click="rewardReviewDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="rewardReviewSubmitting" @click="submitRewardReview">确认提交</el-button>
+        <el-button
+          v-if="canEditRisk"
+          type="primary"
+          :loading="rewardReviewSubmitting"
+          @click="submitRewardReview"
+        >
+          确认提交
+        </el-button>
       </template>
     </el-dialog>
 
@@ -936,7 +993,14 @@ onMounted(refreshAll);
       </el-form>
       <template #footer>
         <el-button @click="withdrawReviewDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="withdrawReviewSubmitting" @click="submitWithdrawReview">确认提交</el-button>
+        <el-button
+          v-if="canEditRisk"
+          type="primary"
+          :loading="withdrawReviewSubmitting"
+          @click="submitWithdrawReview"
+        >
+          确认提交
+        </el-button>
       </template>
     </el-dialog>
   </div>

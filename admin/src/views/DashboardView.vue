@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import StatePanel from "../components/StatePanel.vue";
 import {
   countUnreadWorkflowMessages,
   getDashboardOverview,
@@ -10,8 +11,15 @@ import {
   listRiskHits,
   listStockRecommendations
 } from "../api/admin";
+import { hasPermission } from "../lib/session";
 
 const router = useRouter();
+const canViewWorkflow = hasPermission("workflow.view");
+const canViewReview = hasPermission("review.view");
+const canViewSystemJobs = hasPermission("system_job.view");
+const canViewRisk = hasPermission("risk.view");
+const canViewMarket = hasPermission("market.view");
+const canViewDataSources = hasPermission("data_source.view");
 
 const loading = ref(false);
 const errorMessage = ref("");
@@ -55,28 +63,44 @@ const coreCards = computed(() => [
   { label: "今日发布新闻", value: overview.value.today_published_news }
 ]);
 
-const opsCards = computed(() => [
-  { label: "未读流程消息", value: ops.value.unread_messages, type: "warning" },
-  { label: "待审核任务", value: ops.value.pending_reviews, type: "warning" },
-  { label: "今日失败任务", value: ops.value.today_job_failed, type: "danger" },
-  { label: "运行中任务", value: ops.value.today_job_running, type: "info" },
-  { label: "待处理风险命中", value: ops.value.pending_risk_hits, type: "danger" },
-  { label: "已发布股票推荐", value: ops.value.published_stock_recos, type: "success" },
-  { label: "活跃数据源", value: ops.value.active_data_sources, type: "success" }
-]);
+const opsCards = computed(() => {
+  const cards = [];
+  if (canViewWorkflow) {
+    cards.push({ label: "未读流程消息", value: ops.value.unread_messages, type: "warning" });
+  }
+  if (canViewReview) {
+    cards.push({ label: "待审核任务", value: ops.value.pending_reviews, type: "warning" });
+  }
+  if (canViewSystemJobs) {
+    cards.push({ label: "今日失败任务", value: ops.value.today_job_failed, type: "danger" });
+    cards.push({ label: "运行中任务", value: ops.value.today_job_running, type: "info" });
+  }
+  if (canViewRisk) {
+    cards.push({ label: "待处理风险命中", value: ops.value.pending_risk_hits, type: "danger" });
+  }
+  if (canViewMarket) {
+    cards.push({ label: "已发布股票推荐", value: ops.value.published_stock_recos, type: "success" });
+  }
+  if (canViewDataSources) {
+    cards.push({ label: "活跃数据源", value: ops.value.active_data_sources, type: "success" });
+  }
+  return cards;
+});
 
-const quickLinks = [
-  { title: "审核中心", desc: "处理待审任务与批量审批", path: "/review-center" },
-  { title: "流程消息", desc: "查看告警并批量已读", path: "/workflow-messages" },
-  { title: "系统任务", desc: "查看任务运行与重跑", path: "/system-jobs" },
-  { title: "数据源管理", desc: "查看健康状态与日志", path: "/data-sources" },
-  { title: "会员中心", desc: "管理产品、订单、配额", path: "/membership-center" },
-  { title: "策略中心", desc: "维护股票与期货策略", path: "/market-center" },
-  { title: "风控中心", desc: "规则、命中、提现、对账", path: "/risk-center" },
-  { title: "安全中心", desc: "登录风控与解锁审计", path: "/auth-security" },
-  { title: "系统配置", desc: "维护平台配置项", path: "/system-configs" },
-  { title: "操作日志", desc: "审计关键变更记录", path: "/audit-logs" }
-];
+const quickLinks = computed(() =>
+  [
+    { title: "审核中心", desc: "处理待审任务与批量审批", path: "/review-center", permission: "review.view" },
+    { title: "流程消息", desc: "查看告警并批量已读", path: "/workflow-messages", permission: "workflow.view" },
+    { title: "系统任务", desc: "查看任务运行与重跑", path: "/system-jobs", permission: "system_job.view" },
+    { title: "数据源管理", desc: "查看健康状态与日志", path: "/data-sources", permission: "data_source.view" },
+    { title: "会员中心", desc: "管理产品、订单、配额", path: "/membership-center", permission: "membership.view" },
+    { title: "策略中心", desc: "维护股票与期货策略", path: "/market-center", permission: "market.view" },
+    { title: "风控中心", desc: "规则、命中、提现、对账", path: "/risk-center", permission: "risk.view" },
+    { title: "安全中心", desc: "登录风控与解锁审计", path: "/auth-security", permission: "auth_security.view" },
+    { title: "系统配置", desc: "维护平台配置项", path: "/system-configs", permission: "system_config.view" },
+    { title: "操作日志", desc: "审计关键变更记录", path: "/audit-logs", permission: "audit.view" }
+  ].filter((item) => hasPermission(item.permission))
+);
 
 function statusTagType(type) {
   if (type === "danger") return "danger";
@@ -109,12 +133,14 @@ async function fetchOverview() {
       dataSourceData
     ] = await Promise.all([
       getDashboardOverview(),
-      countUnreadWorkflowMessages({}),
-      getWorkflowMetrics({}),
-      getSchedulerJobMetrics({}),
-      listRiskHits({ status: "PENDING", page: 1, page_size: 1 }),
-      listStockRecommendations({ status: "PUBLISHED", page: 1, page_size: 1 }),
-      listDataSources({ page: 1, page_size: 200 })
+      canViewWorkflow ? countUnreadWorkflowMessages({}) : Promise.resolve({ unread_count: 0 }),
+      canViewReview ? getWorkflowMetrics({}) : Promise.resolve({ pending_reviews: 0 }),
+      canViewSystemJobs ? getSchedulerJobMetrics({}) : Promise.resolve({ today_failed: 0, today_running: 0 }),
+      canViewRisk ? listRiskHits({ status: "PENDING", page: 1, page_size: 1 }) : Promise.resolve({ total: 0 }),
+      canViewMarket
+        ? listStockRecommendations({ status: "PUBLISHED", page: 1, page_size: 1 })
+        : Promise.resolve({ total: 0 }),
+      canViewDataSources ? listDataSources({ page: 1, page_size: 200 }) : Promise.resolve({ items: [] })
     ]);
 
     overview.value = dashboardData || {};
@@ -152,13 +178,19 @@ onMounted(fetchOverview);
       <el-button type="primary" :loading="loading" @click="fetchOverview">刷新</el-button>
     </div>
 
-    <el-alert
+    <StatePanel
       v-if="errorMessage"
-      :title="errorMessage"
-      type="error"
-      show-icon
+      tone="danger"
+      eyebrow="数据异常"
+      title="仪表盘加载失败"
+      :description="errorMessage"
+      compact
       style="margin-bottom: 12px"
-    />
+    >
+      <template #actions>
+        <el-button type="primary" :loading="loading" @click="fetchOverview">立即重试</el-button>
+      </template>
+    </StatePanel>
 
     <div class="card" style="margin-bottom: 12px">
       <div class="section-header">

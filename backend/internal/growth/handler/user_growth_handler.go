@@ -381,8 +381,35 @@ func (h *UserGrowthHandler) CreateMembershipOrder(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
+	experimentBindingError := ""
+	if req.Experiment != nil && strings.TrimSpace(req.Experiment.ExperimentKey) != "" && strings.TrimSpace(req.Experiment.VariantKey) != "" {
+		conversionType := "PAYMENT_SUCCESS"
+		userStage := strings.ToUpper(strings.TrimSpace(req.Experiment.UserStage))
+		if userStage == "VIP" || userStage == "EXPIRED" {
+			conversionType = "RENEWAL_SUCCESS"
+		}
+		if err := h.service.BindMembershipOrderExperiment(order.OrderNo, model.ExperimentOrderAttribution{
+			OrderNo:        order.OrderNo,
+			ExperimentKey:  strings.TrimSpace(req.Experiment.ExperimentKey),
+			VariantKey:     strings.TrimSpace(req.Experiment.VariantKey),
+			PageKey:        strings.TrimSpace(req.Experiment.PageKey),
+			TargetKey:      strings.TrimSpace(req.Experiment.TargetKey),
+			UserStage:      userStage,
+			AnonymousID:    strings.TrimSpace(req.Experiment.AnonymousID),
+			SessionID:      strings.TrimSpace(req.Experiment.SessionID),
+			Pathname:       strings.TrimSpace(req.Experiment.Pathname),
+			Referrer:       strings.TrimSpace(req.Experiment.Referrer),
+			ConversionType: conversionType,
+			Metadata:       req.Experiment.Metadata,
+		}); err != nil {
+			experimentBindingError = err.Error()
+		}
+	}
 	if strings.EqualFold(strings.TrimSpace(req.PayChannel), "YOLKPAY") {
 		payload := membershipOrderToMap(order)
+		if experimentBindingError != "" {
+			payload["experiment_binding_error"] = experimentBindingError
+		}
 		paymentAction, payErr := h.createYolkPayPaymentAction(c, order)
 		if payErr != nil {
 			payload["payment_initialized"] = false
@@ -393,6 +420,13 @@ func (h *UserGrowthHandler) CreateMembershipOrder(c *gin.Context) {
 		payload["payment_initialized"] = true
 		payload["payment_action"] = paymentAction
 		c.JSON(http.StatusOK, dto.OK(payload))
+		return
+	}
+	if experimentBindingError != "" {
+		c.JSON(http.StatusOK, dto.OK(gin.H{
+			"order":                    order,
+			"experiment_binding_error": experimentBindingError,
+		}))
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(order))
@@ -509,6 +543,36 @@ func (h *UserGrowthHandler) ListMembershipOrders(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *UserGrowthHandler) TrackExperimentEvent(c *gin.Context) {
+	var req dto.TrackExperimentEventRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	item := model.ExperimentEvent{
+		ExperimentKey: strings.TrimSpace(req.ExperimentKey),
+		VariantKey:    strings.TrimSpace(req.VariantKey),
+		EventType:     strings.ToUpper(strings.TrimSpace(req.EventType)),
+		PageKey:       strings.TrimSpace(req.PageKey),
+		TargetKey:     strings.TrimSpace(req.TargetKey),
+		UserStage:     strings.ToUpper(strings.TrimSpace(req.UserStage)),
+		AnonymousID:   strings.TrimSpace(req.AnonymousID),
+		SessionID:     strings.TrimSpace(req.SessionID),
+		Pathname:      strings.TrimSpace(req.Pathname),
+		Referrer:      strings.TrimSpace(req.Referrer),
+		Metadata:      req.Metadata,
+	}
+	if item.UserStage == "" {
+		item.UserStage = "UNKNOWN"
+	}
+	if err := h.service.TrackExperimentEvent(item); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"accepted": true}))
 }
 
 func (h *UserGrowthHandler) GetAttachmentSignedURL(c *gin.Context) {
@@ -1031,6 +1095,32 @@ func (h *UserGrowthHandler) GetStockRecommendationInsight(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
+func (h *UserGrowthHandler) GetStockRecommendationVersionHistory(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	profile, ok := h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
+		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
+		return
+	}
+	id := c.Param("id")
+	items, err := h.service.GetStockRecommendationVersionHistory(userID, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40403, Message: "stock recommendation not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
+}
+
 func (h *UserGrowthHandler) ListPublicHoldings(c *gin.Context) {
 	page, pageSize := parsePage(c)
 	symbol := strings.TrimSpace(c.Query("symbol"))
@@ -1126,6 +1216,32 @@ func (h *UserGrowthHandler) GetFuturesStrategyInsight(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *UserGrowthHandler) GetFuturesStrategyVersionHistory(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	profile, ok := h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
+		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
+		return
+	}
+	id := c.Param("id")
+	items, err := h.service.GetFuturesStrategyVersionHistory(userID, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40404, Message: "futures strategy not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
 func parsePage(c *gin.Context) (int, int) {

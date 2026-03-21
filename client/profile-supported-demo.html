@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>个人中心 Demo</title>
+    <link rel="stylesheet" href="./supported-demos.css" />
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="container topbar-inner">
+        <div class="toplinks">
+          <a href="./supported-review-index.html">Demo总览</a>
+          <a href="./membership-supported-demo.html">会员</a>
+          <a href="./profile-supported-demo.html">我的</a>
+          <a href="./auth-supported-demo.html">登录</a>
+        </div>
+        <div class="topbar-right">
+          <span>对应真实页面：/profile</span>
+        </div>
+      </div>
+    </div>
+
+    <header class="site-header">
+      <div class="container site-header-inner">
+        <div class="brand">
+          <div class="brand-mark">P</div>
+          <div>
+            <h1>个人中心</h1>
+            <p>账户状态、待办、查询中心和快捷入口的统一收口页</p>
+          </div>
+        </div>
+        <div class="banner-note">个人中心不是简单资料页，而是账户管理台：VIP、实名、支付、阅读、订阅、消息、邀请和待办都应该在这里收口。</div>
+      </div>
+    </header>
+
+    <nav class="demo-nav">
+      <div class="container demo-nav-inner">
+        <div class="nav-row">
+          <a href="./membership-supported-demo.html">会员</a>
+          <a class="active" href="./profile-supported-demo.html">我的</a>
+          <a href="./watchlist-supported-demo.html">关注</a>
+          <a href="./news-supported-demo.html">资讯</a>
+          <a href="./auth-supported-demo.html">登录</a>
+        </div>
+        <div class="nav-hint">真实 API：user/profile membership/orders subscriptions messages invites</div>
+      </div>
+    </nav>
+
+    <main class="page container">
+      <section class="panel hero">
+        <span class="eyebrow">个人中心定位</span>
+        <h2 class="page-title">个人中心要先告诉用户今天还有什么没处理，再去查会员、订阅、消息和邀请这些明细。</h2>
+        <p class="page-desc">
+          当前这页承担很多收口任务，所以更适合做成“管理台”而不是纯资料页。最重要的不是头像昵称，而是今天该处理什么、账户状态是否异常、有哪些高频动作应该被前置。
+        </p>
+
+        <div class="hero-layout-2">
+          <article class="lead-panel">
+            <div class="lead-head">
+              <div>
+                <span class="lead-kicker">账户管理台</span>
+                <h3 class="lead-title">先看待办，再看查询；先看今天要处理什么，再看账户沉淀了哪些数据。</h3>
+              </div>
+              <span class="lead-badge">不是资料卡</span>
+            </div>
+            <p class="lead-desc">
+              个人中心如果只是用户资料页，就浪费了当前已经支持的 VIP 查询、支付记录、订阅、通知、邀请等能力。这版 demo 会把“今日行动板”和“待办中心”抬高，让账户状态和高频动作更符合中文用户习惯。
+            </p>
+            <div class="badge-row">
+              <span class="lead-badge">会员等级 VIP1</span>
+              <span class="lead-badge">待实名激活</span>
+              <span class="lead-badge">未读消息 6 条</span>
+              <span class="lead-badge">有效订阅 4 项</span>
+            </div>
+          </article>
+
+          <aside class="side-stack">
+            <article class="aside-panel">
+              <h4>页面第一优先级</h4>
+              <p>高频动作要前置，用户一进来就知道今天还有什么没处理，而不是先滚动找入口。</p>
+            </article>
+            <article class="aside-panel">
+              <h4>和会员页的区别</h4>
+              <p>会员页更偏转化和升级，个人中心更偏查询与管理，两者不能混成一个页面语气。</p>
+            </article>
+            <article class="aside-panel">
+              <h4>刻意不做</h4>
+              <p>不做社交主页，不做个人展示空间，也不把业务模块拆得到处都是二级页入口。</p>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="main-side-layout">
+        <div class="content-stack">
+          <article class="pale-panel">
+            <div class="lead-head">
+              <div>
+                <span class="eyebrow">今日行动板</span>
+                <h4>先安排今天怎么回来，再去查明细。</h4>
+              </div>
+              <span class="tag">建议保留为核心区</span>
+            </div>
+            <p>
+              个人中心最有价值的一点，是能把产品节奏重新组织成用户自己的行动节奏。和会员页的“为什么升级”不同，这里更像一个日常使用安排板。
+            </p>
+            <div class="card-grid-2" style="margin-top: 16px;">
+              <article class="compact-card">
+                <strong>08:30 看主推荐</strong>
+                <p>先去策略页确认今日主推，再回来确认会员状态与有效期。</p>
+              </article>
+              <article class="compact-card">
+                <strong>11:30 看午盘资讯</strong>
+                <p>当前有效订阅 4 项，去资讯页承接盘中变化，再回这里调整订阅频率。</p>
+              </article>
+              <article class="compact-card">
+                <strong>15:30 回关注清单</strong>
+                <p>收盘后先看关注变化，再回来处理未读通知和订阅回访。</p>
+              </article>
+              <article class="compact-card">
+                <strong>周末做复盘</strong>
+                <p>先去档案页看兑现，再回来核对支付、邀请和账户投入产出。</p>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel section">
+            <div class="section-head">
+              <div>
+                <h3>待办中心</h3>
+                <p>把账户体系里真正需要尽快处理的事情前置，减少用户跳转成本。</p>
+              </div>
+            </div>
+            <div class="card-grid-3">
+              <article class="route-card">
+                <strong>完成实名激活</strong>
+                <p>支付已完成，但完整策略档案、VIP 资讯和高级跟踪仍待实名通过后激活。</p>
+              </article>
+              <article class="route-card">
+                <strong>检查订阅节奏</strong>
+                <p>当前有效订阅 4 项，确认午盘和周末频率是否仍匹配。</p>
+              </article>
+              <article class="route-card">
+                <strong>清理未读通知</strong>
+                <p>当前还有 6 条未读，适合在收盘后统一处理。</p>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel section">
+            <div class="section-head">
+              <div>
+                <h3>查询中心</h3>
+                <p>当前支持 VIP、支付、阅读、订阅、通知、邀请、其他信息，建议继续保留成清晰分栏。</p>
+              </div>
+            </div>
+            <div class="tab-row">
+              <span class="tab active">VIP情况</span>
+              <span class="tab">支付情况</span>
+              <span class="tab">阅读情况</span>
+              <span class="tab">订阅情况</span>
+              <span class="tab">通知情况</span>
+              <span class="tab">邀请关系</span>
+              <span class="tab">其他信息</span>
+            </div>
+            <div class="mini-list" style="margin-top: 14px;">
+              <article class="info-card">
+                <h4>VIP 情况</h4>
+                <p>会员等级、有效期、实名状态、配额剩余。这块和会员页不同，重点是查询与确认。</p>
+              </article>
+              <article class="info-card">
+                <h4>支付情况</h4>
+                <p>订单号、时间、金额、方式、状态，继续承接账户级支付核对。</p>
+              </article>
+              <article class="info-card">
+                <h4>阅读 / 订阅 / 通知 / 邀请</h4>
+                <p>这些模块都已经存在，demo 不删减，只做更清楚的组织和入口节奏。</p>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel section">
+            <div class="section-head">
+              <div>
+                <h3>快捷入口</h3>
+                <p>当前 quickActions 已有明确业务含义，建议保留成管理台底部的常用动作区。</p>
+              </div>
+            </div>
+            <div class="card-grid-2">
+              <article class="route-card">
+                <strong>会员权益中心</strong>
+                <p>未开通去会员页，已开通去核对权益，待实名则去补实名。</p>
+              </article>
+              <article class="route-card">
+                <strong>午盘订阅设置</strong>
+                <p>调整订阅频率，让消息节奏和产品节奏匹配。</p>
+              </article>
+              <article class="route-card">
+                <strong>通知与消息</strong>
+                <p>处理未读通知，减少信息堆积。</p>
+              </article>
+              <article class="route-card">
+                <strong>邀请与分享</strong>
+                <p>查看分享链接、邀请记录和邀请转化情况。</p>
+              </article>
+            </div>
+          </article>
+        </div>
+
+        <aside class="side-stack">
+          <article class="aside-panel">
+            <h4>账户摘要</h4>
+            <p>VIP1、待实名激活、4 项有效订阅、6 条未读消息，这些关键状态应该在右侧固定区长期可见。</p>
+          </article>
+          <article class="aside-panel">
+            <h4>为什么待办要高于查询</h4>
+            <p>因为查询是确认型操作，待办才是需要用户立即行动的内容，中文用户更习惯先处理问题再看明细。</p>
+          </article>
+          <article class="aside-panel">
+            <h4>和其他页面关系</h4>
+            <p>会员页负责升级，个人中心负责激活、查询和管理；登录页负责接住身份入口和回跳。</p>
+          </article>
+        </aside>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <div class="footer-grid">
+          <section class="footer-col">
+            <h4>真实承接</h4>
+            <ul>
+              <li>VIP 查询</li>
+              <li>支付查询</li>
+              <li>阅读与订阅</li>
+              <li>通知消息</li>
+              <li>邀请关系</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>不要删掉</h4>
+            <ul>
+              <li>今日行动板</li>
+              <li>待办中心</li>
+              <li>查询中心</li>
+              <li>快捷入口</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>和会员页差异</h4>
+            <ul>
+              <li>会员页更偏转化</li>
+              <li>个人中心更偏查询</li>
+              <li>个人中心更偏管理</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>审查重点</h4>
+            <p>个人中心是否真正承担了账户管理台角色，而不是把功能再次拆散到别的页面。</p>
+          </section>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

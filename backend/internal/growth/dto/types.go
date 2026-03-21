@@ -5,6 +5,33 @@ type PageQuery struct {
 	PageSize int `form:"page_size"`
 }
 
+type TrackExperimentEventRequest struct {
+	ExperimentKey string                 `json:"experiment_key" binding:"required"`
+	VariantKey    string                 `json:"variant_key" binding:"required"`
+	EventType     string                 `json:"event_type" binding:"required,oneof=EXPOSURE CLICK UPGRADE_INTENT PAYMENT_SUCCESS RENEWAL_SUCCESS"`
+	PageKey       string                 `json:"page_key" binding:"required"`
+	TargetKey     string                 `json:"target_key"`
+	UserStage     string                 `json:"user_stage" binding:"omitempty,oneof=VISITOR REGISTERED VIP EXPIRED PAID_PENDING_KYC UNKNOWN"`
+	AnonymousID   string                 `json:"anonymous_id"`
+	SessionID     string                 `json:"session_id"`
+	Pathname      string                 `json:"pathname"`
+	Referrer      string                 `json:"referrer"`
+	Metadata      map[string]interface{} `json:"metadata"`
+}
+
+type ExperimentAttributionRequest struct {
+	ExperimentKey string                 `json:"experiment_key" binding:"required"`
+	VariantKey    string                 `json:"variant_key" binding:"required"`
+	PageKey       string                 `json:"page_key" binding:"required"`
+	TargetKey     string                 `json:"target_key"`
+	UserStage     string                 `json:"user_stage" binding:"omitempty,oneof=VISITOR REGISTERED VIP EXPIRED PAID_PENDING_KYC UNKNOWN"`
+	AnonymousID   string                 `json:"anonymous_id"`
+	SessionID     string                 `json:"session_id"`
+	Pathname      string                 `json:"pathname"`
+	Referrer      string                 `json:"referrer"`
+	Metadata      map[string]interface{} `json:"metadata"`
+}
+
 type ListBrowseHistoryQuery struct {
 	PageQuery
 	ContentType string `form:"content_type"`
@@ -109,19 +136,25 @@ type DataSourceBatchHealthCheckRequest struct {
 }
 
 type StockRecommendationRequest struct {
-	Symbol        string  `json:"symbol" binding:"required"`
-	Name          string  `json:"name" binding:"required"`
-	Score         float64 `json:"score" binding:"required"`
-	RiskLevel     string  `json:"risk_level" binding:"required"`
-	PositionRange string  `json:"position_range"`
-	ValidFrom     string  `json:"valid_from" binding:"required"`
-	ValidTo       string  `json:"valid_to" binding:"required"`
-	Status        string  `json:"status" binding:"required,oneof=PUBLISHED ACTIVE DRAFT DISABLED"`
-	ReasonSummary string  `json:"reason_summary"`
+	Symbol           string  `json:"symbol" binding:"required"`
+	Name             string  `json:"name" binding:"required"`
+	Score            float64 `json:"score" binding:"required"`
+	RiskLevel        string  `json:"risk_level" binding:"required"`
+	PositionRange    string  `json:"position_range"`
+	ValidFrom        string  `json:"valid_from" binding:"required"`
+	ValidTo          string  `json:"valid_to" binding:"required"`
+	Status           string  `json:"status" binding:"required,oneof=DRAFT REVIEW_PENDING PUBLISHED ACTIVE TRACKING HIT_TAKE_PROFIT HIT_STOP_LOSS INVALIDATED REVIEWED DISABLED"`
+	ReasonSummary    string  `json:"reason_summary"`
+	SourceType       string  `json:"source_type"`
+	StrategyVersion  string  `json:"strategy_version"`
+	Reviewer         string  `json:"reviewer"`
+	Publisher        string  `json:"publisher"`
+	ReviewNote       string  `json:"review_note"`
+	PerformanceLabel string  `json:"performance_label"`
 }
 
 type StockRecommendationStatusRequest struct {
-	Status string `json:"status" binding:"required,oneof=PUBLISHED ACTIVE DRAFT DISABLED"`
+	Status string `json:"status" binding:"required,oneof=DRAFT REVIEW_PENDING PUBLISHED ACTIVE TRACKING HIT_TAKE_PROFIT HIT_STOP_LOSS INVALIDATED REVIEWED DISABLED"`
 }
 
 type StockQuoteSyncRequest struct {
@@ -152,6 +185,23 @@ type MarketEventRequest struct {
 	Summary     string `json:"summary" binding:"required"`
 	TriggerRule string `json:"trigger_rule" binding:"required"`
 	Source      string `json:"source"`
+}
+
+type MarketRhythmTaskEnsureRequest struct {
+	Date string `json:"date" binding:"required"`
+}
+
+type MarketRhythmTaskUpdateRequest struct {
+	Owner       string   `json:"owner"`
+	Notes       string   `json:"notes"`
+	SourceLinks []string `json:"source_links"`
+	Status      string   `json:"status" binding:"omitempty,oneof=TODO IN_PROGRESS DONE BLOCKED"`
+}
+
+type MarketRhythmTaskStatusRequest struct {
+	Status string `json:"status" binding:"required,oneof=TODO IN_PROGRESS DONE BLOCKED"`
+	Owner  string `json:"owner"`
+	Notes  string `json:"notes"`
 }
 
 type UpdateUserStatusRequest struct {
@@ -224,8 +274,9 @@ type MembershipOrderStatusRequest struct {
 }
 
 type CreateMembershipOrderRequest struct {
-	ProductID  string `json:"product_id" binding:"required"`
-	PayChannel string `json:"pay_channel" binding:"required,oneof=ALIPAY WECHAT CARD YOLKPAY"`
+	ProductID  string                        `json:"product_id" binding:"required"`
+	PayChannel string                        `json:"pay_channel" binding:"required,oneof=ALIPAY WECHAT CARD YOLKPAY"`
+	Experiment *ExperimentAttributionRequest `json:"experiment"`
 }
 
 type VIPQuotaConfigRequest struct {

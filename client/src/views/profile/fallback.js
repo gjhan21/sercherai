@@ -4,12 +4,15 @@ export const fallbackProfile = {
   email: "demo@sercherai.local",
   kyc_status: "PENDING",
   member_level: "VIP1",
+  activation_state: "PAID_PENDING_KYC",
   vip_expire_at: "2026-03-20T23:59:59+08:00",
   vip_status: "ACTIVE"
 };
 
 export const fallbackQuota = {
   member_level: "VIP1",
+  kyc_status: "PENDING",
+  activation_state: "PAID_PENDING_KYC",
   period_key: "2026-02",
   doc_read_limit: 100,
   doc_read_used: 24,

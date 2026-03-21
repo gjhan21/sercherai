@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>策略中心 Demo</title>
+    <link rel="stylesheet" href="./supported-demos.css" />
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="container topbar-inner">
+        <div class="toplinks">
+          <a href="./supported-review-index.html">Demo总览</a>
+          <a href="./china-style-supported-demo.html">首页</a>
+          <a href="./strategy-supported-demo.html">策略</a>
+          <a href="./archive-supported-demo.html">档案</a>
+        </div>
+        <div class="topbar-right">
+          <span>对应真实页面：/strategies</span>
+        </div>
+      </div>
+    </div>
+
+    <header class="site-header">
+      <div class="container site-header-inner">
+        <div class="brand">
+          <div class="brand-mark">S</div>
+          <div>
+            <h1>策略中心</h1>
+            <p>首页推荐进入深度判断后的第一承接页</p>
+          </div>
+        </div>
+        <div class="banner-note">
+          这页只展开当前真实支持的股票推荐、期货策略、市场事件、版本历史、业绩与相关资讯，不扩成综合行情门户或交易终端。
+        </div>
+      </div>
+    </header>
+
+    <nav class="demo-nav">
+      <div class="container demo-nav-inner">
+        <div class="nav-row">
+          <a href="./china-style-supported-demo.html">首页</a>
+          <a class="active" href="./strategy-supported-demo.html">策略</a>
+          <a href="./archive-supported-demo.html">档案</a>
+          <a href="./watchlist-supported-demo.html">关注</a>
+          <a href="./news-supported-demo.html">资讯</a>
+          <a href="./membership-supported-demo.html">会员</a>
+        </div>
+        <div class="nav-hint">真实 API：stocks/recommendations futures/strategies market/events</div>
+      </div>
+    </nav>
+
+    <main class="page container">
+      <section class="panel hero">
+        <span class="eyebrow">策略页定位</span>
+        <h2 class="page-title">首页先告诉你看谁，这一页负责把“为什么看、怎么看、错了怎么办”讲清楚。</h2>
+        <p class="page-desc">
+          和首页相比，这页不再追求“快看结论”，而是要把推荐展开成可执行判断。股票推荐要看解释、止盈止损、版本与资讯支撑；期货策略要看参数、场景、事件与历史业绩；市场事件雷达要看它到底强化了哪条判断。
+        </p>
+
+        <div class="hero-layout-2">
+          <article class="lead-panel">
+            <div class="lead-head">
+              <div>
+                <span class="lead-kicker">今日策略主板</span>
+                <h3 class="lead-title">先盯主推荐的解释框架，再去看第二梯队和期货策略，不要把所有信号混在一起看。</h3>
+              </div>
+              <span class="lead-badge">更像研究台，而不是行情站</span>
+            </div>
+            <p class="lead-desc">
+              当前策略页最有价值的不是列表，而是“选中一个标的后能继续看到 explanation、版本变化、相关资讯、绩效和风险边界”。所以这版 demo 会把左侧做成主要阅读区，右侧做成切换、导读和页面关系提示。
+            </p>
+            <div class="badge-row">
+              <span class="lead-badge">股票策略 3 组</span>
+              <span class="lead-badge">期货策略 2 组</span>
+              <span class="lead-badge">市场事件 3 类</span>
+              <span class="lead-badge">详情含版本 / 业绩 / 资讯</span>
+            </div>
+            <div class="decision-row">
+              <article class="decision-card">
+                <strong>这页先看什么</strong>
+                <p>先看选中的股票推荐详情，因为这是首页主推荐进入深层判断后的第一步。</p>
+              </article>
+              <article class="decision-card">
+                <strong>这页再看什么</strong>
+                <p>再看期货策略和市场事件，确认今天是否存在与股票判断不同步的风险或机会。</p>
+              </article>
+              <article class="decision-card">
+                <strong>看完去哪</strong>
+                <p>想看结果归档去档案页，想做持续跟踪去关注页，想看研报支撑去资讯页。</p>
+              </article>
+            </div>
+          </article>
+
+          <aside class="side-stack">
+            <article class="aside-panel">
+              <h4>页面主次关系</h4>
+              <p>策略页不是“更多卡片”，而是首页推荐的深度解释页。首页解决“今天看谁”，策略页解决“为什么是它”。</p>
+            </article>
+            <article class="aside-panel">
+              <h4>真实承接内容</h4>
+              <p>股票推荐详情、评分框架、相关资讯支撑、版本轨迹、期货策略参数、市场事件详情，这些都已有真实前端承接。</p>
+            </article>
+            <article class="aside-panel">
+              <h4>刻意不做</h4>
+              <p>不做分时盘口、委托成交、指数大盘总览、题材热榜，也不复制首页的大入口感。</p>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="main-side-layout">
+        <div class="content-stack">
+          <article class="pale-panel">
+            <div class="lead-head">
+              <div>
+                <span class="eyebrow">股票推荐详情</span>
+                <h4>比亚迪 002594</h4>
+              </div>
+              <div class="hint-row">
+                <span class="tag">评分 92</span>
+                <span class="metric">风险：中等</span>
+                <span class="metric">仓位：30%</span>
+              </div>
+            </div>
+            <p>
+              这块直接承接当前 `activeStockView` 和 explanation 能力。这里的重点不是“它涨不涨”，而是把推荐理由、评分因子、风险边界、相关资讯支撑和版本变化放在一起，让用户能做出更完整的判断。
+            </p>
+            <div class="card-grid-3" style="margin-top: 16px;">
+              <article class="data-card">
+                <strong>为什么推荐</strong>
+                <p>新能源主线仍有承接，资金流与板块情绪没有破坏，短中期信号共振。</p>
+              </article>
+              <article class="data-card">
+                <strong>止盈 / 止损</strong>
+                <p>上涨 6%-10% 分批止盈，跌破 1590 止损；走对时兑现，走错时迅速收缩风险。</p>
+              </article>
+              <article class="data-card">
+                <strong>版本变化</strong>
+                <p>当前 explanation 相比初始推荐更强调资金与事件共识，适合继续看版本历史对照。</p>
+              </article>
+            </div>
+            <div class="card-grid-2" style="margin-top: 16px;">
+              <article class="compact-card">
+                <strong>评分因子</strong>
+                <p>基本面、趋势、量价、资讯、风险、绩效因子都来自当前详情逻辑，不新增虚构评分体系。</p>
+              </article>
+              <article class="compact-card">
+                <strong>相关资讯支撑</strong>
+                <p>最近一条资讯说明板块承接和机构观点仍在强化该推荐，详情继续承接到资讯页。</p>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel section">
+            <div class="data-table-head">
+              <div>
+                <strong>股票推荐矩阵</strong>
+                <p>保留当前推荐列表的排序感，但改成更适合中文 PC 扫读的表格式主区。</p>
+              </div>
+              <span class="api-badge">stocks/recommendations</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>标的</th>
+                    <th>当前角色</th>
+                    <th>推荐理由摘要</th>
+                    <th>风险 / 仓位</th>
+                    <th>动作建议</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td data-label="标的">比亚迪 002594</td>
+                    <td data-label="当前角色">主推荐</td>
+                    <td data-label="推荐理由摘要">新能源主线仍有承接，资金与事件共识较强。</td>
+                    <td data-label="风险 / 仓位">中等 / 30%</td>
+                    <td data-label="动作建议">优先看 explanation 与风险边界</td>
+                  </tr>
+                  <tr>
+                    <td data-label="标的">中兴通讯 000063</td>
+                    <td data-label="当前角色">第二梯队</td>
+                    <td data-label="推荐理由摘要">算力链验证样本，适合做跟踪而不是立即上主位。</td>
+                    <td data-label="风险 / 仓位">中等 / 20%</td>
+                    <td data-label="动作建议">等待事件强化后再提升优先级</td>
+                  </tr>
+                  <tr>
+                    <td data-label="标的">中际旭创 300308</td>
+                    <td data-label="当前角色">弹性样本</td>
+                    <td data-label="推荐理由摘要">趋势样本波动较高，适合谨慎观察。</td>
+                    <td data-label="风险 / 仓位">中高 / 15%</td>
+                    <td data-label="动作建议">需要更强量能与资讯双确认</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="panel section">
+            <div class="section-head">
+              <div>
+                <h3>期货策略区</h3>
+                <p>和股票策略并列，但不抢走首页主推荐的中心位置；这里主要看参数和场景执行。</p>
+              </div>
+              <span class="api-badge">futures/strategies</span>
+            </div>
+            <div class="card-grid-2">
+              <article class="pale-panel">
+                <div class="row-head">
+                  <div>
+                    <span class="eyebrow">当前选中合约</span>
+                    <h4>IF 主力合约</h4>
+                  </div>
+                  <span class="tag">顺势偏多</span>
+                </div>
+                <p>回踩均线承接，多角色共识偏多。这里继续承接 guidance、事件支撑、版本差异和历史策略业绩。</p>
+                <div class="dense-metrics">
+                  <span class="metric">仓位：轻仓</span>
+                  <span class="metric">止盈区间 3590-3620</span>
+                  <span class="metric">止损区间 3470-3490</span>
+                </div>
+              </article>
+              <article class="line-panel">
+                <h4>执行视角</h4>
+                <p>期货策略区更像“参数台”，要把入场、平仓、止损、失效条件看清楚，而不是看一个方向标签就结束。</p>
+                <div class="mini-list" style="margin-top: 14px;">
+                  <article class="compact-card">
+                    <strong>入场点位</strong>
+                    <p>等待关键区间确认后执行，避免情绪化追单。</p>
+                  </article>
+                  <article class="compact-card">
+                    <strong>失效条件</strong>
+                    <p>若事件扰动改变风险参数，应立即降低仓位并重新评估。</p>
+                  </article>
+                </div>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel section">
+            <div class="section-head">
+              <div>
+                <h3>市场事件雷达</h3>
+                <p>这块是策略页特有的“强化或削弱判断”的模块，不应回塞首页。</p>
+              </div>
+              <span class="api-badge">market/events</span>
+            </div>
+            <div class="card-grid-2">
+              <article class="line-panel">
+                <div class="tab-row">
+                  <span class="tab active">全部</span>
+                  <span class="tab">政策事件</span>
+                  <span class="tab">资金流事件</span>
+                  <span class="tab">其他事件</span>
+                </div>
+                <div class="mini-list" style="margin-top: 14px;">
+                  <article class="compact-card">
+                    <strong>算力基础设施政策推进</strong>
+                    <p>政策事件 · 高相关。优先审查受益板块中已在推荐池的标的。</p>
+                  </article>
+                  <article class="compact-card">
+                    <strong>北向资金放量流入</strong>
+                    <p>资金流事件 · 中相关。可以强化第二梯队样本，但不足以立即替代主推荐。</p>
+                  </article>
+                  <article class="compact-card">
+                    <strong>新能源车高位票分化</strong>
+                    <p>风险事件 · 需要重新核对主推荐与弹性样本的边界。</p>
+                  </article>
+                </div>
+              </article>
+              <article class="pale-panel">
+                <div class="row-head">
+                  <div>
+                    <span class="eyebrow">事件详情</span>
+                    <h4>算力基础设施政策推进</h4>
+                  </div>
+                  <span class="tag">来源：市场快讯</span>
+                </div>
+                <p>事件详情应该回答“它影响谁、强化还是削弱、下一步该回哪个标的看”。因此更适合放在策略页深读，而不是首页用一句标题带过。</p>
+                <div class="card-grid-2" style="margin-top: 16px;">
+                  <article class="compact-card">
+                    <strong>影响方向</strong>
+                    <p>强化算力链样本的跟踪权重，但暂时不足以打掉首页当前防御型主推荐。</p>
+                  </article>
+                  <article class="compact-card">
+                    <strong>建议动作</strong>
+                    <p>先回中兴通讯等相关样本看 explanation，再决定是否提升到更高优先级。</p>
+                  </article>
+                </div>
+              </article>
+            </div>
+          </article>
+        </div>
+
+        <aside class="side-stack">
+          <article class="aside-panel">
+            <h4>今天先看顺序</h4>
+            <p>1. 主推荐 explanation</p>
+            <p>2. 第二梯队是否有新事件强化</p>
+            <p>3. 期货参数是否给出独立机会</p>
+          </article>
+          <article class="aside-panel">
+            <h4>和其他页面的关系</h4>
+            <p>策略页负责“为什么做”；档案页负责“后来结果怎样”；关注页负责“现在有没有变化”；资讯页负责“外部内容是否继续验证”。</p>
+          </article>
+          <article class="aside-panel">
+            <h4>这页最该保留的能力</h4>
+            <p>详情里的 explanation、版本历史、相关资讯支撑和绩效表格，这些比单纯推荐列表更有辨识度。</p>
+          </article>
+        </aside>
+      </section>
+
+      <section class="panel section">
+        <div class="section-head">
+          <div>
+            <h3>这页不该扩成什么</h3>
+            <p>保持和当前真实前端边界一致，才能让 demo 有可落地性。</p>
+          </div>
+        </div>
+        <div class="card-grid-3">
+          <article class="route-card">
+            <strong>不做大盘总览</strong>
+            <p>上证指数、北向资金、题材热榜这些不是当前策略页已有能力。</p>
+          </article>
+          <article class="route-card">
+            <strong>不做交易终端</strong>
+            <p>不扩盘口、成交明细、委托面板，这些当前前端没有承接。</p>
+          </article>
+          <article class="route-card">
+            <strong>不复制首页</strong>
+            <p>策略页重点是展开和解释，不是再次重复首页主推荐的入口感。</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <div class="footer-grid">
+          <section class="footer-col">
+            <h4>真实承接内容</h4>
+            <ul>
+              <li>股票推荐详情</li>
+              <li>期货策略参数</li>
+              <li>市场事件雷达</li>
+              <li>版本历史与相关资讯</li>
+              <li>业绩跟踪</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>主要接口</h4>
+            <ul>
+              <li>stocks/recommendations</li>
+              <li>futures/strategies</li>
+              <li>market/events</li>
+              <li>related insights / performance</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>相关跳转</h4>
+            <ul>
+              <li>回首页看今日主推荐</li>
+              <li>去档案页看历史兑现</li>
+              <li>去关注页看持续变化</li>
+              <li>去资讯页看外部支撑</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>审查重点</h4>
+            <p>这页是否真正把首页承诺的推荐展开成了可执行、可复盘、可对照的深度页。</p>
+          </section>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

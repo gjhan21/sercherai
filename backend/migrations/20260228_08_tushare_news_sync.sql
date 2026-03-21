@@ -2,6 +2,7 @@ INSERT INTO news_categories
   (id, name, slug, sort, visibility, status, created_at, updated_at)
 SELECT
   'nc_ts_news_brief', '新闻快讯', 'ts-news-brief', 210, 'PUBLIC', 'PUBLISHED', NOW(), NOW()
+FROM DUAL
 WHERE NOT EXISTS (
   SELECT 1 FROM news_categories WHERE slug = 'ts-news-brief'
 );
@@ -10,6 +11,7 @@ INSERT INTO news_categories
   (id, name, slug, sort, visibility, status, created_at, updated_at)
 SELECT
   'nc_ts_news_major', '新闻通讯', 'ts-news-major', 220, 'PUBLIC', 'PUBLISHED', NOW(), NOW()
+FROM DUAL
 WHERE NOT EXISTS (
   SELECT 1 FROM news_categories WHERE slug = 'ts-news-major'
 );
@@ -18,6 +20,7 @@ INSERT INTO news_categories
   (id, name, slug, sort, visibility, status, created_at, updated_at)
 SELECT
   'nc_ts_report_research', '券商研报', 'ts-report-research', 230, 'VIP', 'PUBLISHED', NOW(), NOW()
+FROM DUAL
 WHERE NOT EXISTS (
   SELECT 1 FROM news_categories WHERE slug = 'ts-report-research'
 );
@@ -26,6 +29,7 @@ INSERT INTO news_categories
   (id, name, slug, sort, visibility, status, created_at, updated_at)
 SELECT
   'nc_ts_report_forecast', '盈利预测', 'ts-report-forecast', 240, 'VIP', 'PUBLISHED', NOW(), NOW()
+FROM DUAL
 WHERE NOT EXISTS (
   SELECT 1 FROM news_categories WHERE slug = 'ts-report-forecast'
 );
@@ -34,6 +38,7 @@ INSERT INTO news_categories
   (id, name, slug, sort, visibility, status, created_at, updated_at)
 SELECT
   'nc_ts_announcement', '上市公司公告', 'ts-announcement', 250, 'PUBLIC', 'PUBLISHED', NOW(), NOW()
+FROM DUAL
 WHERE NOT EXISTS (
   SELECT 1 FROM news_categories WHERE slug = 'ts-announcement'
 );

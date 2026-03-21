@@ -5,6 +5,8 @@ const ClientLayout = () => import("../components/ClientLayout.vue");
 const AuthView = () => import("../views/AuthView.vue");
 const HomeView = () => import("../views/HomeView.vue");
 const StrategyView = () => import("../views/StrategyView.vue");
+const RecommendationArchiveView = () => import("../views/RecommendationArchiveView.vue");
+const MyWatchlistView = () => import("../views/MyWatchlistView.vue");
 const NewsView = () => import("../views/NewsView.vue");
 const MembershipView = () => import("../views/MembershipView.vue");
 const ProfileView = () => import("../views/ProfileView.vue");
@@ -33,6 +35,8 @@ const routes = [
       { path: "", redirect: "/home" },
       { path: "home", name: "home", component: HomeView },
       { path: "strategies", name: "strategies", component: StrategyView },
+      { path: "archive", name: "archive", component: RecommendationArchiveView },
+      { path: "watchlist", name: "watchlist", component: MyWatchlistView },
       { path: "news", name: "news", component: NewsView },
       { path: "membership", name: "membership", component: MembershipView, meta: { requiresAuth: true } },
       { path: "profile", name: "profile", component: ProfileView, meta: { requiresAuth: true } }

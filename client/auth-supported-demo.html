@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>登录注册 Demo</title>
+    <link rel="stylesheet" href="./supported-demos.css" />
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="container topbar-inner">
+        <div class="toplinks">
+          <a href="./supported-review-index.html">Demo总览</a>
+          <a href="./membership-supported-demo.html">会员</a>
+          <a href="./profile-supported-demo.html">我的</a>
+          <a href="./auth-supported-demo.html">登录</a>
+        </div>
+        <div class="topbar-right">
+          <span>对应真实页面：/auth</span>
+        </div>
+      </div>
+    </div>
+
+    <header class="site-header">
+      <div class="container site-header-inner">
+        <div class="brand">
+          <div class="brand-mark">L</div>
+          <div>
+            <h1>登录注册</h1>
+            <p>账户、邀请和来源回跳的功能入口页</p>
+          </div>
+        </div>
+        <div class="banner-note">当前登录页已经支持手机号 / 邮箱登录、注册、邀请码绑定、退出和按来源回跳，不需要扩成营销注册页或社交登录广场。</div>
+      </div>
+    </header>
+
+    <nav class="demo-nav">
+      <div class="container demo-nav-inner">
+        <div class="nav-row">
+          <a href="./china-style-supported-demo.html">首页</a>
+          <a href="./news-supported-demo.html">资讯</a>
+          <a href="./membership-supported-demo.html">会员</a>
+          <a class="active" href="./auth-supported-demo.html">登录</a>
+        </div>
+        <div class="nav-hint">真实能力：注册、登录、邀请码注册、来源回跳</div>
+      </div>
+    </nav>
+
+    <main class="page container">
+      <section class="panel hero">
+        <span class="eyebrow">登录页定位</span>
+        <h2 class="page-title">登录页要快、要准、要把用户送回原来的事情上，而不是把他拉去看一大段营销文案。</h2>
+        <p class="page-desc">
+          当前登录页已经是标准功能页，所以页面重点应该是高效率地完成登录、注册、邀请码绑定和来源回跳。它和会员、邀请、阅读权限都有真实连接，因此比一个普通表单页更像“身份入口”。
+        </p>
+
+        <div class="hero-layout-2">
+          <article class="lead-panel">
+            <div class="lead-head">
+              <div>
+                <span class="lead-kicker">身份入口页</span>
+                <h3 class="lead-title">登录成功后应该直接回到用户原来要做的事，而不是被重定向到一个陌生首页。</h3>
+              </div>
+              <span class="lead-badge">功能优先，不做营销落地页</span>
+            </div>
+            <p class="lead-desc">
+              这页最应该保留的能力其实不是表单本身，而是 `redirect` 和邀请绑定。用户从会员页、资讯页、档案页、关注页过来，都应该在完成登录后回到原位置继续阅读或操作，这对中文使用习惯非常重要。
+            </p>
+            <div class="badge-row">
+              <span class="lead-badge">手机号 / 邮箱登录</span>
+              <span class="lead-badge">邀请码注册</span>
+              <span class="lead-badge">guestOnly</span>
+              <span class="lead-badge">来源回跳</span>
+            </div>
+          </article>
+
+          <aside class="side-stack">
+            <article class="aside-panel">
+              <h4>这页的关键体验</h4>
+              <p>高效率完成身份验证，然后尽快回跳，不让用户丢失上下文。</p>
+            </article>
+            <article class="aside-panel">
+              <h4>为什么不该做长营销页</h4>
+              <p>当前用户来到这里，多数已经带着明确意图，比如看 VIP 研报正文、开会员或保存关注。</p>
+            </article>
+            <article class="aside-panel">
+              <h4>刻意不做</h4>
+              <p>不做社交登录入口，不做企业官网式宣传，也不强制登录后回首页。</p>
+            </article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="main-side-layout">
+        <div class="content-stack">
+          <article class="panel section">
+            <div class="section-head">
+              <div>
+                <h3>登录与注册主区</h3>
+                <p>登录和注册并排放在主区，更符合中文 PC 网站常见的账户入口布局。</p>
+              </div>
+            </div>
+            <div class="card-grid-2">
+              <article class="pale-panel">
+                <div class="row-head">
+                  <div>
+                    <span class="eyebrow">登录</span>
+                    <h4>手机号 / 邮箱 + 密码</h4>
+                  </div>
+                  <span class="tag">guestOnly</span>
+                </div>
+                <div class="form-grid" style="margin-top: 12px;">
+                  <div class="field">
+                    <label>手机号或邮箱</label>
+                    <input value="user@example.com" />
+                  </div>
+                  <div class="field">
+                    <label>密码</label>
+                    <input value="******" />
+                  </div>
+                  <div class="action-row">
+                    <button class="btn" type="button">立即登录</button>
+                    <button class="btn-outline" type="button">忘记密码</button>
+                  </div>
+                </div>
+              </article>
+
+              <article class="line-panel">
+                <div class="row-head">
+                  <div>
+                    <span class="eyebrow">注册</span>
+                    <h4>支持邀请码注册并自动绑定邀请关系</h4>
+                  </div>
+                  <span class="api-badge">invite_code</span>
+                </div>
+                <div class="form-grid" style="margin-top: 12px;">
+                  <div class="field">
+                    <label>手机号或邮箱</label>
+                    <input value="newuser@example.com" />
+                  </div>
+                  <div class="field">
+                    <label>密码</label>
+                    <input value="******" />
+                  </div>
+                  <div class="field">
+                    <label>邀请码</label>
+                    <input value="INVITE2026" />
+                  </div>
+                  <div class="action-row">
+                    <button class="btn" type="button">注册并登录</button>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel section">
+            <div class="section-head">
+              <div>
+                <h3>当前真实支持内容</h3>
+                <p>这些能力都已经存在于 `AuthView`，所以 demo 只做结构优化，不新增能力。</p>
+              </div>
+            </div>
+            <div class="card-grid-3">
+              <article class="route-card">
+                <strong>手机号 / 邮箱注册与密码登录</strong>
+                <p>不扩展成第三方 OAuth 展示页，除非后端真实支持。</p>
+              </article>
+              <article class="route-card">
+                <strong>邀请码注册自动绑定邀请关系</strong>
+                <p>这是当前真实能力，应该保留在登录页结构里。</p>
+              </article>
+              <article class="route-card">
+                <strong>支持退出当前设备状态</strong>
+                <p>登录页和 session、会员、邀请体系是连着的，不是孤立表单页。</p>
+              </article>
+            </div>
+          </article>
+
+          <article class="panel section">
+            <div class="section-head">
+              <div>
+                <h3>登录后的回跳链路</h3>
+                <p>这是当前代码里很值得保留的能力，应该在 demo 里明确表现出来。</p>
+              </div>
+            </div>
+            <div class="card-grid-2">
+              <article class="route-card">
+                <strong>从会员页来</strong>
+                <p>登录后直接回会员中心，继续升级、续费或核对激活状态。</p>
+              </article>
+              <article class="route-card">
+                <strong>从资讯页来</strong>
+                <p>登录后回到资讯详情，继续查看摘要、正文或决定是否升级会员。</p>
+              </article>
+              <article class="route-card">
+                <strong>从档案页来</strong>
+                <p>登录后回到原档案位置，继续比较历史样本和版本差异。</p>
+              </article>
+              <article class="route-card">
+                <strong>从关注页来</strong>
+                <p>登录后回到关注页，继续保存关注或查看变化，而不是强制跳首页。</p>
+              </article>
+            </div>
+          </article>
+        </div>
+
+        <aside class="side-stack">
+          <article class="aside-panel">
+            <h4>为什么回跳比表单更重要</h4>
+            <p>因为用户通常是被阅读权限、会员动作或保存关注触发到登录页的，回不去原位置就会打断决策链。</p>
+          </article>
+          <article class="aside-panel">
+            <h4>和会员体系关系</h4>
+            <p>登录后同步会员数据，接住升级与续费流程，这也是登录页必须保留的真实业务关系。</p>
+          </article>
+          <article class="aside-panel">
+            <h4>和邀请体系关系</h4>
+            <p>分享邀请码注册、自动绑定邀请关系，仍然应留在登录页主流程里，而不是藏到其他角落。</p>
+          </article>
+        </aside>
+      </section>
+
+      <section class="panel section">
+        <div class="section-head">
+          <div>
+            <h3>这页不该拓展什么</h3>
+            <p>为了和当前真实能力保持一致，下面这些内容不建议强行加上。</p>
+          </div>
+        </div>
+        <div class="card-grid-3">
+          <article class="route-card">
+            <strong>不做企业官网式大宣传</strong>
+            <p>当前登录页是功能页，不是营销着陆页。</p>
+          </article>
+          <article class="route-card">
+            <strong>不做社交登录入口</strong>
+            <p>如果后端没接 OAuth，就不应该在 demo 里画微信 / Apple / Google 登录。</p>
+          </article>
+          <article class="route-card">
+            <strong>不强制跳首页</strong>
+            <p>当前代码已经支持 `redirect`，继续保留更合理。</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <div class="footer-grid">
+          <section class="footer-col">
+            <h4>真实承接</h4>
+            <ul>
+              <li>登录</li>
+              <li>注册</li>
+              <li>邀请码绑定</li>
+              <li>回跳到原页面</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>和会员体系关系</h4>
+            <ul>
+              <li>登录后同步会员数据</li>
+              <li>接住升级与续费流程</li>
+              <li>承接阅读权限变化</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>和邀请体系关系</h4>
+            <ul>
+              <li>分享邀请码注册</li>
+              <li>自动绑定邀请关系</li>
+              <li>保留来源追踪</li>
+            </ul>
+          </section>
+          <section class="footer-col">
+            <h4>审查重点</h4>
+            <p>登录页是否保持简洁功能导向，同时完整接住会员、邀请和回跳链路。</p>
+          </section>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

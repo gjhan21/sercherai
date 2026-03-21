@@ -33,7 +33,7 @@ func Register(r *gin.Engine) {
 		if rErr != nil {
 			log.Printf("redis unavailable, continue without redis cache: %v", rErr)
 		}
-		growthRepo = repo.NewMySQLGrowthRepo(db, redisClient)
+		growthRepo = repo.NewMySQLGrowthRepo(db, redisClient, cfg)
 	}
 
 	growthSvc := service.NewGrowthService(growthRepo)
@@ -48,6 +48,7 @@ func Register(r *gin.Engine) {
 		cfg.LoginIPPhoneThreshold,
 		cfg.LoginLockSeconds,
 		cfg.AllowMockLogin,
+		strings.EqualFold(strings.TrimSpace(cfg.AppEnv), "dev"),
 		db,
 		redisClient,
 	)
@@ -163,6 +164,7 @@ func Register(r *gin.Engine) {
 			futures.GET("/strategies", userGrowthHandler.ListFuturesStrategies)
 			futures.GET("/strategies/:id", userGrowthHandler.GetFuturesStrategyDetail)
 			futures.GET("/strategies/:id/insight", userGrowthHandler.GetFuturesStrategyInsight)
+			futures.GET("/strategies/:id/version-history", userGrowthHandler.GetFuturesStrategyVersionHistory)
 		}
 
 		stocks := v1.Group("/stocks")
@@ -172,6 +174,7 @@ func Register(r *gin.Engine) {
 			stocks.GET("/recommendations/:id", userGrowthHandler.GetStockRecommendationDetail)
 			stocks.GET("/recommendations/:id/performance", userGrowthHandler.GetStockRecommendationPerformance)
 			stocks.GET("/recommendations/:id/insight", userGrowthHandler.GetStockRecommendationInsight)
+			stocks.GET("/recommendations/:id/version-history", userGrowthHandler.GetStockRecommendationVersionHistory)
 		}
 
 		news := v1.Group("/news")
@@ -193,6 +196,7 @@ func Register(r *gin.Engine) {
 			public.GET("/news/articles", userGrowthHandler.ListNewsArticles)
 			public.GET("/news/articles/:id", userGrowthHandler.GetNewsArticleDetail)
 			public.GET("/news/articles/:id/attachments", userGrowthHandler.ListNewsAttachments)
+			public.POST("/experiments/events", userGrowthHandler.TrackExperimentEvent)
 		}
 
 		market := v1.Group("/market")
@@ -258,6 +262,7 @@ func Register(r *gin.Engine) {
 			adminNews.GET("/articles/:id/attachments", middleware.PermissionRequired(db, "news.view"), adminGrowthHandler.ListNewsAttachments)
 			adminNews.POST("/articles/:id/attachments", middleware.PermissionRequired(db, "news.edit"), adminGrowthHandler.CreateNewsAttachment)
 			adminNews.DELETE("/attachments/:id", middleware.PermissionRequired(db, "news.edit"), adminGrowthHandler.DeleteNewsAttachment)
+			adminNews.POST("/market-sync", middleware.PermissionRequired(db, "news.edit"), adminGrowthHandler.SyncMarketNewsSource)
 		}
 
 		adminDataSources := v1.Group("/admin/data-sources")
@@ -283,6 +288,38 @@ func Register(r *gin.Engine) {
 			adminStocks.GET("/quant/evaluation", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListQuantEvaluation)
 			adminStocks.GET("/quant/evaluation/export.csv", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ExportQuantEvaluationCSV)
 			adminStocks.POST("/recommendations/generate-daily", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.GenerateDailyStockRecommendations)
+			adminStocks.GET("/strategy-engine/publish-history", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListStrategyEngineStockPublishHistory)
+			adminStocks.GET("/strategy-engine/publish-records/:publish_id", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.GetStrategyEngineStockPublishRecord)
+			adminStocks.GET("/strategy-engine/publish-records/:publish_id/replay", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.GetStrategyEngineStockPublishReplay)
+			adminStocks.POST("/strategy-engine/publish-compare", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.CompareStrategyEngineStockPublishVersions)
+		}
+
+		adminStockSelection := v1.Group("/admin/stock-selection")
+		adminStockSelection.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("ADMIN"))
+		{
+			adminStockSelection.GET("/overview", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.GetStockSelectionOverview)
+			adminStockSelection.GET("/runs", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.ListStockSelectionRuns)
+			adminStockSelection.POST("/runs", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.CreateStockSelectionRun)
+			adminStockSelection.GET("/runs/compare", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.CompareStockSelectionRuns)
+			adminStockSelection.GET("/runs/:run_id", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.GetStockSelectionRun)
+			adminStockSelection.GET("/runs/:run_id/candidates", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.ListStockSelectionRunCandidates)
+			adminStockSelection.GET("/runs/:run_id/portfolio", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.ListStockSelectionRunPortfolio)
+			adminStockSelection.GET("/runs/:run_id/evidence", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.ListStockSelectionRunEvidence)
+			adminStockSelection.GET("/runs/:run_id/evaluation", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.ListStockSelectionRunEvaluations)
+			adminStockSelection.GET("/profiles", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.ListStockSelectionProfiles)
+			adminStockSelection.GET("/profiles/:id/versions", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.ListStockSelectionProfileVersions)
+			adminStockSelection.POST("/profiles", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.CreateStockSelectionProfile)
+			adminStockSelection.PUT("/profiles/:id", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.UpdateStockSelectionProfile)
+			adminStockSelection.POST("/profiles/:id/publish", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.PublishStockSelectionProfile)
+			adminStockSelection.POST("/profiles/:id/rollback", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.RollbackStockSelectionProfile)
+			adminStockSelection.GET("/templates", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.ListStockSelectionProfileTemplates)
+			adminStockSelection.POST("/templates", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.CreateStockSelectionProfileTemplate)
+			adminStockSelection.PUT("/templates/:id", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.UpdateStockSelectionProfileTemplate)
+			adminStockSelection.POST("/templates/:id/set-default", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.SetDefaultStockSelectionProfileTemplate)
+			adminStockSelection.GET("/evaluation/leaderboard", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.ListStockSelectionEvaluationLeaderboard)
+			adminStockSelection.GET("/reviews", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.ListStockSelectionReviews)
+			adminStockSelection.POST("/reviews/:run_id/approve", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.ApproveStockSelectionReview)
+			adminStockSelection.POST("/reviews/:run_id/reject", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.RejectStockSelectionReview)
 		}
 
 		adminFutures := v1.Group("/admin/futures")
@@ -291,12 +328,39 @@ func Register(r *gin.Engine) {
 			adminFutures.GET("/strategies", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListFuturesStrategies)
 			adminFutures.POST("/strategies", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.CreateFuturesStrategy)
 			adminFutures.PUT("/strategies/:id/status", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.UpdateFuturesStrategyStatus)
+			adminFutures.POST("/quotes/sync", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.SyncFuturesQuotes)
+			adminFutures.POST("/inventory/sync", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.SyncFuturesInventory)
+			adminFutures.POST("/strategies/generate-daily", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.GenerateDailyFuturesStrategies)
+			adminFutures.GET("/strategy-engine/publish-history", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListStrategyEngineFuturesPublishHistory)
+			adminFutures.GET("/strategy-engine/publish-records/:publish_id", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.GetStrategyEngineFuturesPublishRecord)
+			adminFutures.GET("/strategy-engine/publish-records/:publish_id/replay", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.GetStrategyEngineFuturesPublishReplay)
+			adminFutures.POST("/strategy-engine/publish-compare", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.CompareStrategyEngineFuturesPublishVersions)
 		}
 
 		adminMarket := v1.Group("/admin/market")
 		adminMarket.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("ADMIN"))
 		{
 			adminMarket.GET("/events", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListMarketEvents)
+			adminMarket.GET("/rhythm-tasks", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListMarketRhythmTasks)
+			adminMarket.POST("/rhythm-tasks/ensure", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.EnsureMarketRhythmTasks)
+			adminMarket.PUT("/rhythm-tasks/:id", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.UpdateMarketRhythmTask)
+			adminMarket.PUT("/rhythm-tasks/:id/status", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.UpdateMarketRhythmTaskStatus)
+			adminMarket.GET("/experiments/summary", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.GetExperimentAnalyticsSummary)
+			adminMarket.GET("/strategy-engine/seed-sets", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListStrategySeedSets)
+			adminMarket.POST("/strategy-engine/seed-sets", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.CreateStrategySeedSet)
+			adminMarket.PUT("/strategy-engine/seed-sets/:id", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.UpdateStrategySeedSet)
+			adminMarket.GET("/strategy-engine/agents", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListStrategyAgentProfiles)
+			adminMarket.POST("/strategy-engine/agents", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.CreateStrategyAgentProfile)
+			adminMarket.PUT("/strategy-engine/agents/:id", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.UpdateStrategyAgentProfile)
+			adminMarket.GET("/strategy-engine/scenarios", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListStrategyScenarioTemplates)
+			adminMarket.POST("/strategy-engine/scenarios", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.CreateStrategyScenarioTemplate)
+			adminMarket.PUT("/strategy-engine/scenarios/:id", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.UpdateStrategyScenarioTemplate)
+			adminMarket.GET("/strategy-engine/publish-policies", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListStrategyPublishPolicies)
+			adminMarket.POST("/strategy-engine/publish-policies", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.CreateStrategyPublishPolicy)
+			adminMarket.PUT("/strategy-engine/publish-policies/:id", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.UpdateStrategyPublishPolicy)
+			adminMarket.GET("/strategy-engine/jobs", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListStrategyEngineJobs)
+			adminMarket.GET("/strategy-engine/jobs/:job_id", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.GetStrategyEngineJob)
+			adminMarket.POST("/strategy-engine/jobs/:job_id/publish", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.PublishStrategyEngineJob)
 			adminMarket.POST("/events", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.CreateMarketEvent)
 			adminMarket.PUT("/events/:id", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.UpdateMarketEvent)
 		}
@@ -393,6 +457,15 @@ func Register(r *gin.Engine) {
 			adminWorkflow.PUT("/messages/read-all", middleware.PermissionRequired(db, "workflow.edit"), adminGrowthHandler.BulkReadWorkflowMessages)
 		}
 
+	}
+
+	internalV1 := r.Group("/internal/v1")
+	{
+		internalStrategy := internalV1.Group("/strategy-engine")
+		{
+			internalStrategy.POST("/context/stock-selection", adminGrowthHandler.InternalStrategyEngineStockSelectionContext)
+			internalStrategy.POST("/context/futures-strategy", adminGrowthHandler.InternalStrategyEngineFuturesStrategyContext)
+		}
 	}
 }
 

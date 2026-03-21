@@ -27,6 +27,10 @@ export function getStockRecommendationInsight(id) {
   return http.get(`/stocks/recommendations/${encodeURIComponent(id)}/insight`);
 }
 
+export function getStockRecommendationVersionHistory(id) {
+  return http.get(`/stocks/recommendations/${encodeURIComponent(id)}/version-history`);
+}
+
 export function listFuturesArbitrage(params) {
   return http.get("/futures/arbitrage", { params: buildParams(params) });
 }
@@ -41,6 +45,10 @@ export function listFuturesStrategies(params) {
 
 export function getFuturesStrategyInsight(id) {
   return http.get(`/futures/strategies/${encodeURIComponent(id)}/insight`);
+}
+
+export function getFuturesStrategyVersionHistory(id) {
+  return http.get(`/futures/strategies/${encodeURIComponent(id)}/version-history`);
 }
 
 export function listMarketEvents(params) {

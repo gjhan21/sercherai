@@ -1,8 +1,10 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { NO_ACCESS_ROUTE_PATH, resolveFirstAccessibleRoute } from "../lib/admin-navigation";
 import { hasPermission, hasSession } from "../lib/session";
 
 const AppLayout = () => import("../components/AppLayout.vue");
 const LoginView = () => import("../views/LoginView.vue");
+const NoAccessView = () => import("../views/NoAccessView.vue");
 const PublicHomePreviewView = () => import("../views/PublicHomePreviewView.vue");
 const DashboardView = () => import("../views/DashboardView.vue");
 const UsersView = () => import("../views/UsersView.vue");
@@ -16,6 +18,13 @@ const WorkflowMessagesView = () => import("../views/WorkflowMessagesView.vue");
 const AuditLogsView = () => import("../views/AuditLogsView.vue");
 const MembershipCenterView = () => import("../views/MembershipCenterView.vue");
 const MarketCenterView = () => import("../views/MarketCenterView.vue");
+const ExperimentAnalyticsView = () => import("../views/ExperimentAnalyticsView.vue");
+const StockSelectionOverviewView = () => import("../views/stock-selection/StockSelectionOverviewView.vue");
+const StockSelectionRunsView = () => import("../views/stock-selection/StockSelectionRunsView.vue");
+const StockSelectionTemplatesView = () => import("../views/stock-selection/StockSelectionTemplatesView.vue");
+const StockSelectionProfilesView = () => import("../views/stock-selection/StockSelectionProfilesView.vue");
+const StockSelectionCandidatesView = () => import("../views/stock-selection/StockSelectionCandidatesView.vue");
+const StockSelectionEvaluationView = () => import("../views/stock-selection/StockSelectionEvaluationView.vue");
 const RiskCenterView = () => import("../views/RiskCenterView.vue");
 const AuthSecurityView = () => import("../views/AuthSecurityView.vue");
 const SystemConfigsView = () => import("../views/SystemConfigsView.vue");
@@ -41,7 +50,12 @@ const routes = [
     children: [
       {
         path: "",
-        redirect: "/dashboard"
+        redirect: () => resolveFirstAccessibleRoute()
+      },
+      {
+        path: "no-access",
+        name: "no-access",
+        component: NoAccessView
       },
       {
         path: "dashboard",
@@ -90,6 +104,48 @@ const routes = [
         name: "market-center",
         component: MarketCenterView,
         meta: { permission: "market.view" }
+      },
+      {
+        path: "experiment-analytics",
+        name: "experiment-analytics",
+        component: ExperimentAnalyticsView,
+        meta: { permission: "market.view" }
+      },
+      {
+        path: "stock-selection/overview",
+        name: "stock-selection-overview",
+        component: StockSelectionOverviewView,
+        meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
+      },
+      {
+        path: "stock-selection/runs",
+        name: "stock-selection-runs",
+        component: StockSelectionRunsView,
+        meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
+      },
+      {
+        path: "stock-selection/templates",
+        name: "stock-selection-templates",
+        component: StockSelectionTemplatesView,
+        meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
+      },
+      {
+        path: "stock-selection/profiles",
+        name: "stock-selection-profiles",
+        component: StockSelectionProfilesView,
+        meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
+      },
+      {
+        path: "stock-selection/candidates",
+        name: "stock-selection-candidates",
+        component: StockSelectionCandidatesView,
+        meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
+      },
+      {
+        path: "stock-selection/evaluation",
+        name: "stock-selection-evaluation",
+        component: StockSelectionEvaluationView,
+        meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
       },
       {
         path: "membership-center",
@@ -143,7 +199,7 @@ const routes = [
   },
   {
     path: "/:pathMatch(.*)*",
-    redirect: "/dashboard"
+    redirect: () => (hasSession() ? resolveFirstAccessibleRoute() : "/login")
   }
 ];
 
@@ -154,14 +210,15 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const authed = hasSession();
+  const landingPath = resolveFirstAccessibleRoute();
   if (to.meta.public && authed && !to.meta.allowAuthed) {
-    return "/dashboard";
+    return landingPath;
   }
   if (to.meta.requiresAuth && !authed) {
     return "/login";
   }
   if (to.meta.permission && !hasPermission(to.meta.permission)) {
-    return "/dashboard";
+    return to.path === landingPath ? NO_ACCESS_ROUTE_PATH : landingPath;
   }
   return true;
 });

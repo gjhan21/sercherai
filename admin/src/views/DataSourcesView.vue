@@ -12,6 +12,7 @@ import {
   upsertSystemConfig,
   updateDataSource
 } from "../api/admin";
+import { hasPermission } from "../lib/session";
 
 const loading = ref(false);
 const submitting = ref(false);
@@ -35,11 +36,13 @@ const logItems = ref([]);
 const formVisible = ref(false);
 const formMode = ref("create");
 const defaultStockSourceKey = ref("TUSHARE");
+const editingConfigSnapshot = ref({});
 
 const sourceTypeOptions = ["MARKET", "NEWS", "STOCK", "FUTURES", "SYSTEM"];
 const statusOptions = ["ACTIVE", "DISABLED"];
 const STOCK_DEFAULT_SOURCE_CONFIG_KEY = "stock.quotes.default_source_key";
 const STOCK_DEFAULT_SOURCE_FALLBACK = "TUSHARE";
+const canEditDataSources = hasPermission("data_source.edit");
 
 function defaultForm() {
   return {
@@ -62,6 +65,7 @@ const form = reactive(defaultForm());
 function resetForm() {
   Object.assign(form, defaultForm());
   formMode.value = "create";
+  editingConfigSnapshot.value = {};
 }
 
 function toSafeInt(value, fallback) {
@@ -75,14 +79,37 @@ function normalizeSourceKey(value) {
     .toUpperCase();
 }
 
-function isStockDataSource(item) {
-  return String(item?.source_type || "")
+function resolveDataSourceProvider(item) {
+  return String(item?.config?.provider || item?.config?.vendor || "")
     .trim()
-    .toUpperCase() === "STOCK";
+    .toUpperCase();
+}
+
+function supportsDefaultStockSource(item) {
+  const sourceType = String(item?.source_type || "")
+    .trim()
+    .toUpperCase();
+  if (sourceType === "STOCK") {
+    return true;
+  }
+  const provider = resolveDataSourceProvider(item);
+  return ["TUSHARE", "AKSHARE", "TICKERMD", "MOCK", "MYSELF"].includes(provider);
 }
 
 function isDefaultStockSource(sourceKey) {
   return normalizeSourceKey(sourceKey) === normalizeSourceKey(defaultStockSourceKey.value);
+}
+
+function cloneConfigMap(value) {
+  return JSON.parse(JSON.stringify(value || {}));
+}
+
+function ensureCanEditDataSources() {
+  if (canEditDataSources) {
+    return true;
+  }
+  errorMessage.value = "当前账号只有查看权限，无法修改数据源配置或执行健康检查";
+  return false;
 }
 
 async function loadDefaultStockSourceKey(options = {}) {
@@ -112,14 +139,20 @@ function buildPayload() {
   const sourceKey = form.source_key.trim().toUpperCase();
   const endpointValue = form.endpoint.trim();
   const config = {
+    ...(formMode.value === "edit" ? cloneConfigMap(editingConfigSnapshot.value) : {}),
     endpoint: sourceKey === "TUSHARE" && !endpointValue ? "https://api.tushare.pro" : endpointValue,
     fail_threshold: toSafeInt(form.fail_threshold, 3),
     retry_times: toSafeInt(form.retry_times, 0),
     retry_interval_ms: toSafeInt(form.retry_interval_ms, 200),
     health_timeout_ms: toSafeInt(form.health_timeout_ms, 3000)
   };
+  delete config.token;
+  delete config.api_token;
+  delete config.tushare_token;
   if (form.alert_receiver_id.trim()) {
     config.alert_receiver_id = form.alert_receiver_id.trim();
+  } else {
+    delete config.alert_receiver_id;
   }
   if (form.token.trim()) {
     config.token = form.token.trim();
@@ -133,10 +166,13 @@ function buildPayload() {
   };
 }
 
-async function fetchDataSources() {
+async function fetchDataSources(options = {}) {
+  const { preserveFeedback = false } = options;
   loading.value = true;
-  errorMessage.value = "";
-  message.value = "";
+  if (!preserveFeedback) {
+    errorMessage.value = "";
+    message.value = "";
+  }
   try {
     const [data] = await Promise.all([
       listDataSources({ page: page.value, page_size: pageSize.value }),
@@ -152,6 +188,9 @@ async function fetchDataSources() {
 }
 
 async function submitForm() {
+  if (!ensureCanEditDataSources()) {
+    return;
+  }
   submitting.value = true;
   errorMessage.value = "";
   message.value = "";
@@ -177,7 +216,7 @@ async function submitForm() {
     }
     formVisible.value = false;
     resetForm();
-    await fetchDataSources();
+    await fetchDataSources({ preserveFeedback: true });
   } catch (error) {
     errorMessage.value = error.message || "提交失败";
   } finally {
@@ -186,12 +225,19 @@ async function submitForm() {
 }
 
 function handleCreate() {
+  if (!ensureCanEditDataSources()) {
+    return;
+  }
   resetForm();
   formVisible.value = true;
 }
 
 function handleEdit(item) {
+  if (!ensureCanEditDataSources()) {
+    return;
+  }
   const cfg = item.config || {};
+  editingConfigSnapshot.value = cloneConfigMap(cfg);
   Object.assign(form, {
     source_key: item.source_key || "",
     name: item.name || "",
@@ -210,6 +256,9 @@ function handleEdit(item) {
 }
 
 async function handleDelete(sourceKey) {
+  if (!ensureCanEditDataSources()) {
+    return;
+  }
   try {
     await ElMessageBox.confirm(`确认删除数据源 ${sourceKey}？`, "删除确认", {
       type: "warning",
@@ -225,15 +274,18 @@ async function handleDelete(sourceKey) {
   try {
     await deleteDataSource(sourceKey);
     message.value = `数据源 ${sourceKey} 已删除`;
-    await fetchDataSources();
+    await fetchDataSources({ preserveFeedback: true });
   } catch (error) {
     errorMessage.value = error.message || "删除失败";
   }
 }
 
 async function handleSetDefaultStockSource(row) {
-  if (!isStockDataSource(row)) {
-    errorMessage.value = "仅支持设置 STOCK 类型数据源为默认行情源";
+  if (!ensureCanEditDataSources()) {
+    return;
+  }
+  if (!supportsDefaultStockSource(row)) {
+    errorMessage.value = "仅支持设置可用于股票行情同步的数据源为默认行情源";
     return;
   }
   const sourceKey = normalizeSourceKey(row.source_key);
@@ -262,6 +314,9 @@ async function handleSetDefaultStockSource(row) {
 }
 
 async function handleCheckOne(sourceKey) {
+  if (!ensureCanEditDataSources()) {
+    return;
+  }
   errorMessage.value = "";
   message.value = "";
   try {
@@ -274,6 +329,9 @@ async function handleCheckOne(sourceKey) {
 }
 
 async function handleBatchCheckAll() {
+  if (!ensureCanEditDataSources()) {
+    return;
+  }
   batchChecking.value = true;
   errorMessage.value = "";
   message.value = "";
@@ -342,10 +400,16 @@ onMounted(fetchDataSources);
           默认行情源：{{ defaultStockSourceKey || "-" }}
         </el-tag>
         <el-button :loading="loading" @click="fetchDataSources">刷新列表</el-button>
-        <el-button type="primary" plain :loading="batchChecking" @click="handleBatchCheckAll">
+        <el-button
+          v-if="canEditDataSources"
+          type="primary"
+          plain
+          :loading="batchChecking"
+          @click="handleBatchCheckAll"
+        >
           全部健康检查
         </el-button>
-        <el-button type="primary" @click="handleCreate">新增数据源</el-button>
+        <el-button v-if="canEditDataSources" type="primary" @click="handleCreate">新增数据源</el-button>
       </div>
     </div>
 
@@ -415,7 +479,7 @@ onMounted(fetchDataSources);
           <template #default="{ row }">
             <div class="inline-actions">
               <el-button
-                v-if="isStockDataSource(row)"
+                v-if="canEditDataSources && supportsDefaultStockSource(row)"
                 size="small"
                 type="success"
                 plain
@@ -425,10 +489,18 @@ onMounted(fetchDataSources);
               >
                 设为默认行情源
               </el-button>
-              <el-button size="small" @click="handleCheckOne(row.source_key)">健康检查</el-button>
+              <el-button v-if="canEditDataSources" size="small" @click="handleCheckOne(row.source_key)">健康检查</el-button>
               <el-button size="small" @click="showLogs(row.source_key)">健康日志</el-button>
-              <el-button size="small" @click="handleEdit(row)">编辑</el-button>
-              <el-button size="small" type="danger" plain @click="handleDelete(row.source_key)">删除</el-button>
+              <el-button v-if="canEditDataSources" size="small" @click="handleEdit(row)">编辑</el-button>
+              <el-button
+                v-if="canEditDataSources"
+                size="small"
+                type="danger"
+                plain
+                @click="handleDelete(row.source_key)"
+              >
+                删除
+              </el-button>
             </div>
           </template>
         </el-table-column>
@@ -533,7 +605,7 @@ onMounted(fetchDataSources);
 
       <template #footer>
         <el-button @click="formVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitForm">提交</el-button>
+        <el-button v-if="canEditDataSources" type="primary" :loading="submitting" @click="submitForm">提交</el-button>
       </template>
     </el-dialog>
   </div>

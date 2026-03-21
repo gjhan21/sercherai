@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS futures_inventory_snapshots (
+  id               varchar(32) PRIMARY KEY,
+  symbol           varchar(32) NOT NULL,
+  trade_date       date NOT NULL,
+  futures_name     varchar(128) DEFAULT NULL,
+  warehouse        varchar(128) DEFAULT NULL,
+  warehouse_id     varchar(64) DEFAULT NULL,
+  area             varchar(64) DEFAULT NULL,
+  brand            varchar(128) DEFAULT NULL,
+  place            varchar(128) DEFAULT NULL,
+  grade            varchar(64) DEFAULT NULL,
+  unit             varchar(32) DEFAULT NULL,
+  receipt_volume   decimal(24,6) NOT NULL DEFAULT 0,
+  previous_volume  decimal(24,6) NOT NULL DEFAULT 0,
+  change_volume    decimal(24,6) NOT NULL DEFAULT 0,
+  source_key       varchar(32) NOT NULL,
+  fetched_at       datetime NOT NULL,
+  created_at       datetime NOT NULL,
+  updated_at       datetime NOT NULL,
+  UNIQUE KEY uk_futures_inventory_snapshot (symbol, trade_date, warehouse_id, warehouse, area, brand, place, grade, source_key),
+  KEY idx_futures_inventory_symbol_date (symbol, trade_date),
+  KEY idx_futures_inventory_trade_date (trade_date)
+);

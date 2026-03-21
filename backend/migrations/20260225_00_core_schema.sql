@@ -207,7 +207,7 @@ CREATE TABLE IF NOT EXISTS news_articles (
   summary      varchar(512),
   content      mediumtext NOT NULL,
   cover_url    varchar(512),
-  tags         json,
+  tags         longtext,
   visibility   varchar(16) NOT NULL,
   status       varchar(16) NOT NULL,
   published_at datetime,

@@ -3,7 +3,8 @@ import { reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { login, mockLogin } from "../api/auth";
 import { getAccessProfile } from "../api/admin";
-import { saveSession } from "../lib/session";
+import { resolveFirstAccessibleRoute } from "../lib/admin-navigation";
+import { clearSession, saveSession } from "../lib/session";
 
 const router = useRouter();
 const submitting = ref(false);
@@ -11,12 +12,31 @@ const errorMessage = ref("");
 const mode = ref("password");
 
 const form = reactive({
-  phone: "13800000000",
+  phone: "19900000001",
   password: "abc123456",
   expire_seconds: 86400,
   user_id: "admin_001",
   role: "ADMIN"
 });
+
+function formatLockedUntil(lockedUntil) {
+  if (!lockedUntil) {
+    return "";
+  }
+  const time = new Date(lockedUntil);
+  if (Number.isNaN(time.getTime())) {
+    return lockedUntil;
+  }
+  return time.toLocaleString("zh-CN", {
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
 
 async function handleSubmit() {
   errorMessage.value = "";
@@ -49,20 +69,30 @@ async function handleSubmit() {
     if ((payload.role || "").toUpperCase() !== "ADMIN") {
       throw new Error("当前账号不是 ADMIN 角色");
     }
+
+    // Persist the access token first so the profile request can attach Authorization.
+    saveSession(payload);
+
     let accessProfile = { permission_codes: [], roles: [] };
     try {
       accessProfile = await getAccessProfile();
     } catch (error) {
-      console.warn("load access profile failed:", error?.message || error);
+      clearSession();
+      throw new Error(error?.message || "权限加载失败，请稍后重试");
     }
     saveSession({
       ...payload,
       permission_codes: accessProfile.permission_codes || [],
       roles: accessProfile.roles || []
     });
-    await router.replace("/dashboard");
+    await router.replace(resolveFirstAccessibleRoute());
   } catch (error) {
-    errorMessage.value = error.message || "登录失败";
+    if (error?.code === 42901) {
+      const lockedUntil = formatLockedUntil(error?.payload?.locked_until);
+      errorMessage.value = lockedUntil ? `登录失败次数过多，请在 ${lockedUntil} 后重试` : "登录失败次数过多，请稍后重试";
+    } else {
+      errorMessage.value = error.message || "登录失败";
+    }
   } finally {
     submitting.value = false;
   }
@@ -78,28 +108,28 @@ async function handleSubmit() {
       </div>
 
       <el-radio-group v-model="mode" size="large" class="login-mode">
-        <el-radio-button label="mock">Mock 登录（开发）</el-radio-button>
-        <el-radio-button label="password">密码登录</el-radio-button>
+        <el-radio-button value="mock">Mock 登录（开发）</el-radio-button>
+        <el-radio-button value="password">密码登录</el-radio-button>
       </el-radio-group>
 
       <el-form label-position="top" @submit.prevent="handleSubmit">
         <template v-if="mode === 'password'">
           <el-form-item label="手机号">
-            <el-input v-model="form.phone" placeholder="13800000000" clearable />
+            <el-input v-model="form.phone" placeholder="19900000001" clearable />
           </el-form-item>
           <el-form-item label="密码">
             <el-input v-model="form.password" type="password" placeholder="请输入密码" show-password />
           </el-form-item>
           <div class="quick-account">
-            <el-button text @click="() => ((form.phone = '13800000000'), (form.password = 'abc123456'))">
+            <el-button text @click="() => ((form.phone = '19900000001'), (form.password = 'abc123456'))">
               使用 admin_001
             </el-button>
-            <el-button text @click="() => ((form.phone = '13800000010'), (form.password = 'abc123456'))">
+            <el-button text @click="() => ((form.phone = '19900000002'), (form.password = 'abc123456'))">
               使用 admin_002
             </el-button>
           </div>
           <el-alert
-            title="开发测试账号：13800000000 / abc123456，13800000010 / abc123456"
+            title="开发测试账号：19900000001 / abc123456，19900000002 / abc123456"
             type="info"
             :closable="false"
             class="login-hint"

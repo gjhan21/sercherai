@@ -3,7 +3,7 @@ VALUES ('u_demo_001', '13800000001', 'demo@sercherai.local', 'a03c32fcd351cba2d9
 ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at), member_level = VALUES(member_level);
 
 INSERT INTO users (id, phone, email, password_hash, status, kyc_status, member_level, created_at, updated_at)
-VALUES ('admin_001', '13800000000', 'admin@sercherai.local', 'a03c32fcd351cba2d9738622b083bed022ef07793bd92b59faea0207653f371d', 'ACTIVE', 'APPROVED', 'VIP1', NOW(), NOW())
+VALUES ('admin_001', '19900000001', 'admin@sercherai.local', 'a03c32fcd351cba2d9738622b083bed022ef07793bd92b59faea0207653f371d', 'ACTIVE', 'APPROVED', 'VIP1', NOW(), NOW())
 ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at), member_level = VALUES(member_level);
 
 INSERT INTO membership_products (id, name, price, status, member_level, duration_days)
@@ -68,8 +68,8 @@ ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at), status = VALUES(status)
 
 INSERT INTO news_articles (id, category_id, title, summary, content, cover_url, tags, visibility, status, published_at, author_id, created_at, updated_at)
 VALUES
-  ('article_demo_001', 'nc_demo_001', 'A股盘前观察', '示例资讯', '这是用于联调的示例资讯正文。', 'https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80', JSON_ARRAY('A股', '盘前'), 'VIP', 'PUBLISHED', NOW(), 'admin_demo_001', NOW(), NOW()),
-  ('article_demo_public_001', 'nc_demo_001', '午间市场速览', '公开资讯示例，用于客户端栏目联调', '这是公开可见的示例资讯正文，用于客户端新闻列表与详情页联调。', 'https://images.unsplash.com/photo-1518186285589-2f7649de83e0?auto=format&fit=crop&w=1200&q=80', JSON_ARRAY('公开', '联调'), 'PUBLIC', 'PUBLISHED', NOW(), 'admin_001', NOW(), NOW())
+  ('article_demo_001', 'nc_demo_001', 'A股盘前观察', '示例资讯', '这是用于联调的示例资讯正文。', 'https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?auto=format&fit=crop&w=1200&q=80', '["A股","盘前"]', 'VIP', 'PUBLISHED', NOW(), 'admin_demo_001', NOW(), NOW()),
+  ('article_demo_public_001', 'nc_demo_001', '午间市场速览', '公开资讯示例，用于客户端栏目联调', '这是公开可见的示例资讯正文，用于客户端新闻列表与详情页联调。', 'https://images.unsplash.com/photo-1518186285589-2f7649de83e0?auto=format&fit=crop&w=1200&q=80', '["公开","联调"]', 'PUBLIC', 'PUBLISHED', NOW(), 'admin_001', NOW(), NOW())
 ON DUPLICATE KEY UPDATE summary = VALUES(summary), content = VALUES(content), cover_url = VALUES(cover_url), updated_at = VALUES(updated_at), status = VALUES(status);
 
 INSERT INTO news_attachments (id, article_id, file_name, file_url, file_size, mime_type, created_at)

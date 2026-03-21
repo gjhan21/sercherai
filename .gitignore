@@ -17,3 +17,10 @@ client/dist/
 # Runtime artifacts
 .run/
 .mysql-local/
+
+# Local/dev misc
+.DS_Store
+.codex/
+/releases/
+/sercherai*.sql
+/users.sql

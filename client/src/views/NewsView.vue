@@ -2,15 +2,135 @@
   <section class="news-page fade-up">
     <header class="news-hero card">
       <div>
-        <p class="hero-kicker">资讯中心 · API 联动</p>
-        <h1 class="section-title">先看新闻，再看研报和期刊。</h1>
-        <p class="section-subtitle">已接入资讯分类、文章详情和附件接口，支持二级导航切换。</p>
+        <p class="hero-kicker">资讯中心</p>
+        <h1 class="section-title">新闻、研报与期刊</h1>
+        <p class="section-subtitle">按栏目查看文章详情和附件。</p>
       </div>
-      <div class="hero-status">
+      <div class="hero-status finance-summary-pill">
         <p>更新状态</p>
         <strong>{{ loading ? "同步中" : "已同步" }}</strong>
       </div>
     </header>
+
+    <StatePanel
+      :tone="newsAccessState.tone"
+      :eyebrow="newsAccessState.label"
+      :title="newsAccessState.title"
+      :description="newsAccessState.desc"
+    >
+      <template #actions>
+        <button type="button" class="finance-primary-btn" @click="handleNewsPrimaryAction('state_panel_primary')">{{ newsPrimaryActionText }}</button>
+        <button type="button" class="ghost finance-ghost-btn" @click="handleNewsSecondaryAction">{{ newsSecondaryActionText }}</button>
+      </template>
+    </StatePanel>
+
+    <section class="news-focus-layout finance-dual-rail">
+      <article class="card news-focus-card finance-section-card">
+        <header class="news-focus-head finance-section-head-grid">
+          <div>
+            <p class="hero-kicker">今日焦点</p>
+            <h2 class="section-title">查看今日重点文章，并继续阅读正文与附件。</h2>
+            <p class="section-subtitle">
+              左侧切换栏目，右侧查看详情。
+            </p>
+          </div>
+          <div class="news-focus-actions finance-action-row">
+            <button type="button" class="finance-primary-btn" :disabled="loading" @click="loadNewsData">
+              {{ loading ? "同步中..." : "刷新资讯" }}
+            </button>
+            <button type="button" class="ghost finance-ghost-btn" @click="handleNewsPrimaryAction('focus_primary')">
+              {{ newsPrimaryActionText }}
+            </button>
+          </div>
+        </header>
+
+        <div v-if="featuredArticle" class="news-featured-panel finance-card-pale">
+          <div class="news-featured-head">
+            <div>
+              <p class="decision-tag">今日焦点{{ featuredArticleCategoryLabel }}</p>
+              <h3>{{ featuredArticle.title }}</h3>
+            </div>
+            <div class="news-featured-badges">
+              <span class="finance-pill finance-pill-roomy finance-pill-info">{{ featuredArticleCategoryLabel }}</span>
+              <span class="finance-pill finance-pill-roomy finance-pill-info">{{ featuredArticle.time }}</span>
+              <span class="finance-pill finance-pill-roomy finance-pill-info">{{ featuredArticle.visibilityLabel }}</span>
+            </div>
+          </div>
+          <p class="news-featured-summary">{{ featuredArticle.desc }}</p>
+          <div v-if="featuredArticle.tags.length" class="tags">
+            <span
+              v-for="tag in featuredArticle.tags"
+              :key="`featured-${tag}`"
+              class="finance-pill finance-pill-compact finance-pill-accent"
+            >
+              {{ tag }}
+            </span>
+          </div>
+          <div class="news-feature-grid">
+            <article class="finance-list-card finance-list-card-panel">
+              <p>摘要</p>
+              <strong>快速把握重点</strong>
+              <span>先看摘要，再决定是否继续阅读全文。</span>
+            </article>
+            <article class="finance-list-card finance-list-card-panel">
+              <p>正文</p>
+              <strong>{{ canReadActiveArticle ? "可阅读全文" : "登录或升级后可阅读全文" }}</strong>
+              <span>{{ activeArticleLockDesc }}</span>
+            </article>
+            <article class="finance-list-card finance-list-card-panel">
+              <p>附件</p>
+              <strong>{{ activeAttachments.length }} 个</strong>
+              <span>附件保留在详情区查看。</span>
+            </article>
+          </div>
+        </div>
+        <StatePanel
+          v-else
+          tone="info"
+          eyebrow="今日焦点"
+          title="当前还没有可查看的资讯样本"
+          description="刷新后将优先展示今日重点文章。"
+          compact
+        />
+      </article>
+
+      <aside class="news-focus-side finance-stack-tight finance-sticky-side">
+        <article class="card news-side-card finance-section-card">
+          <header class="section-head compact">
+            <div>
+              <h2 class="section-title">栏目概览</h2>
+              <p class="section-subtitle">新闻、研报、期刊分开展示。</p>
+            </div>
+          </header>
+          <div class="news-role-list">
+            <article v-for="item in contentRoleRows" :key="item.title" class="finance-list-card finance-list-card-panel">
+              <div class="top-line">
+                <p>{{ item.title }}</p>
+                <span>{{ item.count }}</span>
+              </div>
+              <strong>{{ item.summary }}</strong>
+              <span>{{ item.desc }}</span>
+            </article>
+          </div>
+        </article>
+
+        <article class="card news-side-card finance-section-card">
+          <header class="section-head compact">
+            <div>
+              <h2 class="section-title">权限说明</h2>
+              <p class="section-subtitle">游客可看摘要，登录后保留阅读位置，VIP 解锁全文与附件。</p>
+            </div>
+          </header>
+          <div class="news-role-list">
+            <article v-for="item in newsReadingGuideRows" :key="item.title" class="finance-list-card finance-list-card-panel">
+              <p>{{ item.title }}</p>
+              <strong>{{ item.summary }}</strong>
+              <span>{{ item.desc }}</span>
+            </article>
+          </div>
+        </article>
+      </aside>
+    </section>
 
     <nav class="sub-nav card">
       <button
@@ -37,7 +157,7 @@
 
     <div class="news-grid">
       <article class="card feed-card">
-        <header>
+        <header class="finance-copy-stack">
           <h2 class="section-title">{{ currentCategory.label }}</h2>
           <p class="section-subtitle">{{ currentCategory.subtitle }}</p>
         </header>
@@ -46,26 +166,27 @@
           <article
             v-for="item in currentFeed"
             :key="item.id"
-            class="feed-item"
+            class="feed-item finance-list-card finance-list-card-interactive"
             :class="{ active: activeArticleID === item.id }"
             @click="openArticle(item.id)"
           >
             <div class="meta">
               <span class="time">{{ item.time }}</span>
-              <span class="level" :class="item.levelClass">{{ item.level }}</span>
+              <span class="level finance-pill finance-pill-compact" :class="item.levelClass">{{ item.level }}</span>
             </div>
             <h3>{{ item.title }}</h3>
             <p>{{ item.desc }}</p>
             <div class="tags">
-              <span v-for="tag in item.tags" :key="tag">{{ tag }}</span>
+              <span v-for="tag in item.tags" :key="tag" class="finance-pill finance-pill-compact finance-pill-accent">{{ tag }}</span>
             </div>
           </article>
         </div>
-        <div v-else class="empty-box">当前栏目暂无内容</div>
+        <div v-else class="empty-box finance-empty-box">当前栏目暂无内容</div>
         <div v-if="currentFeed.length" class="feed-footer">
           <p class="feed-progress">{{ feedProgressText }}</p>
           <button
             type="button"
+            class="finance-mini-btn finance-mini-btn-primary"
             :disabled="!canLoadMore || currentPagination.loading"
             @click="loadMoreForActiveCategory"
           >
@@ -81,13 +202,34 @@
       </article>
 
       <aside class="side">
+        <article class="card reading-guide-card finance-section-card">
+          <header class="section-head compact">
+            <div>
+              <h2 class="section-title">阅读说明</h2>
+              <p class="section-subtitle">左侧选文章，右侧查看摘要、正文和附件。</p>
+            </div>
+          </header>
+          <div class="news-role-list">
+            <article v-for="item in detailGuideRows" :key="item.title" class="finance-list-card finance-list-card-panel">
+              <p>{{ item.title }}</p>
+              <strong>{{ item.summary }}</strong>
+              <span>{{ item.desc }}</span>
+            </article>
+          </div>
+        </article>
+
         <article class="card detail-card">
           <header class="detail-head">
             <div>
               <p class="decision-tag">{{ currentCategory.label }}详情</p>
               <h2>文章详情</h2>
             </div>
-            <button type="button" :disabled="detailLoading" @click="refreshActiveArticleDetail">
+            <button
+              type="button"
+              class="finance-mini-btn finance-mini-btn-accent"
+              :disabled="detailLoading"
+              @click="refreshActiveArticleDetail"
+            >
               {{ detailLoading ? "同步中..." : "刷新详情" }}
             </button>
           </header>
@@ -99,16 +241,105 @@
               {{ activeArticleDetail.authorID || "-" }}
             </p>
             <p class="detail-summary">{{ activeArticleDetail.summary }}</p>
-            <div class="detail-content" v-html="activeArticleDetail.contentHTML"></div>
+            <template v-if="canReadActiveArticle">
+              <div class="detail-content" v-html="activeArticleDetail.contentHTML"></div>
 
-            <div class="attachment-box">
-              <p class="attachment-title">附件</p>
-              <div v-if="activeAttachments.length" class="attachment-list">
+              <div class="attachment-box">
+                <p class="attachment-title">附件</p>
+                <div v-if="activeAttachments.length" class="attachment-list">
+                  <button
+                    v-for="item in activeAttachments"
+                    :key="item.id || item.file_url || item.file_name"
+                    type="button"
+                    class="attachment-item"
+                    :disabled="downloadingAttachmentID === (item.id || item.file_url || '')"
+                    @click="handleDownloadAttachment(item)"
+                  >
+                    <span>{{ item.file_name || "未命名附件" }}</span>
+                    <small>{{ formatAttachmentSize(item.file_size) }}</small>
+                  </button>
+                </div>
+                <p v-else class="empty-inline finance-empty-inline">暂无附件</p>
+              </div>
+            </template>
+            <div v-else class="detail-lock-card">
+              <p class="detail-lock-kicker">{{ activeArticleDetail.visibilityLabel }} 内容</p>
+              <strong>{{ activeArticleLockTitle }}</strong>
+              <span>{{ activeArticleLockDesc }}</span>
+              <div class="detail-lock-actions">
+                <button type="button" class="finance-primary-btn" @click="handleNewsPrimaryAction('detail_lock_primary')">{{ newsPrimaryActionText }}</button>
+                <button type="button" class="ghost-btn finance-ghost-btn" @click="handleNewsSecondaryAction">
+                  {{ newsSecondaryActionText }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-box finance-empty-box">暂无可查看文章</div>
+
+          <p v-if="detailErrorMessage" class="detail-error">{{ detailErrorMessage }}</p>
+        </article>
+      </aside>
+    </div>
+
+    <section v-if="isMobileView && isDetailModalOpen" class="mobile-detail-panel">
+      <header class="mobile-detail-head">
+        <button type="button" class="mobile-nav-btn finance-mini-btn finance-mini-btn-card" @click="closeDetailModal">返回</button>
+        <div>
+          <p>{{ currentCategory.label }}详情</p>
+          <h2>{{ selectedArticleTitle }}</h2>
+        </div>
+        <button
+          type="button"
+          class="mobile-nav-btn finance-mini-btn finance-mini-btn-accent"
+          :disabled="detailLoading"
+          @click="refreshActiveArticleDetail"
+        >
+          {{ detailLoading ? "同步中" : "刷新" }}
+        </button>
+      </header>
+
+      <div class="mobile-detail-body">
+        <article v-if="activeArticle" class="mobile-detail-card">
+          <div class="mobile-info-block">
+            <p class="mobile-info-row">
+              <span>标题</span>
+              <strong>{{ selectedArticleTitle }}</strong>
+            </p>
+            <p class="mobile-info-row">
+              <span>日期</span>
+              <strong>{{ selectedPublishedAt }}</strong>
+            </p>
+            <p class="mobile-info-row">
+              <span>发布人</span>
+              <strong>{{ selectedPublisher }}</strong>
+            </p>
+          </div>
+
+          <template v-if="activeArticleDetail">
+            <section class="mobile-content-box">
+              <p class="mobile-block-title">内容</p>
+              <p class="mobile-detail-summary">{{ activeArticleDetail.summary }}</p>
+              <div v-if="canReadActiveArticle" class="mobile-detail-content" v-html="activeArticleDetail.contentHTML"></div>
+              <div v-else class="mobile-lock-card">
+                <strong>{{ activeArticleLockTitle }}</strong>
+                <span>{{ activeArticleLockDesc }}</span>
+                <div class="mobile-lock-actions">
+                  <button type="button" class="finance-primary-btn" @click="handleNewsPrimaryAction('mobile_lock_primary')">{{ newsPrimaryActionText }}</button>
+                  <button type="button" class="ghost-btn finance-ghost-btn" @click="handleNewsSecondaryAction">
+                    {{ newsSecondaryActionText }}
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <div class="mobile-attachment-box">
+              <p class="mobile-block-title">附件</p>
+              <div v-if="canReadActiveArticle && activeAttachments.length" class="mobile-attachment-list">
                 <button
                   v-for="item in activeAttachments"
                   :key="item.id || item.file_url || item.file_name"
                   type="button"
-                  class="attachment-item"
+                  class="mobile-attachment-item"
                   :disabled="downloadingAttachmentID === (item.id || item.file_url || '')"
                   @click="handleDownloadAttachment(item)"
                 >
@@ -116,21 +347,34 @@
                   <small>{{ formatAttachmentSize(item.file_size) }}</small>
                 </button>
               </div>
-              <p v-else class="empty-inline">暂无附件</p>
+              <p v-else class="mobile-empty-inline finance-empty-inline">
+                {{ canReadActiveArticle ? "暂无附件" : "开通对应权限后可查看附件" }}
+              </p>
             </div>
-          </div>
-          <div v-else class="empty-box">暂无可查看文章</div>
-
-          <p v-if="detailErrorMessage" class="detail-error">{{ detailErrorMessage }}</p>
+          </template>
+          <template v-else>
+            <section class="mobile-content-box">
+              <p class="mobile-block-title">内容</p>
+              <p class="mobile-loading-tip">详情加载中...</p>
+            </section>
+            <div class="mobile-attachment-box">
+              <p class="mobile-block-title">附件</p>
+              <p class="mobile-empty-inline finance-empty-inline">详情加载后可查看附件</p>
+            </div>
+          </template>
         </article>
-      </aside>
-    </div>
+        <div v-else class="mobile-empty-box finance-empty-box">暂无可查看文章</div>
+        <p v-if="detailErrorMessage" class="mobile-detail-error">{{ detailErrorMessage }}</p>
+      </div>
+    </section>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import StatePanel from "../components/StatePanel.vue";
+import { getMembershipQuota } from "../api/membership";
 import {
   getAttachmentSignedURL,
   getNewsArticleDetail,
@@ -138,23 +382,30 @@ import {
   listNewsAttachments,
   listNewsCategories
 } from "../api/news";
+import { useClientAuth } from "../lib/client-auth";
+import {
+  promotePendingExperimentJourneySources,
+  rememberExperimentAttributionSource,
+  rememberPendingExperimentJourneySource
+} from "../lib/growth-analytics";
+import { getExperimentVariant } from "../lib/growth-experiments";
 import { getAccessToken } from "../lib/session";
 
 const categoryTemplates = [
   {
     key: "news",
     label: "新闻",
-    subtitle: "聚合市场动态与政策消息，突出当日高影响事件。"
+    subtitle: "查看市场动态与政策消息。"
   },
   {
     key: "report",
     label: "研报",
-    subtitle: "聚焦机构深度分析，帮助中短期策略参数优化。"
+    subtitle: "查看机构深度分析与重点观点。"
   },
   {
     key: "journal",
     label: "期刊",
-    subtitle: "沉淀长期观点和方法论，支持策略体系迭代。"
+    subtitle: "查看长期观点与方法总结。"
   }
 ];
 
@@ -166,6 +417,9 @@ const defaultCategoryTemplate = categoryTemplates[0];
 const DEFAULT_PAGE_SIZE = 20;
 
 const route = useRoute();
+const router = useRouter();
+const { isLoggedIn } = useClientAuth();
+const newsMembershipExperimentVariant = getExperimentVariant("news_membership_entry", ["default"]);
 
 const activeTab = ref("");
 const loading = ref(false);
@@ -181,6 +435,10 @@ const activeArticleID = ref("");
 const detailLoading = ref(false);
 const detailErrorMessage = ref("");
 const downloadingAttachmentID = ref("");
+const isDetailModalOpen = ref(false);
+const isMobileView = ref(false);
+const memberStageLoading = ref(false);
+const isVIPUser = ref(false);
 
 const currentCategory = computed(
   () =>
@@ -214,6 +472,7 @@ const feedProgressText = computed(() => {
   }
   return `已展示 ${loaded} 条`;
 });
+const allFeedRows = computed(() => Object.values(feedMap.value || {}).flat());
 const activeArticle = computed(
   () => currentFeed.value.find((item) => item.id === activeArticleID.value) || currentFeed.value[0] || null
 );
@@ -243,6 +502,164 @@ const activeAttachments = computed(() => {
   }
   return attachmentMap.value[id] || [];
 });
+const selectedArticleTitle = computed(() => {
+  const rawTitle = activeArticleDetail.value?.title || activeArticle.value?.title || "";
+  return toPlainText(rawTitle) || "未命名资讯";
+});
+const selectedPublishedAt = computed(() => {
+  if (activeArticleDetail.value?.publishedAt) {
+    return activeArticleDetail.value.publishedAt;
+  }
+  if (!activeArticle.value) {
+    return "-";
+  }
+  return formatDateTime(activeArticle.value.publishedAtRaw || activeArticle.value.time);
+});
+const selectedPublisher = computed(() => {
+  if (activeArticleDetail.value?.authorID) {
+    return activeArticleDetail.value.authorID;
+  }
+  return activeArticle.value?.authorID || "-";
+});
+const currentArticleNeedsVIP = computed(
+  () => String(activeArticleDetail.value?.visibilityLabel || "").toUpperCase() === "VIP"
+);
+const canReadActiveArticle = computed(() => !currentArticleNeedsVIP.value || isVIPUser.value);
+const featuredArticle = computed(() => {
+  const reportItem = allFeedRows.value.find((item) =>
+    (item.tags || []).some((tag) => /(研报|研究|深度|forecast|report|insight)/i.test(String(tag || "")))
+  );
+  return reportItem || activeArticle.value || allFeedRows.value[0] || null;
+});
+const featuredArticleCategoryLabel = computed(() => {
+  const firstTag = featuredArticle.value?.tags?.[0];
+  return firstTag || currentCategory.value?.label || "资讯";
+});
+const newsAccessStage = computed(() => {
+  if (isVIPUser.value) {
+    return "VIP";
+  }
+  if (isLoggedIn.value) {
+    return "REGISTERED";
+  }
+  return "VISITOR";
+});
+const newsAccessState = computed(() => {
+  if (memberStageLoading.value) {
+    return {
+      tone: "info",
+      label: "识别中",
+      title: "正在确认你的资讯访问阶段",
+      desc: "确认完成后，会把资讯详情、附件和 CTA 调整到对应阶段。"
+    };
+  }
+  if (newsAccessStage.value === "VIP") {
+    return {
+      tone: "success",
+      label: "会员阶段",
+      title: "你已解锁深度资讯，可直接阅读正文和附件。",
+      desc: "可结合策略页和关注页继续查看。"
+    };
+  }
+  if (newsAccessStage.value === "REGISTERED") {
+    return {
+      tone: "warning",
+      label: "注册阶段",
+      title: "可先查看公开资讯和摘要，再判断是否升级。",
+      desc: "登录后会保留当前阅读位置。"
+    };
+  }
+  return {
+    tone: "info",
+    label: "游客阶段",
+    title: "可先查看公开资讯与摘要。",
+    desc: "登录后可继续当前阅读，并保存关注方向。"
+  };
+});
+const newsPrimaryActionText = computed(() => {
+  if (newsAccessStage.value === "VIP") {
+    return "去策略页查看";
+  }
+  if (newsAccessStage.value === "REGISTERED") {
+    return "升级会员看深度内容";
+  }
+  return "先登录保存关注";
+});
+const newsSecondaryActionText = computed(() => {
+  if (newsAccessStage.value === "VIP") {
+    return "去我的关注";
+  }
+  if (newsAccessStage.value === "REGISTERED") {
+    return "去策略页";
+  }
+  return "看历史档案";
+});
+const activeArticleLockTitle = computed(() =>
+  newsAccessStage.value === "REGISTERED" ? "这篇深度内容需要 VIP 才能查看全文和附件。" : "登录后先进入注册路径，再决定是否升级 VIP。"
+);
+const activeArticleLockDesc = computed(() => {
+  if (newsAccessStage.value === "VIP") {
+    return "当前内容已解锁。";
+  }
+  if (newsAccessStage.value === "REGISTERED") {
+    return "当前可查看摘要和公开资讯，升级后可解锁正文与附件。";
+  }
+  return "当前先展示摘要，登录后可继续当前阅读。";
+});
+const contentRoleRows = computed(() => [
+  {
+    title: "新闻",
+    count: `${countFeedItemsByRole("news")} 条`,
+    summary: "关注盘中动态和高影响事件",
+    desc: "适合快速确认市场变化。"
+  },
+  {
+    title: "研报",
+    count: `${countFeedItemsByRole("report")} 条`,
+    summary: "查看深度判断和参数分析",
+    desc: "适合深入阅读重点观点。"
+  },
+  {
+    title: "期刊",
+    count: `${countFeedItemsByRole("journal")} 条`,
+    summary: "查看长期观点与方法内容",
+    desc: "适合做长期阅读和复盘。"
+  }
+]);
+const newsReadingGuideRows = computed(() => [
+  {
+    title: "当前阶段",
+    summary: newsAccessState.value.label,
+    desc: newsAccessState.value.desc
+  },
+  {
+    title: "正文阅读",
+    summary: canReadActiveArticle.value ? "当前正文已可读" : "当前可先查看摘要",
+    desc: "需要更多内容时，可继续登录或升级。"
+  },
+  {
+    title: "继续查看",
+    summary: "资讯页负责阅读正文",
+    desc: "可继续前往策略页或关注页查看相关内容。"
+  }
+]);
+const detailGuideRows = computed(() => [
+  {
+    title: "先看标题和摘要",
+    summary: "先快速判断是否值得继续阅读",
+    desc: "右侧详情区会先展示标题、时间和摘要。"
+  },
+  {
+    title: "再看正文和附件",
+    summary: canReadActiveArticle.value ? "当前可以继续读完整内容" : "登录或升级后可看完整内容",
+    desc: "正文和附件都保留在详情区查看。"
+  },
+  {
+    title: "继续查看相关内容",
+    summary: "需要时可前往其他页面",
+    desc: "看完可回策略页确认动作，或回关注页查看跟踪变化。"
+  }
+]);
 
 watch(
   currentFeed,
@@ -267,6 +684,26 @@ watch(
 );
 
 watch(
+  () => isMobileView.value,
+  (mobile) => {
+    if (!mobile) {
+      isDetailModalOpen.value = false;
+    }
+  }
+);
+
+watch(
+  () => [isDetailModalOpen.value, isMobileView.value],
+  ([opened, mobile]) => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    document.body.style.overflow = opened && mobile ? "hidden" : "";
+  },
+  { immediate: true }
+);
+
+watch(
   () => route.query.keyword,
   (value) => {
     const normalized = normalizeKeyword(value);
@@ -275,6 +712,13 @@ watch(
     }
     searchKeyword.value = normalized;
     loadNewsData();
+  }
+);
+
+watch(
+  () => isLoggedIn.value,
+  () => {
+    loadMembershipStage();
   }
 );
 
@@ -289,10 +733,10 @@ async function loadNewsData() {
     if (backendCategories.length > 0) {
       resolvedCategories = backendCategories;
     } else {
-      errors.push("分类接口返回为空，请先在管理端创建并发布新闻分类");
+      errors.push("当前暂无可用资讯分类");
     }
   } catch (error) {
-    errors.push(`分类接口失败：${error?.message || "unknown error"}`);
+    errors.push(`资讯分类加载失败：${error?.message || "unknown error"}`);
   }
 
   categoryTabs.value = resolvedCategories;
@@ -332,7 +776,7 @@ async function loadNewsData() {
       try {
         await fetchCategoryArticles(category, { page: 1, reset: true });
       } catch (error) {
-        errors.push(`${category.label}接口失败：${error?.message || "unknown error"}`);
+        errors.push(`${category.label}加载失败：${error?.message || "unknown error"}`);
       }
     })
   );
@@ -342,6 +786,23 @@ async function loadNewsData() {
   }
   lastUpdatedAt.value = formatDateTime(new Date().toISOString());
   loading.value = false;
+}
+
+async function loadMembershipStage() {
+  memberStageLoading.value = true;
+  try {
+    if (!isLoggedIn.value) {
+      isVIPUser.value = false;
+      return;
+    }
+    const quota = await getMembershipQuota();
+    isVIPUser.value = resolveVIPStage(quota);
+  } catch {
+    isVIPUser.value = false;
+  } finally {
+    memberStageLoading.value = false;
+  }
+  promoteNewsPostAuthAttribution();
 }
 
 async function fetchCategoryArticles(category, options = {}) {
@@ -399,6 +860,89 @@ async function fetchCategoryArticles(category, options = {}) {
   }
 }
 
+function rememberNewsMembershipEntry(targetKey, metadata = {}) {
+  rememberExperimentAttributionSource({
+    experimentKey: "news_membership_entry",
+    variantKey: newsMembershipExperimentVariant,
+    pageKey: "news",
+    targetKey,
+    userStage: newsAccessStage.value,
+    metadata: {
+      active_category: currentCategory.value?.key || "",
+      article_id: activeArticle.value?.id || "",
+      article_visibility: currentArticleNeedsVIP.value ? "VIP" : "PUBLIC",
+      ...metadata
+    }
+  });
+}
+
+function rememberNewsPendingMembershipEntry(targetKey, metadata = {}) {
+  rememberPendingExperimentJourneySource({
+    experimentKey: "news_membership_entry",
+    variantKey: newsMembershipExperimentVariant,
+    pageKey: "news",
+    targetKey,
+    userStage: "VISITOR",
+    redirectPath: "/news",
+    metadata: {
+      active_category: currentCategory.value?.key || "",
+      article_id: activeArticle.value?.id || "",
+      article_visibility: currentArticleNeedsVIP.value ? "VIP" : "PUBLIC",
+      ...metadata
+    }
+  });
+}
+
+function promoteNewsPostAuthAttribution() {
+  if (!isLoggedIn.value) {
+    return;
+  }
+  promotePendingExperimentJourneySources({
+    experimentKey: "news_membership_entry",
+    pageKey: "news",
+    userStage: newsAccessStage.value,
+    metadata: {
+      active_category: currentCategory.value?.key || "",
+      article_id: activeArticle.value?.id || "",
+      article_visibility: currentArticleNeedsVIP.value ? "VIP" : "PUBLIC"
+    }
+  });
+}
+
+function handleNewsPrimaryAction(targetKey = "primary_action") {
+  if (newsAccessStage.value === "VIP") {
+    router.push("/strategies");
+    return;
+  }
+  if (newsAccessStage.value === "REGISTERED") {
+    rememberNewsMembershipEntry(targetKey, {
+      destination: "/membership"
+    });
+    router.push("/membership");
+    return;
+  }
+  rememberNewsPendingMembershipEntry(targetKey, {
+    destination_after_auth: "/news"
+  });
+  router.push({ path: "/auth", query: { redirect: "/news" } });
+}
+
+function handleNewsSecondaryAction() {
+  if (newsAccessStage.value === "VIP") {
+    router.push("/watchlist");
+    return;
+  }
+  if (newsAccessStage.value === "REGISTERED") {
+    router.push("/strategies");
+    return;
+  }
+  router.push("/archive");
+}
+
+function countFeedItemsByRole(role) {
+  return allFeedRows.value.filter((item) => itemMatchesRole(item, role)).length;
+}
+
 async function loadMoreForActiveCategory() {
   const category = currentCategory.value;
   if (!category?.key || !canLoadMore.value || currentPagination.value.loading) {
@@ -447,6 +991,20 @@ function mergeFeedRows(currentRows, nextRows) {
 
 function openArticle(id) {
   activeArticleID.value = id;
+  if (isMobileView.value) {
+    isDetailModalOpen.value = true;
+  }
+}
+
+function closeDetailModal() {
+  isDetailModalOpen.value = false;
+}
+
+function syncViewport() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  isMobileView.value = window.innerWidth <= 980;
 }
 
 async function loadActiveArticleDetail(options = {}) {
@@ -624,6 +1182,17 @@ function mapArticleItem(item, category) {
   };
 }
 
+function itemMatchesRole(item, role) {
+  const text = `${item?.title || ""} ${(item?.tags || []).join(" ")}`;
+  if (role === "report") {
+    return /(研报|研究|深度|forecast|report|insight)/i.test(text);
+  }
+  if (role === "journal") {
+    return /(期刊|周刊|月刊|journal|weekly)/i.test(text);
+  }
+  return !itemMatchesRole(item, "report") && !itemMatchesRole(item, "journal");
+}
+
 function buildTags(item, category) {
   const tags = [];
   if (category?.label) {
@@ -650,6 +1219,26 @@ function resolveDetailErrorMessage(error, visibility) {
     return "该内容为VIP专享，请登录并开通会员后查看完整内容";
   }
   return error?.message || "详情加载失败";
+}
+
+function resolveVIPStage(quota) {
+  const activationState = String(quota?.activation_state || "").toUpperCase();
+  if (activationState) {
+    return activationState === "ACTIVE";
+  }
+  const status = String(quota?.vip_status || "").toUpperCase();
+  if (status === "ACTIVE") {
+    return true;
+  }
+  const level = String(quota?.member_level || "").toUpperCase();
+  if (!level.startsWith("VIP")) {
+    return false;
+  }
+  const remainingDays = Number(quota?.vip_remaining_days);
+  if (Number.isFinite(remainingDays)) {
+    return remainingDays > 0;
+  }
+  return true;
 }
 
 function formatDateTime(value) {
@@ -696,6 +1285,13 @@ function escapeHTML(value) {
     .replace(/'/g, "&#39;");
 }
 
+function toPlainText(value) {
+  return String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function sanitizeArticleHTML(rawHTML) {
   if (typeof window === "undefined" || typeof DOMParser === "undefined") {
     return String(rawHTML || "")
@@ -735,7 +1331,21 @@ function sanitizeArticleHTML(rawHTML) {
 }
 
 onMounted(() => {
+  syncViewport();
+  if (typeof window !== "undefined") {
+    window.addEventListener("resize", syncViewport);
+  }
+  loadMembershipStage();
   loadNewsData();
+});
+
+onBeforeUnmount(() => {
+  if (typeof window !== "undefined") {
+    window.removeEventListener("resize", syncViewport);
+  }
+  if (typeof document !== "undefined") {
+    document.body.style.overflow = "";
+  }
 });
 </script>
 
@@ -743,6 +1353,93 @@ onMounted(() => {
 .news-page {
   display: grid;
   gap: 12px;
+}
+
+.news-focus-layout {
+  --finance-main-column: minmax(0, 1.22fr);
+  --finance-side-column: 340px;
+}
+
+.news-focus-actions button {
+  width: auto;
+}
+
+.news-featured-panel {
+  margin-top: 12px;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.news-featured-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.news-featured-head h3 {
+  margin: 4px 0 0;
+  font-size: 22px;
+  line-height: 1.35;
+  color: var(--color-text-main);
+}
+
+.news-featured-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.news-featured-badges span {
+  box-shadow: inset 0 0 0 1px var(--color-focus-fill);
+}
+
+.news-featured-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.72;
+  color: var(--color-text-sub);
+}
+
+.news-feature-grid,
+.news-role-list {
+  display: grid;
+  gap: 8px;
+}
+
+.news-feature-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.news-feature-grid article,
+.news-role-list article {
+  display: grid;
+  gap: 4px;
+}
+
+.news-feature-grid p,
+.news-role-list p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-sub);
+}
+
+.news-feature-grid strong,
+.news-role-list strong {
+  font-size: 14px;
+  color: var(--color-text-main);
+}
+
+.news-feature-grid span,
+.news-role-list span {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-sub);
+}
+
+.news-focus-side {
+  align-content: start;
 }
 
 .news-hero {
@@ -761,22 +1458,15 @@ onMounted(() => {
 }
 
 .hero-status {
-  border-radius: 12px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(246, 244, 239, 0.9);
   padding: 8px 10px;
 }
 
 .hero-status p {
-  margin: 0;
   font-size: 11px;
-  color: var(--color-text-sub);
 }
 
 .hero-status strong {
   margin-top: 2px;
-  display: block;
-  color: var(--color-pine-700);
   font-size: 16px;
 }
 
@@ -789,8 +1479,8 @@ onMounted(() => {
 }
 
 .sub-item {
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(252, 251, 247, 0.9);
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-surface-panel-strong);
   border-radius: 11px;
   padding: 10px 12px;
   cursor: pointer;
@@ -813,7 +1503,7 @@ onMounted(() => {
 }
 
 .sub-item.active {
-  background: linear-gradient(145deg, var(--color-pine-700), var(--color-pine-500));
+  background: var(--gradient-primary);
   border-color: transparent;
 }
 
@@ -824,8 +1514,8 @@ onMounted(() => {
 
 .api-tip {
   border-radius: 10px;
-  border: 1px dashed rgba(216, 223, 216, 0.95);
-  background: rgba(246, 244, 239, 0.76);
+  border: 1px dashed var(--color-border-soft-heavy);
+  background: var(--color-surface-panel-soft-muted);
   padding: 8px 10px;
 }
 
@@ -868,32 +1558,11 @@ onMounted(() => {
 }
 
 .feed-footer button {
-  border: 0;
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  color: #fff;
-  background: linear-gradient(145deg, var(--color-pine-700), var(--color-pine-500));
+  width: auto;
 }
 
 .feed-footer button:disabled {
   opacity: 0.72;
-  cursor: not-allowed;
-}
-
-.feed-item {
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
-  cursor: pointer;
-}
-
-.feed-item.active {
-  border-color: rgba(63, 127, 113, 0.4);
-  box-shadow: 0 8px 20px rgba(63, 127, 113, 0.12);
 }
 
 .meta {
@@ -908,24 +1577,22 @@ onMounted(() => {
 }
 
 .level {
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 11px;
+  font-weight: 700;
 }
 
 .level.high {
-  color: #8a3c2f;
-  background: rgba(230, 194, 185, 0.65);
+  color: var(--color-accent);
+  background: var(--color-surface-gold-soft);
 }
 
 .level.mid {
-  color: #775325;
-  background: rgba(234, 215, 180, 0.66);
+  color: var(--color-pine-700);
+  background: var(--color-surface-accent-glow);
 }
 
 .level.low {
-  color: var(--color-pine-700);
-  background: rgba(223, 236, 230, 0.72);
+  color: var(--color-text-sub);
+  background: var(--color-surface-panel-soft-subtle);
 }
 
 h3 {
@@ -948,11 +1615,7 @@ h3 {
 }
 
 .tags span {
-  font-size: 11px;
-  border-radius: 999px;
-  padding: 2px 8px;
-  background: rgba(239, 232, 218, 0.75);
-  color: #775325;
+  letter-spacing: 0.01em;
 }
 
 .side {
@@ -961,8 +1624,12 @@ h3 {
   align-content: start;
 }
 
+.reading-guide-card {
+  background: var(--color-surface-card-strong);
+}
+
 .detail-card {
-  background: linear-gradient(160deg, rgba(38, 88, 78, 0.96), rgba(45, 108, 95, 0.96));
+  background: linear-gradient(160deg, rgba(19, 54, 103, 0.96), rgba(30, 83, 161, 0.96));
   color: #f5faf7;
 }
 
@@ -976,7 +1643,7 @@ h3 {
 .decision-tag {
   margin: 0;
   font-size: 12px;
-  color: rgba(245, 250, 247, 0.76);
+  color: rgba(248, 251, 255, 0.76);
 }
 
 .detail-head h2 {
@@ -986,18 +1653,11 @@ h3 {
 }
 
 .detail-head button {
-  border: 0;
-  border-radius: 10px;
-  background: #f1dfbf;
-  color: #664a26;
-  padding: 8px 12px;
-  font-weight: 600;
-  cursor: pointer;
+  width: auto;
 }
 
 .detail-head button:disabled {
   opacity: 0.7;
-  cursor: not-allowed;
 }
 
 .detail-body {
@@ -1013,21 +1673,66 @@ h3 {
 .detail-meta {
   margin: 6px 0 0;
   font-size: 12px;
-  color: rgba(245, 250, 247, 0.74);
+  color: rgba(248, 251, 255, 0.74);
 }
 
 .detail-summary {
   margin: 10px 0 0;
   font-size: 13px;
   line-height: 1.62;
-  color: rgba(245, 250, 247, 0.84);
+  color: rgba(248, 251, 255, 0.84);
+}
+
+.detail-lock-card {
+  margin-top: 10px;
+  border-radius: 14px;
+  border: 1px solid var(--color-line-gold);
+  background: var(--color-surface-gold-overlay);
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.detail-lock-kicker {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(248, 251, 255, 0.72);
+}
+
+.detail-lock-card strong,
+.detail-lock-card span {
+  display: block;
+}
+
+.detail-lock-card strong {
+  font-size: 16px;
+  line-height: 1.5;
+  color: #f8fbff;
+}
+
+.detail-lock-card span {
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(248, 251, 255, 0.82);
+}
+
+.detail-lock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.detail-lock-actions .ghost-btn {
+  background: var(--color-surface-card-elevated);
 }
 
 .detail-content {
   margin: 8px 0 0;
   font-size: 13px;
   line-height: 1.62;
-  color: rgba(245, 250, 247, 0.9);
+  color: rgba(248, 251, 255, 0.9);
 }
 
 .detail-content :deep(p) {
@@ -1045,7 +1750,7 @@ h3 {
 }
 
 .detail-content :deep(a) {
-  color: #f1dfbf;
+  color: var(--color-text-gold-soft);
   text-decoration: underline;
 }
 
@@ -1057,14 +1762,14 @@ h3 {
 
 .attachment-box {
   margin-top: 10px;
-  border-top: 1px solid rgba(241, 223, 191, 0.34);
+  border-top: 1px solid var(--color-line-gold);
   padding-top: 10px;
 }
 
 .attachment-title {
   margin: 0;
   font-size: 12px;
-  color: rgba(245, 250, 247, 0.76);
+  color: rgba(248, 251, 255, 0.76);
 }
 
 .attachment-list {
@@ -1074,9 +1779,9 @@ h3 {
 }
 
 .attachment-item {
-  border: 1px solid rgba(241, 223, 191, 0.4);
-  background: rgba(246, 225, 188, 0.12);
-  color: #f5faf7;
+  border: 1px solid var(--color-line-gold);
+  background: var(--color-surface-gold-overlay);
+  color: #f8fbff;
   border-radius: 9px;
   padding: 7px 9px;
   text-align: left;
@@ -1094,35 +1799,284 @@ h3 {
 
 .attachment-item small {
   font-size: 11px;
-  color: rgba(245, 250, 247, 0.72);
+  color: rgba(248, 251, 255, 0.72);
 }
 
 .empty-inline {
   margin: 8px 0 0;
   font-size: 12px;
-  color: rgba(245, 250, 247, 0.7);
+  color: rgba(248, 251, 255, 0.7);
 }
 
 .detail-error {
   margin: 10px 0 0;
-  color: #f1dfbf;
+  color: var(--color-text-gold-soft);
   font-size: 12px;
 }
 
 .empty-box {
   margin-top: 10px;
   border-radius: 11px;
-  border: 1px dashed rgba(216, 223, 216, 0.95);
-  background: rgba(246, 244, 239, 0.7);
+  border: 1px dashed var(--color-border-soft-heavy);
+  background: var(--color-surface-panel-tint);
   padding: 10px;
   font-size: 12px;
   color: var(--color-text-sub);
 }
 
 @media (max-width: 980px) {
+  .news-focus-layout,
   .news-hero,
   .news-grid {
     grid-template-columns: 1fr;
+  }
+
+  .news-focus-head,
+  .news-featured-head,
+  .news-hero {
+    display: grid;
+  }
+
+  .news-feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .news-focus-actions {
+    justify-content: flex-start;
+  }
+
+  .side {
+    display: grid;
+    gap: 12px;
+  }
+
+  .detail-card {
+    display: none;
+  }
+
+  .mobile-detail-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 66;
+    background: linear-gradient(180deg, var(--color-surface-soft) 0%, var(--color-champagne-100) 100%);
+    display: grid;
+    grid-template-rows: auto 1fr;
+  }
+
+  .mobile-detail-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 10px;
+    border-bottom: 1px solid var(--color-border-soft);
+    background: var(--color-surface-card-top);
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .mobile-detail-head p {
+    margin: 0;
+    font-size: 11px;
+    color: var(--color-text-sub);
+  }
+
+  .mobile-detail-head h2 {
+    margin: 2px 0 0;
+    font-size: 15px;
+    font-family: var(--font-serif);
+    color: var(--color-text-main);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-nav-btn {
+    width: auto;
+  }
+
+  .mobile-nav-btn:disabled {
+    opacity: 0.72;
+  }
+
+  .mobile-detail-body {
+    overflow-y: auto;
+    padding: 10px;
+  }
+
+  .mobile-detail-card {
+    border: 1px solid var(--color-border-soft-heavy);
+    border-radius: 14px;
+    padding: 12px;
+    background: var(--color-surface-card-top);
+  }
+
+  .mobile-info-block {
+    border: 1px solid var(--color-border-soft-strong);
+    border-radius: 11px;
+    background: var(--color-surface-panel-soft);
+    padding: 9px;
+    display: grid;
+    gap: 8px;
+  }
+
+  .mobile-info-row {
+    margin: 0;
+    display: grid;
+    gap: 3px;
+  }
+
+  .mobile-info-row span {
+    font-size: 11px;
+    color: var(--color-text-sub);
+  }
+
+  .mobile-info-row strong {
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--color-text-main);
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-content-box {
+    margin-top: 10px;
+  }
+
+  .mobile-block-title {
+    margin: 0;
+    font-size: 12px;
+    color: var(--color-text-sub);
+  }
+
+  .mobile-detail-summary {
+    margin: 7px 0 0;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--color-text-main);
+  }
+
+  .mobile-detail-content {
+    margin: 8px 0 0;
+    font-size: 14px;
+    line-height: 1.72;
+    color: var(--color-text-main);
+  }
+
+  .mobile-lock-card {
+    margin-top: 8px;
+    border-radius: 12px;
+    border: 1px solid var(--color-line-gold);
+    background: var(--color-surface-gold-soft);
+    padding: 10px;
+    display: grid;
+    gap: 6px;
+  }
+
+  .mobile-lock-card strong,
+  .mobile-lock-card span {
+    display: block;
+  }
+
+  .mobile-lock-card strong {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--color-text-main);
+  }
+
+  .mobile-lock-card span {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--color-text-sub);
+  }
+
+  .mobile-lock-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .mobile-lock-actions .ghost-btn {
+    background: var(--color-surface-card-elevated);
+  }
+
+  .mobile-detail-content :deep(p) {
+    margin: 0 0 10px;
+  }
+
+  .mobile-detail-content :deep(ul),
+  .mobile-detail-content :deep(ol) {
+    margin: 6px 0 10px 18px;
+    padding: 0;
+  }
+
+  .mobile-detail-content :deep(li) {
+    margin-bottom: 4px;
+  }
+
+  .mobile-detail-content :deep(a) {
+    color: var(--color-pine-700);
+    text-decoration: underline;
+  }
+
+  .mobile-detail-content :deep(img) {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+  }
+
+  .mobile-attachment-box {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--color-border-soft);
+  }
+
+  .mobile-attachment-list {
+    margin-top: 8px;
+    display: grid;
+    gap: 6px;
+  }
+
+  .mobile-attachment-item {
+    border: 1px solid var(--color-border-soft);
+    border-radius: 9px;
+    padding: 8px 9px;
+    background: var(--color-surface-panel-soft);
+    color: var(--color-text-main);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .mobile-attachment-item:disabled {
+    opacity: 0.72;
+    cursor: not-allowed;
+  }
+
+  .mobile-attachment-item small {
+    font-size: 11px;
+    color: var(--color-text-sub);
+  }
+
+  .mobile-empty-inline,
+  .mobile-empty-box {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: var(--color-text-sub);
+  }
+
+  .mobile-loading-tip {
+    margin: 10px 0 0;
+    font-size: 12px;
+    color: var(--color-text-sub);
+  }
+
+  .mobile-detail-error {
+    margin: 10px 2px 0;
+    font-size: 12px;
+    color: var(--color-fall);
   }
 }
 

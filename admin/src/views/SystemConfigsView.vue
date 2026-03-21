@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { listSystemConfigs, testOSSQiniuConfig, testPaymentYolkPayConfig, upsertSystemConfig } from "../api/admin";
+import { hasPermission } from "../lib/session";
 
 const activeTab = ref("oss");
 
@@ -106,6 +107,7 @@ const futuresFactorItems = [
   { key: "news", label: "资讯因子", desc: "相关资讯情绪与相关度" },
   { key: "performance", label: "绩效因子", desc: "历史胜率、超额收益与回撤" }
 ];
+const canEditSystemConfigs = hasPermission("system_config.edit");
 
 function normalizeErrorMessage(error, fallback) {
   return error?.message || fallback || "操作失败";
@@ -114,6 +116,14 @@ function normalizeErrorMessage(error, fallback) {
 function clearMessages() {
   errorMessage.value = "";
   message.value = "";
+}
+
+function ensureCanEditSystemConfigs() {
+  if (canEditSystemConfigs) {
+    return true;
+  }
+  errorMessage.value = "当前账号只有查看权限，无法测试或修改系统配置";
+  return false;
 }
 
 function parseConfigBool(raw, fallback = false) {
@@ -395,6 +405,9 @@ function boolToConfigValue(value) {
 }
 
 async function saveOSSConfig() {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
   if (ossForm.enabled) {
     if (!ossForm.access_key.trim() || !ossForm.secret_key.trim() || !ossForm.bucket.trim() || !ossForm.domain.trim()) {
       errorMessage.value = "启用七牛云时，access_key/secret_key/bucket/domain 不能为空";
@@ -428,6 +441,9 @@ async function saveOSSConfig() {
 }
 
 async function testOSSConfig() {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
   ossTesting.value = true;
   clearMessages();
   try {
@@ -443,6 +459,9 @@ async function testOSSConfig() {
 }
 
 async function testPaymentConfig() {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
   paymentTesting.value = true;
   clearMessages();
   try {
@@ -458,6 +477,9 @@ async function testPaymentConfig() {
 }
 
 async function savePaymentConfig() {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
   if (paymentForm.enabled) {
     if (!paymentForm.signing_secret.trim()) {
       errorMessage.value = "启用支付时，签名密钥不能为空";
@@ -533,6 +555,9 @@ function normalizeFuturesScoreForm() {
 }
 
 async function saveFuturesScoreConfig() {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
   futuresScoreSaving.value = true;
   clearMessages();
   try {
@@ -568,6 +593,9 @@ async function saveFuturesScoreConfig() {
 }
 
 function openCreateDialog() {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
   Object.assign(dialogForm, {
     config_key: "",
     config_value: "",
@@ -577,6 +605,9 @@ function openCreateDialog() {
 }
 
 function openEditDialog(item) {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
   Object.assign(dialogForm, {
     config_key: item.config_key || "",
     config_value: item.config_value || "",
@@ -586,6 +617,9 @@ function openEditDialog(item) {
 }
 
 async function submitDialog() {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
   const payload = {
     config_key: dialogForm.config_key.trim(),
     config_value: dialogForm.config_value,
@@ -663,8 +697,22 @@ onMounted(refreshAll);
             <div class="section-title">对象存储</div>
             <div class="toolbar" style="margin-bottom: 0">
               <el-button :loading="ossLoading" @click="fetchOSSConfig">刷新</el-button>
-              <el-button :loading="ossTesting" :disabled="ossSaving" @click="testOSSConfig">测试七牛配置</el-button>
-              <el-button type="primary" :loading="ossSaving" @click="saveOSSConfig">保存OSS配置</el-button>
+              <el-button
+                v-if="canEditSystemConfigs"
+                :loading="ossTesting"
+                :disabled="ossSaving"
+                @click="testOSSConfig"
+              >
+                测试七牛配置
+              </el-button>
+              <el-button
+                v-if="canEditSystemConfigs"
+                type="primary"
+                :loading="ossSaving"
+                @click="saveOSSConfig"
+              >
+                保存OSS配置
+              </el-button>
             </div>
           </div>
 
@@ -749,8 +797,22 @@ onMounted(refreshAll);
             <div class="section-title">平台支付通道</div>
             <div class="toolbar" style="margin-bottom: 0">
               <el-button :loading="paymentLoading" @click="fetchPaymentConfig">刷新</el-button>
-              <el-button :loading="paymentTesting" :disabled="paymentSaving" @click="testPaymentConfig">测试蛋黄支付</el-button>
-              <el-button type="primary" :loading="paymentSaving" @click="savePaymentConfig">保存支付配置</el-button>
+              <el-button
+                v-if="canEditSystemConfigs"
+                :loading="paymentTesting"
+                :disabled="paymentSaving"
+                @click="testPaymentConfig"
+              >
+                测试蛋黄支付
+              </el-button>
+              <el-button
+                v-if="canEditSystemConfigs"
+                type="primary"
+                :loading="paymentSaving"
+                @click="savePaymentConfig"
+              >
+                保存支付配置
+              </el-button>
             </div>
           </div>
 
@@ -882,9 +944,28 @@ onMounted(refreshAll);
             <div class="section-title">期货策略评分权重</div>
             <div class="toolbar" style="margin-bottom: 0">
               <el-button :loading="futuresScoreLoading" @click="fetchFuturesScoreConfig">刷新</el-button>
-              <el-button :disabled="futuresScoreSaving" @click="normalizeFuturesScoreForm">归一化到100%</el-button>
-              <el-button :disabled="futuresScoreSaving" @click="resetFuturesScoreDefaults">恢复默认</el-button>
-              <el-button type="primary" :loading="futuresScoreSaving" @click="saveFuturesScoreConfig">保存权重</el-button>
+              <el-button
+                v-if="canEditSystemConfigs"
+                :disabled="futuresScoreSaving"
+                @click="normalizeFuturesScoreForm"
+              >
+                归一化到100%
+              </el-button>
+              <el-button
+                v-if="canEditSystemConfigs"
+                :disabled="futuresScoreSaving"
+                @click="resetFuturesScoreDefaults"
+              >
+                恢复默认
+              </el-button>
+              <el-button
+                v-if="canEditSystemConfigs"
+                type="primary"
+                :loading="futuresScoreSaving"
+                @click="saveFuturesScoreConfig"
+              >
+                保存权重
+              </el-button>
             </div>
           </div>
 
@@ -948,7 +1029,7 @@ onMounted(refreshAll);
             <el-button type="primary" plain @click="applyListFilters">查询</el-button>
             <el-button @click="resetListFilters">重置</el-button>
             <el-button :loading="listLoading" @click="fetchConfigList">刷新</el-button>
-            <el-button type="primary" @click="openCreateDialog">新增配置</el-button>
+            <el-button v-if="canEditSystemConfigs" type="primary" @click="openCreateDialog">新增配置</el-button>
           </div>
         </div>
 
@@ -961,7 +1042,7 @@ onMounted(refreshAll);
             <el-table-column prop="updated_at" label="更新时间" min-width="180" />
             <el-table-column label="操作" align="right" min-width="110">
               <template #default="{ row }">
-                <el-button size="small" @click="openEditDialog(row)">编辑</el-button>
+                <el-button v-if="canEditSystemConfigs" size="small" @click="openEditDialog(row)">编辑</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -995,7 +1076,7 @@ onMounted(refreshAll);
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="listSubmitting" @click="submitDialog">保存</el-button>
+        <el-button v-if="canEditSystemConfigs" type="primary" :loading="listSubmitting" @click="submitDialog">保存</el-button>
       </template>
     </el-dialog>
   </div>

@@ -8,6 +8,7 @@ SELECT
   '邀请注册奖励VIP天数',
   'system',
   NOW()
+FROM DUAL
 WHERE NOT EXISTS (
   SELECT 1
   FROM system_configs

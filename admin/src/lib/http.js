@@ -47,6 +47,7 @@ http.interceptors.response.use(
     }
     const normalized = new Error(normalizeErrorMessage(error));
     normalized.code = error?.response?.data?.code || error?.code;
+    normalized.payload = error?.response?.data?.data || error?.payload || null;
     normalized.original = error;
     throw normalized;
   }

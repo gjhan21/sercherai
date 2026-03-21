@@ -99,7 +99,7 @@ Get token (admin):
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"phone":"13800000000","password":"abc123456"}'
+  -d '{"phone":"19900000001","password":"abc123456"}'
 ```
 
 Dev-only mock token:

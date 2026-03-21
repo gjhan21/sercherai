@@ -1,0 +1,1316 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SercherAI 中文风格改版 Demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg-page: #f4f6fb;
+        --bg-panel: #ffffff;
+        --bg-soft: #f8fafc;
+        --bg-brand: linear-gradient(135deg, #165dff 0%, #0f3ea8 100%);
+        --text-1: #101828;
+        --text-2: #344054;
+        --text-3: #667085;
+        --line: #e4e7ec;
+        --line-strong: #d0d5dd;
+        --brand: #165dff;
+        --brand-soft: rgba(22, 93, 255, 0.1);
+        --hot: #e64545;
+        --hot-soft: rgba(230, 69, 69, 0.1);
+        --down: #16a34a;
+        --down-soft: rgba(22, 163, 74, 0.12);
+        --warning: #f59e0b;
+        --warning-soft: rgba(245, 158, 11, 0.12);
+        --radius-sm: 12px;
+        --radius-md: 18px;
+        --radius-lg: 24px;
+        --shadow-1: 0 10px 30px rgba(15, 23, 42, 0.06);
+        --shadow-2: 0 20px 48px rgba(15, 23, 42, 0.08);
+        --max-width: 1380px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+      }
+
+      body {
+        margin: 0;
+        color: var(--text-1);
+        font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+        line-height: 1.5;
+        background:
+          radial-gradient(circle at top left, rgba(22, 93, 255, 0.08), transparent 28%),
+          radial-gradient(circle at top right, rgba(230, 69, 69, 0.06), transparent 24%),
+          var(--bg-page);
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      .page-shell {
+        width: min(var(--max-width), calc(100% - 24px));
+        margin: 0 auto;
+        padding: 16px 0 88px;
+      }
+
+      .top-notice {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 10px 16px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: var(--radius-md);
+        color: #eef4ff;
+        background: var(--bg-brand);
+        box-shadow: var(--shadow-1);
+      }
+
+      .top-notice strong {
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .top-notice span {
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 13px;
+      }
+
+      .top-bar {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 18px;
+        align-items: center;
+        margin-top: 14px;
+        padding: 14px 18px;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: var(--shadow-1);
+        backdrop-filter: blur(18px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .brand-badge {
+        display: grid;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        font-size: 18px;
+        font-weight: 800;
+        color: #fff;
+        background: linear-gradient(135deg, #1e4fff 0%, #2b8dff 100%);
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.1;
+      }
+
+      .brand p {
+        margin: 2px 0 0;
+        color: var(--text-3);
+        font-size: 13px;
+      }
+
+      .main-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .nav-item {
+        padding: 10px 14px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--text-2);
+        font-size: 14px;
+        font-weight: 600;
+        background: #fff;
+        transition: 180ms ease;
+      }
+
+      .nav-item.active {
+        color: var(--brand);
+        border-color: rgba(22, 93, 255, 0.24);
+        background: var(--brand-soft);
+      }
+
+      .nav-item:hover {
+        border-color: rgba(22, 93, 255, 0.24);
+        color: var(--brand);
+      }
+
+      .account-side {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .account-panel,
+      .cta-button,
+      .subtle-button {
+        border-radius: 14px;
+      }
+
+      .account-panel {
+        padding: 10px 14px;
+        border: 1px solid var(--line);
+        background: var(--bg-soft);
+      }
+
+      .account-panel span {
+        display: block;
+        color: var(--text-3);
+        font-size: 12px;
+      }
+
+      .account-panel strong {
+        display: block;
+        margin-top: 2px;
+        font-size: 14px;
+      }
+
+      .cta-button,
+      .subtle-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 16px;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: 180ms ease;
+      }
+
+      .cta-button {
+        color: #fff;
+        background: linear-gradient(135deg, #ff6b3d 0%, #ff8b1f 100%);
+        box-shadow: 0 10px 22px rgba(255, 107, 61, 0.22);
+      }
+
+      .subtle-button {
+        color: var(--brand);
+        background: var(--brand-soft);
+      }
+
+      .cta-button:hover,
+      .subtle-button:hover {
+        transform: translateY(-1px);
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.95fr);
+        gap: 16px;
+        margin-top: 16px;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: var(--shadow-1);
+      }
+
+      .hero-main {
+        overflow: hidden;
+      }
+
+      .hero-top {
+        padding: 18px 20px 10px;
+        background:
+          linear-gradient(180deg, rgba(22, 93, 255, 0.08) 0%, rgba(22, 93, 255, 0) 100%),
+          linear-gradient(135deg, #ffffff 0%, #f7faff 100%);
+      }
+
+      .eyebrow-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .eyebrow-chip,
+      .status-chip,
+      .tag-chip,
+      .signal-chip,
+      .pill,
+      .metric-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 28px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .eyebrow-chip {
+        color: var(--brand);
+        background: var(--brand-soft);
+      }
+
+      .status-chip {
+        color: #fff;
+        background: rgba(16, 24, 40, 0.82);
+      }
+
+      .hero-top h2 {
+        margin: 14px 0 8px;
+        font-size: clamp(28px, 3vw, 40px);
+        line-height: 1.18;
+        letter-spacing: -0.02em;
+      }
+
+      .hero-top p {
+        margin: 0;
+        color: var(--text-2);
+        font-size: 15px;
+      }
+
+      .hero-stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .stat-card {
+        padding: 14px 14px 12px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.9);
+      }
+
+      .stat-card span {
+        display: block;
+        color: var(--text-3);
+        font-size: 12px;
+      }
+
+      .stat-card strong {
+        display: block;
+        margin-top: 6px;
+        font-size: 22px;
+        line-height: 1.1;
+      }
+
+      .positive {
+        color: var(--hot);
+      }
+
+      .negative {
+        color: var(--down);
+      }
+
+      .warning {
+        color: #b45309;
+      }
+
+      .hero-bottom {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(250px, 0.8fr);
+        gap: 16px;
+        padding: 0 20px 20px;
+      }
+
+      .focus-card,
+      .guide-card {
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: #fff;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .section-head h3 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .section-head p {
+        margin: 4px 0 0;
+        color: var(--text-3);
+        font-size: 13px;
+      }
+
+      .focus-main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 14px;
+        padding: 16px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, #fff7f6 0%, #fff 100%);
+        border: 1px solid rgba(230, 69, 69, 0.14);
+      }
+
+      .focus-main h4 {
+        margin: 2px 0 6px;
+        font-size: 24px;
+      }
+
+      .focus-code {
+        color: var(--text-3);
+        font-size: 13px;
+      }
+
+      .focus-summary {
+        margin: 10px 0 0;
+        color: var(--text-2);
+        font-size: 14px;
+      }
+
+      .price-board {
+        min-width: 160px;
+        padding-left: 12px;
+        border-left: 1px dashed rgba(230, 69, 69, 0.2);
+      }
+
+      .price-board strong {
+        display: block;
+        font-size: 30px;
+        line-height: 1;
+      }
+
+      .price-board span {
+        display: block;
+        margin-top: 8px;
+        color: var(--text-3);
+        font-size: 12px;
+      }
+
+      .focus-detail-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .mini-metric {
+        padding: 12px;
+        border-radius: 16px;
+        background: var(--bg-soft);
+      }
+
+      .mini-metric span {
+        display: block;
+        color: var(--text-3);
+        font-size: 12px;
+      }
+
+      .mini-metric strong {
+        display: block;
+        margin-top: 6px;
+        font-size: 15px;
+      }
+
+      .focus-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .focus-actions .cta-button,
+      .focus-actions .subtle-button {
+        min-height: 42px;
+      }
+
+      .guide-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .guide-item {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 12px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--bg-soft);
+      }
+
+      .guide-index {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 10px;
+        color: var(--brand);
+        font-size: 13px;
+        font-weight: 800;
+        background: var(--brand-soft);
+      }
+
+      .guide-item strong {
+        display: block;
+        font-size: 15px;
+      }
+
+      .guide-item p {
+        margin: 4px 0 0;
+        color: var(--text-3);
+        font-size: 13px;
+      }
+
+      .hero-side {
+        display: grid;
+        gap: 16px;
+        align-content: start;
+      }
+
+      .summary-card,
+      .membership-card,
+      .notes-card {
+        padding: 16px;
+      }
+
+      .summary-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      .summary-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: var(--bg-soft);
+      }
+
+      .summary-row span {
+        color: var(--text-3);
+        font-size: 13px;
+      }
+
+      .summary-row strong {
+        font-size: 15px;
+      }
+
+      .signal-chip {
+        color: var(--hot);
+        background: var(--hot-soft);
+      }
+
+      .signal-chip.green {
+        color: var(--down);
+        background: var(--down-soft);
+      }
+
+      .membership-price {
+        margin: 10px 0 6px;
+        font-size: 34px;
+        font-weight: 800;
+        line-height: 1;
+      }
+
+      .membership-price small {
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .member-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .member-item {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px;
+        align-items: start;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: #fff;
+      }
+
+      .member-dot {
+        width: 10px;
+        height: 10px;
+        margin-top: 5px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #165dff 0%, #ff8b1f 100%);
+      }
+
+      .member-item strong {
+        display: block;
+        font-size: 14px;
+      }
+
+      .member-item p {
+        margin: 3px 0 0;
+        color: var(--text-3);
+        font-size: 12px;
+      }
+
+      .notes-card ul {
+        margin: 14px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 10px;
+      }
+
+      .notes-card li {
+        padding: 12px 14px;
+        border-left: 3px solid var(--brand);
+        border-radius: 14px;
+        color: var(--text-2);
+        font-size: 13px;
+        background: rgba(22, 93, 255, 0.06);
+      }
+
+      .content-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+        gap: 16px;
+        margin-top: 16px;
+      }
+
+      .block {
+        padding: 16px;
+      }
+
+      .tab-row,
+      .action-row,
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .pill {
+        color: var(--text-2);
+        border: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .pill.active {
+        color: var(--brand);
+        border-color: rgba(22, 93, 255, 0.22);
+        background: var(--brand-soft);
+      }
+
+      .watch-list,
+      .news-list,
+      .archive-list,
+      .benefit-list {
+        display: grid;
+        gap: 12px;
+        margin-top: 14px;
+      }
+
+      .watch-item,
+      .news-item,
+      .archive-item,
+      .benefit-item {
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: #fff;
+      }
+
+      .watch-head,
+      .news-head,
+      .archive-head {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .watch-head strong,
+      .news-head strong,
+      .archive-head strong {
+        font-size: 16px;
+      }
+
+      .watch-code,
+      .news-meta,
+      .archive-meta {
+        display: block;
+        color: var(--text-3);
+        font-size: 12px;
+      }
+
+      .watch-desc,
+      .news-desc,
+      .archive-desc,
+      .benefit-item p {
+        margin: 8px 0 0;
+        color: var(--text-2);
+        font-size: 14px;
+      }
+
+      .metric-inline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .metric-badge {
+        color: var(--text-2);
+        background: var(--bg-soft);
+      }
+
+      .metric-badge.hot {
+        color: var(--hot);
+        background: var(--hot-soft);
+      }
+
+      .metric-badge.down {
+        color: var(--down);
+        background: var(--down-soft);
+      }
+
+      .tag-chip {
+        color: var(--text-2);
+        background: var(--bg-soft);
+      }
+
+      .trust-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 14px;
+      }
+
+      .trust-card {
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: linear-gradient(180deg, #fff 0%, #f9fbff 100%);
+      }
+
+      .trust-card span {
+        display: block;
+        color: var(--text-3);
+        font-size: 13px;
+      }
+
+      .trust-card strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 24px;
+        line-height: 1.1;
+      }
+
+      .trust-card p {
+        margin: 10px 0 0;
+        color: var(--text-2);
+        font-size: 13px;
+      }
+
+      .benefit-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .benefit-item strong {
+        display: block;
+        font-size: 16px;
+      }
+
+      .bottom-nav {
+        position: sticky;
+        bottom: 12px;
+        display: none;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 18px;
+        padding: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.32);
+        border-radius: 22px;
+        background: rgba(16, 24, 40, 0.86);
+        box-shadow: var(--shadow-2);
+        backdrop-filter: blur(16px);
+      }
+
+      .bottom-nav a {
+        display: grid;
+        gap: 4px;
+        justify-items: center;
+        padding: 8px 0;
+        border-radius: 14px;
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 12px;
+      }
+
+      .bottom-nav a.active {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .nav-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      @media (max-width: 1120px) {
+        .top-bar,
+        .hero-grid,
+        .content-grid,
+        .hero-bottom,
+        .trust-grid,
+        .benefit-list {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-stats,
+        .focus-detail-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 780px) {
+        .page-shell {
+          width: min(100%, calc(100% - 16px));
+          padding-top: 10px;
+        }
+
+        .top-notice {
+          flex-direction: column;
+          align-items: start;
+        }
+
+        .top-bar {
+          grid-template-columns: 1fr;
+          padding: 14px;
+        }
+
+        .account-side {
+          flex-wrap: wrap;
+        }
+
+        .hero-top,
+        .hero-bottom,
+        .summary-card,
+        .membership-card,
+        .notes-card,
+        .block {
+          padding: 14px;
+        }
+
+        .hero-stats,
+        .focus-detail-grid,
+        .trust-grid,
+        .benefit-list {
+          grid-template-columns: 1fr;
+        }
+
+        .focus-main,
+        .watch-head,
+        .news-head,
+        .archive-head {
+          grid-template-columns: 1fr;
+        }
+
+        .price-board {
+          min-width: 0;
+          padding-left: 0;
+          border-left: 0;
+          border-top: 1px dashed rgba(230, 69, 69, 0.2);
+          padding-top: 10px;
+        }
+
+        .bottom-nav {
+          display: grid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-shell">
+      <section class="top-notice">
+        <div>
+          <strong>中文产品风格 Demo</strong>
+          <span>保留你现在首页的业务结构，但改成国内用户更熟悉的“先结论、再动作、后展开”信息组织方式</span>
+        </div>
+        <span>适配方向：A 股 / 港美股资讯场景、会员转化、移动端高频回访</span>
+      </section>
+
+      <header class="top-bar">
+        <div class="brand">
+          <div class="brand-badge">S</div>
+          <div>
+            <h1>SercherAI</h1>
+            <p>更像中国用户熟悉的投资决策首页</p>
+          </div>
+        </div>
+
+        <nav class="main-nav" aria-label="主导航">
+          <a class="nav-item active" href="#">首页</a>
+          <a class="nav-item" href="#">策略</a>
+          <a class="nav-item" href="#">档案</a>
+          <a class="nav-item" href="#">自选</a>
+          <a class="nav-item" href="#">快讯</a>
+          <a class="nav-item" href="#">会员</a>
+          <a class="nav-item" href="#">我的</a>
+        </nav>
+
+        <div class="account-side">
+          <div class="account-panel">
+            <span>当前状态</span>
+            <strong>已登录 · 标准用户</strong>
+          </div>
+          <button class="subtle-button" type="button">今日复盘</button>
+          <button class="cta-button" type="button">升级会员</button>
+        </div>
+      </header>
+
+      <section class="hero-grid">
+        <article class="panel hero-main">
+          <div class="hero-top">
+            <div class="eyebrow-row">
+              <span class="eyebrow-chip">今日必看</span>
+              <span class="status-chip">03 月 19 日 周四 09:42 更新</span>
+            </div>
+            <h2>先把“今天该看什么、先做什么”放在首屏，减少判断成本。</h2>
+            <p>
+              国内用户更习惯打开首页就看到明确结论、风险边界、快捷入口和强提示，而不是先读一段长说明。这个版本把首页重心从“大留白叙事”改成“高效决策工作台”。
+            </p>
+
+            <div class="hero-stats">
+              <div class="stat-card">
+                <span>今日主线</span>
+                <strong>算力回流</strong>
+              </div>
+              <div class="stat-card">
+                <span>高优先信号</span>
+                <strong class="positive">3 条</strong>
+              </div>
+              <div class="stat-card">
+                <span>风险提示</span>
+                <strong class="warning">2 条</strong>
+              </div>
+              <div class="stat-card">
+                <span>会员可看深度档案</span>
+                <strong>8 份</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="hero-bottom">
+            <section class="focus-card">
+              <div class="section-head">
+                <div>
+                  <h3>今日主推荐</h3>
+                  <p>更强调结论、仓位建议和执行动作，而不是大段背景说明</p>
+                </div>
+                <span class="signal-chip">优先跟踪</span>
+              </div>
+
+              <div class="focus-main">
+                <div>
+                  <span class="focus-code">主推标的 · 002594</span>
+                  <h4>比亚迪</h4>
+                  <div class="tag-row">
+                    <span class="tag-chip">政策催化</span>
+                    <span class="tag-chip">成交量放大</span>
+                    <span class="tag-chip">板块龙头</span>
+                  </div>
+                  <p class="focus-summary">
+                    早盘承接稳定，量价结构完整，适合放在今日观察列表第一位。首屏直接展示“为什么看它、怎么看、看错怎么办”，更贴近国内投资 App 的阅读习惯。
+                  </p>
+                </div>
+                <div class="price-board">
+                  <strong class="positive">+4.82%</strong>
+                  <span>观察区间 232.50 - 236.20</span>
+                  <span>止损参考 226.80</span>
+                  <span>建议仓位 3 成试错</span>
+                </div>
+              </div>
+
+              <div class="focus-detail-grid">
+                <div class="mini-metric">
+                  <span>推荐理由</span>
+                  <strong>景气主线 + 资金回流</strong>
+                </div>
+                <div class="mini-metric">
+                  <span>风险等级</span>
+                  <strong>中等偏稳</strong>
+                </div>
+                <div class="mini-metric">
+                  <span>执行建议</span>
+                  <strong>回踩分批看承接</strong>
+                </div>
+                <div class="mini-metric">
+                  <span>资讯联动</span>
+                  <strong>新能源链条偏强</strong>
+                </div>
+              </div>
+
+              <div class="focus-actions">
+                <button class="cta-button" type="button">查看完整逻辑</button>
+                <button class="subtle-button" type="button">加入自选</button>
+                <button class="subtle-button" type="button">跟踪相关快讯</button>
+              </div>
+            </section>
+
+            <aside class="guide-card">
+              <div class="section-head">
+                <div>
+                  <h3>首页动线</h3>
+                  <p>更像国内产品常见的三步法</p>
+                </div>
+              </div>
+
+              <div class="guide-list">
+                <article class="guide-item">
+                  <div class="guide-index">1</div>
+                  <div>
+                    <strong>先看结论</strong>
+                    <p>主推荐、风险等级、建议动作放在同一屏，降低理解门槛。</p>
+                  </div>
+                </article>
+                <article class="guide-item">
+                  <div class="guide-index">2</div>
+                  <div>
+                    <strong>再看快讯和自选</strong>
+                    <p>把需要立即复查的信息做成列表，而不是散落在大段卡片里。</p>
+                  </div>
+                </article>
+                <article class="guide-item">
+                  <div class="guide-index">3</div>
+                  <div>
+                    <strong>最后承接会员转化</strong>
+                    <p>先给价值感，再强调“会员能帮你省什么时间”。</p>
+                  </div>
+                </article>
+              </div>
+            </aside>
+          </div>
+        </article>
+
+        <aside class="hero-side">
+          <section class="panel summary-card">
+            <div class="section-head">
+              <div>
+                <h3>市场摘要</h3>
+                <p>首屏右侧用摘要卡提升信息密度</p>
+              </div>
+            </div>
+            <div class="summary-grid">
+              <div class="summary-row">
+                <span>沪深情绪</span>
+                <strong class="positive">偏强修复</strong>
+              </div>
+              <div class="summary-row">
+                <span>热点方向</span>
+                <strong>算力 / 机器人 / 新能源</strong>
+              </div>
+              <div class="summary-row">
+                <span>风控提示</span>
+                <strong class="negative">高开追涨要谨慎</strong>
+              </div>
+              <div class="summary-row">
+                <span>资讯节奏</span>
+                <strong>10:30 前看政策快讯</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel membership-card">
+            <div class="section-head">
+              <div>
+                <h3>会员入口</h3>
+                <p>用权益清单代替空泛营销文案</p>
+              </div>
+              <span class="signal-chip green">节省时间</span>
+            </div>
+
+            <div class="membership-price">¥39 <small>/ 月</small></div>
+            <p style="margin: 0; color: var(--text-2); font-size: 14px;">
+              更像国内用户熟悉的“订阅权益卡”：清楚告诉他升级后多了哪些实际功能。
+            </p>
+
+            <div class="member-list">
+              <div class="member-item">
+                <span class="member-dot"></span>
+                <div>
+                  <strong>完整推荐档案</strong>
+                  <p>看来源、风险线、历史状态变化，不只看一句推荐。</p>
+                </div>
+              </div>
+              <div class="member-item">
+                <span class="member-dot"></span>
+                <div>
+                  <strong>盘中快讯聚合</strong>
+                  <p>减少来回找消息的成本，适合高频回访场景。</p>
+                </div>
+              </div>
+              <div class="member-item">
+                <span class="member-dot"></span>
+                <div>
+                  <strong>历史策略回看</strong>
+                  <p>先看这套逻辑过去是否稳定，再决定要不要长期使用。</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel notes-card">
+            <div class="section-head">
+              <div>
+                <h3>改版重点</h3>
+                <p>这部分帮助你快速判断方向是否对</p>
+              </div>
+            </div>
+            <ul>
+              <li>减少欧美风大留白 hero，改成信息更集中、首屏可执行。</li>
+              <li>弱化英文副标题和长句说明，改成清晰分层、标签化表达。</li>
+              <li>加入中国用户更熟悉的“主推 + 自选 + 快讯 + 会员”串联。</li>
+            </ul>
+          </section>
+        </aside>
+      </section>
+
+      <section class="content-grid">
+        <article class="panel block">
+          <div class="section-head">
+            <div>
+              <h3>自选观察清单</h3>
+              <p>把“我今天要盯的标的”做成一眼能扫完的列表，符合国内用户快速浏览习惯</p>
+            </div>
+            <div class="tab-row">
+              <span class="pill active">今日优先</span>
+              <span class="pill">已加入自选</span>
+              <span class="pill">高波动</span>
+            </div>
+          </div>
+
+          <div class="watch-list">
+            <article class="watch-item">
+              <div class="watch-head">
+                <div>
+                  <strong>000063 中兴通讯</strong>
+                  <span class="watch-code">No.2 · 算力链延续观察</span>
+                </div>
+                <span class="metric-badge hot">+3.26%</span>
+              </div>
+              <p class="watch-desc">适合做板块联动确认，重点看成交量和龙头承接是否同步。</p>
+              <div class="metric-inline">
+                <span class="metric-badge">风险：中</span>
+                <span class="metric-badge">策略：冲高不追</span>
+                <span class="metric-badge">联动：算力</span>
+              </div>
+            </article>
+
+            <article class="watch-item">
+              <div class="watch-head">
+                <div>
+                  <strong>300308 中际旭创</strong>
+                  <span class="watch-code">No.3 · 资金回流验证</span>
+                </div>
+                <span class="metric-badge hot">+2.61%</span>
+              </div>
+              <p class="watch-desc">更适合做“趋势是否持续”的判断样本，不建议首笔仓位过重。</p>
+              <div class="metric-inline">
+                <span class="metric-badge">风险：中高</span>
+                <span class="metric-badge">策略：等回踩</span>
+                <span class="metric-badge">标签：趋势</span>
+              </div>
+            </article>
+
+            <article class="watch-item">
+              <div class="watch-head">
+                <div>
+                  <strong>601127 赛力斯</strong>
+                  <span class="watch-code">No.4 · 情绪扩散补涨</span>
+                </div>
+                <span class="metric-badge down">-0.82%</span>
+              </div>
+              <p class="watch-desc">如果板块内部轮动走强，补涨逻辑才成立，否则只做观察样本。</p>
+              <div class="metric-inline">
+                <span class="metric-badge">风险：偏高</span>
+                <span class="metric-badge">策略：先观察</span>
+                <span class="metric-badge">标签：补涨</span>
+              </div>
+            </article>
+          </div>
+        </article>
+
+        <article class="panel block">
+          <div class="section-head">
+            <div>
+              <h3>快讯联动</h3>
+              <p>中国用户更习惯列表流信息，标题、影响方向、处理建议放一起</p>
+            </div>
+            <div class="action-row">
+              <span class="pill active">全部</span>
+              <span class="pill">政策</span>
+              <span class="pill">行业</span>
+              <span class="pill">公司</span>
+            </div>
+          </div>
+
+          <div class="news-list">
+            <article class="news-item">
+              <div class="news-head">
+                <div>
+                  <strong>工信部再提算力基础设施建设，板块预期升温</strong>
+                  <span class="news-meta">09:18 · 政策快讯 · 高相关</span>
+                </div>
+                <span class="signal-chip">利多</span>
+              </div>
+              <p class="news-desc">适合作为今日主线的背景强化信息，首页应优先展示“会影响什么”，而不是只展示消息本身。</p>
+            </article>
+
+            <article class="news-item">
+              <div class="news-head">
+                <div>
+                  <strong>新能源车链条分化，部分高位票出现冲高回落</strong>
+                  <span class="news-meta">10:02 · 行业快讯 · 风险提示</span>
+                </div>
+                <span class="signal-chip green">谨慎</span>
+              </div>
+              <p class="news-desc">建议在消息右侧直接增加处理建议，例如“已有利润可分批兑现”或“仅跟踪不追高”。</p>
+            </article>
+
+            <article class="news-item">
+              <div class="news-head">
+                <div>
+                  <strong>北向资金早盘净流入扩大，权重方向承接改善</strong>
+                  <span class="news-meta">10:21 · 资金面 · 中度相关</span>
+                </div>
+                <span class="signal-chip">观察</span>
+              </div>
+              <p class="news-desc">适合做“市场摘要”里的一句话结论，帮助用户快速建立当天总体判断。</p>
+            </article>
+          </div>
+        </article>
+      </section>
+
+      <section class="content-grid">
+        <article class="panel block">
+          <div class="section-head">
+            <div>
+              <h3>信任建立区</h3>
+              <p>国内用户通常更看重“为什么信你”，所以这块比大段品牌故事更有用</p>
+            </div>
+          </div>
+
+          <div class="trust-grid">
+            <article class="trust-card">
+              <span>历史推荐可回看</span>
+              <strong>126 期</strong>
+              <p>不是只展示当日主推，而是允许用户回看历史结果和状态变化。</p>
+            </article>
+            <article class="trust-card">
+              <span>推荐来源可解释</span>
+              <strong>3 层说明</strong>
+              <p>策略依据、资讯触发、风险边界分层展示，让结论更可信。</p>
+            </article>
+            <article class="trust-card">
+              <span>风险规则更前置</span>
+              <strong>止损 / 仓位 / 节奏</strong>
+              <p>中国用户对风险提示更敏感，最好在首屏而不是详情页深处。</p>
+            </article>
+          </div>
+
+          <div class="archive-list">
+            <article class="archive-item">
+              <div class="archive-head">
+                <div>
+                  <strong>历史档案展示示例</strong>
+                  <span class="archive-meta">2026-03-14 · 算力轮动主题</span>
+                </div>
+                <span class="metric-badge">已收录</span>
+              </div>
+              <p class="archive-desc">建议把“推荐理由、执行区间、结果状态、后续修正”放到同一张归档卡里，减少反复跳转。</p>
+            </article>
+          </div>
+        </article>
+
+        <article class="panel block">
+          <div class="section-head">
+            <div>
+              <h3>会员权益展示</h3>
+              <p>不要只说“升级更强”，而是把“升级后少做什么”说清楚</p>
+            </div>
+          </div>
+
+          <div class="benefit-list">
+            <article class="benefit-item">
+              <strong>完整逻辑不再跳页找</strong>
+              <p>把推荐依据、风险位、资讯联动整合在同一个档案页里，适合高频查看。</p>
+            </article>
+            <article class="benefit-item">
+              <strong>盘中变动有固定入口</strong>
+              <p>用户每天回来时知道先看哪里，而不是重新搜索一遍信息。</p>
+            </article>
+            <article class="benefit-item">
+              <strong>历史复盘成本更低</strong>
+              <p>会员页可以把“过去 7 天最值得回看的内容”直接前置。</p>
+            </article>
+            <article class="benefit-item">
+              <strong>更适合中国用户的订阅表达</strong>
+              <p>价格、周期、权益、节省时间价值放在一起，降低转化理解门槛。</p>
+            </article>
+          </div>
+        </article>
+      </section>
+
+      <nav class="bottom-nav" aria-label="移动端快捷导航">
+        <a class="active" href="#">
+          <span class="nav-dot"></span>
+          <span>首页</span>
+        </a>
+        <a href="#">
+          <span class="nav-dot"></span>
+          <span>策略</span>
+        </a>
+        <a href="#">
+          <span class="nav-dot"></span>
+          <span>自选</span>
+        </a>
+        <a href="#">
+          <span class="nav-dot"></span>
+          <span>快讯</span>
+        </a>
+        <a href="#">
+          <span class="nav-dot"></span>
+          <span>我的</span>
+        </a>
+      </nav>
+    </div>
+  </body>
+</html>

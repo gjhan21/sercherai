@@ -9,9 +9,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +34,7 @@ type AuthHandler struct {
 	ipPhoneThreshold int
 	lockSeconds      int
 	allowMockLogin   bool
+	relaxLocalRisk   bool
 	db               *sql.DB
 	redis            *redis.Client
 }
@@ -43,7 +46,9 @@ type riskConfig struct {
 	lockSeconds        int
 }
 
-func NewAuthHandler(jwtSecret string, defaultExpires int, refreshExpires int, failThreshold int, ipFailThreshold int, ipPhoneThreshold int, lockSeconds int, allowMockLogin bool, db *sql.DB, redisClient *redis.Client) *AuthHandler {
+var authIDSequence atomic.Uint64
+
+func NewAuthHandler(jwtSecret string, defaultExpires int, refreshExpires int, failThreshold int, ipFailThreshold int, ipPhoneThreshold int, lockSeconds int, allowMockLogin bool, relaxLocalRisk bool, db *sql.DB, redisClient *redis.Client) *AuthHandler {
 	if defaultExpires <= 0 {
 		defaultExpires = 86400
 	}
@@ -71,6 +76,7 @@ func NewAuthHandler(jwtSecret string, defaultExpires int, refreshExpires int, fa
 		ipPhoneThreshold: ipPhoneThreshold,
 		lockSeconds:      lockSeconds,
 		allowMockLogin:   allowMockLogin,
+		relaxLocalRisk:   relaxLocalRisk,
 		db:               db,
 		redis:            redisClient,
 	}
@@ -224,28 +230,33 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	riskPhone := riskPhoneValue(account)
 
 	clientIP := c.ClientIP()
-	if lockedUntil, lockType, locked, lockErr := h.checkRedisLock(clientIP, riskPhone); lockErr != nil {
-		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: lockErr.Error(), Data: struct{}{}})
-		return
-	} else if locked {
-		c.JSON(http.StatusTooManyRequests, dto.APIResponse{Code: 42901, Message: "too many failed attempts", Data: gin.H{"locked_until": lockedUntil, "lock_type": lockType}})
-		h.writeAuthLog("", logPhone, "LOGIN", "FAILED", lockType, c)
-		return
-	}
-	if lockedUntil, locked, lockErr := h.checkLoginLock(riskPhone); lockErr != nil {
-		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: lockErr.Error(), Data: struct{}{}})
-		return
-	} else if locked {
-		c.JSON(http.StatusTooManyRequests, dto.APIResponse{Code: 42901, Message: "too many failed attempts", Data: gin.H{"locked_until": lockedUntil}})
-		h.writeAuthLog("", logPhone, "LOGIN", "FAILED", "locked", c)
-		return
+	skipRiskControl := h.shouldBypassRiskControl(clientIP)
+	if !skipRiskControl {
+		if lockedUntil, lockType, locked, lockErr := h.checkRedisLock(clientIP, riskPhone); lockErr != nil {
+			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: lockErr.Error(), Data: struct{}{}})
+			return
+		} else if locked {
+			c.JSON(http.StatusTooManyRequests, dto.APIResponse{Code: 42901, Message: "too many failed attempts", Data: gin.H{"locked_until": lockedUntil, "lock_type": lockType}})
+			h.writeAuthLog("", logPhone, "LOGIN", "FAILED", lockType, c)
+			return
+		}
+		if lockedUntil, locked, lockErr := h.checkLoginLock(riskPhone); lockErr != nil {
+			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: lockErr.Error(), Data: struct{}{}})
+			return
+		} else if locked {
+			c.JSON(http.StatusTooManyRequests, dto.APIResponse{Code: 42901, Message: "too many failed attempts", Data: gin.H{"locked_until": lockedUntil}})
+			h.writeAuthLog("", logPhone, "LOGIN", "FAILED", "locked", c)
+			return
+		}
 	}
 
 	userID, passHash, status, err := h.loadUserByAccount(account)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			_, _ = h.recordLoginFailure(riskPhone, cfg)
-			_, _, _ = h.recordRedisFailure(clientIP, riskPhone, cfg)
+			if !skipRiskControl {
+				_, _ = h.recordLoginFailure(riskPhone, cfg)
+				_, _, _ = h.recordRedisFailure(clientIP, riskPhone, cfg)
+			}
 			c.JSON(http.StatusUnauthorized, dto.APIResponse{Code: 40104, Message: "invalid credentials", Data: struct{}{}})
 			h.writeAuthLog("", logPhone, "LOGIN", "FAILED", "user_not_found", c)
 			return
@@ -254,18 +265,27 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 	if strings.ToUpper(status) != "ACTIVE" {
-		_, _ = h.recordLoginFailure(riskPhone, cfg)
-		_, _, _ = h.recordRedisFailure(clientIP, riskPhone, cfg)
+		if !skipRiskControl {
+			_, _ = h.recordLoginFailure(riskPhone, cfg)
+			_, _, _ = h.recordRedisFailure(clientIP, riskPhone, cfg)
+		}
 		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40303, Message: "user status invalid", Data: struct{}{}})
 		h.writeAuthLog(userID, logPhone, "LOGIN", "FAILED", "status_not_active", c)
 		return
 	}
 	passwordMatch, legacyHash := verifyPassword(req.Password, passHash)
 	if !passwordMatch {
-		lockedUntil, _ := h.recordLoginFailure(riskPhone, cfg)
-		redisLockedUntil, lockType, _ := h.recordRedisFailure(clientIP, riskPhone, cfg)
+		lockedUntil := ""
+		redisLockedUntil := ""
+		lockType := ""
+		if !skipRiskControl {
+			lockedUntil, _ = h.recordLoginFailure(riskPhone, cfg)
+			redisLockedUntil, lockType, _ = h.recordRedisFailure(clientIP, riskPhone, cfg)
+		}
 		c.JSON(http.StatusUnauthorized, dto.APIResponse{Code: 40104, Message: "invalid credentials", Data: struct{}{}})
-		if redisLockedUntil != "" {
+		if skipRiskControl {
+			h.writeAuthLog(userID, logPhone, "LOGIN", "FAILED", "bad_password_local_dev", c)
+		} else if redisLockedUntil != "" {
 			h.writeAuthLog(userID, logPhone, "LOGIN", "FAILED", lockType, c)
 		} else if lockedUntil != "" {
 			h.writeAuthLog(userID, logPhone, "LOGIN", "FAILED", "bad_password_locked", c)
@@ -1890,6 +1910,14 @@ func (h *AuthHandler) checkLoginLock(phone string) (string, bool, error) {
 	return "", false, nil
 }
 
+func (h *AuthHandler) shouldBypassRiskControl(clientIP string) bool {
+	if !h.relaxLocalRisk {
+		return false
+	}
+	parsedIP := net.ParseIP(strings.TrimSpace(clientIP))
+	return parsedIP != nil && parsedIP.IsLoopback()
+}
+
 func (h *AuthHandler) loadRiskConfig() (riskConfig, error) {
 	cfg := riskConfig{
 		phoneFailThreshold: h.failThreshold,
@@ -2367,7 +2395,8 @@ func resolveRole(userID string) string {
 }
 
 func newID(prefix string) string {
-	return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
+	seq := authIDSequence.Add(1)
+	return fmt.Sprintf("%s_%d_%d", prefix, time.Now().UnixNano(), seq)
 }
 
 func sha256Hex(s string) string {

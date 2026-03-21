@@ -7,7 +7,7 @@ import {
   reviewTaskDecision,
   submitReviewTask
 } from "../api/admin";
-import { getAccessToken, getSession } from "../lib/session";
+import { getAccessToken, getSession, hasPermission } from "../lib/session";
 
 const loading = ref(false);
 const metricsLoading = ref(false);
@@ -43,6 +43,7 @@ const timerRefs = {
 };
 
 const currentUserID = ref(getSession()?.userID || "");
+const canEditReview = hasPermission("review.edit");
 
 const filters = reactive({
   module: "",
@@ -185,6 +186,14 @@ const displayBatchResultRows = computed(() => {
   }
   return batchResultRows.value;
 });
+
+function ensureCanEditReview() {
+  if (canEditReview) {
+    return true;
+  }
+  errorMessage.value = "当前账号只有查看权限，无法提交、分配或审批审核任务";
+  return false;
+}
 
 function clearSelection() {
   selectedRows.value = [];
@@ -408,10 +417,13 @@ function syncCurrentTask() {
   }
 }
 
-async function fetchTasks() {
+async function fetchTasks(options = {}) {
+  const { preserveFeedback = false } = options;
   loading.value = true;
-  errorMessage.value = "";
-  message.value = "";
+  if (!preserveFeedback) {
+    errorMessage.value = "";
+    message.value = "";
+  }
   try {
     const data = await listReviewTasks({
       module: filters.module,
@@ -431,13 +443,16 @@ async function fetchTasks() {
   }
 }
 
-async function refreshAll() {
-  await Promise.all([fetchMetrics(), fetchTasks()]);
+async function refreshAll(options = {}) {
+  await Promise.all([fetchMetrics(), fetchTasks(options)]);
   clearSelection();
   updateNowTick();
 }
 
 async function handleSubmitReview() {
+  if (!ensureCanEditReview()) {
+    return;
+  }
   errorMessage.value = "";
   message.value = "";
   const payload = {
@@ -456,7 +471,7 @@ async function handleSubmitReview() {
     message.value = `审核任务已提交：${result.id || ""}`;
     submitForm.target_id = "";
     submitForm.submit_note = "";
-    await refreshAll();
+    await refreshAll({ preserveFeedback: true });
   } catch (error) {
     errorMessage.value = error.message || "提交审核任务失败";
   } finally {
@@ -488,6 +503,9 @@ function isQuickActionLoading(task, status) {
 }
 
 async function handleQuickDecision(task, status, note = "") {
+  if (!ensureCanEditReview()) {
+    return false;
+  }
   if (!canQuickDecision(task)) {
     errorMessage.value = "任务已分配给其他审核员，请先在详情中重新分配";
     return false;
@@ -507,7 +525,7 @@ async function handleQuickDecision(task, status, note = "") {
   try {
     await reviewTaskDecision(task.id, status, normalizedNote);
     message.value = `任务 ${task.id} 已${status === "APPROVED" ? "快速通过" : "快速驳回"}`;
-    await refreshAll();
+    await refreshAll({ preserveFeedback: true });
     return true;
   } catch (error) {
     errorMessage.value = error.message || "快捷审批失败";
@@ -518,6 +536,9 @@ async function handleQuickDecision(task, status, note = "") {
 }
 
 function openQuickReject(task) {
+  if (!ensureCanEditReview()) {
+    return;
+  }
   if (!canQuickDecision(task)) {
     errorMessage.value = "任务已分配给其他审核员，请先在详情中重新分配";
     return;
@@ -528,6 +549,9 @@ function openQuickReject(task) {
 }
 
 async function submitQuickReject() {
+  if (!ensureCanEditReview()) {
+    return;
+  }
   if (!rejectTask.value?.id) {
     return;
   }
@@ -551,6 +575,9 @@ async function submitQuickReject() {
 }
 
 async function handleBatchAssign() {
+  if (!ensureCanEditReview()) {
+    return;
+  }
   const reviewerID = batchReviewerID.value.trim();
   if (!reviewerID) {
     errorMessage.value = "请先填写批量分配 reviewer_id";
@@ -597,6 +624,9 @@ async function handleBatchAssign() {
 }
 
 async function handleBatchApprove() {
+  if (!ensureCanEditReview()) {
+    return;
+  }
   if (selectedPendingCount.value <= 0) {
     errorMessage.value = "请先勾选待审核任务";
     return;
@@ -648,6 +678,9 @@ async function handleBatchApprove() {
 }
 
 function openBatchRejectDialog() {
+  if (!ensureCanEditReview()) {
+    return;
+  }
   if (selectedPendingCount.value <= 0) {
     errorMessage.value = "请先勾选待审核任务";
     return;
@@ -657,6 +690,9 @@ function openBatchRejectDialog() {
 }
 
 async function submitBatchReject() {
+  if (!ensureCanEditReview()) {
+    return;
+  }
   const note = batchRejectReason.value.trim();
   if (!note) {
     errorMessage.value = "批量驳回必须填写原因";
@@ -713,6 +749,9 @@ async function submitBatchReject() {
 }
 
 async function executeBatchResultRow(row) {
+  if (!ensureCanEditReview()) {
+    throw new Error("当前账号只有查看权限，无法重试审核批处理");
+  }
   const actionKey = (row.action_key || "").toUpperCase();
   if (actionKey === "ASSIGN") {
     const reviewerID = (row.reviewer_id || "").trim();
@@ -771,6 +810,9 @@ async function retryFailedBatchRows() {
 }
 
 async function handleDetailAssign() {
+  if (!ensureCanEditReview()) {
+    return;
+  }
   if (!currentTask.value?.id) {
     return;
   }
@@ -785,7 +827,7 @@ async function handleDetailAssign() {
   try {
     await assignReviewTask(currentTask.value.id, reviewerID);
     message.value = `任务 ${currentTask.value.id} 已分配给 ${reviewerID}`;
-    await refreshAll();
+    await refreshAll({ preserveFeedback: true });
     if (currentTask.value) {
       currentTask.value.reviewer_id = reviewerID;
     }
@@ -797,6 +839,9 @@ async function handleDetailAssign() {
 }
 
 async function handleDetailDecision() {
+  if (!ensureCanEditReview()) {
+    return;
+  }
   if (!currentTask.value?.id) {
     return;
   }
@@ -816,7 +861,7 @@ async function handleDetailDecision() {
   try {
     await reviewTaskDecision(currentTask.value.id, status, note);
     message.value = `任务 ${currentTask.value.id} 已 ${status}`;
-    await refreshAll();
+    await refreshAll({ preserveFeedback: true });
   } catch (error) {
     errorMessage.value = error.message || "提交审核结论失败";
   } finally {
@@ -987,6 +1032,14 @@ onBeforeUnmount(() => {
       show-icon
       style="margin-bottom: 12px"
     />
+    <el-alert
+      v-if="!canEditReview"
+      title="当前账号为只读审核权限，可查看任务、SLA 和导出结果，但不能提交、分配、通过或驳回。"
+      type="info"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 12px"
+    />
 
     <div class="card" style="margin-bottom: 12px" v-loading="metricsLoading">
       <div class="grid grid-4 metrics-grid">
@@ -1015,7 +1068,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="card" style="margin-bottom: 12px">
+    <div v-if="canEditReview" class="card" style="margin-bottom: 12px">
       <div class="section-header">
         <h3 style="margin: 0">提交审核任务</h3>
       </div>
@@ -1066,7 +1119,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="card" style="margin-bottom: 12px">
+    <div v-if="canEditReview" class="card" style="margin-bottom: 12px">
       <div class="section-header">
         <h3 style="margin: 0">批量操作</h3>
         <el-text type="info">
@@ -1115,7 +1168,7 @@ onBeforeUnmount(() => {
         :row-class-name="reviewTableRowClassName"
         @selection-change="handleSelectionChange"
       >
-        <el-table-column type="selection" width="52" reserve-selection />
+        <el-table-column v-if="canEditReview" type="selection" width="52" reserve-selection />
         <el-table-column prop="id" label="ID" min-width="130" />
         <el-table-column prop="module" label="模块" min-width="100" />
         <el-table-column prop="target_id" label="目标ID" min-width="130" />
@@ -1160,7 +1213,7 @@ onBeforeUnmount(() => {
             <div class="operation-inline">
               <el-button size="small" @click="openTaskDetail(row)">详情</el-button>
               <el-button
-                v-if="row.status === 'PENDING'"
+                v-if="canEditReview && row.status === 'PENDING'"
                 size="small"
                 type="success"
                 plain
@@ -1171,7 +1224,7 @@ onBeforeUnmount(() => {
                 快速通过
               </el-button>
               <el-button
-                v-if="row.status === 'PENDING'"
+                v-if="canEditReview && row.status === 'PENDING'"
                 size="small"
                 type="danger"
                 plain
@@ -1185,7 +1238,8 @@ onBeforeUnmount(() => {
             <div v-if="row.status === 'PENDING'" class="reviewer-hint">
               {{ reviewerHint(row) }}
             </div>
-            <el-text v-else type="info">已完成</el-text>
+            <el-text v-if="!canEditReview" type="info">只读</el-text>
+            <el-text v-else-if="row.status !== 'PENDING'" type="info">已完成</el-text>
           </template>
         </el-table-column>
       </el-table>
@@ -1298,6 +1352,7 @@ onBeforeUnmount(() => {
       </el-table>
       <template #footer>
         <el-button
+          v-if="canEditReview"
           type="warning"
           plain
           :disabled="failedBatchRows.length <= 0"
@@ -1338,7 +1393,7 @@ onBeforeUnmount(() => {
           <el-descriptions-item label="审核时间">{{ currentTask.reviewed_at || "-" }}</el-descriptions-item>
         </el-descriptions>
 
-        <template v-if="currentTask.status === 'PENDING'">
+        <template v-if="currentTask.status === 'PENDING' && canEditReview">
           <div class="detail-section">
             <div class="detail-section-title">分配审核员</div>
             <div class="inline-actions inline-actions--left">
@@ -1352,8 +1407,8 @@ onBeforeUnmount(() => {
             <el-form label-width="88px">
               <el-form-item label="结论">
                 <el-radio-group v-model="detailForm.decision_status">
-                  <el-radio-button label="APPROVED">APPROVED</el-radio-button>
-                  <el-radio-button label="REJECTED">REJECTED</el-radio-button>
+                  <el-radio-button value="APPROVED">APPROVED</el-radio-button>
+                  <el-radio-button value="REJECTED">REJECTED</el-radio-button>
                 </el-radio-group>
               </el-form-item>
               <el-form-item label="备注">
@@ -1372,6 +1427,14 @@ onBeforeUnmount(() => {
             <el-button type="primary" :loading="detailDeciding" @click="handleDetailDecision">提交结论</el-button>
           </div>
         </template>
+        <el-alert
+          v-else-if="currentTask.status === 'PENDING'"
+          title="当前账号为只读审核权限，可查看任务详情，但不能重新分配或提交审核结论。"
+          type="info"
+          :closable="false"
+          show-icon
+          style="margin-top: 14px"
+        />
 
         <el-alert
           v-else

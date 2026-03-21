@@ -13,7 +13,7 @@ import {
   updateMembershipProductStatus,
   updateVIPQuotaConfig
 } from "../api/admin";
-import { getAccessToken } from "../lib/session";
+import { getAccessToken, hasPermission } from "../lib/session";
 
 const activeTab = ref("products");
 
@@ -102,6 +102,7 @@ const defaultProductMemberLevelOptions = ["VIP1", "VIP2"];
 const productMemberLevelOptions = ref([...defaultProductMemberLevelOptions]);
 const memberLevelOptions = ["VIP1", "VIP2", "VIP3", "VIP4", "FREE"];
 const resetCycleOptions = ["MONTHLY", "WEEKLY", "DAILY"];
+const canEditMembership = hasPermission("membership.edit");
 
 function normalizeErrorMessage(error, fallback) {
   return error?.message || fallback || "操作失败";
@@ -123,6 +124,14 @@ function statusTagType(status) {
 function clearMessages() {
   errorMessage.value = "";
   message.value = "";
+}
+
+function ensureCanEditMembership() {
+  if (canEditMembership) {
+    return true;
+  }
+  errorMessage.value = "当前账号只有查看权限，无法修改会员产品、订单或配额";
+  return false;
 }
 
 function resetProductForm() {
@@ -179,11 +188,17 @@ async function syncProductMemberLevelOptions() {
 }
 
 function openCreateProductDialog() {
+  if (!ensureCanEditMembership()) {
+    return;
+  }
   resetProductForm();
   productFormVisible.value = true;
 }
 
 function openEditProductDialog(item) {
+  if (!ensureCanEditMembership()) {
+    return;
+  }
   if (!item?.id) {
     return;
   }
@@ -235,6 +250,9 @@ async function fetchProducts(options = {}) {
 }
 
 async function submitProduct() {
+  if (!ensureCanEditMembership()) {
+    return;
+  }
   const payload = {
     name: productForm.name.trim(),
     price: Number(productForm.price),
@@ -278,6 +296,9 @@ async function submitProduct() {
 }
 
 async function updateProductStatus(item) {
+  if (!ensureCanEditMembership()) {
+    return;
+  }
   const target = (draftProductStatusMap.value[item.id] || "").trim();
   if (!target || target === item.status) {
     return;
@@ -344,6 +365,9 @@ async function fetchOrders(options = {}) {
 }
 
 async function updateOrderStatus(item) {
+  if (!ensureCanEditMembership()) {
+    return;
+  }
   const target = (draftOrderStatusMap.value[item.id] || "").trim();
   if (!target || target === item.status) {
     return;
@@ -436,11 +460,17 @@ function resetQuotaForm() {
 }
 
 function openCreateQuotaDialog() {
+  if (!ensureCanEditMembership()) {
+    return;
+  }
   resetQuotaForm();
   quotaDialogVisible.value = true;
 }
 
 function openEditQuotaDialog(item) {
+  if (!ensureCanEditMembership()) {
+    return;
+  }
   Object.assign(quotaForm, {
     id: item.id || "",
     member_level: item.member_level || "VIP1",
@@ -478,6 +508,9 @@ async function fetchQuotaConfigs(options = {}) {
 }
 
 async function submitQuotaForm() {
+  if (!ensureCanEditMembership()) {
+    return;
+  }
   const basePayload = {
     doc_read_limit: toSafeInt(quotaForm.doc_read_limit, 0),
     news_subscribe_limit: toSafeInt(quotaForm.news_subscribe_limit, 0),
@@ -560,6 +593,9 @@ async function fetchUserQuotaUsages(options = {}) {
 }
 
 function openAdjustUsageDialog(item) {
+  if (!ensureCanEditMembership()) {
+    return;
+  }
   Object.assign(usageAdjustForm, {
     user_id: item.user_id,
     period_key: item.period_key,
@@ -571,6 +607,9 @@ function openAdjustUsageDialog(item) {
 }
 
 async function submitAdjustUsage() {
+  if (!ensureCanEditMembership()) {
+    return;
+  }
   const payload = {
     period_key: usageAdjustForm.period_key,
     doc_read_delta: toSafeInt(usageAdjustForm.doc_read_delta, 0),
@@ -692,7 +731,7 @@ onMounted(() => {
             </el-select>
             <el-button type="primary" plain @click="applyProductFilters">查询</el-button>
             <el-button @click="resetProductFilters">重置</el-button>
-            <el-button type="primary" @click="openCreateProductDialog">新增产品</el-button>
+            <el-button v-if="canEditMembership" type="primary" @click="openCreateProductDialog">新增产品</el-button>
           </div>
         </div>
 
@@ -707,11 +746,13 @@ onMounted(() => {
               <template #default="{ row }">
                 <div class="inline-actions">
                   <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
-                  <el-select v-model="draftProductStatusMap[row.id]" style="width: 120px">
-                    <el-option v-for="item in productStatusOptions" :key="item" :label="item" :value="item" />
-                  </el-select>
-                  <el-button size="small" @click="updateProductStatus(row)">保存</el-button>
-                  <el-button size="small" type="primary" plain @click="openEditProductDialog(row)">编辑</el-button>
+                  <template v-if="canEditMembership">
+                    <el-select v-model="draftProductStatusMap[row.id]" style="width: 120px">
+                      <el-option v-for="item in productStatusOptions" :key="item" :label="item" :value="item" />
+                    </el-select>
+                    <el-button size="small" @click="updateProductStatus(row)">保存</el-button>
+                    <el-button size="small" type="primary" plain @click="openEditProductDialog(row)">编辑</el-button>
+                  </template>
                 </div>
               </template>
             </el-table-column>
@@ -756,10 +797,12 @@ onMounted(() => {
               <template #default="{ row }">
                 <div class="inline-actions">
                   <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
-                  <el-select v-model="draftOrderStatusMap[row.id]" style="width: 120px">
-                    <el-option v-for="item in orderStatusOptions" :key="item" :label="item" :value="item" />
-                  </el-select>
-                  <el-button size="small" @click="updateOrderStatus(row)">保存</el-button>
+                  <template v-if="canEditMembership">
+                    <el-select v-model="draftOrderStatusMap[row.id]" style="width: 120px">
+                      <el-option v-for="item in orderStatusOptions" :key="item" :label="item" :value="item" />
+                    </el-select>
+                    <el-button size="small" @click="updateOrderStatus(row)">保存</el-button>
+                  </template>
                 </div>
               </template>
             </el-table-column>
@@ -792,7 +835,7 @@ onMounted(() => {
             </el-select>
             <el-button type="primary" plain @click="applyQuotaFilters">查询</el-button>
             <el-button @click="resetQuotaFilters">重置</el-button>
-            <el-button type="primary" @click="openCreateQuotaDialog">新增配额配置</el-button>
+            <el-button v-if="canEditMembership" type="primary" @click="openCreateQuotaDialog">新增配额配置</el-button>
           </div>
         </div>
 
@@ -812,7 +855,7 @@ onMounted(() => {
             <el-table-column prop="updated_at" label="更新时间" min-width="170" />
             <el-table-column label="操作" align="right" min-width="120">
               <template #default="{ row }">
-                <el-button size="small" @click="openEditQuotaDialog(row)">编辑</el-button>
+                <el-button v-if="canEditMembership" size="small" @click="openEditQuotaDialog(row)">编辑</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -863,7 +906,7 @@ onMounted(() => {
             <el-table-column prop="updated_at" label="更新时间" min-width="170" />
             <el-table-column label="操作" align="right" min-width="120">
               <template #default="{ row }">
-                <el-button size="small" @click="openAdjustUsageDialog(row)">调整配额</el-button>
+                <el-button v-if="canEditMembership" size="small" @click="openAdjustUsageDialog(row)">调整配额</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -912,7 +955,7 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="productFormVisible = false">取消</el-button>
-        <el-button type="primary" :loading="productSubmitting" @click="submitProduct">
+        <el-button v-if="canEditMembership" type="primary" :loading="productSubmitting" @click="submitProduct">
           {{ productFormMode === "create" ? "创建" : "更新" }}
         </el-button>
       </template>
@@ -959,7 +1002,7 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="quotaDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="quotaSubmitting" @click="submitQuotaForm">
+        <el-button v-if="canEditMembership" type="primary" :loading="quotaSubmitting" @click="submitQuotaForm">
           {{ quotaFormMode === "create" ? "创建" : "更新" }}
         </el-button>
       </template>
@@ -992,7 +1035,14 @@ onMounted(() => {
       </el-form>
       <template #footer>
         <el-button @click="usageAdjustDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="usageAdjusting" @click="submitAdjustUsage">确认调整</el-button>
+        <el-button
+          v-if="canEditMembership"
+          type="primary"
+          :loading="usageAdjusting"
+          @click="submitAdjustUsage"
+        >
+          确认调整
+        </el-button>
       </template>
     </el-dialog>
   </div>

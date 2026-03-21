@@ -94,6 +94,19 @@ ON DUPLICATE KEY UPDATE
   built_in = VALUES(built_in),
   updated_at = VALUES(updated_at);
 
+INSERT INTO users (id, phone, email, password_hash, status, kyc_status, member_level, created_at, updated_at)
+VALUES
+  ('admin_001', '19900000001', 'admin@sercherai.local', 'a03c32fcd351cba2d9738622b083bed022ef07793bd92b59faea0207653f371d', 'ACTIVE', 'APPROVED', 'VIP1', NOW(), NOW()),
+  ('admin_002', '19900000002', 'admin2@sercherai.local', 'a03c32fcd351cba2d9738622b083bed022ef07793bd92b59faea0207653f371d', 'ACTIVE', 'APPROVED', 'VIP1', NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+  phone = VALUES(phone),
+  email = VALUES(email),
+  password_hash = VALUES(password_hash),
+  status = VALUES(status),
+  kyc_status = VALUES(kyc_status),
+  member_level = VALUES(member_level),
+  updated_at = VALUES(updated_at);
+
 INSERT INTO rbac_role_permissions (role_id, permission_code, created_at)
 SELECT 'role_super_admin', p.code, NOW()
 FROM rbac_permissions p
@@ -129,7 +142,12 @@ WHERE p.code IN (
 ON DUPLICATE KEY UPDATE created_at = VALUES(created_at);
 
 INSERT INTO rbac_user_roles (user_id, role_id, created_at)
-VALUES
-  ('admin_001', 'role_super_admin', NOW()),
-  ('admin_002', 'role_ops_admin', NOW())
+SELECT bind.user_id, bind.role_id, NOW()
+FROM (
+  SELECT 'admin_001' AS user_id, 'role_super_admin' AS role_id
+  UNION ALL
+  SELECT 'admin_002' AS user_id, 'role_ops_admin' AS role_id
+) bind
+INNER JOIN users u ON u.id = bind.user_id
+INNER JOIN rbac_roles r ON r.id = bind.role_id
 ON DUPLICATE KEY UPDATE created_at = VALUES(created_at);

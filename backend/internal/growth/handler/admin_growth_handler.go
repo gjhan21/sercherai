@@ -954,16 +954,41 @@ func (h *AdminGrowthHandler) CreateStockRecommendation(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "valid_to " + err.Error(), Data: struct{}{}})
 		return
 	}
+	operatorVal, _ := c.Get("user_id")
+	operator, _ := operatorVal.(string)
+	operator = strings.TrimSpace(operator)
+	sourceType := strings.ToUpper(strings.TrimSpace(req.SourceType))
+	if sourceType == "" {
+		sourceType = "MANUAL"
+	}
+	performanceLabel := strings.ToUpper(strings.TrimSpace(req.PerformanceLabel))
+	if performanceLabel == "" {
+		performanceLabel = "PENDING"
+	}
+	strategyVersion := strings.TrimSpace(req.StrategyVersion)
+	if strategyVersion == "" {
+		strategyVersion = "manual-v1"
+	}
+	publisher := strings.TrimSpace(req.Publisher)
+	if publisher == "" {
+		publisher = operator
+	}
 	id, err := h.service.AdminCreateStockRecommendation(model.StockRecommendation{
-		Symbol:        req.Symbol,
-		Name:          req.Name,
-		Score:         req.Score,
-		RiskLevel:     req.RiskLevel,
-		PositionRange: req.PositionRange,
-		ValidFrom:     validFrom,
-		ValidTo:       validTo,
-		Status:        req.Status,
-		ReasonSummary: req.ReasonSummary,
+		Symbol:           req.Symbol,
+		Name:             req.Name,
+		Score:            req.Score,
+		RiskLevel:        req.RiskLevel,
+		PositionRange:    req.PositionRange,
+		ValidFrom:        validFrom,
+		ValidTo:          validTo,
+		Status:           req.Status,
+		ReasonSummary:    req.ReasonSummary,
+		SourceType:       sourceType,
+		StrategyVersion:  strategyVersion,
+		Reviewer:         strings.TrimSpace(req.Reviewer),
+		Publisher:        publisher,
+		ReviewNote:       strings.TrimSpace(req.ReviewNote),
+		PerformanceLabel: performanceLabel,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -1010,10 +1035,14 @@ func (h *AdminGrowthHandler) SyncStockQuotes(c *gin.Context) {
 	}
 	symbols := normalizeStockSymbols(req.Symbols)
 
-	count, err := h.service.AdminSyncStockQuotes(sourceKey, symbols, days)
+	result, err := h.service.AdminSyncStockQuotesDetailed(sourceKey, symbols, days)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
+	}
+	count := result.TruthCount
+	if count <= 0 {
+		count = result.BarCount
 	}
 	beforeValue := requestedSourceKey
 	if beforeValue == "" {
@@ -1027,6 +1056,7 @@ func (h *AdminGrowthHandler) SyncStockQuotes(c *gin.Context) {
 		"requested_source_key": requestedSourceKey,
 		"days":                 days,
 		"symbols":              symbols,
+		"result":               result,
 	}))
 }
 
@@ -1179,13 +1209,160 @@ func (h *AdminGrowthHandler) ExportQuantEvaluationCSV(c *gin.Context) {
 
 func (h *AdminGrowthHandler) GenerateDailyStockRecommendations(c *gin.Context) {
 	tradeDate := c.Query("trade_date")
-	count, err := h.service.AdminGenerateDailyStockRecommendations(tradeDate)
+	result, err := h.service.AdminGenerateDailyStockRecommendations(tradeDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
-	h.writeOperationLog(c, "STOCK", "GENERATE_DAILY_RECOMMENDATIONS", "BATCH", tradeDate, "", "count="+strconv.Itoa(count), "")
-	c.JSON(http.StatusOK, dto.OK(gin.H{"count": count}))
+	afterValue := "count=" + strconv.Itoa(result.Count)
+	if strings.TrimSpace(result.PublishID) != "" {
+		afterValue += " publish_id=" + result.PublishID
+	}
+	if strings.TrimSpace(result.GenerationMode) != "" {
+		afterValue += " generation_mode=" + result.GenerationMode
+	}
+	h.writeOperationLog(c, "STOCK", "GENERATE_DAILY_RECOMMENDATIONS", "BATCH", tradeDate, "", afterValue, "")
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"count":           result.Count,
+		"publish_id":      result.PublishID,
+		"publish_version": result.PublishVersion,
+		"report_summary":  result.ReportSummary,
+		"generation_mode": result.GenerationMode,
+		"archive_enabled": result.ArchiveEnabled,
+	}))
+}
+
+func (h *AdminGrowthHandler) ListStrategyEngineStockPublishHistory(c *gin.Context) {
+	items, err := h.service.AdminListStrategyEnginePublishHistory("stock-selection")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "total": len(items)}))
+}
+
+func (h *AdminGrowthHandler) GetStrategyEngineStockPublishRecord(c *gin.Context) {
+	publishID := strings.TrimSpace(c.Param("publish_id"))
+	if publishID == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "publish_id is required", Data: struct{}{}})
+		return
+	}
+	item, err := h.service.AdminGetStrategyEnginePublishRecord(publishID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminGrowthHandler) GetStrategyEngineStockPublishReplay(c *gin.Context) {
+	publishID := strings.TrimSpace(c.Param("publish_id"))
+	if publishID == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "publish_id is required", Data: struct{}{}})
+		return
+	}
+	item, err := h.service.AdminGetStrategyEnginePublishReplay(publishID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminGrowthHandler) CompareStrategyEngineStockPublishVersions(c *gin.Context) {
+	var req struct {
+		LeftPublishID  string `json:"left_publish_id"`
+		RightPublishID string `json:"right_publish_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	result, err := h.service.AdminCompareStrategyEnginePublishVersions(strings.TrimSpace(req.LeftPublishID), strings.TrimSpace(req.RightPublishID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(result))
+}
+
+func (h *AdminGrowthHandler) GenerateDailyFuturesStrategies(c *gin.Context) {
+	tradeDate := c.Query("trade_date")
+	result, err := h.service.AdminGenerateDailyFuturesStrategies(tradeDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	afterValue := "count=" + strconv.Itoa(result.Count)
+	if strings.TrimSpace(result.PublishID) != "" {
+		afterValue += " publish_id=" + result.PublishID
+	}
+	if strings.TrimSpace(result.GenerationMode) != "" {
+		afterValue += " generation_mode=" + result.GenerationMode
+	}
+	h.writeOperationLog(c, "FUTURES", "GENERATE_DAILY_STRATEGIES", "BATCH", tradeDate, "", afterValue, "")
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"count":           result.Count,
+		"publish_id":      result.PublishID,
+		"publish_version": result.PublishVersion,
+		"report_summary":  result.ReportSummary,
+		"generation_mode": result.GenerationMode,
+		"archive_enabled": result.ArchiveEnabled,
+	}))
+}
+
+func (h *AdminGrowthHandler) ListStrategyEngineFuturesPublishHistory(c *gin.Context) {
+	items, err := h.service.AdminListStrategyEnginePublishHistory("futures-strategy")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "total": len(items)}))
+}
+
+func (h *AdminGrowthHandler) GetStrategyEngineFuturesPublishRecord(c *gin.Context) {
+	publishID := strings.TrimSpace(c.Param("publish_id"))
+	if publishID == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "publish_id is required", Data: struct{}{}})
+		return
+	}
+	item, err := h.service.AdminGetStrategyEnginePublishRecord(publishID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminGrowthHandler) GetStrategyEngineFuturesPublishReplay(c *gin.Context) {
+	publishID := strings.TrimSpace(c.Param("publish_id"))
+	if publishID == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "publish_id is required", Data: struct{}{}})
+		return
+	}
+	item, err := h.service.AdminGetStrategyEnginePublishReplay(publishID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminGrowthHandler) CompareStrategyEngineFuturesPublishVersions(c *gin.Context) {
+	var req struct {
+		LeftPublishID  string `json:"left_publish_id"`
+		RightPublishID string `json:"right_publish_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	result, err := h.service.AdminCompareStrategyEnginePublishVersions(strings.TrimSpace(req.LeftPublishID), strings.TrimSpace(req.RightPublishID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(result))
 }
 
 func (h *AdminGrowthHandler) ListFuturesStrategies(c *gin.Context) {
@@ -1260,6 +1437,95 @@ func (h *AdminGrowthHandler) ListMarketEvents(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *AdminGrowthHandler) ListMarketRhythmTasks(c *gin.Context) {
+	taskDate := strings.TrimSpace(c.DefaultQuery("date", time.Now().Format("2006-01-02")))
+	items, err := h.service.AdminListMarketRhythmTasks(taskDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"date": taskDate, "items": items}))
+}
+
+func (h *AdminGrowthHandler) EnsureMarketRhythmTasks(c *gin.Context) {
+	var req dto.MarketRhythmTaskEnsureRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	items, err := h.service.AdminEnsureMarketRhythmTasks(req.Date)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MARKET", "ENSURE_RHYTHM_TASKS", "MARKET_RHYTHM", req.Date, "", req.Date, "")
+	c.JSON(http.StatusOK, dto.OK(gin.H{"date": req.Date, "items": items}))
+}
+
+func (h *AdminGrowthHandler) UpdateMarketRhythmTask(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "task id required", Data: struct{}{}})
+		return
+	}
+	var req dto.MarketRhythmTaskUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	item, err := h.service.AdminUpdateMarketRhythmTask(id, req.Owner, req.Notes, req.SourceLinks, req.Status)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "market rhythm task not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MARKET", "UPDATE_RHYTHM_TASK", "MARKET_RHYTHM", id, "", item.Status, item.TaskKey)
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminGrowthHandler) UpdateMarketRhythmTaskStatus(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "task id required", Data: struct{}{}})
+		return
+	}
+	var req dto.MarketRhythmTaskStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	item, err := h.service.AdminUpdateMarketRhythmTaskStatus(id, req.Status, req.Owner, req.Notes)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "market rhythm task not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MARKET", "UPDATE_RHYTHM_TASK_STATUS", "MARKET_RHYTHM", id, "", item.Status, item.TaskKey)
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminGrowthHandler) GetExperimentAnalyticsSummary(c *gin.Context) {
+	days, err := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("days", "7")))
+	if err != nil || days <= 0 {
+		days = 7
+	}
+	if days > 30 {
+		days = 30
+	}
+	summary, err := h.service.AdminGetExperimentAnalyticsSummary(days)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(summary))
 }
 
 func (h *AdminGrowthHandler) CreateMarketEvent(c *gin.Context) {
@@ -3075,7 +3341,7 @@ func (h *AdminGrowthHandler) runSchedulerJob(jobName string, syncOptions model.T
 		if err != nil {
 			return schedulerJobExecutionResult{}, err
 		}
-		recoCount, err := h.service.AdminGenerateDailyStockRecommendations(tradeDate)
+		recoResult, err := h.service.AdminGenerateDailyStockRecommendations(tradeDate)
 		if err != nil {
 			return schedulerJobExecutionResult{}, err
 		}
@@ -3086,24 +3352,24 @@ func (h *AdminGrowthHandler) runSchedulerJob(jobName string, syncOptions model.T
 				usedSourceKey,
 				quoteCount,
 				len(topItems),
-				recoCount,
+				recoResult.Count,
 			),
 		}, nil
 	case "daily_stock_recommendation":
 		tradeDate := time.Now().Format("2006-01-02")
-		count, err := h.service.AdminGenerateDailyStockRecommendations(tradeDate)
+		result, err := h.service.AdminGenerateDailyStockRecommendations(tradeDate)
 		if err != nil {
 			return schedulerJobExecutionResult{}, err
 		}
-		return schedulerJobExecutionResult{Summary: fmt.Sprintf("generated %d recommendations", count)}, nil
+		return schedulerJobExecutionResult{Summary: fmt.Sprintf("generated %d recommendations", result.Count)}, nil
 	case schedulerJobDailyFuturesStrategy, schedulerJobFuturesStrategyGenerate:
 		tradeDate := time.Now().Format("2006-01-02")
-		count, err := h.service.AdminGenerateDailyFuturesStrategies(tradeDate)
+		result, err := h.service.AdminGenerateDailyFuturesStrategies(tradeDate)
 		if err != nil {
 			return schedulerJobExecutionResult{}, err
 		}
 		return schedulerJobExecutionResult{
-			Summary: fmt.Sprintf("trade_date=%s generated=%d", tradeDate, count),
+			Summary: fmt.Sprintf("trade_date=%s generated=%d", tradeDate, result.Count),
 		}, nil
 	case schedulerJobFuturesStrategyEvaluate:
 		summary, err := h.runFuturesStrategyEvaluate(20)

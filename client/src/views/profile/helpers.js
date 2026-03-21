@@ -45,7 +45,7 @@ export function mapVIPStatus(status, level) {
 
 export function mapKYCStatus(status) {
   const source = String(status || "").toUpperCase();
-  if (source === "APPROVED") {
+  if (source === "APPROVED" || source === "VERIFIED") {
     return "已认证";
   }
   if (source === "REJECTED") {
@@ -53,6 +53,20 @@ export function mapKYCStatus(status) {
   }
   if (source === "PENDING") {
     return "审核中";
+  }
+  return source || "-";
+}
+
+export function mapActivationState(state) {
+  const source = String(state || "").toUpperCase();
+  if (source === "ACTIVE") {
+    return "已激活";
+  }
+  if (source === "PAID_PENDING_KYC") {
+    return "待实名激活";
+  }
+  if (source === "NON_MEMBER") {
+    return "未开通";
   }
   return source || "-";
 }

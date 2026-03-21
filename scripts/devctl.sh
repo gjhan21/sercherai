@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="$ROOT_DIR/.run"
 LOG_DIR="$RUN_DIR/logs"
 
-ALL_SERVICES=("backend" "admin" "client")
+ALL_SERVICES=("strategy-engine" "backend" "admin" "client")
 
 resolve_go_bin() {
   if [[ -x "/opt/homebrew/bin/go" ]]; then
@@ -21,13 +21,23 @@ resolve_go_bin() {
 
 GO_BIN="$(resolve_go_bin)"
 
+resolve_python_bin() {
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return
+  fi
+  command -v python 2>/dev/null || echo "python3"
+}
+
+PYTHON_BIN="$(resolve_python_bin)"
+
 usage() {
   cat <<'EOF'
 用法:
-  ./scripts/devctl.sh start [backend|admin|client|all]
-  ./scripts/devctl.sh stop [backend|admin|client|all]
-  ./scripts/devctl.sh restart [backend|admin|client|all]
-  ./scripts/devctl.sh status [backend|admin|client|all]
+  ./scripts/devctl.sh start [strategy-engine|backend|admin|client|all]
+  ./scripts/devctl.sh stop [strategy-engine|backend|admin|client|all]
+  ./scripts/devctl.sh restart [strategy-engine|backend|admin|client|all]
+  ./scripts/devctl.sh status [strategy-engine|backend|admin|client|all]
 
 说明:
   - 默认目标为 all
@@ -41,26 +51,120 @@ ensure_dirs() {
   mkdir -p "$RUN_DIR" "$LOG_DIR"
 }
 
+service_env_file() {
+  case "$1" in
+    strategy-engine) echo "$ROOT_DIR/.run/strategy-engine.env" ;;
+    backend) echo "$ROOT_DIR/.run/backend.env" ;;
+    admin) echo "$ROOT_DIR/.run/admin.env" ;;
+    client) echo "$ROOT_DIR/.run/client.env" ;;
+    *) return 1 ;;
+  esac
+}
+
+read_env_override() {
+  local file="$1"
+  local key="$2"
+  local fallback="$3"
+
+  if [[ -f "$file" ]]; then
+    local value
+    value="$(
+      ENV_FILE="$file" ENV_KEY="$key" python3 - <<'PY'
+import os
+
+env_file = os.environ["ENV_FILE"]
+env_key = os.environ["ENV_KEY"]
+value = ""
+
+with open(env_file, "r", encoding="utf-8") as handle:
+    for raw in handle:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        if key.strip() != env_key:
+            continue
+        value = val.strip().strip('"').strip("'")
+        break
+
+print(value, end="")
+PY
+    )"
+    if [[ -n "$value" ]]; then
+      echo "$value"
+      return 0
+    fi
+  fi
+
+  echo "$fallback"
+}
+
 service_port() {
   case "$1" in
-    backend) echo "18080" ;;
-    admin) echo "5174" ;;
-    client) echo "5175" ;;
+    strategy-engine) read_env_override "$(service_env_file strategy-engine)" "STRATEGY_ENGINE_PORT" "18081" ;;
+    backend) read_env_override "$(service_env_file backend)" "APP_PORT" "18080" ;;
+    admin) read_env_override "$(service_env_file admin)" "ADMIN_PORT" "5174" ;;
+    client) read_env_override "$(service_env_file client)" "CLIENT_PORT" "5175" ;;
     *) return 1 ;;
   esac
 }
 
 service_url() {
   case "$1" in
-    backend) echo "http://127.0.0.1:18080" ;;
-    admin) echo "http://127.0.0.1:5174" ;;
-    client) echo "http://127.0.0.1:5175" ;;
+    strategy-engine)
+      echo "http://127.0.0.1:$(service_port strategy-engine)"
+      ;;
+    backend)
+      echo "http://127.0.0.1:$(service_port backend)"
+      ;;
+    admin)
+      echo "http://127.0.0.1:$(service_port admin)"
+      ;;
+    client)
+      echo "http://127.0.0.1:$(service_port client)"
+      ;;
     *) return 1 ;;
+  esac
+}
+
+service_health_url() {
+  case "$1" in
+    strategy-engine)
+      echo "$(service_url strategy-engine)/internal/v1/health"
+      ;;
+    backend)
+      echo "$(service_url backend)/healthz"
+      ;;
+    *)
+      echo ""
+      ;;
   esac
 }
 
 service_cmd() {
   case "$1" in
+    strategy-engine)
+      cat <<EOF
+STRATEGY_ENGINE_ENV_FILE="$ROOT_DIR/.run/strategy-engine.env"
+if [ -f "\$STRATEGY_ENGINE_ENV_FILE" ]; then
+  set -a
+  . "\$STRATEGY_ENGINE_ENV_FILE"
+  set +a
+fi
+cd "$ROOT_DIR/services/strategy-engine"
+if [ ! -x ".venv/bin/python" ]; then
+  "$PYTHON_BIN" -m venv .venv
+fi
+if [ ! -f ".venv/.deps_ready" ] || [ pyproject.toml -nt ".venv/.deps_ready" ]; then
+  .venv/bin/python -m pip install -q -e '.[dev]'
+  touch .venv/.deps_ready
+fi
+STRATEGY_ENGINE_HOST="\${STRATEGY_ENGINE_HOST:-0.0.0.0}"
+STRATEGY_ENGINE_PORT="\${STRATEGY_ENGINE_PORT:-18081}"
+STRATEGY_ENGINE_GO_BACKEND_BASE_URL="\${STRATEGY_ENGINE_GO_BACKEND_BASE_URL:-$(service_url backend)}"
+exec env STRATEGY_ENGINE_HOST="\${STRATEGY_ENGINE_HOST}" STRATEGY_ENGINE_PORT="\${STRATEGY_ENGINE_PORT}" STRATEGY_ENGINE_GO_BACKEND_BASE_URL="\${STRATEGY_ENGINE_GO_BACKEND_BASE_URL}" .venv/bin/python -m uvicorn app.main:app --host "\${STRATEGY_ENGINE_HOST}" --port "\${STRATEGY_ENGINE_PORT}"
+EOF
+      ;;
     backend)
       cat <<EOF
 BACKEND_ENV_FILE="$ROOT_DIR/.run/backend.env"
@@ -69,22 +173,48 @@ if [ -f "\$BACKEND_ENV_FILE" ]; then
   . "\$BACKEND_ENV_FILE"
   set +a
 fi
-cd "$ROOT_DIR/backend" && exec env APP_PORT=18080 TUSHARE_TOKEN="\${TUSHARE_TOKEN:-}" GOCACHE=\$(pwd)/.gocache GOMODCACHE=\$(pwd)/.gomodcache GOPATH=\$(pwd)/.gopath "$GO_BIN" run .
+APP_PORT="\${APP_PORT:-$(service_port backend)}"
+STRATEGY_ENGINE_BASE_URL="\${STRATEGY_ENGINE_BASE_URL:-$(service_url strategy-engine)}"
+cd "$ROOT_DIR/backend" && exec env APP_PORT="\${APP_PORT}" TUSHARE_TOKEN="\${TUSHARE_TOKEN:-}" STRATEGY_ENGINE_BASE_URL="\${STRATEGY_ENGINE_BASE_URL}" GOCACHE=\$(pwd)/.gocache GOMODCACHE=\$(pwd)/.gomodcache GOPATH=\$(pwd)/.gopath "$GO_BIN" run .
 EOF
       ;;
     admin)
       cat <<EOF
-cd "$ROOT_DIR/admin" && exec npm run dev -- --host 0.0.0.0 --port 5174
+ADMIN_ENV_FILE="$ROOT_DIR/.run/admin.env"
+if [ -f "\$ADMIN_ENV_FILE" ]; then
+  set -a
+  . "\$ADMIN_ENV_FILE"
+  set +a
+fi
+ADMIN_HOST="\${ADMIN_HOST:-0.0.0.0}"
+ADMIN_PORT="\${ADMIN_PORT:-$(service_port admin)}"
+VITE_PROXY_TARGET="\${VITE_PROXY_TARGET:-$(service_url backend)}"
+cd "$ROOT_DIR/admin" && exec env VITE_PROXY_TARGET="\${VITE_PROXY_TARGET}" npm run dev -- --host "\${ADMIN_HOST}" --port "\${ADMIN_PORT}"
 EOF
       ;;
     client)
       cat <<EOF
-cd "$ROOT_DIR/client" && exec npm run dev -- --host 0.0.0.0 --port 5175
+CLIENT_ENV_FILE="$ROOT_DIR/.run/client.env"
+if [ -f "\$CLIENT_ENV_FILE" ]; then
+  set -a
+  . "\$CLIENT_ENV_FILE"
+  set +a
+fi
+CLIENT_HOST="\${CLIENT_HOST:-0.0.0.0}"
+CLIENT_PORT="\${CLIENT_PORT:-$(service_port client)}"
+cd "$ROOT_DIR/client" && exec npm run dev -- --host "\${CLIENT_HOST}" --port "\${CLIENT_PORT}"
 EOF
       ;;
     *)
       return 1
       ;;
+  esac
+}
+
+service_wait_checks() {
+  case "$1" in
+    strategy-engine) echo "320" ;;
+    *) echo "80" ;;
   esac
 }
 
@@ -154,6 +284,63 @@ wait_for_port() {
   return 1
 }
 
+is_port_listening() {
+  local port="$1"
+  lsof -ti tcp:"$port" >/dev/null 2>&1
+}
+
+wait_for_http_ready() {
+  local url="$1"
+  local max_checks="${2:-40}"
+  local checks=0
+
+  if [[ -z "$url" ]]; then
+    return 0
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    return 0
+  fi
+
+  while [[ $checks -lt $max_checks ]]; do
+    if curl -fsS -m 2 "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    checks=$((checks + 1))
+    sleep 0.25
+  done
+  return 1
+}
+
+first_listener_pid() {
+  local port="$1"
+  lsof -ti tcp:"$port" 2>/dev/null | head -n 1
+}
+
+spawn_detached() {
+  local logfile="$1"
+  local cmd="$2"
+
+  "$PYTHON_BIN" - "$logfile" "$cmd" <<'PY'
+import subprocess
+import sys
+
+logfile = sys.argv[1]
+cmd = sys.argv[2]
+
+with open(logfile, "ab", buffering=0) as log_handle:
+    proc = subprocess.Popen(
+        ["/bin/bash", "-lc", cmd],
+        stdin=subprocess.DEVNULL,
+        stdout=log_handle,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+        close_fds=True,
+    )
+
+print(proc.pid)
+PY
+}
+
 start_service() {
   local service="$1"
   local port cmd pidfile logfile old_pid pid
@@ -176,8 +363,7 @@ start_service() {
   kill_port_processes "$port"
 
   echo "[INFO] 启动 $service ..."
-  nohup bash -lc "$cmd" >>"$logfile" 2>&1 &
-  pid=$!
+  pid="$(spawn_detached "$logfile" "$cmd")"
   echo "$pid" > "$pidfile"
 
   sleep 0.2
@@ -188,10 +374,30 @@ start_service() {
     return 1
   fi
 
-  if wait_for_port "$port"; then
+  if wait_for_port "$port" "$(service_wait_checks "$service")"; then
+    local health_url listener_pid
+    health_url="$(service_health_url "$service")"
+    if ! wait_for_http_ready "$health_url" 24; then
+      echo "[ERROR] ${service} 端口已监听，但健康检查失败。日志: ${logfile}"
+      rm -f "$pidfile"
+      tail -n 80 "$logfile" || true
+      return 1
+    fi
+    sleep 0.5
+    if ! is_pid_running "$pid" || ! is_port_listening "$port"; then
+      echo "[ERROR] ${service} 启动后未稳定运行。日志: ${logfile}"
+      rm -f "$pidfile"
+      tail -n 80 "$logfile" || true
+      return 1
+    fi
+    listener_pid="$(first_listener_pid "$port")"
+    if [[ -n "$listener_pid" ]]; then
+      echo "$listener_pid" > "$pidfile"
+    fi
     echo "[OK] ${service} 已启动: PID=${pid} PORT=${port} URL=$(service_url "$service")"
   else
     echo "[ERROR] ${service} 未能监听端口 ${port}。日志: ${logfile}"
+    rm -f "$pidfile"
     tail -n 80 "$logfile" || true
     return 1
   fi

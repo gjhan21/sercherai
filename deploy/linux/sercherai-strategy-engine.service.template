@@ -1,0 +1,17 @@
+[Unit]
+Description=SercherAI Strategy Engine Service
+After=network.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+WorkingDirectory=__STRATEGY_ENGINE_APP_DIR__
+EnvironmentFile=__STRATEGY_ENGINE_ENV_FILE__
+ExecStart=/bin/bash -lc 'exec __STRATEGY_ENGINE_APP_DIR__/.venv/bin/python -m uvicorn app.main:app --host "${STRATEGY_ENGINE_HOST:-0.0.0.0}" --port "${STRATEGY_ENGINE_PORT:-18081}"'
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

@@ -7,7 +7,7 @@ import {
   listBrowseHistories,
   listBrowseUserSegments
 } from "../api/admin";
-import { getAccessToken } from "../lib/session";
+import { getAccessToken, hasPermission } from "../lib/session";
 
 const loading = ref(false);
 const summaryLoading = ref(false);
@@ -56,6 +56,7 @@ const messageForm = reactive({
 
 const contentTypeOptions = ["NEWS", "REPORT", "JOURNAL"];
 const messageTypeOptions = ["NEWS", "SYSTEM", "STRATEGY", "ALERT"];
+const canEditUsers = hasPermission("users.edit");
 
 const selectedUserIDs = computed(() => {
   const ids = selectedRows.value.map((item) => item.user_id).filter(Boolean);
@@ -136,6 +137,14 @@ function applyReminderTemplate(kind) {
 
 function handleSelectionChange(items) {
   selectedRows.value = items || [];
+}
+
+function ensureCanEditUsers() {
+  if (canEditUsers) {
+    return true;
+  }
+  errorMessage.value = "当前账号只有查看权限，无法发送阅读提醒";
+  return false;
 }
 
 async function fetchSummary() {
@@ -247,6 +256,9 @@ async function sendMessage(userIDs, doneMessage) {
 }
 
 async function handleSendBatch() {
+  if (!ensureCanEditUsers()) {
+    return;
+  }
   if (!canSendBatch.value || sendingBatch.value) {
     return;
   }
@@ -264,6 +276,9 @@ async function handleSendBatch() {
 }
 
 async function handleSendSingle(row) {
+  if (!ensureCanEditUsers()) {
+    return;
+  }
   const userID = row?.user_id;
   if (!userID || sendingSingleID.value) {
     return;
@@ -282,6 +297,9 @@ async function handleSendSingle(row) {
 }
 
 async function handleSendSegment(segmentType) {
+  if (!ensureCanEditUsers()) {
+    return;
+  }
   const normalized = String(segmentType || "").toUpperCase();
   const users =
     normalized === "ACTIVE"
@@ -427,7 +445,12 @@ onMounted(refreshAll);
         <article class="segment-card">
           <div class="segment-head">
             <p>高活跃用户</p>
-            <el-button size="small" :loading="sendingSegment === 'ACTIVE'" @click="applyReminderTemplate('ACTIVE')">
+            <el-button
+              v-if="canEditUsers"
+              size="small"
+              :loading="sendingSegment === 'ACTIVE'"
+              @click="applyReminderTemplate('ACTIVE')"
+            >
               套用模板
             </el-button>
           </div>
@@ -441,6 +464,7 @@ onMounted(refreshAll);
             <p v-if="activeSegments.length === 0" class="empty-text">暂无高活跃用户</p>
           </div>
           <el-button
+            v-if="canEditUsers"
             type="primary"
             plain
             size="small"
@@ -455,7 +479,12 @@ onMounted(refreshAll);
         <article class="segment-card">
           <div class="segment-head">
             <p>沉默用户</p>
-            <el-button size="small" :loading="sendingSegment === 'SILENT'" @click="applyReminderTemplate('SILENT')">
+            <el-button
+              v-if="canEditUsers"
+              size="small"
+              :loading="sendingSegment === 'SILENT'"
+              @click="applyReminderTemplate('SILENT')"
+            >
               套用模板
             </el-button>
           </div>
@@ -469,6 +498,7 @@ onMounted(refreshAll);
             <p v-if="silentSegments.length === 0" class="empty-text">暂无沉默用户</p>
           </div>
           <el-button
+            v-if="canEditUsers"
             type="warning"
             plain
             size="small"
@@ -495,7 +525,7 @@ onMounted(refreshAll);
       </div>
     </div>
 
-    <div class="card" style="margin-bottom: 12px">
+    <div v-if="canEditUsers" class="card" style="margin-bottom: 12px">
       <div class="section-head">
         <h3>阅读提醒</h3>
         <el-text type="info">已选用户 {{ selectedUserIDs.length }} 人</el-text>
@@ -549,7 +579,7 @@ onMounted(refreshAll);
         empty-text="暂无阅读记录"
         @selection-change="handleSelectionChange"
       >
-        <el-table-column type="selection" width="52" reserve-selection />
+        <el-table-column v-if="canEditUsers" type="selection" width="52" reserve-selection />
         <el-table-column prop="user_id" label="用户ID" min-width="140" />
         <el-table-column label="手机号" min-width="130">
           <template #default="{ row }">
@@ -569,7 +599,7 @@ onMounted(refreshAll);
             {{ formatDateTime(row.viewed_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column v-if="canEditUsers" label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button
               size="small"

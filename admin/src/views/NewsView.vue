@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessageBox } from "element-plus";
 import {
   createNewsArticle,
@@ -16,6 +16,7 @@ import {
   updateNewsCategory
 } from "../api/admin";
 import RichTextEditor from "../components/RichTextEditor.vue";
+import { sanitizeHTML } from "../lib/html";
 
 const loadingCategories = ref(false);
 const loadingArticles = ref(false);
@@ -70,6 +71,7 @@ const articleAttachmentDrafts = ref([]);
 const previewVisible = ref(false);
 const previewArticle = ref(null);
 const previewAttachments = ref([]);
+const previewArticleHTML = computed(() => sanitizeHTML(previewArticle.value?.content || "<p>暂无正文</p>"));
 
 const selectedArticle = ref(null);
 const attachments = ref([]);
@@ -135,10 +137,13 @@ async function fetchCategories() {
   }
 }
 
-async function fetchArticles() {
+async function fetchArticles(options = {}) {
+  const { preserveFeedback = false } = options;
   loadingArticles.value = true;
-  errorMessage.value = "";
-  message.value = "";
+  if (!preserveFeedback) {
+    errorMessage.value = "";
+    message.value = "";
+  }
   try {
     const data = await listNewsArticles({
       status: articleFilters.status,
@@ -260,7 +265,7 @@ async function submitArticle() {
 
     articleFormVisible.value = false;
     resetArticleForm();
-    await fetchArticles();
+    await fetchArticles({ preserveFeedback: true });
   } catch (error) {
     errorMessage.value = error.message || "提交新闻文章失败";
   } finally {
@@ -274,7 +279,7 @@ async function handlePublishArticle(article) {
   try {
     await publishNewsArticle(article.id);
     message.value = `文章 ${article.id} 已发布`;
-    await fetchArticles();
+    await fetchArticles({ preserveFeedback: true });
   } catch (error) {
     errorMessage.value = error.message || "发布文章失败";
   }
@@ -1021,7 +1026,7 @@ onMounted(async () => {
           <div><span>附件数：</span>{{ Number(previewArticle.attachment_count || previewAttachments.length || 0) }}</div>
         </div>
         <el-divider />
-        <div class="preview-body" v-html="previewArticle.content || '<p>暂无正文</p>'" />
+        <div class="preview-body" v-html="previewArticleHTML" />
         <el-divider />
         <div class="preview-attachments">
           <h4>附件列表</h4>

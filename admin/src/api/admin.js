@@ -279,6 +279,110 @@ export function triggerSchedulerJob(payload) {
   return http.post("/admin/system/job-runs/trigger", payload);
 }
 
+export function getStockSelectionOverview() {
+  return http.get("/admin/stock-selection/overview");
+}
+
+export function listStockSelectionRuns(params) {
+  return http.get("/admin/stock-selection/runs", { params: buildParams(params) });
+}
+
+export function createStockSelectionRun(payload) {
+  return http.post("/admin/stock-selection/runs", payload, { timeout: 60000 });
+}
+
+export function getStockSelectionRun(runID) {
+  return http.get(`/admin/stock-selection/runs/${encodeURIComponent(runID)}`);
+}
+
+export function compareStockSelectionRuns(runIDs = []) {
+  return http.get("/admin/stock-selection/runs/compare", {
+    params: buildParams({ run_ids: Array.isArray(runIDs) ? runIDs.join(",") : runIDs })
+  });
+}
+
+export function listStockSelectionProfiles(params) {
+  return http.get("/admin/stock-selection/profiles", { params: buildParams(params) });
+}
+
+export function listStockSelectionProfileVersions(id) {
+  return http.get(`/admin/stock-selection/profiles/${encodeURIComponent(id)}/versions`);
+}
+
+export function createStockSelectionProfile(payload) {
+  return http.post("/admin/stock-selection/profiles", payload);
+}
+
+export function updateStockSelectionProfile(id, payload) {
+  return http.put(`/admin/stock-selection/profiles/${encodeURIComponent(id)}`, payload);
+}
+
+export function publishStockSelectionProfile(id) {
+  return http.post(`/admin/stock-selection/profiles/${encodeURIComponent(id)}/publish`);
+}
+
+export function rollbackStockSelectionProfile(id, payload) {
+  return http.post(`/admin/stock-selection/profiles/${encodeURIComponent(id)}/rollback`, payload);
+}
+
+export function listStockSelectionTemplates(params) {
+  return http.get("/admin/stock-selection/templates", { params: buildParams(params) });
+}
+
+export function createStockSelectionTemplate(payload) {
+  return http.post("/admin/stock-selection/templates", payload);
+}
+
+export function updateStockSelectionTemplate(id, payload) {
+  return http.put(`/admin/stock-selection/templates/${encodeURIComponent(id)}`, payload);
+}
+
+export function setDefaultStockSelectionTemplate(id) {
+  return http.post(`/admin/stock-selection/templates/${encodeURIComponent(id)}/set-default`);
+}
+
+export function listStockSelectionCandidates(runID, params) {
+  return http.get(`/admin/stock-selection/runs/${encodeURIComponent(runID)}/candidates`, {
+    params: buildParams(params)
+  });
+}
+
+export function listStockSelectionPortfolio(runID) {
+  return http.get(`/admin/stock-selection/runs/${encodeURIComponent(runID)}/portfolio`);
+}
+
+export function listStockSelectionRunEvidence(runID, params) {
+  return http.get(`/admin/stock-selection/runs/${encodeURIComponent(runID)}/evidence`, {
+    params: buildParams(params)
+  });
+}
+
+export function listStockSelectionRunEvaluation(runID, params) {
+  return http.get(`/admin/stock-selection/runs/${encodeURIComponent(runID)}/evaluation`, {
+    params: buildParams(params)
+  });
+}
+
+export function listStockSelectionEvaluationLeaderboard(params) {
+  return http.get("/admin/stock-selection/evaluation/leaderboard", {
+    params: buildParams(params)
+  });
+}
+
+export function listStockSelectionReviews(params) {
+  return http.get("/admin/stock-selection/reviews", { params: buildParams(params) });
+}
+
+export function approveStockSelectionReview(runID, payload) {
+  return http.post(`/admin/stock-selection/reviews/${encodeURIComponent(runID)}/approve`, payload, {
+    timeout: 60000
+  });
+}
+
+export function rejectStockSelectionReview(runID, payload) {
+  return http.post(`/admin/stock-selection/reviews/${encodeURIComponent(runID)}/reject`, payload);
+}
+
 export function retrySchedulerJobRun(id, payload) {
   return http.post(`/admin/system/job-runs/${encodeURIComponent(id)}/retry`, payload);
 }
@@ -380,6 +484,18 @@ export function syncStockQuotes(payload) {
   return http.post("/admin/stocks/quotes/sync", payload);
 }
 
+export function syncFuturesQuotes(payload) {
+  return http.post("/admin/futures/quotes/sync", payload);
+}
+
+export function syncFuturesInventory(payload) {
+  return http.post("/admin/futures/inventory/sync", payload);
+}
+
+export function syncMarketNewsSource(payload) {
+  return http.post("/admin/news/market-sync", payload);
+}
+
 export function listQuantTopStocks(params) {
   return http.get("/admin/stocks/quant/top", { params: buildParams(params) });
 }
@@ -394,8 +510,46 @@ export function generateDailyStockRecommendations(tradeDate = "") {
   });
 }
 
+export function listStockStrategyEnginePublishHistory() {
+  return http.get("/admin/stocks/strategy-engine/publish-history");
+}
+
+export function getStockStrategyEnginePublishRecord(publishID) {
+  return http.get(`/admin/stocks/strategy-engine/publish-records/${encodeURIComponent(publishID)}`);
+}
+
+export function getStockStrategyEnginePublishReplay(publishID) {
+  return http.get(`/admin/stocks/strategy-engine/publish-records/${encodeURIComponent(publishID)}/replay`);
+}
+
+export function compareStockStrategyEnginePublishVersions(payload) {
+  return http.post("/admin/stocks/strategy-engine/publish-compare", payload);
+}
+
 export function listFuturesStrategies(params) {
   return http.get("/admin/futures/strategies", { params: buildParams(params) });
+}
+
+export function generateDailyFuturesStrategies(tradeDate = "") {
+  return http.post("/admin/futures/strategies/generate-daily", null, {
+    params: buildParams({ trade_date: tradeDate })
+  });
+}
+
+export function listFuturesStrategyEnginePublishHistory() {
+  return http.get("/admin/futures/strategy-engine/publish-history");
+}
+
+export function getFuturesStrategyEnginePublishRecord(publishID) {
+  return http.get(`/admin/futures/strategy-engine/publish-records/${encodeURIComponent(publishID)}`);
+}
+
+export function getFuturesStrategyEnginePublishReplay(publishID) {
+  return http.get(`/admin/futures/strategy-engine/publish-records/${encodeURIComponent(publishID)}/replay`);
+}
+
+export function compareFuturesStrategyEnginePublishVersions(payload) {
+  return http.post("/admin/futures/strategy-engine/publish-compare", payload);
 }
 
 export function createFuturesStrategy(payload) {
@@ -410,6 +564,86 @@ export function updateFuturesStrategyStatus(id, status) {
 
 export function listMarketEvents(params) {
   return http.get("/admin/market/events", { params: buildParams(params) });
+}
+
+export function listMarketRhythmTasks(params) {
+  return http.get("/admin/market/rhythm-tasks", { params: buildParams(params) });
+}
+
+export function ensureMarketRhythmTasks(payload) {
+  return http.post("/admin/market/rhythm-tasks/ensure", payload);
+}
+
+export function updateMarketRhythmTask(id, payload) {
+  return http.put(`/admin/market/rhythm-tasks/${encodeURIComponent(id)}`, payload);
+}
+
+export function updateMarketRhythmTaskStatus(id, payload) {
+  return http.put(`/admin/market/rhythm-tasks/${encodeURIComponent(id)}/status`, payload);
+}
+
+export function getExperimentAnalyticsSummary(params) {
+  return http.get("/admin/market/experiments/summary", { params: buildParams(params) });
+}
+
+export function listStrategySeedSets(params) {
+  return http.get("/admin/market/strategy-engine/seed-sets", { params: buildParams(params) });
+}
+
+export function createStrategySeedSet(payload) {
+  return http.post("/admin/market/strategy-engine/seed-sets", payload);
+}
+
+export function updateStrategySeedSet(id, payload) {
+  return http.put(`/admin/market/strategy-engine/seed-sets/${encodeURIComponent(id)}`, payload);
+}
+
+export function listStrategyAgentProfiles(params) {
+  return http.get("/admin/market/strategy-engine/agents", { params: buildParams(params) });
+}
+
+export function createStrategyAgentProfile(payload) {
+  return http.post("/admin/market/strategy-engine/agents", payload);
+}
+
+export function updateStrategyAgentProfile(id, payload) {
+  return http.put(`/admin/market/strategy-engine/agents/${encodeURIComponent(id)}`, payload);
+}
+
+export function listStrategyScenarioTemplates(params) {
+  return http.get("/admin/market/strategy-engine/scenarios", { params: buildParams(params) });
+}
+
+export function createStrategyScenarioTemplate(payload) {
+  return http.post("/admin/market/strategy-engine/scenarios", payload);
+}
+
+export function updateStrategyScenarioTemplate(id, payload) {
+  return http.put(`/admin/market/strategy-engine/scenarios/${encodeURIComponent(id)}`, payload);
+}
+
+export function listStrategyPublishPolicies(params) {
+  return http.get("/admin/market/strategy-engine/publish-policies", { params: buildParams(params) });
+}
+
+export function createStrategyPublishPolicy(payload) {
+  return http.post("/admin/market/strategy-engine/publish-policies", payload);
+}
+
+export function updateStrategyPublishPolicy(id, payload) {
+  return http.put(`/admin/market/strategy-engine/publish-policies/${encodeURIComponent(id)}`, payload);
+}
+
+export function listStrategyEngineJobs(params) {
+  return http.get("/admin/market/strategy-engine/jobs", { params: buildParams(params) });
+}
+
+export function getStrategyEngineJob(jobID) {
+  return http.get(`/admin/market/strategy-engine/jobs/${encodeURIComponent(jobID)}`);
+}
+
+export function publishStrategyEngineJob(jobID, payload) {
+  return http.post(`/admin/market/strategy-engine/jobs/${encodeURIComponent(jobID)}/publish`, payload);
 }
 
 export function createMarketEvent(payload) {

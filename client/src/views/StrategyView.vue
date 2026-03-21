@@ -2,30 +2,513 @@
   <section class="strategy-page fade-up">
     <header class="strategy-hero card">
       <div>
-        <p class="hero-kicker">策略中心 · API 实时同步</p>
-        <h1 class="section-title">先看推荐，再看参数和风险。</h1>
+        <p class="hero-kicker">策略中心</p>
+        <h1 class="section-title">查看今日股票与期货策略</h1>
         <p class="section-subtitle">
-          已接入股票推荐与期货策略接口，优先展示可执行策略和仓位建议。
+          优先展示今日主推荐、风险边界和执行参数。
         </p>
         <div class="tag-row">
-          <span v-for="tag in tags" :key="tag">{{ tag }}</span>
+          <span v-for="tag in tags" :key="tag" class="finance-pill finance-pill-compact finance-pill-neutral">{{ tag }}</span>
         </div>
         <p v-if="loading" class="api-state">正在同步策略数据...</p>
         <p v-else-if="errorMessage" class="api-state warning">{{ errorMessage }}</p>
         <p v-else class="api-state">更新时间：{{ lastUpdatedAt || "-" }}</p>
       </div>
       <div class="hero-actions">
-        <button class="primary-btn" type="button" :disabled="loading" @click="loadStrategies">
+        <button class="primary-btn finance-primary-btn" type="button" :disabled="loading" @click="loadStrategies">
           {{ loading ? "同步中..." : "刷新策略" }}
         </button>
+        <button class="ghost-btn finance-ghost-btn" type="button" @click="goStrategyArchive">看历史档案</button>
+        <button class="ghost-btn finance-ghost-btn" type="button" @click="goStrategyWatchlist">去我的关注</button>
       </div>
     </header>
 
+    <StatePanel
+      :tone="strategyAccessState.tone"
+      :eyebrow="strategyAccessState.label"
+      :title="strategyAccessState.title"
+      :description="strategyAccessState.desc"
+    >
+      <template #actions>
+        <button type="button" class="finance-primary-btn" @click="handleStrategyPrimaryAction">{{ strategyPrimaryActionText }}</button>
+        <button type="button" class="ghost finance-ghost-btn" @click="handleStrategySecondaryAction">{{ strategySecondaryActionText }}</button>
+      </template>
+    </StatePanel>
+
+    <section class="strategy-focus-layout">
+      <article class="card focus-detail-card">
+        <header class="focus-detail-head">
+          <div>
+            <p class="hero-kicker">股票推荐详情</p>
+            <h2 class="section-title">
+              {{ activeStockView ? `${activeStockView.name} · 推荐详情` : "请选择一条推荐查看详情" }}
+            </h2>
+            <p class="section-subtitle">
+              查看推荐理由、风控边界、版本变化、资讯支撑和历史表现。
+            </p>
+          </div>
+          <div class="focus-detail-actions">
+            <button class="primary-btn finance-primary-btn" type="button" :disabled="stockDetailLoading || !activeStockView" @click="refreshActiveStockDetail">
+              {{ stockDetailLoading ? "同步中..." : "刷新详情" }}
+            </button>
+            <button class="ghost-btn finance-ghost-btn" type="button" :disabled="!activeStockView" @click="toggleActiveStockWatch">
+              {{ isActiveStockWatched ? "移出关注" : "加入关注" }}
+            </button>
+            <button class="ghost-btn finance-ghost-btn" type="button" :disabled="!activeStockView" @click="openActiveStockDetailDialog">
+              查看浮层详情
+            </button>
+          </div>
+        </header>
+
+        <div v-if="activeStockView" class="focus-detail-content">
+          <section class="focus-summary-panel finance-card-pale">
+            <div class="focus-summary-head">
+              <div>
+                <p class="detail-kicker">今日主推荐</p>
+                <h3>{{ activeStockView.name }}</h3>
+              </div>
+              <div class="focus-badge-row">
+                <span class="finance-pill finance-pill-roomy finance-pill-info">评分 {{ activeStockView.score }}</span>
+                <span class="finance-pill finance-pill-roomy finance-pill-neutral">{{ activeStockView.risk }}</span>
+                <span class="finance-pill finance-pill-roomy finance-pill-info">仓位 {{ activeStockView.position }}</span>
+              </div>
+            </div>
+            <p class="focus-summary-text">
+              {{ activeStockInsightSections.whyNow || activeStockView.reason }}
+            </p>
+            <div v-if="activeStockProofTags.length" class="focus-proof-list">
+              <span
+                v-for="tag in activeStockProofTags"
+                :key="`stock-proof-${tag}`"
+                class="finance-pill finance-pill-roomy finance-pill-accent"
+              >
+                {{ tag }}
+              </span>
+            </div>
+            <div class="focus-kpi-grid">
+              <article class="finance-list-card finance-list-card-panel">
+                <p>有效时间</p>
+                <strong>{{ activeStockView.validRange }}</strong>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>止盈建议</p>
+                <strong>{{ activeStockView.takeProfit }}</strong>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>止损建议</p>
+                <strong>{{ activeStockView.stopLoss }}</strong>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>下一动作</p>
+                <strong>{{ activeStockTrackingState.nextAction }}</strong>
+              </article>
+            </div>
+          </section>
+
+          <div class="tracking-status-box finance-card-surface">
+            <div class="tracking-status-head">
+              <p>当前跟踪状态</p>
+              <span class="status tracking-badge finance-pill" :class="activeStockTrackingState.className">
+                {{ activeStockTrackingState.label }}
+              </span>
+            </div>
+            <p class="tracking-status-summary">{{ activeStockTrackingState.summary }}</p>
+            <div class="tracking-timeline">
+              <article v-for="item in activeStockTrackingTimeline" :key="item.label" class="finance-list-card finance-list-card-panel">
+                <p>{{ item.label }}</p>
+                <strong>{{ item.value }}</strong>
+                <span>{{ item.note }}</span>
+              </article>
+            </div>
+          </div>
+
+          <div class="reason-support-grid">
+            <article v-for="item in activeStockReasonSupports" :key="item.label" class="finance-list-card finance-list-card-panel">
+              <p>{{ item.label }}</p>
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.note }}</span>
+            </article>
+          </div>
+
+          <div class="risk-boundary-grid">
+            <article v-for="item in activeStockRiskBoundaries" :key="item.label" class="finance-list-card finance-list-card-panel">
+              <p>{{ item.label }}</p>
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.note }}</span>
+            </article>
+          </div>
+
+          <div v-if="activeStockVersionDiff" class="strategy-version-box finance-card-pale">
+            <div class="stock-news-head">
+              <p>版本差异</p>
+              <span>{{ activeStockVersionDiff.meta }}</span>
+            </div>
+            <div class="strategy-version-grid">
+              <article class="finance-list-card finance-list-card-panel">
+                <p>记录版本</p>
+                <strong>{{ activeStockVersionDiff.beforeLabel }}</strong>
+                <span>{{ activeStockVersionDiff.beforeNote }}</span>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>当前解释</p>
+                <strong>{{ activeStockVersionDiff.afterLabel }}</strong>
+                <span>{{ activeStockVersionDiff.afterNote }}</span>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>为什么变了</p>
+                <strong>{{ activeStockVersionDiff.diffLabel }}</strong>
+                <span>{{ activeStockVersionDiff.diffNote }}</span>
+              </article>
+            </div>
+          </div>
+
+          <div v-if="activeStockOriginCards.length" class="reason-support-grid">
+            <article
+              v-for="item in activeStockOriginCards"
+              :key="`stock-origin-${item.label}`"
+              class="finance-list-card finance-list-card-panel"
+            >
+              <p>{{ item.label }}</p>
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.note }}</span>
+            </article>
+          </div>
+
+          <div v-if="activeStockVersionHistoryItems.length" class="strategy-history-box finance-card-surface">
+            <div class="stock-news-head">
+              <p>历史版本</p>
+              <div class="strategy-history-head-actions">
+                <span>{{ activeStockVersionHistoryItems.length }} 条</span>
+                <button
+                  v-if="activeStockHistoryCompare?.isCustomSelected"
+                  type="button"
+                  class="strategy-history-reset finance-mini-btn finance-mini-btn-soft"
+                  @click="resetStockVersionHistorySelection"
+                >
+                  回到默认对比
+                </button>
+              </div>
+            </div>
+            <p class="strategy-history-hint">点一条历史版本，直接和当前 explanation 对比。</p>
+            <div class="strategy-history-list">
+              <button
+                v-for="item in activeStockVersionHistoryItems"
+                :key="`stock-history-${item.key}`"
+                type="button"
+                class="strategy-history-item finance-list-card finance-list-card-interactive"
+                :class="{ active: activeSelectedStockVersionHistory?.key === item.key }"
+                @click="selectStockVersionHistory(item.key)"
+              >
+                <p>{{ item.title }}</p>
+                <strong>{{ item.version }}</strong>
+                <span>{{ item.note }}</span>
+              </button>
+            </div>
+            <div v-if="activeStockHistoryCompare?.diff" class="strategy-version-box compact finance-card-pale">
+              <div class="stock-news-head">
+                <p>版本对照</p>
+                <span>{{ activeStockHistoryCompare.selectedTitle }}</span>
+              </div>
+              <p class="explanation-note">{{ activeStockHistoryCompare.selectedNote }}</p>
+              <div class="strategy-version-grid">
+                <article class="finance-list-card finance-list-card-panel">
+                  <p>{{ activeStockHistoryCompare.isCustomSelected ? "所选版本" : "默认对比版本" }}</p>
+                  <strong>{{ activeStockHistoryCompare.diff.beforeLabel }}</strong>
+                  <span>{{ activeStockHistoryCompare.diff.beforeNote }}</span>
+                </article>
+                <article class="finance-list-card finance-list-card-panel">
+                  <p>当前解释</p>
+                  <strong>{{ activeStockHistoryCompare.diff.afterLabel }}</strong>
+                  <span>{{ activeStockHistoryCompare.diff.afterNote }}</span>
+                </article>
+                <article class="finance-list-card finance-list-card-panel">
+                  <p>变化总结</p>
+                  <strong>{{ activeStockHistoryCompare.diff.diffLabel }}</strong>
+                  <span>{{ activeStockHistoryCompare.diff.diffNote }}</span>
+                </article>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="activeStockExplanation" class="strategy-explanation-stack">
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
+                <p>为什么选它</p>
+                <span>{{ activeStockExplanation.strategy_version || "strategy-engine" }}</span>
+              </div>
+              <p class="explanation-summary">
+                {{ activeStockInsightSections.whyNow || activeStockView.reason }}
+              </p>
+              <div class="reason-support-grid">
+                <article
+                  v-for="item in activeStockExplanationCards"
+                  :key="`stock-explain-${item.label}`"
+                  class="finance-list-card finance-list-card-panel"
+                >
+                  <p>{{ item.label }}</p>
+                  <strong>{{ item.value }}</strong>
+                  <span>{{ item.note }}</span>
+                </article>
+              </div>
+              <div class="chip-group" v-if="activeStockSeedHighlights.length > 0">
+                <span
+                  v-for="item in activeStockSeedHighlights"
+                  :key="`stock-seed-${item}`"
+                  class="finance-pill finance-pill-compact finance-pill-info"
+                >
+                  {{ item }}
+                </span>
+              </div>
+            </section>
+
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
+                <p>多场景推演</p>
+                <span>{{ activeStockScenarioCards.length }} 个场景</span>
+              </div>
+              <p class="explanation-note">{{ activeStockInsightSections.proofSource || "系统会从多个场景验证这次推荐。" }}</p>
+              <div class="scenario-grid">
+                <article
+                  v-for="item in activeStockScenarioCards"
+                  :key="`stock-scenario-${item.scenario}`"
+                  class="scenario-item finance-list-card finance-list-card-panel"
+                >
+                  <p>{{ item.scenario }}</p>
+                  <strong>{{ item.action }}</strong>
+                  <span>{{ item.thesis }}</span>
+                  <em>风险 {{ item.risk_signal }} · 调整 {{ item.score_adjustment }}</em>
+                </article>
+              </div>
+            </section>
+
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
+                <p>角色评审</p>
+                <span>{{ activeStockAgentOpinions.length }} 个视角</span>
+              </div>
+              <div class="agent-opinion-list">
+                <article
+                  v-for="item in activeStockAgentOpinions"
+                  :key="`stock-agent-${item.agent}`"
+                  class="agent-opinion-item finance-list-card finance-list-card-panel"
+                >
+                  <p>{{ item.agent }}</p>
+                  <strong>{{ item.stance }} · {{ formatScore(item.confidence) }}</strong>
+                  <span>{{ item.summary }}</span>
+                </article>
+              </div>
+            </section>
+
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
+                <p>风险与失效条件</p>
+                <span>{{ activeStockRiskCards.length }} 条</span>
+              </div>
+              <div class="risk-flag-list">
+                <article
+                  v-for="item in activeStockRiskCards"
+                  :key="`stock-risk-${item.label}-${item.text}`"
+                  class="risk-flag-item finance-list-card finance-list-card-panel"
+                  :class="{ subtle: item.subtle }"
+                >
+                  <strong>{{ item.label }}</strong>
+                  <span>{{ item.text }}</span>
+                </article>
+              </div>
+            </section>
+          </div>
+
+          <div class="stock-news-box finance-card-surface">
+            <div class="stock-news-head">
+              <p>相关资讯支撑</p>
+              <span>{{ activeStockRelatedNews.length }} 条</span>
+            </div>
+            <div v-if="stockRelatedNewsLoading" class="empty-inline finance-empty-inline">正在同步相关资讯...</div>
+            <div v-else-if="activeStockRelatedNews.length > 0" class="stock-news-list">
+              <article
+                v-for="item in activeStockRelatedNews"
+                :key="item.id"
+                class="stock-news-item finance-list-card finance-list-card-panel"
+              >
+                <h4>{{ item.title }}</h4>
+                <p class="stock-news-meta">
+                  {{ item.source }} · {{ item.time }} · {{ item.visibility }} · 相关度 {{ formatScore01(item.relevanceScore) }}
+                </p>
+                <p class="stock-news-summary">{{ item.summary }}</p>
+              </article>
+            </div>
+            <div v-else class="empty-inline finance-empty-inline">暂无可匹配的资讯数据</div>
+          </div>
+
+          <div class="stock-performance-box finance-card-surface">
+            <div class="stock-performance-head">
+              <p>历史推荐业绩</p>
+              <span>{{ activeStockPerformanceSummary }}</span>
+            </div>
+            <p class="stock-performance-note">{{ activeStockPerformanceNote }}</p>
+            <div v-if="activeStockPerformanceRows.length > 0" class="performance-table-wrap finance-table-wrap">
+              <table class="performance-table finance-data-table finance-data-table-compact">
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>单日收益</th>
+                    <th>累计收益</th>
+                    <th>基准累计</th>
+                    <th>累计超额</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in activeStockPerformanceRows" :key="`${activeStockView.id}-${item.date}`">
+                    <td>{{ item.date }}</td>
+                    <td :class="item.dailyClass">{{ item.dailyReturn }}</td>
+                    <td :class="item.cumulativeClass">{{ item.cumulativeReturn }}</td>
+                    <td :class="item.benchmarkClass">{{ item.benchmarkReturn }}</td>
+                    <td :class="item.excessClass">{{ item.excessReturn }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-else class="empty-inline finance-empty-inline">暂无历史推荐业绩</div>
+          </div>
+
+          <p v-if="stockDetailErrorMessage" class="detail-warning">{{ stockDetailErrorMessage }}</p>
+        </div>
+        <StatePanel
+          v-else
+          tone="info"
+          eyebrow="股票推荐详情"
+          title="请选择一条推荐查看详情"
+          description="左侧会展示当前选中推荐的评分、资讯和历史表现。"
+          compact
+        />
+      </article>
+
+      <aside class="focus-side-stack">
+        <article class="card focus-side-card">
+          <header class="section-head compact">
+            <div>
+              <h2 class="section-title">查看顺序</h2>
+              <p class="section-subtitle">先看推荐详情，再查看期货和后续页面。</p>
+            </div>
+          </header>
+          <div class="focus-side-list">
+            <article class="finance-list-card finance-list-card-panel">
+              <strong>查看推荐详情</strong>
+              <p>先确认推荐理由、止盈止损和版本变化。</p>
+            </article>
+            <article class="finance-list-card finance-list-card-panel">
+              <strong>查看期货与事件</strong>
+              <p>结合期货参数和市场事件确认风险与机会。</p>
+            </article>
+            <article class="finance-list-card finance-list-card-panel">
+              <strong>继续查看相关页面</strong>
+              <p>可前往档案页、关注页或资讯页继续查看。</p>
+            </article>
+          </div>
+          <div class="focus-link-row">
+            <button type="button" class="ghost-btn finance-ghost-btn" @click="goStrategyArchive">去档案页</button>
+            <button type="button" class="ghost-btn finance-ghost-btn" @click="goStrategyWatchlist">去关注页</button>
+            <button type="button" class="ghost-btn finance-ghost-btn" @click="goStrategyNews">去资讯页</button>
+          </div>
+        </article>
+
+        <article class="card focus-side-card">
+          <header class="section-head compact">
+            <div>
+              <h2 class="section-title">期货策略侧看板</h2>
+              <p class="section-subtitle">不抢主推荐位置，但保留今天的参数入口和执行边界。</p>
+            </div>
+          </header>
+          <div v-if="activeFuturesView" class="side-highlight-box">
+            <p class="detail-kicker">当前选中期货</p>
+            <h3>{{ activeFuturesView.name }}</h3>
+            <div class="focus-badge-row">
+              <span class="finance-pill finance-pill-roomy finance-pill-info">{{ activeFuturesView.direction }}</span>
+              <span class="finance-pill finance-pill-roomy finance-pill-neutral">{{ activeFuturesView.risk }}</span>
+              <span class="finance-pill finance-pill-roomy finance-pill-info">仓位 {{ activeFuturesView.position }}</span>
+            </div>
+            <p class="side-highlight-text">
+              {{ activeFuturesInsightSections.whyNow || activeFuturesView.reason }}
+            </p>
+            <div v-if="activeFuturesProofTags.length" class="focus-proof-list">
+              <span
+                v-for="tag in activeFuturesProofTags"
+                :key="`futures-proof-${tag}`"
+                class="finance-pill finance-pill-roomy finance-pill-accent"
+              >
+                {{ tag }}
+              </span>
+            </div>
+            <div class="side-mini-grid">
+              <article class="finance-list-card finance-list-card-panel">
+                <p>入场</p>
+                <strong>{{ activeFuturesView.entryRange }}</strong>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>止盈</p>
+                <strong>{{ activeFuturesView.takeProfitRange }}</strong>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>止损</p>
+                <strong>{{ activeFuturesView.stopLossRange }}</strong>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>失效</p>
+                <strong>{{ activeFuturesView.invalidCondition }}</strong>
+              </article>
+            </div>
+            <div class="focus-link-row">
+              <button type="button" class="ghost-btn finance-ghost-btn" :disabled="futuresInsightLoading" @click="refreshActiveFuturesInsight">
+                {{ futuresInsightLoading ? "同步中..." : "刷新期货详情" }}
+              </button>
+              <button type="button" class="ghost-btn finance-ghost-btn" @click="openActiveFuturesDetailDialog">完整查看</button>
+            </div>
+          </div>
+          <StatePanel
+            v-else
+            tone="info"
+            eyebrow="期货策略"
+            title="当前还没有可选中的期货策略"
+            description="同步期货策略后，这里会展示当前选中的参数摘要。"
+            compact
+          />
+        </article>
+
+        <article class="card focus-side-card">
+          <header class="section-head compact">
+            <div>
+              <h2 class="section-title">市场事件提示</h2>
+              <p class="section-subtitle">事件模块不回塞首页，而是在策略页负责强化或削弱判断。</p>
+            </div>
+          </header>
+          <div v-if="activeEventView" class="side-highlight-box">
+            <div class="event-top">
+              <p>{{ activeEventView.symbol }}</p>
+              <span class="event-level finance-pill finance-pill-compact" :class="activeEventView.levelClass">{{ activeEventView.levelText }}</span>
+            </div>
+            <h3 class="side-event-title">{{ activeEventView.title }}</h3>
+            <p class="side-highlight-text">{{ activeEventView.summary }}</p>
+            <div class="side-mini-grid side-mini-grid--single">
+              <article class="finance-list-card finance-list-card-panel">
+                <p>触发规则</p>
+                <strong>{{ activeEventView.triggerRule }}</strong>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>来源</p>
+                <strong>{{ activeEventView.source || "-" }}</strong>
+              </article>
+            </div>
+          </div>
+          <div v-else class="empty-inline finance-empty-inline">当前没有可展示的事件摘要。</div>
+        </article>
+      </aside>
+    </section>
+
     <div class="strategy-grid">
       <article class="card matrix-card">
-        <header>
+        <header class="finance-copy-stack">
           <h2 class="section-title">股票推荐策略</h2>
-          <p class="section-subtitle">按评分排序，突出风险等级和建议仓位。</p>
+          <p class="section-subtitle">保留排序感，但更强调切换研究对象，而不是点完就弹窗。</p>
         </header>
 
         <div class="matrix-head">
@@ -41,51 +524,63 @@
             v-for="item in stockRows"
             :key="item.id"
             type="button"
-            class="matrix-item"
+            class="matrix-item finance-list-card finance-list-card-interactive"
             :class="{ active: activeStockID === item.id }"
-            @click="openStockDetail(item.id, $event)"
+            @click="focusStock(item.id)"
           >
-            <div>
+            <div class="matrix-main">
               <p class="name">{{ item.name }}</p>
               <p class="desc">{{ item.desc }}</p>
+              <div v-if="item.proofTags.length" class="list-proof-tags">
+                <span v-for="tag in item.proofTags" :key="`${item.id}-${tag}`">{{ tag }}</span>
+              </div>
+              <p v-if="item.supportingText" class="list-proof-note">{{ item.supportingText }}</p>
             </div>
             <p class="score">{{ item.score }}</p>
             <p>{{ item.risk }}</p>
             <p>{{ item.position }}</p>
-            <span class="status" :class="item.statusClass">{{ item.status }}</span>
+            <span class="status finance-pill" :class="item.statusClass">{{ item.status }}</span>
+            <div v-if="item.metaText" class="matrix-proof">
+              <span>{{ item.metaText }}</span>
+            </div>
           </button>
         </div>
-        <p v-if="stockRows.length" class="matrix-tip">点击任意推荐可查看推荐理由和数据支撑。</p>
-        <div v-else class="empty-box">暂无股票推荐策略</div>
+        <p v-if="stockRows.length" class="matrix-tip">点击任意推荐，左侧主详情区会切换到对应解释链和历史样本。</p>
+        <div v-else class="empty-box finance-empty-box">暂无股票推荐策略，可先刷新或去历史档案看最近批次。</div>
       </article>
 
       <aside class="card cycle-card">
-        <header>
+        <header class="finance-copy-stack">
           <h2 class="section-title">期货策略清单</h2>
-          <p class="section-subtitle">每个策略保留关键执行参数。</p>
+          <p class="section-subtitle">每个策略保留关键执行参数，右上侧看板会同步展示当前选中项。</p>
         </header>
         <div class="cycle-list" v-if="futuresRows.length">
           <button
             v-for="step in futuresRows"
             :key="step.id"
             type="button"
-            class="cycle-item"
+            class="cycle-item finance-list-card finance-list-card-interactive"
             :class="{ active: activeFuturesID === step.id }"
-            @click="openFuturesInsight(step.id, $event)"
+            @click="focusFutures(step.id)"
           >
             <p class="step">{{ step.contract }}</p>
             <p class="title">{{ step.title }}</p>
             <p class="note">{{ step.note }}</p>
+            <div v-if="step.proofTags.length" class="list-proof-tags compact">
+              <span v-for="tag in step.proofTags" :key="`${step.id}-${tag}`">{{ tag }}</span>
+            </div>
+            <p v-if="step.supportingText" class="cycle-proof-note">{{ step.supportingText }}</p>
+            <p v-if="step.metaText" class="cycle-proof-meta">{{ step.metaText }}</p>
           </button>
         </div>
-        <p v-if="futuresRows.length" class="matrix-tip">点击任意期货策略可查看评分体系与执行细节。</p>
-        <div v-else class="empty-box">暂无期货策略</div>
+        <p v-if="futuresRows.length" class="matrix-tip">点击任意期货策略，侧边摘要和下方事件判断会同步切换。</p>
+        <div v-else class="empty-box finance-empty-box">暂无期货策略，可先刷新或去历史档案看最近批次。</div>
       </aside>
     </div>
 
     <section class="event-section">
       <article class="card event-list-card">
-        <header>
+        <header class="finance-copy-stack">
           <h2 class="section-title">市场事件雷达</h2>
           <p class="section-subtitle">接入 market/events，统一查看策略触发事件。</p>
         </header>
@@ -95,6 +590,7 @@
             v-for="item in eventTypeOptions"
             :key="item.value"
             type="button"
+            class="finance-toggle-btn"
             :class="{ active: activeEventType === item.value }"
             @click="activeEventType = item.value"
           >
@@ -107,23 +603,23 @@
             v-for="item in filteredEventRows"
             :key="item.id"
             type="button"
-            class="event-item"
+            class="event-item finance-list-card finance-list-card-interactive"
             :class="{ active: activeEventID === item.id }"
             @click="activeEventID = item.id"
           >
             <div class="event-top">
               <p>{{ item.symbol }}</p>
-              <span class="event-level" :class="item.levelClass">{{ item.levelText }}</span>
+              <span class="event-level finance-pill finance-pill-compact" :class="item.levelClass">{{ item.levelText }}</span>
             </div>
             <p class="event-title">{{ item.title }}</p>
             <p class="event-meta">{{ item.typeLabel }} · {{ item.time }}</p>
           </button>
         </div>
-        <div v-else class="empty-box">当前条件下暂无市场事件</div>
+        <div v-else class="empty-box finance-empty-box">当前条件下暂无市场事件</div>
       </article>
 
       <article class="card event-detail-card">
-        <header>
+        <header class="finance-copy-stack">
           <h2 class="section-title">事件详情</h2>
           <p class="section-subtitle">结合触发规则判断是否需要调整策略。</p>
         </header>
@@ -147,12 +643,17 @@
           </div>
 
           <div class="detail-actions">
-            <button type="button" :disabled="eventDetailLoading" @click="refreshActiveEventDetail">
+            <button
+              type="button"
+              class="finance-mini-btn finance-mini-btn-soft"
+              :disabled="eventDetailLoading"
+              @click="refreshActiveEventDetail"
+            >
               {{ eventDetailLoading ? "同步中..." : "刷新事件详情" }}
             </button>
           </div>
         </div>
-        <div v-else class="empty-box">暂无可展示的事件详情</div>
+        <div v-else class="empty-box finance-empty-box">暂无可展示的事件详情</div>
       </article>
     </section>
 
@@ -165,65 +666,282 @@
         <section ref="stockDetailDialogRef" class="stock-detail-dialog card" :style="stockDetailDialogStyle">
           <header class="stock-detail-head">
             <div>
-              <p class="detail-kicker">推荐详情</p>
+              <p class="detail-kicker">推荐档案</p>
               <h3>{{ activeStockView.name }}</h3>
             </div>
             <div class="stock-detail-actions">
-              <button type="button" :disabled="stockDetailLoading" @click="refreshActiveStockDetail">
+              <button type="button" class="watch-btn finance-mini-btn finance-mini-btn-accent" @click="toggleActiveStockWatch">
+                {{ isActiveStockWatched ? "移出关注" : "加入关注" }}
+              </button>
+              <button
+                type="button"
+                class="finance-mini-btn finance-mini-btn-card"
+                :disabled="stockDetailLoading"
+                @click="refreshActiveStockDetail"
+              >
                 {{ stockDetailLoading ? "同步中..." : "刷新业绩" }}
               </button>
-              <button type="button" class="close-btn" @click="closeStockDetail">关闭</button>
+              <button type="button" class="close-btn finance-mini-btn finance-mini-btn-card" @click="closeStockDetail">关闭</button>
             </div>
           </header>
 
-          <p class="stock-reason">{{ activeStockView.reason }}</p>
+          <p class="stock-reason">{{ activeStockInsightSections.whyNow || activeStockView.reason }}</p>
           <p v-if="activeStockScoreFramework?.method" class="stock-reason-meta">
             评分模型：{{ activeStockScoreFramework.method }}
           </p>
 
           <div class="stock-detail-grid">
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>综合评分</p>
               <strong>{{ activeStockView.score }}</strong>
             </article>
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>风险等级</p>
               <strong>{{ activeStockView.risk }}</strong>
             </article>
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>建议仓位</p>
               <strong>{{ activeStockView.position }}</strong>
             </article>
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>有效时间</p>
               <strong>{{ activeStockView.validRange }}</strong>
             </article>
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>止盈建议</p>
               <strong>{{ activeStockView.takeProfit }}</strong>
             </article>
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>止损建议</p>
               <strong>{{ activeStockView.stopLoss }}</strong>
             </article>
           </div>
 
-          <div class="reason-support-grid">
-            <article v-for="item in activeStockReasonSupports" :key="item.label">
+          <div class="tracking-status-box finance-card-surface">
+            <div class="tracking-status-head">
+              <p>当前跟踪状态</p>
+              <span class="status tracking-badge finance-pill" :class="activeStockTrackingState.className">
+                {{ activeStockTrackingState.label }}
+              </span>
+            </div>
+            <p class="tracking-status-summary">{{ activeStockTrackingState.summary }}</p>
+            <div class="tracking-timeline">
+              <article v-for="item in activeStockTrackingTimeline" :key="item.label" class="finance-list-card finance-list-card-panel">
+                <p>{{ item.label }}</p>
+                <strong>{{ item.value }}</strong>
+                <span>{{ item.note }}</span>
+              </article>
+            </div>
+          </div>
+
+          <div class="risk-boundary-grid">
+            <article v-for="item in activeStockRiskBoundaries" :key="item.label" class="finance-list-card finance-list-card-panel">
               <p>{{ item.label }}</p>
               <strong>{{ item.value }}</strong>
               <span>{{ item.note }}</span>
             </article>
           </div>
 
-          <div class="stock-news-box">
+          <div class="reason-support-grid">
+            <article v-for="item in activeStockReasonSupports" :key="item.label" class="finance-list-card finance-list-card-panel">
+              <p>{{ item.label }}</p>
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.note }}</span>
+            </article>
+          </div>
+
+          <div v-if="activeStockVersionDiff" class="strategy-version-box finance-card-pale">
+            <div class="stock-news-head">
+              <p>版本差异</p>
+              <span>{{ activeStockVersionDiff.meta }}</span>
+            </div>
+            <div class="strategy-version-grid">
+              <article class="finance-list-card finance-list-card-panel">
+                <p>记录版本</p>
+                <strong>{{ activeStockVersionDiff.beforeLabel }}</strong>
+                <span>{{ activeStockVersionDiff.beforeNote }}</span>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>当前解释</p>
+                <strong>{{ activeStockVersionDiff.afterLabel }}</strong>
+                <span>{{ activeStockVersionDiff.afterNote }}</span>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>为什么变了</p>
+                <strong>{{ activeStockVersionDiff.diffLabel }}</strong>
+                <span>{{ activeStockVersionDiff.diffNote }}</span>
+              </article>
+            </div>
+          </div>
+
+          <div v-if="activeStockOriginCards.length" class="reason-support-grid">
+            <article
+              v-for="item in activeStockOriginCards"
+              :key="`stock-origin-${item.label}`"
+              class="finance-list-card finance-list-card-panel"
+            >
+              <p>{{ item.label }}</p>
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.note }}</span>
+            </article>
+          </div>
+
+          <div v-if="activeStockVersionHistoryItems.length" class="strategy-history-box finance-card-surface">
+            <div class="stock-news-head">
+              <p>历史版本</p>
+              <div class="strategy-history-head-actions">
+                <span>{{ activeStockVersionHistoryItems.length }} 条</span>
+                <button
+                  v-if="activeStockHistoryCompare?.isCustomSelected"
+                  type="button"
+                  class="strategy-history-reset finance-mini-btn finance-mini-btn-soft"
+                  @click="resetStockVersionHistorySelection"
+                >
+                  回到默认对比
+                </button>
+              </div>
+            </div>
+            <p class="strategy-history-hint">点一条历史版本，直接和当前 explanation 对比。</p>
+            <div class="strategy-history-list">
+              <button
+                v-for="item in activeStockVersionHistoryItems"
+                :key="`stock-history-${item.key}`"
+                type="button"
+                class="strategy-history-item finance-list-card finance-list-card-interactive"
+                :class="{ active: activeSelectedStockVersionHistory?.key === item.key }"
+                @click="selectStockVersionHistory(item.key)"
+              >
+                <p>{{ item.title }}</p>
+                <strong>{{ item.version }}</strong>
+                <span>{{ item.note }}</span>
+              </button>
+            </div>
+            <div v-if="activeStockHistoryCompare?.diff" class="strategy-version-box compact finance-card-pale">
+              <div class="stock-news-head">
+                <p>版本对照</p>
+                <span>{{ activeStockHistoryCompare.selectedTitle }}</span>
+              </div>
+              <p class="explanation-note">{{ activeStockHistoryCompare.selectedNote }}</p>
+              <div class="strategy-version-grid">
+                <article class="finance-list-card finance-list-card-panel">
+                  <p>{{ activeStockHistoryCompare.isCustomSelected ? "所选版本" : "默认对比版本" }}</p>
+                  <strong>{{ activeStockHistoryCompare.diff.beforeLabel }}</strong>
+                  <span>{{ activeStockHistoryCompare.diff.beforeNote }}</span>
+                </article>
+                <article class="finance-list-card finance-list-card-panel">
+                  <p>当前解释</p>
+                  <strong>{{ activeStockHistoryCompare.diff.afterLabel }}</strong>
+                  <span>{{ activeStockHistoryCompare.diff.afterNote }}</span>
+                </article>
+                <article class="finance-list-card finance-list-card-panel">
+                  <p>变化总结</p>
+                  <strong>{{ activeStockHistoryCompare.diff.diffLabel }}</strong>
+                  <span>{{ activeStockHistoryCompare.diff.diffNote }}</span>
+                </article>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="activeStockExplanation" class="strategy-explanation-stack">
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
+                <p>为什么选它</p>
+                <span>{{ activeStockExplanation.strategy_version || "strategy-engine" }}</span>
+              </div>
+              <p class="explanation-summary">
+                {{ activeStockInsightSections.whyNow || activeStockView.reason }}
+              </p>
+              <div class="reason-support-grid">
+                <article
+                  v-for="item in activeStockExplanationCards"
+                  :key="`stock-explain-${item.label}`"
+                  class="finance-list-card finance-list-card-panel"
+                >
+                  <p>{{ item.label }}</p>
+                  <strong>{{ item.value }}</strong>
+                  <span>{{ item.note }}</span>
+                </article>
+              </div>
+              <div class="chip-group" v-if="activeStockSeedHighlights.length > 0">
+                <span
+                  v-for="item in activeStockSeedHighlights"
+                  :key="`stock-seed-${item}`"
+                  class="finance-pill finance-pill-compact finance-pill-info"
+                >
+                  {{ item }}
+                </span>
+              </div>
+            </section>
+
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
+                <p>多场景推演</p>
+                <span>{{ activeStockScenarioCards.length }} 个场景</span>
+              </div>
+              <p class="explanation-note">{{ activeStockInsightSections.proofSource || "系统会从多个场景验证这次推荐。" }}</p>
+              <div class="scenario-grid">
+                <article
+                  v-for="item in activeStockScenarioCards"
+                  :key="`stock-scenario-${item.scenario}`"
+                  class="scenario-item finance-list-card finance-list-card-panel"
+                >
+                  <p>{{ item.scenario }}</p>
+                  <strong>{{ item.action }}</strong>
+                  <span>{{ item.thesis }}</span>
+                  <em>风险 {{ item.risk_signal }} · 调整 {{ item.score_adjustment }}</em>
+                </article>
+              </div>
+            </section>
+
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
+                <p>角色评审</p>
+                <span>{{ activeStockAgentOpinions.length }} 个视角</span>
+              </div>
+              <div class="agent-opinion-list">
+                <article
+                  v-for="item in activeStockAgentOpinions"
+                  :key="`stock-agent-${item.agent}`"
+                  class="agent-opinion-item finance-list-card finance-list-card-panel"
+                >
+                  <p>{{ item.agent }}</p>
+                  <strong>{{ item.stance }} · {{ formatScore(item.confidence) }}</strong>
+                  <span>{{ item.summary }}</span>
+                </article>
+              </div>
+            </section>
+
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
+                <p>风险与失效条件</p>
+                <span>{{ activeStockRiskCards.length }} 条</span>
+              </div>
+              <div class="risk-flag-list">
+                <article
+                  v-for="item in activeStockRiskCards"
+                  :key="`stock-risk-${item.label}-${item.text}`"
+                  class="risk-flag-item finance-list-card finance-list-card-panel"
+                  :class="{ subtle: item.subtle }"
+                >
+                  <strong>{{ item.label }}</strong>
+                  <span>{{ item.text }}</span>
+                </article>
+              </div>
+            </section>
+          </div>
+
+          <div class="stock-news-box finance-card-surface">
             <div class="stock-news-head">
               <p>相关资讯支撑</p>
               <span>{{ activeStockRelatedNews.length }} 条</span>
             </div>
-            <div v-if="stockRelatedNewsLoading" class="empty-inline">正在同步相关资讯...</div>
+            <div v-if="stockRelatedNewsLoading" class="empty-inline finance-empty-inline">正在同步相关资讯...</div>
             <div v-else-if="activeStockRelatedNews.length > 0" class="stock-news-list">
-              <article v-for="item in activeStockRelatedNews" :key="item.id" class="stock-news-item">
+              <article
+                v-for="item in activeStockRelatedNews"
+                :key="item.id"
+                class="stock-news-item finance-list-card finance-list-card-panel"
+              >
                 <h4>{{ item.title }}</h4>
                 <p class="stock-news-meta">
                   {{ item.source }} · {{ item.time }} · {{ item.visibility }} · 相关度 {{ formatScore01(item.relevanceScore) }}
@@ -231,16 +949,17 @@
                 <p class="stock-news-summary">{{ item.summary }}</p>
               </article>
             </div>
-            <div v-else class="empty-inline">暂无可匹配的资讯数据</div>
+            <div v-else class="empty-inline finance-empty-inline">暂无可匹配的资讯数据</div>
           </div>
 
-          <div class="stock-performance-box">
+          <div class="stock-performance-box finance-card-surface">
             <div class="stock-performance-head">
               <p>历史推荐业绩</p>
               <span>{{ activeStockPerformanceSummary }}</span>
             </div>
-            <div v-if="activeStockPerformanceRows.length > 0" class="performance-table-wrap">
-              <table class="performance-table">
+            <p class="stock-performance-note">{{ activeStockPerformanceNote }}</p>
+            <div v-if="activeStockPerformanceRows.length > 0" class="performance-table-wrap finance-table-wrap">
+              <table class="performance-table finance-data-table finance-data-table-compact">
                 <thead>
                   <tr>
                     <th>日期</th>
@@ -261,7 +980,7 @@
                 </tbody>
               </table>
             </div>
-            <div v-else class="empty-inline">暂无历史推荐业绩</div>
+            <div v-else class="empty-inline finance-empty-inline">暂无历史推荐业绩</div>
           </div>
 
           <p v-if="stockDetailErrorMessage" class="detail-warning">{{ stockDetailErrorMessage }}</p>
@@ -282,69 +1001,258 @@
               <h3>{{ activeFuturesView.name }}</h3>
             </div>
             <div class="stock-detail-actions">
-              <button type="button" :disabled="futuresInsightLoading" @click="refreshActiveFuturesInsight">
+              <button
+                type="button"
+                class="finance-mini-btn finance-mini-btn-card"
+                :disabled="futuresInsightLoading"
+                @click="refreshActiveFuturesInsight"
+              >
                 {{ futuresInsightLoading ? "同步中..." : "刷新详情" }}
               </button>
-              <button type="button" class="close-btn" @click="closeFuturesDetail">关闭</button>
+              <button type="button" class="close-btn finance-mini-btn finance-mini-btn-card" @click="closeFuturesDetail">关闭</button>
             </div>
           </header>
 
-          <p class="stock-reason">{{ activeFuturesView.reason }}</p>
+          <p class="stock-reason">{{ activeFuturesInsightSections.whyNow || activeFuturesView.reason }}</p>
           <p v-if="activeFuturesScoreFramework?.method" class="stock-reason-meta">
             评分模型：{{ activeFuturesScoreFramework.method }}
           </p>
 
           <div class="futures-detail-grid">
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>方向</p>
               <strong>{{ activeFuturesView.direction }}</strong>
             </article>
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>风险等级</p>
               <strong>{{ activeFuturesView.risk }}</strong>
             </article>
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>建议仓位</p>
               <strong>{{ activeFuturesView.position }}</strong>
             </article>
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>有效时间</p>
               <strong>{{ activeFuturesView.validRange }}</strong>
             </article>
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>入场区间</p>
               <strong>{{ activeFuturesView.entryRange }}</strong>
             </article>
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>止盈区间</p>
               <strong>{{ activeFuturesView.takeProfitRange }}</strong>
             </article>
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>止损区间</p>
               <strong>{{ activeFuturesView.stopLossRange }}</strong>
             </article>
-            <article>
+            <article class="finance-list-card finance-list-card-panel">
               <p>失效条件</p>
               <strong>{{ activeFuturesView.invalidCondition }}</strong>
             </article>
           </div>
 
           <div class="reason-support-grid">
-            <article v-for="item in activeFuturesReasonSupports" :key="`fut-${item.label}`">
+            <article v-for="item in activeFuturesReasonSupports" :key="`fut-${item.label}`" class="finance-list-card finance-list-card-panel">
               <p>{{ item.label }}</p>
               <strong>{{ item.value }}</strong>
               <span>{{ item.note }}</span>
             </article>
           </div>
 
-          <div class="stock-news-box">
+          <div v-if="activeFuturesVersionDiff" class="strategy-version-box finance-card-pale">
+            <div class="stock-news-head">
+              <p>版本差异</p>
+              <span>{{ activeFuturesVersionDiff.meta }}</span>
+            </div>
+            <div class="strategy-version-grid">
+              <article class="finance-list-card finance-list-card-panel">
+                <p>记录版本</p>
+                <strong>{{ activeFuturesVersionDiff.beforeLabel }}</strong>
+                <span>{{ activeFuturesVersionDiff.beforeNote }}</span>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>当前解释</p>
+                <strong>{{ activeFuturesVersionDiff.afterLabel }}</strong>
+                <span>{{ activeFuturesVersionDiff.afterNote }}</span>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>为什么变了</p>
+                <strong>{{ activeFuturesVersionDiff.diffLabel }}</strong>
+                <span>{{ activeFuturesVersionDiff.diffNote }}</span>
+              </article>
+            </div>
+          </div>
+
+          <div v-if="activeFuturesOriginCards.length" class="reason-support-grid">
+            <article
+              v-for="item in activeFuturesOriginCards"
+              :key="`futures-origin-${item.label}`"
+              class="finance-list-card finance-list-card-panel"
+            >
+              <p>{{ item.label }}</p>
+              <strong>{{ item.value }}</strong>
+              <span>{{ item.note }}</span>
+            </article>
+          </div>
+
+          <div v-if="activeFuturesVersionHistoryItems.length" class="strategy-history-box finance-card-surface">
+            <div class="stock-news-head">
+              <p>历史版本</p>
+              <div class="strategy-history-head-actions">
+                <span>{{ activeFuturesVersionHistoryItems.length }} 条</span>
+                <button
+                  v-if="activeFuturesHistoryCompare?.isCustomSelected"
+                  type="button"
+                  class="strategy-history-reset finance-mini-btn finance-mini-btn-soft"
+                  @click="resetFuturesVersionHistorySelection"
+                >
+                  回到默认对比
+                </button>
+              </div>
+            </div>
+            <p class="strategy-history-hint">点一条历史版本，直接和当前 explanation 对比。</p>
+            <div class="strategy-history-list">
+              <button
+                v-for="item in activeFuturesVersionHistoryItems"
+                :key="`futures-history-${item.key}`"
+                type="button"
+                class="strategy-history-item finance-list-card finance-list-card-interactive"
+                :class="{ active: activeSelectedFuturesVersionHistory?.key === item.key }"
+                @click="selectFuturesVersionHistory(item.key)"
+              >
+                <p>{{ item.title }}</p>
+                <strong>{{ item.version }}</strong>
+                <span>{{ item.note }}</span>
+              </button>
+            </div>
+            <div v-if="activeFuturesHistoryCompare?.diff" class="strategy-version-box compact finance-card-pale">
+              <div class="stock-news-head">
+                <p>版本对照</p>
+                <span>{{ activeFuturesHistoryCompare.selectedTitle }}</span>
+              </div>
+              <p class="explanation-note">{{ activeFuturesHistoryCompare.selectedNote }}</p>
+              <div class="strategy-version-grid">
+                <article class="finance-list-card finance-list-card-panel">
+                  <p>{{ activeFuturesHistoryCompare.isCustomSelected ? "所选版本" : "默认对比版本" }}</p>
+                  <strong>{{ activeFuturesHistoryCompare.diff.beforeLabel }}</strong>
+                  <span>{{ activeFuturesHistoryCompare.diff.beforeNote }}</span>
+                </article>
+                <article class="finance-list-card finance-list-card-panel">
+                  <p>当前解释</p>
+                  <strong>{{ activeFuturesHistoryCompare.diff.afterLabel }}</strong>
+                  <span>{{ activeFuturesHistoryCompare.diff.afterNote }}</span>
+                </article>
+                <article class="finance-list-card finance-list-card-panel">
+                  <p>变化总结</p>
+                  <strong>{{ activeFuturesHistoryCompare.diff.diffLabel }}</strong>
+                  <span>{{ activeFuturesHistoryCompare.diff.diffNote }}</span>
+                </article>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="activeFuturesExplanation" class="strategy-explanation-stack">
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
+                <p>为什么选这个策略</p>
+                <span>{{ activeFuturesExplanation.strategy_version || "strategy-engine" }}</span>
+              </div>
+              <p class="explanation-summary">
+                {{ activeFuturesInsightSections.whyNow || activeFuturesView.reason }}
+              </p>
+              <div class="reason-support-grid">
+                <article
+                  v-for="item in activeFuturesExplanationCards"
+                  :key="`fut-explain-${item.label}`"
+                  class="finance-list-card finance-list-card-panel"
+                >
+                  <p>{{ item.label }}</p>
+                  <strong>{{ item.value }}</strong>
+                  <span>{{ item.note }}</span>
+                </article>
+              </div>
+              <div class="chip-group" v-if="activeFuturesSeedHighlights.length > 0">
+                <span
+                  v-for="item in activeFuturesSeedHighlights"
+                  :key="`fut-seed-${item}`"
+                  class="finance-pill finance-pill-compact finance-pill-info"
+                >
+                  {{ item }}
+                </span>
+              </div>
+            </section>
+
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
+                <p>多场景推演</p>
+                <span>{{ activeFuturesScenarioCards.length }} 个场景</span>
+              </div>
+              <p class="explanation-note">{{ activeFuturesInsightSections.proofSource || "系统会在不同市场情景下验证策略。 " }}</p>
+              <div class="scenario-grid">
+                <article
+                  v-for="item in activeFuturesScenarioCards"
+                  :key="`fut-scenario-${item.scenario}`"
+                  class="scenario-item finance-list-card finance-list-card-panel"
+                >
+                  <p>{{ item.scenario }}</p>
+                  <strong>{{ item.action }}</strong>
+                  <span>{{ item.thesis }}</span>
+                  <em>风险 {{ item.risk_signal }} · 调整 {{ item.score_adjustment }}</em>
+                </article>
+              </div>
+            </section>
+
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
+                <p>角色评审</p>
+                <span>{{ activeFuturesAgentOpinions.length }} 个视角</span>
+              </div>
+              <div class="agent-opinion-list">
+                <article
+                  v-for="item in activeFuturesAgentOpinions"
+                  :key="`fut-agent-${item.agent}`"
+                  class="agent-opinion-item finance-list-card finance-list-card-panel"
+                >
+                  <p>{{ item.agent }}</p>
+                  <strong>{{ item.stance }} · {{ formatScore(item.confidence) }}</strong>
+                  <span>{{ item.summary }}</span>
+                </article>
+              </div>
+            </section>
+
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
+                <p>风险与失效条件</p>
+                <span>{{ activeFuturesRiskCards.length }} 条</span>
+              </div>
+              <div class="risk-flag-list">
+                <article
+                  v-for="item in activeFuturesRiskCards"
+                  :key="`fut-risk-${item.label}-${item.text}`"
+                  class="risk-flag-item finance-list-card finance-list-card-panel"
+                  :class="{ subtle: item.subtle }"
+                >
+                  <strong>{{ item.label }}</strong>
+                  <span>{{ item.text }}</span>
+                </article>
+              </div>
+            </section>
+          </div>
+
+          <div class="stock-news-box finance-card-surface">
             <div class="stock-news-head">
               <p>相关资讯支撑</p>
               <span>{{ activeFuturesRelatedNews.length }} 条</span>
             </div>
-            <div v-if="futuresInsightLoading" class="empty-inline">正在同步相关资讯...</div>
+            <div v-if="futuresInsightLoading" class="empty-inline finance-empty-inline">正在同步相关资讯...</div>
             <div v-else-if="activeFuturesRelatedNews.length > 0" class="stock-news-list">
-              <article v-for="item in activeFuturesRelatedNews" :key="`fut-news-${item.id}`" class="stock-news-item">
+              <article
+                v-for="item in activeFuturesRelatedNews"
+                :key="`fut-news-${item.id}`"
+                class="stock-news-item finance-list-card finance-list-card-panel"
+              >
                 <h4>{{ item.title }}</h4>
                 <p class="stock-news-meta">
                   {{ item.source }} · {{ formatDateTime(item.published_at || item.time) }} ·
@@ -353,31 +1261,35 @@
                 <p class="stock-news-summary">{{ summarizeNewsText(item.summary) }}</p>
               </article>
             </div>
-            <div v-else class="empty-inline">暂无可匹配资讯</div>
+            <div v-else class="empty-inline finance-empty-inline">暂无可匹配资讯</div>
           </div>
 
-          <div class="futures-event-box">
+          <div class="futures-event-box finance-card-surface">
             <div class="stock-news-head">
               <p>相关市场事件</p>
               <span>{{ activeFuturesRelatedEvents.length }} 条</span>
             </div>
             <div v-if="activeFuturesRelatedEvents.length > 0" class="futures-event-list">
-              <article v-for="item in activeFuturesRelatedEvents" :key="`fut-event-${item.id}`" class="futures-event-item">
+              <article
+                v-for="item in activeFuturesRelatedEvents"
+                :key="`fut-event-${item.id}`"
+                class="futures-event-item finance-list-card finance-list-card-compact finance-list-card-panel"
+              >
                 <p>{{ mapEventType(item.event_type || item.type) }} · {{ item.symbol || "-" }}</p>
                 <strong>{{ item.summary || "-" }}</strong>
                 <span>{{ formatDateTime(item.created_at || item.time) }}</span>
               </article>
             </div>
-            <div v-else class="empty-inline">暂无相关事件</div>
+            <div v-else class="empty-inline finance-empty-inline">暂无相关事件</div>
           </div>
 
-          <div class="stock-performance-box">
+          <div class="stock-performance-box finance-card-surface">
             <div class="stock-performance-head">
               <p>历史策略业绩</p>
               <span>{{ activeFuturesPerformanceSummary }}</span>
             </div>
-            <div v-if="activeFuturesPerformanceRows.length > 0" class="performance-table-wrap">
-              <table class="performance-table">
+            <div v-if="activeFuturesPerformanceRows.length > 0" class="performance-table-wrap finance-table-wrap">
+              <table class="performance-table finance-data-table finance-data-table-compact">
                 <thead>
                   <tr>
                     <th>日期</th>
@@ -398,7 +1310,7 @@
                 </tbody>
               </table>
             </div>
-            <div v-else class="empty-inline">暂无历史策略业绩</div>
+            <div v-else class="empty-inline finance-empty-inline">暂无历史策略业绩</div>
           </div>
 
           <p v-if="futuresInsightErrorMessage" class="detail-warning">{{ futuresInsightErrorMessage }}</p>
@@ -410,22 +1322,56 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
+import StatePanel from "../components/StatePanel.vue";
 import {
   getFuturesStrategyInsight,
+  getFuturesStrategyVersionHistory,
   getStockRecommendationInsight,
   getStockRecommendationDetail,
   getStockRecommendationPerformance,
+  getStockRecommendationVersionHistory,
   getMarketEventDetail,
   listFuturesStrategies,
   listMarketEvents,
   listStockRecommendations
 } from "../api/market";
+import { getMembershipQuota } from "../api/membership";
 import { listNewsArticles } from "../api/news";
+import {
+  rememberExperimentAttributionSource,
+  rememberPendingExperimentJourneySource,
+  promotePendingExperimentJourneySources,
+  trackExperimentEvent,
+  trackExperimentExposureOnce
+} from "../lib/growth-analytics";
+import { getExperimentVariant } from "../lib/growth-experiments";
 import { shouldUseDemoFallback } from "../lib/fallback-policy";
+import {
+  buildFallbackStrategyVersionHistory,
+  buildStrategyHistoryCompareState,
+  buildStrategyBatchText,
+  buildStrategyInsightSections,
+  buildStrategyMetaText,
+  buildStrategyOriginCards,
+  buildStrategyProofTags,
+  buildStrategyRiskBoundaryText,
+  buildStrategyVersionDiff,
+  firstMeaningfulStrategyText,
+  mapStrategyVersionHistory
+} from "../lib/strategy-version";
+import { useClientAuth } from "../lib/client-auth";
+import { WATCHLIST_EVENT, isWatchedStock, removeWatchedStock, saveWatchedStock } from "../lib/watchlist";
+
+const router = useRouter();
+const { isLoggedIn } = useClientAuth();
+const strategyExperimentVariant = getExperimentVariant("strategy_membership_cta", ["cadence", "proof"]);
 
 const loading = ref(false);
 const errorMessage = ref("");
 const lastUpdatedAt = ref("");
+const memberStageLoading = ref(false);
+const isVIPUser = ref(false);
 
 const useDemoFallback = shouldUseDemoFallback();
 
@@ -703,10 +1649,13 @@ const stockBenchmarkMap = ref(useDemoFallback ? { ...fallbackStockBenchmark } : 
 const stockRelatedNewsMap = ref(useDemoFallback ? { ...fallbackStockRelatedNews } : {});
 const stockScoreFrameworkMap = ref(useDemoFallback ? { ...fallbackStockScoreFramework } : {});
 const stockPerformanceStatsMap = ref(useDemoFallback ? { ...fallbackStockPerformanceStats } : {});
+const stockExplanationMap = ref({});
+const stockVersionHistoryMap = ref({});
 const loadedStockInsightIDs = new Set();
 const loadedStockDetailIDs = new Set();
 const loadedStockPerformanceIDs = new Set();
 const loadedStockRelatedNewsIDs = new Set();
+const loadedStockVersionHistoryIDs = new Set();
 const activeStockID = ref(useDemoFallback ? rawStocks.value[0]?.id || "" : "");
 const stockDetailLoading = ref(false);
 const stockDetailErrorMessage = ref("");
@@ -715,9 +1664,15 @@ const stockDetailDialogRef = ref(null);
 const stockDetailDialogStyle = ref({});
 const stockDetailAnchorRect = ref(null);
 const stockRelatedNewsLoading = ref(false);
+const selectedStockVersionHistoryKey = ref("");
+const watchlistVersion = ref(0);
 const futuresInsightMap = ref(useDemoFallback ? { ...fallbackFuturesInsights } : {});
+const futuresExplanationMap = ref({});
+const futuresVersionHistoryMap = ref({});
 const loadedFuturesInsightIDs = new Set();
+const loadedFuturesVersionHistoryIDs = new Set();
 const activeFuturesID = ref(useDemoFallback ? rawFutures.value[0]?.id || "" : "");
+const selectedFuturesVersionHistoryKey = ref("");
 const futuresDetailDialogVisible = ref(false);
 const futuresDetailDialogRef = ref(null);
 const futuresDetailDialogStyle = ref({});
@@ -729,16 +1684,24 @@ const activeEventID = ref(useDemoFallback ? fallbackEvents[0].id : "");
 const eventDetailLoading = ref(false);
 
 const stockRows = computed(() =>
-  (rawStocks.value || []).map((item) => ({
-    id: item.id,
-    name: `${item.symbol || "-"} ${item.name || ""}`.trim(),
-    desc: item.reason_summary || "-",
-    score: formatScore(item.score),
-    risk: mapRisk(item.risk_level),
-    position: item.position_range || "-",
-    status: mapStatus(item.status).label,
-    statusClass: mapStatus(item.status).className
-  }))
+  (rawStocks.value || []).map((item) => {
+    const explanation = stockExplanationMap.value[item.id] || null;
+    const sections = buildStrategyInsightSections(explanation, item.reason_summary || "-");
+    const status = mapStatus(item.status);
+    return {
+      id: item.id,
+      name: `${item.symbol || "-"} ${item.name || ""}`.trim(),
+      desc: sections.whyNow || item.reason_summary || "-",
+      proofTags: buildListProofTags(explanation, { limit: 3 }),
+      supportingText: sections.proofSource || sections.riskBoundary || "",
+      metaText: buildListMetaText(explanation),
+      score: formatScore(item.score),
+      risk: mapRisk(item.risk_level),
+      position: item.position_range || "-",
+      status: status.label,
+      statusClass: status.className
+    };
+  })
 );
 
 const activeStockBase = computed(() => {
@@ -761,11 +1724,10 @@ const activeStockView = computed(() => {
     return null;
   }
   const detail = stockDetailMap.value[base.id] || {};
-  const reasonParts = [base.reason_summary, detail.risk_note, buildStockScoreNote(detail)].filter(Boolean);
   return {
     id: base.id,
     name: `${base.symbol || "-"} ${base.name || ""}`.trim(),
-    reason: reasonParts.join(" "),
+    reason: base.reason_summary || "等待同步推荐逻辑说明。",
     score: formatScore(base.score),
     risk: mapRisk(base.risk_level),
     position: base.position_range || "-",
@@ -872,6 +1834,297 @@ const activeStockPerformanceStats = computed(() => {
   return stockPerformanceStatsMap.value[stockID] || null;
 });
 
+const activeStockExplanation = computed(() => {
+  const stockID = activeStockView.value?.id;
+  if (!stockID) {
+    return null;
+  }
+  return stockExplanationMap.value[stockID] || null;
+});
+
+const activeStockInsightSections = computed(() =>
+  buildStrategyInsightSections(activeStockExplanation.value, activeStockView.value?.reason || "")
+);
+
+const activeStockExplanationCards = computed(() => {
+  const explanation = activeStockExplanation.value || {};
+  const evidenceCount = Array.isArray(explanation.evidence_cards) ? explanation.evidence_cards.length : 0;
+  const agentCount = Number(explanation.workload_summary?.agent_count ?? 0);
+  const scenarioCount = Number(explanation.workload_summary?.scenario_count ?? 0);
+  return [
+    {
+      label: "种子输入",
+      value: Array.isArray(explanation.seed_highlights) ? explanation.seed_highlights.length : 0,
+      note: explanation.seed_summary || activeStockInsightSections.value.whyNow || "系统会先处理种子输入，再逐步筛选。"
+    },
+    {
+      label: "证据卡片",
+      value: evidenceCount,
+      note: activeStockInsightSections.value.proofSource || "系统会把证据和多角色结论汇总后展示。"
+    },
+    {
+      label: "评审覆盖",
+      value: `${agentCount} 角 / ${scenarioCount} 景`,
+      note: buildStrategyRiskBoundaryText(explanation, "当前未补更多风险边界。")
+    }
+  ];
+});
+
+const activeStockProofTags = computed(() => buildListProofTags(activeStockExplanation.value, { limit: 4 }));
+const activeStockSeedHighlights = computed(() => activeStockExplanation.value?.seed_highlights || []);
+const activeStockScenarioCards = computed(() => activeStockExplanation.value?.simulations?.[0]?.scenarios || []);
+const activeStockAgentOpinions = computed(() => activeStockExplanation.value?.agent_opinions || []);
+const activeStockRiskCards = computed(() => buildStrategyRiskCards(activeStockExplanation.value));
+const activeStockOriginCards = computed(() => buildStrategyOriginCards(activeStockExplanation.value, formatDateTime));
+const activeStockVersionHistoryItems = computed(() => {
+  const stockID = activeStockView.value?.id;
+  const items = stockID ? stockVersionHistoryMap.value[stockID] : [];
+  if (Array.isArray(items) && items.length > 0) {
+    return mapStrategyVersionHistory(items, formatDateTime);
+  }
+  return buildFallbackStrategyVersionHistory(activeStockExplanation.value, {
+    reasonSummary: activeStockBase.value?.reason_summary || "",
+    strategyVersion: activeStockBase.value?.strategy_version || "record",
+    formatDateTime
+  });
+});
+const activeSelectedStockVersionHistory = computed(() => {
+  return activeStockHistoryCompare.value?.selectedItem || null;
+});
+const activeStockHistoryCompare = computed(() => {
+  const items = activeStockVersionHistoryItems.value;
+  return buildStrategyHistoryCompareState({
+    historyItems: items,
+    selectedKey: selectedStockVersionHistoryKey.value,
+    fallbackItem: items[1] || items[0] || null,
+    explanation: activeStockExplanation.value,
+    selectedTitlePrefix: "当前对比 ",
+    formatDateTime,
+    fallbackRecordLabel: "record",
+    upgradedText: "所选历史版本和当前 explanation 的结论都发生了变化。",
+    reasonChangedText: "当前 explanation 对所选历史版本做了新的收敛。",
+    versionChangedText: "核心结论延续，但版本已发生刷新。"
+  });
+});
+const activeStockVersionDiff = computed(() => {
+  const base = activeStockBase.value;
+  const explanation = activeStockExplanation.value;
+  if (!base || !explanation) {
+    return null;
+  }
+  return buildStrategyVersionDiff({
+    recordVersion: base.strategy_version || "record",
+    recordReason: base.reason_summary || "",
+    explanation,
+    formatDateTime,
+    fallbackRecordLabel: "record",
+    upgradedText: "记录版本和当前 explanation 的结论都发生了变化。",
+    reasonChangedText: "当前 explanation 对原始推荐理由做了新的收敛。",
+    versionChangedText: "核心结论仍在，但解释版本已经更新。"
+  });
+});
+
+const activeFuturesExplanation = computed(() => {
+  const strategyID = activeFuturesView.value?.id;
+  if (!strategyID) {
+    return null;
+  }
+  return futuresExplanationMap.value[strategyID] || null;
+});
+
+const activeFuturesInsightSections = computed(() =>
+  buildStrategyInsightSections(activeFuturesExplanation.value, activeFuturesView.value?.reason || "")
+);
+
+const activeFuturesExplanationCards = computed(() => {
+  const explanation = activeFuturesExplanation.value || {};
+  const evidenceCount = Array.isArray(explanation.evidence_cards) ? explanation.evidence_cards.length : 0;
+  const agentCount = Number(explanation.workload_summary?.agent_count ?? 0);
+  const scenarioCount = Number(explanation.workload_summary?.scenario_count ?? 0);
+  return [
+    {
+      label: "种子输入",
+      value: Array.isArray(explanation.seed_highlights) ? explanation.seed_highlights.length : 0,
+      note: explanation.seed_summary || activeFuturesInsightSections.value.whyNow || "系统先处理合约种子，再收敛出可执行策略。"
+    },
+    {
+      label: "证据卡片",
+      value: evidenceCount,
+      note: activeFuturesInsightSections.value.proofSource || "系统会把证据和多角色结论汇总后展示。"
+    },
+    {
+      label: "评审覆盖",
+      value: `${agentCount} 角 / ${scenarioCount} 景`,
+      note: buildStrategyRiskBoundaryText(explanation, "当前未补更多风险边界。")
+    }
+  ];
+});
+
+const activeFuturesProofTags = computed(() => buildListProofTags(activeFuturesExplanation.value, { limit: 4 }));
+const activeFuturesSeedHighlights = computed(() => activeFuturesExplanation.value?.seed_highlights || []);
+const activeFuturesScenarioCards = computed(() => activeFuturesExplanation.value?.simulations?.[0]?.scenarios || []);
+const activeFuturesAgentOpinions = computed(() => activeFuturesExplanation.value?.agent_opinions || []);
+const activeFuturesRiskCards = computed(() => buildStrategyRiskCards(activeFuturesExplanation.value));
+const activeFuturesOriginCards = computed(() => buildStrategyOriginCards(activeFuturesExplanation.value, formatDateTime));
+const activeFuturesVersionHistoryItems = computed(() => {
+  const strategyID = activeFuturesView.value?.id;
+  const items = strategyID ? futuresVersionHistoryMap.value[strategyID] : [];
+  if (Array.isArray(items) && items.length > 0) {
+    return mapStrategyVersionHistory(items, formatDateTime);
+  }
+  return buildFallbackStrategyVersionHistory(activeFuturesExplanation.value, {
+    reasonSummary: activeFuturesBase.value?.reason_summary || "",
+    strategyVersion: "futures-mvp-v1",
+    formatDateTime
+  });
+});
+const activeSelectedFuturesVersionHistory = computed(() => {
+  return activeFuturesHistoryCompare.value?.selectedItem || null;
+});
+const activeFuturesHistoryCompare = computed(() => {
+  const items = activeFuturesVersionHistoryItems.value;
+  return buildStrategyHistoryCompareState({
+    historyItems: items,
+    selectedKey: selectedFuturesVersionHistoryKey.value,
+    fallbackItem: items[1] || items[0] || null,
+    explanation: activeFuturesExplanation.value,
+    selectedTitlePrefix: "当前对比 ",
+    formatDateTime,
+    fallbackRecordLabel: "record",
+    upgradedText: "所选历史版本和当前 explanation 的结论都发生了变化。",
+    reasonChangedText: "当前 explanation 对所选期货历史版本做了新的收敛。",
+    versionChangedText: "核心策略主线延续，但版本已发生刷新。"
+  });
+});
+const activeFuturesVersionDiff = computed(() => {
+  const base = activeFuturesBase.value;
+  const insight = activeFuturesInsight.value || {};
+  const strategy = insight.strategy || {};
+  const explanation = activeFuturesExplanation.value;
+  if (!base || !explanation) {
+    return null;
+  }
+  return buildStrategyVersionDiff({
+    recordVersion: strategy.strategy_version || base.strategy_version || "record",
+    recordReason: strategy.reason_summary || base.reason_summary || "",
+    explanation,
+    formatDateTime,
+    fallbackRecordLabel: "record",
+    upgradedText: "记录版本和当前 explanation 的结论都发生了变化。",
+    reasonChangedText: "当前 explanation 对原始期货策略理由做了新的收敛。",
+    versionChangedText: "核心策略主线仍在，但解释版本已经更新。"
+  });
+});
+
+const activeStockTrackingState = computed(() => {
+  const base = activeStockBase.value;
+  if (!base?.id) {
+    return {
+      label: "待同步",
+      className: "normal",
+      summary: "等待同步推荐状态。",
+      nextAction: "刷新详情"
+    };
+  }
+
+  const status = mapStatus(base.status);
+  const rows = activeStockPerformanceRows.value.filter((item) => Number.isFinite(item.dailyRaw));
+  const latest = rows[rows.length - 1] || null;
+  const stats = activeStockPerformanceStats.value;
+
+  let summary = "推荐已生成，等待更多跟踪数据。";
+  let nextAction = "继续跟踪逻辑与风险边界";
+
+  if (status.key === "HIT_TAKE_PROFIT") {
+    summary = "推荐已达到止盈阶段，当前更适合回看兑现过程而不是继续追价。";
+    nextAction = "整理复盘并关注是否有新一轮入场机会";
+  } else if (status.key === "HIT_STOP_LOSS") {
+    summary = "推荐已触发止损，当前重点是确认亏损控制是否执行到位。";
+    nextAction = "停止主观加仓，回到历史档案做复盘";
+  } else if (status.key === "INVALIDATED") {
+    summary = "推荐逻辑已失效，当前更适合记录失效原因，不再沿用旧判断。";
+    nextAction = "等待新的推荐逻辑或新的触发信号";
+  } else if (rows.length > 0 && latest) {
+    summary = `最近样本日 ${latest.date}，累计 ${latest.cumulativeReturn}，当前处于持续跟踪阶段。`;
+    nextAction =
+      stats && Number.isFinite(Number(stats.excess_return)) && Number(stats.excess_return) > 0
+        ? "优先跟踪超额收益是否继续扩大"
+        : "优先跟踪是否重新转强并站稳风险线";
+  }
+
+  return {
+    label: status.label,
+    className: status.className,
+    summary,
+    nextAction
+  };
+});
+
+const activeStockRiskBoundaries = computed(() => {
+  const base = activeStockBase.value;
+  if (!base?.id) {
+    return [];
+  }
+  const detail = stockDetailMap.value[base.id] || {};
+  const invalidationCondition = buildStockInvalidationCondition(base, detail);
+  return [
+    {
+      label: "止盈计划",
+      value: detail.take_profit || "待补充",
+      note: "优先分批兑现，不把推荐理解为无限持有。"
+    },
+    {
+      label: "止损边界",
+      value: detail.stop_loss || "待补充",
+      note: "跌破风险线时，优先执行纪律，而不是继续找理由。"
+    },
+    {
+      label: "失效条件",
+      value: invalidationCondition,
+      note: detail.risk_note || "当价格、量能或事件环境背离当前逻辑时，应停止沿用本推荐。"
+    }
+  ];
+});
+
+const activeStockTrackingTimeline = computed(() => {
+  const base = activeStockBase.value;
+  if (!base?.id) {
+    return [];
+  }
+  return [
+    {
+      label: "推荐生效",
+      value: formatDate(base.valid_from),
+      note: `有效期 ${formatDateRange(base.valid_from, base.valid_to)}`
+    },
+    {
+      label: "当前阶段",
+      value: activeStockTrackingState.value.label,
+      note: activeStockTrackingState.value.summary
+    },
+    {
+      label: "下一动作",
+      value: activeStockTrackingState.value.nextAction,
+      note: activeStockRiskBoundaries.value[2]?.value || "继续观察风险边界"
+    }
+  ];
+});
+
+const activeStockPerformanceNote = computed(() => {
+  const stats = activeStockPerformanceStats.value;
+  if (!stats) {
+    return "业绩仅作推荐跟踪参考，建议结合止盈止损和逻辑变化一起判断。";
+  }
+  const benchmarkLabel = stats.benchmark_symbol ? `${stats.benchmark_symbol} ` : "";
+  const source = stats.benchmark_source || "基准来源未标注";
+  return `当前展示的业绩与 ${benchmarkLabel}基准对比结果仅作推荐跟踪参考，来源说明：${source}。`;
+});
+
+const isActiveStockWatched = computed(() => {
+  watchlistVersion.value;
+  return Boolean(activeStockBase.value?.id) && isWatchedStock(activeStockBase.value.id);
+});
+
 const activeStockRelatedNews = computed(() => {
   const stockID = activeStockView.value?.id;
   if (!stockID) {
@@ -971,14 +2224,21 @@ const activeStockReasonSupports = computed(() => {
 });
 
 const futuresRows = computed(() =>
-  (rawFutures.value || []).map((item) => ({
-    id: item.id,
-    contract: item.contract || "-",
-    title: `${item.name || "-"} · ${mapDirection(item.direction)}`,
-    note: `风险 ${mapRisk(item.risk_level)}，仓位 ${item.position_range || "-"}，状态 ${
-      mapStatus(item.status).label
-    }`
-  }))
+  (rawFutures.value || []).map((item) => {
+    const explanation = futuresExplanationMap.value[item.id] || null;
+    const sections = buildStrategyInsightSections(explanation, item.reason_summary || "");
+    return {
+      id: item.id,
+      contract: item.contract || "-",
+      title: `${item.name || "-"} · ${mapDirection(item.direction)}`,
+      note:
+        sections.whyNow ||
+        `风险 ${mapRisk(item.risk_level)}，仓位 ${item.position_range || "-"}，状态 ${mapStatus(item.status).label}`,
+      proofTags: buildListProofTags(explanation, { limit: 3 }),
+      supportingText: sections.proofSource || sections.riskBoundary || "",
+      metaText: buildListMetaText(explanation)
+    };
+  })
 );
 
 const activeFuturesBase = computed(() => {
@@ -1196,6 +2456,149 @@ const tags = computed(() => [
   `高优先策略 ${stockRows.value.filter((item) => item.statusClass === "good").length} 条`
 ]);
 
+const strategyAccessStage = computed(() => {
+  if (isVIPUser.value) {
+    return "VIP";
+  }
+  if (isLoggedIn.value) {
+    return "REGISTERED";
+  }
+  return "VISITOR";
+});
+
+const strategyAccessState = computed(() => {
+  if (memberStageLoading.value) {
+    return {
+      tone: "info",
+      label: "识别中",
+      title: "正在确认你的会员阶段",
+      desc: "确认完成后，会把策略页 CTA 调整为最适合当前阶段的动作。"
+    };
+  }
+  if (strategyAccessStage.value === "VIP") {
+    return {
+      tone: "success",
+      label: "会员阶段",
+      title:
+        strategyExperimentVariant === "proof"
+          ? "你已可查看完整策略与历史复盘。"
+          : "你已可查看完整策略内容和盘中变化。",
+      desc:
+        strategyExperimentVariant === "proof"
+          ? "建议先看历史兑现与跟踪结果，再回今日策略确认持仓。"
+          : "建议按 08:30 看推荐、11:30 看事件变化、15:30 回到会员中心复盘。"
+    };
+  }
+  if (strategyAccessStage.value === "REGISTERED") {
+    return {
+      tone: "warning",
+      label: "注册阶段",
+      title:
+        strategyExperimentVariant === "proof"
+          ? "你已可查看策略逻辑，可先判断公开样本是否值得继续查看。"
+          : "你已可查看策略逻辑，下一步可保存关注或升级会员。",
+      desc:
+        strategyExperimentVariant === "proof"
+          ? "先看历史档案和已跟踪案例，再决定是否开会员解锁盘中提醒和复盘。"
+          : "先把关键标的加入关注，再判断是否需要盘中变化提醒和复盘能力。"
+    };
+  }
+  return {
+    tone: "info",
+    label: "游客阶段",
+    title:
+      strategyExperimentVariant === "proof"
+        ? "可先查看策略价值和历史兑现，再决定是否注册。"
+        : "可先查看策略价值，注册后再保存关注持续跟踪。",
+    desc:
+      strategyExperimentVariant === "proof"
+        ? "建议先看历史档案，确认推荐逻辑有闭环，再登录保存关注。"
+        : "建议先登录保存关注，这样下次回来可以直接看到自己的跟踪池。"
+  };
+});
+
+const strategyPrimaryActionText = computed(() => {
+  if (strategyAccessStage.value === "VIP") {
+    return strategyExperimentVariant === "proof" ? "看历史档案" : "去会员中心";
+  }
+  if (strategyAccessStage.value === "REGISTERED") {
+    return strategyExperimentVariant === "proof" ? "先看历史档案" : "开通会员";
+  }
+  return strategyExperimentVariant === "proof" ? "先看历史档案" : "先登录保存关注";
+});
+
+const strategySecondaryActionText = computed(() => {
+  if (strategyAccessStage.value === "VIP") {
+    return "看我的关注";
+  }
+  if (strategyAccessStage.value === "REGISTERED") {
+    return "看我的关注";
+  }
+  return "看历史档案";
+});
+
+function resolveStrategyStage() {
+  return strategyAccessStage.value;
+}
+
+function resolveRouteTarget(route) {
+  if (!route) {
+    return "";
+  }
+  if (typeof route === "string") {
+    return route;
+  }
+  return route.path || route.name || "";
+}
+
+function trackStrategyExperiment(eventType, targetKey, metadata = {}) {
+  return trackExperimentEvent({
+    experimentKey: "strategy_membership_cta",
+    variantKey: strategyExperimentVariant,
+    eventType,
+    pageKey: "strategy",
+    targetKey,
+    userStage: resolveStrategyStage(),
+    metadata
+  });
+}
+
+function navigateWithStrategyTracking(route, targetKey, options = {}) {
+  const destination = resolveRouteTarget(route);
+  const metadata = {
+    destination,
+    cta_label: options.ctaLabel || "",
+    experiment_variant: strategyExperimentVariant,
+    ...options.metadata
+  };
+  trackStrategyExperiment("CLICK", targetKey, metadata);
+  if (options.upgradeIntent) {
+    trackStrategyExperiment("UPGRADE_INTENT", targetKey, metadata);
+  }
+  if (options.rememberAttribution) {
+    rememberExperimentAttributionSource({
+      experimentKey: "strategy_membership_cta",
+      variantKey: strategyExperimentVariant,
+      pageKey: "strategy",
+      targetKey,
+      userStage: resolveStrategyStage(),
+      metadata
+    });
+  }
+  if (options.rememberPendingAttribution) {
+    rememberPendingExperimentJourneySource({
+      experimentKey: "strategy_membership_cta",
+      variantKey: strategyExperimentVariant,
+      pageKey: "strategy",
+      targetKey,
+      userStage: "VISITOR",
+      redirectPath: options.redirectPath || "/strategies",
+      metadata
+    });
+  }
+  router.push(route);
+}
+
 async function loadStrategies() {
   loading.value = true;
   errorMessage.value = "";
@@ -1210,13 +2613,13 @@ async function loadStrategies() {
     if (stockRes.status === "fulfilled" && Array.isArray(stockRes.value?.items)) {
       rawStocks.value = stockRes.value.items;
     } else if (stockRes.status === "rejected") {
-      errors.push(`股票策略接口失败：${stockRes.reason?.message || "unknown error"}`);
+      errors.push(`股票策略加载失败：${stockRes.reason?.message || "unknown error"}`);
     }
 
     if (futuresRes.status === "fulfilled" && Array.isArray(futuresRes.value?.items)) {
       rawFutures.value = futuresRes.value.items;
     } else if (futuresRes.status === "rejected") {
-      errors.push(`期货策略接口失败：${futuresRes.reason?.message || "unknown error"}`);
+      errors.push(`期货策略加载失败：${futuresRes.reason?.message || "unknown error"}`);
     }
 
     if (eventsRes.status === "fulfilled" && Array.isArray(eventsRes.value?.items)) {
@@ -1232,7 +2635,7 @@ async function loadStrategies() {
       });
       eventDetailMap.value = nextDetailMap;
     } else if (eventsRes.status === "rejected") {
-      errors.push(`市场事件接口失败：${eventsRes.reason?.message || "unknown error"}`);
+      errors.push(`市场事件加载失败：${eventsRes.reason?.message || "unknown error"}`);
     }
 
     if (errors.length > 0) {
@@ -1240,11 +2643,60 @@ async function loadStrategies() {
     }
 
     lastUpdatedAt.value = formatDateTime(new Date().toISOString());
+    void hydrateStrategyListInsights();
   } catch (error) {
     errorMessage.value = error?.message || "加载失败";
   } finally {
     loading.value = false;
   }
+}
+
+async function hydrateStrategyListInsights() {
+  const stockTargets = (rawStocks.value || [])
+    .slice(0, 6)
+    .map((item) => item?.id)
+    .filter(Boolean);
+  const futuresTargets = (rawFutures.value || [])
+    .slice(0, 4)
+    .map((item) => item?.id)
+    .filter(Boolean);
+
+  await Promise.allSettled([
+    ...stockTargets.map((id) => loadActiveStockDetail(id, { silent: true })),
+    ...futuresTargets.map((id) => loadFuturesInsight(id, { silent: true }))
+  ]);
+}
+
+async function loadMembershipStage() {
+  memberStageLoading.value = true;
+  try {
+    if (!isLoggedIn.value) {
+      isVIPUser.value = false;
+      return;
+    }
+    const quota = await getMembershipQuota();
+    isVIPUser.value = resolveVIPStage(quota);
+  } catch {
+    isVIPUser.value = false;
+  } finally {
+    memberStageLoading.value = false;
+    promoteStrategyPostAuthAttribution();
+  }
+}
+
+function promoteStrategyPostAuthAttribution() {
+  if (!isLoggedIn.value) {
+    return;
+  }
+  promotePendingExperimentJourneySources({
+    experimentKey: "strategy_membership_cta",
+    pageKey: "strategy",
+    userStage: resolveStrategyStage(),
+    metadata: {
+      stock_count: stockRows.value.length,
+      futures_count: futuresRows.value.length
+    }
+  });
 }
 
 async function loadFuturesInsight(id, options = {}) {
@@ -1255,7 +2707,9 @@ async function loadFuturesInsight(id, options = {}) {
     }
     return;
   }
-  if (!force && loadedFuturesInsightIDs.has(id) && futuresInsightMap.value[id]) {
+  const hasVersionHistory = Array.isArray(futuresVersionHistoryMap.value[id]);
+  const shouldLoadHistory = force || !loadedFuturesVersionHistoryIDs.has(id) || !hasVersionHistory;
+  if (!force && loadedFuturesInsightIDs.has(id) && futuresInsightMap.value[id] && !shouldLoadHistory) {
     return;
   }
   if (!silent) {
@@ -1269,7 +2723,21 @@ async function loadFuturesInsight(id, options = {}) {
         ...futuresInsightMap.value,
         [id]: insight
       };
+      if (insight?.explanation) {
+        futuresExplanationMap.value = {
+          ...futuresExplanationMap.value,
+          [id]: insight.explanation
+        };
+      }
       loadedFuturesInsightIDs.add(id);
+    }
+    if (shouldLoadHistory) {
+      const historyRes = await getFuturesStrategyVersionHistory(id);
+      futuresVersionHistoryMap.value = {
+        ...futuresVersionHistoryMap.value,
+        [id]: Array.isArray(historyRes?.items) ? historyRes.items : []
+      };
+      loadedFuturesVersionHistoryIDs.add(id);
     }
   } catch (error) {
     if (!silent) {
@@ -1314,6 +2782,14 @@ function refreshActiveFuturesInsight() {
   }
 }
 
+function selectFuturesVersionHistory(key) {
+  selectedFuturesVersionHistoryKey.value = key || "";
+}
+
+function resetFuturesVersionHistorySelection() {
+  selectedFuturesVersionHistoryKey.value = "";
+}
+
 function closeFuturesDetail() {
   futuresDetailDialogVisible.value = false;
   futuresDetailAnchorRect.value = null;
@@ -1336,11 +2812,13 @@ async function loadActiveStockDetail(id, options = {}) {
   const hasRelatedNews = Array.isArray(stockRelatedNewsMap.value[id]);
   const hasFramework = !!stockScoreFrameworkMap.value[id];
   const hasStats = !!stockPerformanceStatsMap.value[id];
+  const hasVersionHistory = Array.isArray(stockVersionHistoryMap.value[id]);
   const shouldLoadInsight = force || !loadedStockInsightIDs.has(id) || !hasFramework || !hasStats;
   const shouldLoadDetail = force || !loadedStockDetailIDs.has(id) || !hasDetail;
   const shouldLoadPerformance = force || !loadedStockPerformanceIDs.has(id) || !hasPerformance;
   const shouldLoadRelatedNews = force || !loadedStockRelatedNewsIDs.has(id) || !hasRelatedNews;
-  if (!shouldLoadInsight && !shouldLoadDetail && !shouldLoadPerformance && !shouldLoadRelatedNews) {
+  const shouldLoadVersionHistory = force || !loadedStockVersionHistoryIDs.has(id) || !hasVersionHistory;
+  if (!shouldLoadInsight && !shouldLoadDetail && !shouldLoadPerformance && !shouldLoadRelatedNews && !shouldLoadVersionHistory) {
     return;
   }
 
@@ -1350,6 +2828,8 @@ async function loadActiveStockDetail(id, options = {}) {
   const nextRelatedNewsMap = { ...stockRelatedNewsMap.value };
   const nextScoreFrameworkMap = { ...stockScoreFrameworkMap.value };
   const nextPerformanceStatsMap = { ...stockPerformanceStatsMap.value };
+  const nextExplanationMap = { ...stockExplanationMap.value };
+  const nextVersionHistoryMap = { ...stockVersionHistoryMap.value };
   const errors = [];
 
   if (!silent) {
@@ -1383,10 +2863,23 @@ async function loadActiveStockDetail(id, options = {}) {
         nextRelatedNewsMap[id] = insight.related_news.map((item) => mapStockRelatedNewsItem(item)).filter(Boolean);
         loadedStockRelatedNewsIDs.add(id);
       }
+      if (insight?.explanation) {
+        nextExplanationMap[id] = insight.explanation;
+      }
       loadedStockInsightIDs.add(id);
       insightLoaded = true;
     } catch (error) {
       errors.push(`推荐解释包同步失败：${parseErrorMessage(error)}`);
+    }
+  }
+
+  if (shouldLoadVersionHistory) {
+    try {
+      const historyRes = await getStockRecommendationVersionHistory(id);
+      nextVersionHistoryMap[id] = Array.isArray(historyRes?.items) ? historyRes.items : [];
+      loadedStockVersionHistoryIDs.add(id);
+    } catch (error) {
+      errors.push(`版本历史同步失败：${parseErrorMessage(error)}`);
     }
   }
 
@@ -1443,6 +2936,8 @@ async function loadActiveStockDetail(id, options = {}) {
   stockRelatedNewsMap.value = nextRelatedNewsMap;
   stockScoreFrameworkMap.value = nextScoreFrameworkMap;
   stockPerformanceStatsMap.value = nextPerformanceStatsMap;
+  stockExplanationMap.value = nextExplanationMap;
+  stockVersionHistoryMap.value = nextVersionHistoryMap;
 
   if (!silent) {
     stockDetailErrorMessage.value = errors.join("；");
@@ -1457,6 +2952,47 @@ function refreshActiveStockDetail() {
   if (activeStockView.value?.id) {
     loadActiveStockDetail(activeStockView.value.id, { force: true });
   }
+}
+
+function selectStockVersionHistory(key) {
+  selectedStockVersionHistoryKey.value = key || "";
+}
+
+function resetStockVersionHistorySelection() {
+  selectedStockVersionHistoryKey.value = "";
+}
+
+function toggleActiveStockWatch() {
+  const base = activeStockBase.value;
+  if (!base?.id) {
+    return;
+  }
+  if (isWatchedStock(base.id)) {
+    removeWatchedStock(base.id);
+  } else {
+    const detail = stockDetailMap.value[base.id] || {};
+    const explanation = stockExplanationMap.value[base.id] || {};
+    const sections = buildStrategyInsightSections(explanation, base.reason_summary || "");
+    saveWatchedStock({
+      ...base,
+      baseline_reason_summary: sections.whyNow || base.reason_summary || "",
+      baseline_risk_level: base.risk_level || "",
+      baseline_status: base.status || "",
+      baseline_take_profit: detail.take_profit || "",
+      baseline_stop_loss: detail.stop_loss || "",
+      baseline_strategy_version: explanation.strategy_version || "",
+      baseline_publish_id: explanation.publish_id || "",
+      baseline_job_id: explanation.job_id || "",
+      baseline_trade_date: explanation.trade_date || "",
+      baseline_publish_version: explanation.publish_version || 0,
+      baseline_agent_opinions: explanation.agent_opinions || []
+    });
+  }
+  watchlistVersion.value += 1;
+}
+
+function handleWatchlistUpdate() {
+  watchlistVersion.value += 1;
 }
 
 async function openStockDetail(id, event) {
@@ -1700,6 +3236,58 @@ function summarizeEventTitle(summary) {
   return `${text.slice(0, 28)}...`;
 }
 
+function buildListProofTags(explanation, options = {}) {
+  return buildStrategyProofTags(explanation, {
+    limit: Number(options.limit) > 0 ? Number(options.limit) : 3
+  });
+}
+
+function buildListMetaText(explanation) {
+  return buildStrategyMetaText(explanation, formatDateTime, { includeBatch: true, includeJob: false });
+}
+
+function buildStrategyRiskCards(explanation) {
+  const boundary = buildStrategyRiskBoundaryText(explanation);
+  const riskFlags = Array.isArray(explanation?.risk_flags) ? explanation.risk_flags : [];
+  const invalidations = Array.isArray(explanation?.invalidations) ? explanation.invalidations : [];
+  const cards = [];
+  const seen = new Set();
+
+  function pushCard(label, text, subtle = false) {
+    const value = String(text || "").trim();
+    if (!value || seen.has(value)) {
+      return;
+    }
+    seen.add(value);
+    cards.push({ label, text: value, subtle });
+  }
+
+  pushCard("风险边界", boundary);
+  riskFlags.forEach((item) => pushCard("风险提醒", item));
+  invalidations.forEach((item) => pushCard("失效条件", item, true));
+
+  if (cards.length === 0) {
+    cards.push({
+      label: "风险边界",
+      text: "当前未补更多风险边界。",
+      subtle: false
+    });
+  }
+
+  return cards;
+}
+
+function truncateText(value, maxLength = 16) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength)}...`;
+}
+
 function buildStockScoreNote(detail) {
   const scoreEntries = [
     ["技术", detail?.tech_score],
@@ -1719,6 +3307,22 @@ function buildStockScoreNote(detail) {
     return "";
   }
   return `子分项：${scoreEntries.join(" / ")}`;
+}
+
+function buildStockInvalidationCondition(base, detail) {
+  const stopLoss = String(detail?.stop_loss || "").trim();
+  const riskNote = String(detail?.risk_note || "").trim();
+  if (stopLoss && riskNote) {
+    return `${stopLoss}，且 ${riskNote}`;
+  }
+  if (stopLoss) {
+    return stopLoss;
+  }
+  if (riskNote) {
+    return riskNote;
+  }
+  const symbol = String(base?.symbol || base?.name || "推荐标的").trim();
+  return `${symbol} 的趋势、量能或事件环境明显背离当前推荐逻辑`;
 }
 
 function mapStockRelatedNewsItem(item) {
@@ -1805,15 +3409,33 @@ function mapDirection(direction) {
 function mapStatus(status) {
   const source = String(status || "").toUpperCase();
   if (source === "PUBLISHED" || source === "ACTIVE") {
-    return { label: "推荐", className: "good" };
+    return { key: source, label: "已发布", className: "good" };
+  }
+  if (source === "TRACKING") {
+    return { key: source, label: "跟踪中", className: "good" };
+  }
+  if (source === "HIT_TAKE_PROFIT") {
+    return { key: source, label: "已止盈", className: "good" };
+  }
+  if (source === "HIT_STOP_LOSS") {
+    return { key: source, label: "已止损", className: "risky" };
+  }
+  if (source === "INVALIDATED") {
+    return { key: source, label: "已失效", className: "risky" };
+  }
+  if (source === "REVIEWED") {
+    return { key: source, label: "已复盘", className: "normal" };
   }
   if (source === "WATCH" || source === "DRAFT") {
-    return { label: "观察", className: "watch" };
+    return { key: source, label: "观察", className: "watch" };
+  }
+  if (source === "REVIEW_PENDING") {
+    return { key: source, label: "待审核", className: "watch" };
   }
   if (source === "DISABLED" || source === "EXPIRED") {
-    return { label: "谨慎", className: "risky" };
+    return { key: source, label: "谨慎", className: "risky" };
   }
-  return { label: source || "-", className: "normal" };
+  return { key: source, label: source || "-", className: "normal" };
 }
 
 function mapEventType(value) {
@@ -1957,6 +3579,116 @@ function formatDateTime(value) {
   return new Date(ts).toLocaleString("zh-CN", { hour12: false });
 }
 
+function resolveVIPStage(quota) {
+  const activationState = String(quota?.activation_state || "").toUpperCase();
+  if (activationState) {
+    return activationState === "ACTIVE";
+  }
+  const status = String(quota?.vip_status || "").toUpperCase();
+  if (status === "ACTIVE") {
+    return true;
+  }
+  const level = String(quota?.member_level || "").toUpperCase();
+  if (!level.startsWith("VIP")) {
+    return false;
+  }
+  const remainingDays = Number(quota?.vip_remaining_days);
+  if (Number.isFinite(remainingDays)) {
+    return remainingDays > 0;
+  }
+  return true;
+}
+
+function handleStrategyPrimaryAction() {
+  if (strategyExperimentVariant === "proof") {
+    navigateWithStrategyTracking("/archive", "access_primary", {
+      ctaLabel: strategyPrimaryActionText.value
+    });
+    return;
+  }
+  if (strategyAccessStage.value === "VIP") {
+    navigateWithStrategyTracking("/membership", "access_primary", {
+      ctaLabel: strategyPrimaryActionText.value
+    });
+    return;
+  }
+  if (strategyAccessStage.value === "REGISTERED") {
+    navigateWithStrategyTracking("/membership", "access_primary", {
+      ctaLabel: strategyPrimaryActionText.value,
+      upgradeIntent: true,
+      rememberAttribution: true
+    });
+    return;
+  }
+  navigateWithStrategyTracking(
+    { path: "/auth", query: { redirect: "/strategies" } },
+    "access_primary",
+    {
+      ctaLabel: strategyPrimaryActionText.value,
+      rememberPendingAttribution: true,
+      redirectPath: "/strategies"
+    }
+  );
+}
+
+function handleStrategySecondaryAction() {
+  if (strategyAccessStage.value === "VISITOR") {
+    navigateWithStrategyTracking("/archive", "access_secondary", {
+      ctaLabel: strategySecondaryActionText.value
+    });
+    return;
+  }
+  navigateWithStrategyTracking("/watchlist", "access_secondary", {
+    ctaLabel: strategySecondaryActionText.value
+  });
+}
+
+function goStrategyArchive() {
+  navigateWithStrategyTracking("/archive", "focus_archive", {
+    ctaLabel: "看历史档案"
+  });
+}
+
+function goStrategyWatchlist() {
+  navigateWithStrategyTracking("/watchlist", "focus_watchlist", {
+    ctaLabel: "去我的关注"
+  });
+}
+
+function goStrategyNews() {
+  navigateWithStrategyTracking("/news", "focus_news", {
+    ctaLabel: "去资讯页"
+  });
+}
+
+function focusStock(id) {
+  if (!id || activeStockID.value === id) {
+    return;
+  }
+  activeStockID.value = id;
+}
+
+function focusFutures(id) {
+  if (!id || activeFuturesID.value === id) {
+    return;
+  }
+  activeFuturesID.value = id;
+}
+
+function openActiveStockDetailDialog() {
+  if (!activeStockView.value?.id) {
+    return;
+  }
+  openStockDetail(activeStockView.value.id);
+}
+
+function openActiveFuturesDetailDialog() {
+  if (!activeFuturesView.value?.id) {
+    return;
+  }
+  openFuturesInsight(activeFuturesView.value.id);
+}
+
 function parseErrorMessage(error) {
   if (!error) {
     return "unknown error";
@@ -2009,6 +3741,13 @@ watch(
     }
     window.removeEventListener("resize", handleFuturesDialogViewportChange);
     window.removeEventListener("scroll", handleFuturesDialogViewportChange, true);
+  }
+);
+
+watch(
+  () => isLoggedIn.value,
+  () => {
+    loadMembershipStage();
   }
 );
 
@@ -2111,7 +3850,7 @@ watch(
 watch(
   () => activeEventID.value,
   (id) => {
-    if (!id || id.startsWith("me_local_")) {
+	if (!id || id.startsWith("me_local_")) {
       return;
     }
     if (loadedEventDetailIDs.has(id)) {
@@ -2122,11 +3861,35 @@ watch(
   { immediate: true }
 );
 
+watch(
+  [memberStageLoading, strategyAccessStage],
+  ([loadingState]) => {
+    if (loadingState) {
+      return;
+    }
+    trackExperimentExposureOnce({
+      experimentKey: "strategy_membership_cta",
+      variantKey: strategyExperimentVariant,
+      pageKey: "strategy",
+      targetKey: "access_panel",
+      userStage: resolveStrategyStage(),
+      metadata: {
+        stock_count: stockRows.value.length,
+        futures_count: futuresRows.value.length
+      }
+    });
+  },
+  { immediate: true }
+);
+
 onMounted(() => {
   loadStrategies();
+  loadMembershipStage();
+  window.addEventListener(WATCHLIST_EVENT, handleWatchlistUpdate);
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener(WATCHLIST_EVENT, handleWatchlistUpdate);
   window.removeEventListener("resize", handleStockDialogViewportChange);
   window.removeEventListener("scroll", handleStockDialogViewportChange, true);
   window.removeEventListener("resize", handleFuturesDialogViewportChange);
@@ -2148,8 +3911,8 @@ onBeforeUnmount(() => {
   align-items: end;
   gap: 12px;
   background:
-    radial-gradient(circle at 100% 0%, rgba(63, 127, 113, 0.16) 0%, transparent 34%),
-    radial-gradient(circle at 0% 100%, rgba(234, 215, 180, 0.22) 0%, transparent 36%),
+    radial-gradient(circle at 100% 0%, var(--color-focus-glow) 0%, transparent 34%),
+    radial-gradient(circle at 0% 100%, rgba(184, 130, 48, 0.22) 0%, transparent 36%),
     rgba(255, 255, 255, 0.93);
 }
 
@@ -2166,32 +3929,9 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
-.tag-row span {
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 12px;
-  border: 1px solid rgba(216, 223, 216, 0.92);
-  color: var(--color-text-sub);
-  background: rgba(252, 251, 247, 0.88);
-}
-
 .hero-actions {
   display: flex;
   gap: 8px;
-}
-
-.primary-btn {
-  border: 0;
-  border-radius: 10px;
-  padding: 9px 13px;
-  cursor: pointer;
-  color: #fff;
-  background: linear-gradient(145deg, var(--color-pine-700), var(--color-pine-500));
-}
-
-.primary-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.72;
 }
 
 .api-state {
@@ -2201,7 +3941,140 @@ onBeforeUnmount(() => {
 }
 
 .api-state.warning {
-  color: #7f5f36;
+  color: var(--color-warning);
+}
+
+.strategy-focus-layout {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1.28fr) 360px;
+}
+
+.focus-detail-card,
+.focus-side-card {
+  padding: 14px;
+}
+
+.focus-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.focus-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.focus-detail-content {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.focus-summary-panel {
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.focus-summary-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.focus-summary-head h3,
+.side-highlight-box h3 {
+  margin: 4px 0 0;
+  font-size: 20px;
+}
+
+.focus-badge-row,
+.focus-proof-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.focus-summary-text,
+.side-highlight-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--color-text-sub);
+}
+
+.focus-kpi-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.focus-kpi-grid article,
+.side-mini-grid article,
+.focus-side-list article {
+  display: grid;
+  gap: 4px;
+}
+
+.focus-kpi-grid p,
+.side-mini-grid p,
+.focus-side-list p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-sub);
+}
+
+.focus-kpi-grid strong,
+.side-mini-grid strong,
+.focus-side-list strong {
+  font-size: 14px;
+  color: var(--color-text-main);
+}
+
+.focus-side-stack {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.focus-side-list,
+.side-highlight-box {
+  display: grid;
+  gap: 10px;
+}
+
+.focus-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.focus-link-row .ghost-btn {
+  flex: 1 1 0;
+  min-width: 92px;
+}
+
+.side-mini-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.side-mini-grid--single {
+  grid-template-columns: 1fr;
+}
+
+.side-event-title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--color-text-main);
 }
 
 .strategy-grid {
@@ -2219,8 +4092,8 @@ onBeforeUnmount(() => {
   margin-top: 12px;
   border-radius: 10px;
   padding: 8px 10px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(246, 244, 239, 0.8);
+  border: 1px solid var(--color-border-soft);
+  background: rgba(244, 248, 255, 0.8);
   display: grid;
   grid-template-columns: 1.4fr repeat(4, 0.6fr);
   gap: 10px;
@@ -2239,10 +4112,6 @@ onBeforeUnmount(() => {
   text-align: left;
   font: inherit;
   cursor: pointer;
-  border-radius: 12px;
-  border: 1px solid rgba(216, 223, 216, 0.92);
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
   display: grid;
   grid-template-columns: 1.4fr repeat(4, 0.6fr);
   align-items: center;
@@ -2251,12 +4120,16 @@ onBeforeUnmount(() => {
 }
 
 .matrix-item:hover {
-  border-color: rgba(63, 127, 113, 0.28);
+  border-color: var(--color-border-focus-soft);
 }
 
 .matrix-item.active {
-  border-color: rgba(63, 127, 113, 0.46);
-  box-shadow: 0 8px 20px rgba(63, 127, 113, 0.13);
+  border-color: var(--color-border-focus-stronger);
+  box-shadow: 0 8px 20px rgba(36, 87, 167, 0.13);
+}
+
+.matrix-main {
+  min-width: 0;
 }
 
 .name {
@@ -2267,6 +4140,35 @@ onBeforeUnmount(() => {
 .desc {
   margin: 4px 0 0;
   font-size: 12px;
+  color: var(--color-text-sub);
+}
+
+.list-proof-tags {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.list-proof-tags span {
+  border-radius: 999px;
+  border: 1px solid var(--color-border-soft-strong);
+  background: var(--color-surface-panel-soft);
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--color-pine-700);
+}
+
+.list-proof-tags.compact {
+  margin-top: 7px;
+}
+
+.list-proof-note,
+.cycle-proof-note,
+.cycle-proof-meta {
+  margin: 7px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
   color: var(--color-text-sub);
 }
 
@@ -2282,29 +4184,35 @@ onBeforeUnmount(() => {
 
 .status {
   justify-self: start;
-  font-size: 12px;
-  border-radius: 999px;
-  padding: 3px 9px;
 }
 
 .status.good {
   color: var(--color-pine-700);
-  background: rgba(221, 236, 229, 0.72);
+  background: var(--color-surface-accent-soft);
 }
 
 .status.normal {
-  color: #5a5e2f;
-  background: rgba(233, 231, 190, 0.72);
+  color: var(--color-text-sub);
+  background: var(--color-surface-panel-soft-subtle);
 }
 
 .status.watch {
-  color: #775325;
-  background: rgba(234, 215, 180, 0.72);
+  color: var(--color-warning);
+  background: var(--color-surface-gold-soft);
 }
 
 .status.risky {
-  color: #8a3c2f;
-  background: rgba(230, 194, 185, 0.62);
+  color: var(--color-fall);
+  background: var(--color-fall-soft);
+}
+
+.matrix-proof {
+  grid-column: 1 / -1;
+  margin-top: -2px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--color-border-soft-muted);
+  font-size: 11px;
+  color: var(--color-text-sub);
 }
 
 .matrix-tip {
@@ -2317,7 +4225,7 @@ onBeforeUnmount(() => {
 .futures-detail-dialog-mask {
   position: fixed;
   inset: 0;
-  background: rgba(15, 28, 26, 0.38);
+  background: rgba(15, 23, 42, 0.38);
   display: block;
   z-index: 30;
 }
@@ -2329,8 +4237,8 @@ onBeforeUnmount(() => {
   max-height: min(90vh, 840px);
   overflow: auto;
   border-radius: 14px;
-  border: 1px solid rgba(216, 223, 216, 0.92);
-  background: rgba(246, 244, 239, 0.97);
+  border: 1px solid var(--color-border-soft-strong);
+  background: rgba(244, 248, 255, 0.97);
   padding: 14px;
   display: grid;
   gap: 10px;
@@ -2359,21 +4267,19 @@ onBeforeUnmount(() => {
 }
 
 .stock-detail-head button {
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.95);
-  color: var(--color-pine-700);
-  padding: 8px 11px;
-  cursor: pointer;
+  width: auto;
 }
 
 .stock-detail-head button:disabled {
-  cursor: not-allowed;
   opacity: 0.68;
 }
 
 .close-btn {
   color: var(--color-text-sub);
+}
+
+.watch-btn {
+  color: var(--color-accent);
 }
 
 .stock-reason {
@@ -2396,10 +4302,8 @@ onBeforeUnmount(() => {
 }
 
 .stock-detail-grid article {
-  border-radius: 10px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(255, 255, 255, 0.92);
-  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
 }
 
 .stock-detail-grid p {
@@ -2413,6 +4317,73 @@ onBeforeUnmount(() => {
   color: var(--color-text-main);
 }
 
+.tracking-status-box {
+  display: grid;
+  gap: 10px;
+}
+
+.tracking-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tracking-status-head p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tracking-badge {
+  min-width: auto;
+}
+
+.tracking-status-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--color-text-sub);
+}
+
+.tracking-timeline {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tracking-timeline article,
+.risk-boundary-grid article {
+  display: grid;
+  gap: 4px;
+}
+
+.tracking-timeline p,
+.risk-boundary-grid p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-sub);
+}
+
+.tracking-timeline strong,
+.risk-boundary-grid strong {
+  font-size: 13px;
+  color: var(--color-text-main);
+}
+
+.tracking-timeline span,
+.risk-boundary-grid span {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-text-sub);
+}
+
+.risk-boundary-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .reason-support-grid {
   display: grid;
   gap: 8px;
@@ -2420,10 +4391,6 @@ onBeforeUnmount(() => {
 }
 
 .reason-support-grid article {
-  border-radius: 10px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(255, 255, 255, 0.92);
-  padding: 8px 10px;
   display: grid;
   gap: 4px;
 }
@@ -2444,11 +4411,192 @@ onBeforeUnmount(() => {
   color: var(--color-text-sub);
 }
 
+.strategy-explanation-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.strategy-version-box {
+  display: grid;
+  gap: 10px;
+}
+
+.strategy-version-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.strategy-version-grid article {
+  display: grid;
+  gap: 4px;
+}
+
+.strategy-version-grid p,
+.strategy-version-grid strong,
+.strategy-version-grid span {
+  margin: 0;
+}
+
+.strategy-version-grid p {
+  font-size: 12px;
+  color: var(--color-text-sub);
+}
+
+.strategy-version-grid strong {
+  font-size: 14px;
+  color: var(--color-text-main);
+}
+
+.strategy-version-grid span {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--color-text-sub);
+}
+
+.strategy-history-box {
+  display: grid;
+  gap: 10px;
+}
+
+.strategy-history-list {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.strategy-history-item {
+  text-align: left;
+  cursor: pointer;
+}
+
+.strategy-history-list article,
+.strategy-history-item {
+  display: grid;
+  gap: 4px;
+}
+
+.strategy-history-list p,
+.strategy-history-item p,
+.strategy-history-list strong,
+.strategy-history-item strong,
+.strategy-history-list span,
+.strategy-history-item span {
+  margin: 0;
+}
+
+.strategy-history-list p {
+  font-size: 12px;
+  color: var(--color-text-sub);
+}
+
+.strategy-history-list strong,
+.strategy-history-item strong {
+  font-size: 14px;
+  color: var(--color-text-main);
+}
+
+.strategy-history-list span,
+.strategy-history-item span {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--color-text-sub);
+}
+
+.strategy-history-item.active {
+  box-shadow: 0 0 0 1px var(--color-focus-ring);
+}
+
+.strategy-history-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--color-text-sub);
+}
+
+.strategy-history-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.strategy-history-reset {
+  white-space: nowrap;
+}
+
+.strategy-explanation-box {
+  display: grid;
+  gap: 10px;
+}
+
+.explanation-summary,
+.explanation-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--color-text-main);
+}
+
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scenario-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.scenario-item,
+.agent-opinion-item,
+.risk-flag-item {
+  display: grid;
+  gap: 4px;
+}
+
+.scenario-item p,
+.agent-opinion-item p,
+.risk-flag-item strong {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-sub);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.scenario-item strong,
+.agent-opinion-item strong {
+  font-size: 14px;
+  color: var(--color-text-main);
+}
+
+.scenario-item span,
+.agent-opinion-item span,
+.risk-flag-item span {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--color-text-sub);
+}
+
+.scenario-item em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--color-text-sub);
+}
+
+.agent-opinion-list,
+.risk-flag-list {
+  display: grid;
+  gap: 8px;
+}
+
+.risk-flag-item.subtle {
+  background: var(--color-surface-panel-soft-strong);
+}
+
 .stock-news-box {
-  border-radius: 10px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
   display: grid;
   gap: 8px;
 }
@@ -2476,10 +4624,7 @@ onBeforeUnmount(() => {
 }
 
 .stock-news-item {
-  border-radius: 9px;
-  border: 1px solid rgba(216, 223, 216, 0.8);
-  background: rgba(252, 251, 247, 0.9);
-  padding: 8px 10px;
+  min-width: 0;
 }
 
 .stock-news-item h4 {
@@ -2502,10 +4647,8 @@ onBeforeUnmount(() => {
 }
 
 .stock-performance-box {
-  border-radius: 10px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
+  display: grid;
+  gap: 8px;
 }
 
 .stock-performance-head {
@@ -2526,36 +4669,27 @@ onBeforeUnmount(() => {
   color: var(--color-text-sub);
 }
 
+.stock-performance-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-sub);
+}
+
 .performance-table-wrap {
   margin-top: 8px;
-  overflow-x: auto;
 }
 
 .performance-table {
-  width: 100%;
   min-width: 560px;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.performance-table th,
-.performance-table td {
-  border-bottom: 1px solid rgba(216, 223, 216, 0.7);
-  padding: 7px 5px;
-  text-align: left;
-}
-
-.performance-table th {
-  color: var(--color-text-sub);
-  font-weight: 500;
 }
 
 .performance-table .up {
-  color: #1f6c4d;
+  color: var(--color-rise);
 }
 
 .performance-table .down {
-  color: #8a3c2f;
+  color: var(--color-fall);
 }
 
 .empty-inline {
@@ -2567,7 +4701,7 @@ onBeforeUnmount(() => {
 .detail-warning {
   margin: 0;
   font-size: 12px;
-  color: #7f5f36;
+  color: var(--color-warning);
 }
 
 .detail-fade-enter-active,
@@ -2590,21 +4724,6 @@ onBeforeUnmount(() => {
   width: 100%;
   text-align: left;
   font: inherit;
-  cursor: pointer;
-  border-radius: 12px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.cycle-item:hover {
-  border-color: rgba(63, 127, 113, 0.28);
-}
-
-.cycle-item.active {
-  border-color: rgba(63, 127, 113, 0.45);
-  box-shadow: 0 8px 20px rgba(63, 127, 113, 0.12);
 }
 
 .step {
@@ -2632,10 +4751,8 @@ onBeforeUnmount(() => {
 }
 
 .futures-detail-grid article {
-  border-radius: 10px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(255, 255, 255, 0.92);
-  padding: 8px 10px;
+  display: grid;
+  gap: 4px;
 }
 
 .futures-detail-grid p {
@@ -2650,10 +4767,6 @@ onBeforeUnmount(() => {
 }
 
 .futures-event-box {
-  border-radius: 10px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
   display: grid;
   gap: 8px;
 }
@@ -2664,10 +4777,6 @@ onBeforeUnmount(() => {
 }
 
 .futures-event-item {
-  border-radius: 8px;
-  border: 1px solid rgba(216, 223, 216, 0.82);
-  background: rgba(252, 251, 247, 0.9);
-  padding: 8px 10px;
   display: grid;
   gap: 4px;
 }
@@ -2691,8 +4800,8 @@ onBeforeUnmount(() => {
 .empty-box {
   margin-top: 10px;
   border-radius: 11px;
-  border: 1px dashed rgba(216, 223, 216, 0.95);
-  background: rgba(246, 244, 239, 0.7);
+  border: 1px dashed var(--color-border-soft-heavy);
+  background: var(--color-surface-panel-tint);
   padding: 10px;
   font-size: 12px;
   color: var(--color-text-sub);
@@ -2717,19 +4826,12 @@ onBeforeUnmount(() => {
 }
 
 .event-type-tabs button {
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(246, 244, 239, 0.74);
-  color: var(--color-text-sub);
-  border-radius: 999px;
-  padding: 5px 11px;
-  font-size: 12px;
-  cursor: pointer;
+  white-space: nowrap;
 }
 
 .event-type-tabs button.active {
-  border-color: rgba(63, 127, 113, 0.34);
-  color: var(--color-pine-700);
-  background: rgba(221, 236, 229, 0.76);
+  border-color: var(--color-border-focus-medium);
+  box-shadow: inset 0 0 0 1px var(--color-focus-fill);
 }
 
 .event-list {
@@ -2744,16 +4846,6 @@ onBeforeUnmount(() => {
 .event-item {
   width: 100%;
   text-align: left;
-  border-radius: 12px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
-  cursor: pointer;
-}
-
-.event-item.active {
-  border-color: rgba(63, 127, 113, 0.45);
-  box-shadow: 0 8px 20px rgba(63, 127, 113, 0.12);
 }
 
 .event-top {
@@ -2770,24 +4862,22 @@ onBeforeUnmount(() => {
 }
 
 .event-level {
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 11px;
+  font-weight: 700;
 }
 
 .event-level.high {
-  color: #8a3c2f;
-  background: rgba(230, 194, 185, 0.62);
+  color: var(--color-accent);
+  background: var(--color-surface-gold-soft);
 }
 
 .event-level.mid {
-  color: #775325;
-  background: rgba(234, 215, 180, 0.68);
+  color: var(--color-pine-700);
+  background: var(--color-surface-accent);
 }
 
 .event-level.low {
-  color: var(--color-pine-700);
-  background: rgba(221, 236, 229, 0.72);
+  color: var(--color-text-sub);
+  background: var(--color-surface-panel-soft-subtle);
 }
 
 .event-title {
@@ -2833,8 +4923,8 @@ onBeforeUnmount(() => {
 
 .detail-grid article {
   border-radius: 10px;
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  background: rgba(246, 244, 239, 0.8);
+  border: 1px solid var(--color-border-soft);
+  background: rgba(244, 248, 255, 0.8);
   padding: 8px 10px;
 }
 
@@ -2854,38 +4944,56 @@ onBeforeUnmount(() => {
 }
 
 .detail-actions button {
-  border: 1px solid rgba(216, 223, 216, 0.9);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.95);
-  color: var(--color-pine-700);
-  padding: 8px 11px;
-  cursor: pointer;
+  width: auto;
 }
 
 .detail-actions button:disabled {
-  cursor: not-allowed;
   opacity: 0.7;
 }
 
 @media (max-width: 980px) {
+  .strategy-focus-layout,
   .strategy-hero,
   .strategy-grid,
   .event-section {
     grid-template-columns: 1fr;
   }
+
+  .focus-detail-head,
+  .focus-summary-head {
+    display: grid;
+  }
+
+  .focus-detail-actions {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 760px) {
+  .hero-actions,
+  .focus-detail-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .hero-actions > *,
+  .focus-detail-actions > * {
+    width: 100%;
+  }
+
+  .focus-badge-row,
   .tag-row {
     flex-wrap: nowrap;
     overflow-x: auto;
     scrollbar-width: none;
   }
 
+  .focus-badge-row::-webkit-scrollbar,
   .tag-row::-webkit-scrollbar {
     display: none;
   }
 
+  .focus-badge-row span,
   .tag-row span {
     flex: 0 0 auto;
   }
@@ -2897,6 +5005,10 @@ onBeforeUnmount(() => {
   .matrix-item {
     grid-template-columns: 1fr 1fr;
     gap: 8px;
+  }
+
+  .matrix-proof {
+    margin-top: 0;
   }
 
   .status {
@@ -2920,12 +5032,37 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 
+  .focus-kpi-grid,
+  .tracking-timeline,
+  .risk-boundary-grid {
+    grid-template-columns: 1fr;
+  }
+
   .futures-detail-grid {
     grid-template-columns: 1fr;
   }
 
+  .side-mini-grid,
   .reason-support-grid {
     grid-template-columns: 1fr;
+  }
+
+  .scenario-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-version-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-history-list {
+    grid-template-columns: 1fr;
+  }
+
+  .strategy-history-head-actions,
+  .stock-news-head {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .stock-performance-head {
@@ -2953,6 +5090,10 @@ onBeforeUnmount(() => {
 
   .detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .focus-link-row .ghost-btn {
+    flex-basis: calc(50% - 4px);
   }
 }
 </style>

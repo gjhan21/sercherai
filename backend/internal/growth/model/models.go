@@ -112,6 +112,7 @@ type UserProfile struct {
 	Email              string `json:"email,omitempty"`
 	KYCStatus          string `json:"kyc_status"`
 	MemberLevel        string `json:"member_level"`
+	ActivationState    string `json:"activation_state,omitempty"`
 	VIPStartedAt       string `json:"vip_started_at,omitempty"`
 	VIPExpireAt        string `json:"vip_expire_at,omitempty"`
 	VIPStatus          string `json:"vip_status,omitempty"`
@@ -153,6 +154,8 @@ type AdminUserMessage struct {
 
 type MembershipQuota struct {
 	MemberLevel            string `json:"member_level"`
+	KYCStatus              string `json:"kyc_status,omitempty"`
+	ActivationState        string `json:"activation_state,omitempty"`
 	PeriodKey              string `json:"period_key"`
 	DocReadLimit           int    `json:"doc_read_limit"`
 	DocReadUsed            int    `json:"doc_read_used"`
@@ -312,16 +315,22 @@ type NewsAttachment struct {
 }
 
 type StockRecommendation struct {
-	ID            string  `json:"id"`
-	Symbol        string  `json:"symbol"`
-	Name          string  `json:"name"`
-	Score         float64 `json:"score"`
-	RiskLevel     string  `json:"risk_level"`
-	PositionRange string  `json:"position_range"`
-	ValidFrom     string  `json:"valid_from"`
-	ValidTo       string  `json:"valid_to"`
-	Status        string  `json:"status"`
-	ReasonSummary string  `json:"reason_summary"`
+	ID               string  `json:"id"`
+	Symbol           string  `json:"symbol"`
+	Name             string  `json:"name"`
+	Score            float64 `json:"score"`
+	RiskLevel        string  `json:"risk_level"`
+	PositionRange    string  `json:"position_range"`
+	ValidFrom        string  `json:"valid_from"`
+	ValidTo          string  `json:"valid_to"`
+	Status           string  `json:"status"`
+	ReasonSummary    string  `json:"reason_summary"`
+	SourceType       string  `json:"source_type,omitempty"`
+	StrategyVersion  string  `json:"strategy_version,omitempty"`
+	Reviewer         string  `json:"reviewer,omitempty"`
+	Publisher        string  `json:"publisher,omitempty"`
+	ReviewNote       string  `json:"review_note,omitempty"`
+	PerformanceLabel string  `json:"performance_label,omitempty"`
 }
 
 type StockRecommendationDetail struct {
@@ -381,6 +390,7 @@ type StockRecommendationInsight struct {
 	Performance      []RecommendationPerformancePoint      `json:"performance"`
 	Benchmark        []RecommendationPerformancePoint      `json:"benchmark"`
 	PerformanceStats StockRecommendationPerformanceSummary `json:"performance_stats"`
+	Explanation      StrategyClientExplanation             `json:"explanation"`
 	GeneratedAt      string                                `json:"generated_at"`
 }
 
@@ -479,6 +489,86 @@ type StockQuantRotationPoint struct {
 	ChangedCount int      `json:"changed_count"`
 }
 
+type AdminDailyStockRecommendationGenerationResult struct {
+	Count          int    `json:"count"`
+	PublishID      string `json:"publish_id,omitempty"`
+	PublishVersion int    `json:"publish_version,omitempty"`
+	ReportSummary  string `json:"report_summary,omitempty"`
+	GenerationMode string `json:"generation_mode,omitempty"`
+	ArchiveEnabled bool   `json:"archive_enabled"`
+}
+
+type AdminDailyFuturesStrategyGenerationResult struct {
+	Count          int    `json:"count"`
+	PublishID      string `json:"publish_id,omitempty"`
+	PublishVersion int    `json:"publish_version,omitempty"`
+	ReportSummary  string `json:"report_summary,omitempty"`
+	GenerationMode string `json:"generation_mode,omitempty"`
+	ArchiveEnabled bool   `json:"archive_enabled"`
+}
+
+type StrategyEnginePublishRecordSummary struct {
+	PublishID     string   `json:"publish_id"`
+	JobID         string   `json:"job_id"`
+	JobType       string   `json:"job_type"`
+	Version       int      `json:"version"`
+	CreatedAt     string   `json:"created_at"`
+	TradeDate     string   `json:"trade_date"`
+	ReportSummary string   `json:"report_summary"`
+	SelectedCount int      `json:"selected_count"`
+	AssetKeys     []string `json:"asset_keys"`
+	PayloadCount  int      `json:"payload_count"`
+}
+
+type StrategyEnginePublishRecord struct {
+	PublishID       string                      `json:"publish_id"`
+	JobID           string                      `json:"job_id"`
+	JobType         string                      `json:"job_type"`
+	Version         int                         `json:"version"`
+	CreatedAt       string                      `json:"created_at"`
+	TradeDate       string                      `json:"trade_date"`
+	ReportSummary   string                      `json:"report_summary"`
+	SelectedCount   int                         `json:"selected_count"`
+	AssetKeys       []string                    `json:"asset_keys"`
+	PayloadCount    int                         `json:"payload_count"`
+	Markdown        string                      `json:"markdown"`
+	HTML            string                      `json:"html"`
+	PublishPayloads []map[string]any            `json:"publish_payloads"`
+	ReportSnapshot  map[string]any              `json:"report_snapshot"`
+	Replay          StrategyEnginePublishReplay `json:"replay"`
+}
+
+type StrategyEnginePublishReplay struct {
+	PublishID         string         `json:"publish_id,omitempty"`
+	JobID             string         `json:"job_id,omitempty"`
+	PublishVersion    int            `json:"publish_version,omitempty"`
+	Operator          string         `json:"operator,omitempty"`
+	ForcePublish      bool           `json:"force_publish"`
+	OverrideReason    string         `json:"override_reason,omitempty"`
+	PolicySnapshot    map[string]any `json:"policy_snapshot,omitempty"`
+	CreatedAt         string         `json:"created_at,omitempty"`
+	StorageSource     string         `json:"storage_source,omitempty"`
+	WarningCount      int            `json:"warning_count"`
+	WarningMessages   []string       `json:"warning_messages"`
+	VetoedAssets      []string       `json:"vetoed_assets"`
+	InvalidatedAssets []string       `json:"invalidated_assets"`
+	Notes             []string       `json:"notes"`
+}
+
+type StrategyEnginePublishCompareResult struct {
+	LeftPublishID      string   `json:"left_publish_id"`
+	RightPublishID     string   `json:"right_publish_id"`
+	LeftVersion        int      `json:"left_version"`
+	RightVersion       int      `json:"right_version"`
+	SelectedCountDelta int      `json:"selected_count_delta"`
+	PayloadCountDelta  int      `json:"payload_count_delta"`
+	WarningCountDelta  int      `json:"warning_count_delta"`
+	VetoCountDelta     int      `json:"veto_count_delta"`
+	AddedAssets        []string `json:"added_assets"`
+	RemovedAssets      []string `json:"removed_assets"`
+	SharedAssets       []string `json:"shared_assets"`
+}
+
 type RecommendationPerformancePoint struct {
 	Date   string  `json:"date"`
 	Return float64 `json:"return"`
@@ -552,6 +642,7 @@ type FuturesStrategyInsight struct {
 	Performance      []RecommendationPerformancePoint  `json:"performance"`
 	Benchmark        []RecommendationPerformancePoint  `json:"benchmark"`
 	PerformanceStats FuturesStrategyPerformanceSummary `json:"performance_stats"`
+	Explanation      StrategyClientExplanation         `json:"explanation"`
 	GeneratedAt      string                            `json:"generated_at"`
 }
 
@@ -562,6 +653,7 @@ type AdminUser struct {
 	Status             string `json:"status"`
 	KYCStatus          string `json:"kyc_status"`
 	MemberLevel        string `json:"member_level"`
+	ActivationState    string `json:"activation_state,omitempty"`
 	RegistrationSource string `json:"registration_source,omitempty"`
 	InviterUserID      string `json:"inviter_user_id,omitempty"`
 	InviteCode         string `json:"invite_code,omitempty"`
@@ -683,10 +775,11 @@ type MembershipOrderAdmin struct {
 }
 
 type UserAccessProfile struct {
-	UserID      string `json:"user_id"`
-	Status      string `json:"status"`
-	KYCStatus   string `json:"kyc_status"`
-	MemberLevel string `json:"member_level"`
+	UserID          string `json:"user_id"`
+	Status          string `json:"status"`
+	KYCStatus       string `json:"kyc_status"`
+	MemberLevel     string `json:"member_level"`
+	ActivationState string `json:"activation_state,omitempty"`
 }
 
 type AttachmentFileInfo struct {
@@ -898,4 +991,189 @@ type SchedulerJobDefinition struct {
 	UpdatedBy   string `json:"updated_by"`
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
+}
+
+type MarketRhythmTask struct {
+	ID          string   `json:"id"`
+	Date        string   `json:"date"`
+	Slot        string   `json:"slot"`
+	TaskKey     string   `json:"task_key"`
+	Status      string   `json:"status"`
+	Owner       string   `json:"owner,omitempty"`
+	Notes       string   `json:"notes,omitempty"`
+	SourceLinks []string `json:"source_links,omitempty"`
+	CompletedAt string   `json:"completed_at,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
+}
+
+type ExperimentEvent struct {
+	ID            string                 `json:"id"`
+	ExperimentKey string                 `json:"experiment_key"`
+	VariantKey    string                 `json:"variant_key"`
+	EventType     string                 `json:"event_type"`
+	PageKey       string                 `json:"page_key"`
+	TargetKey     string                 `json:"target_key,omitempty"`
+	UserStage     string                 `json:"user_stage,omitempty"`
+	AnonymousID   string                 `json:"anonymous_id,omitempty"`
+	SessionID     string                 `json:"session_id,omitempty"`
+	Pathname      string                 `json:"pathname,omitempty"`
+	Referrer      string                 `json:"referrer,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt     string                 `json:"created_at,omitempty"`
+}
+
+type ExperimentOrderAttribution struct {
+	OrderNo        string                 `json:"order_no"`
+	ExperimentKey  string                 `json:"experiment_key"`
+	VariantKey     string                 `json:"variant_key"`
+	PageKey        string                 `json:"page_key"`
+	TargetKey      string                 `json:"target_key,omitempty"`
+	UserStage      string                 `json:"user_stage,omitempty"`
+	AnonymousID    string                 `json:"anonymous_id,omitempty"`
+	SessionID      string                 `json:"session_id,omitempty"`
+	Pathname       string                 `json:"pathname,omitempty"`
+	Referrer       string                 `json:"referrer,omitempty"`
+	ConversionType string                 `json:"conversion_type,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt      string                 `json:"created_at,omitempty"`
+}
+
+type AdminExperimentAnalyticsOverview struct {
+	Days                   int     `json:"days"`
+	TotalEvents            int     `json:"total_events"`
+	TotalExperiments       int     `json:"total_experiments"`
+	ExposureCount          int     `json:"exposure_count"`
+	ClickCount             int     `json:"click_count"`
+	UpgradeIntentCount     int     `json:"upgrade_intent_count"`
+	PaymentSuccessCount    int     `json:"payment_success_count"`
+	RenewalSuccessCount    int     `json:"renewal_success_count"`
+	ClickThroughRate       float64 `json:"click_through_rate"`
+	UpgradePerClickRate    float64 `json:"upgrade_per_click_rate"`
+	UpgradePerExposureRate float64 `json:"upgrade_per_exposure_rate"`
+	PaidPerUpgradeRate     float64 `json:"paid_per_upgrade_rate"`
+	PaidPerClickRate       float64 `json:"paid_per_click_rate"`
+	PaidPerExposureRate    float64 `json:"paid_per_exposure_rate"`
+	LastEventAt            string  `json:"last_event_at,omitempty"`
+}
+
+type AdminExperimentAnalyticsItem struct {
+	ExperimentKey          string  `json:"experiment_key"`
+	VariantKey             string  `json:"variant_key"`
+	PageKey                string  `json:"page_key"`
+	UserStage              string  `json:"user_stage"`
+	ExposureCount          int     `json:"exposure_count"`
+	ClickCount             int     `json:"click_count"`
+	UpgradeIntentCount     int     `json:"upgrade_intent_count"`
+	PaymentSuccessCount    int     `json:"payment_success_count"`
+	RenewalSuccessCount    int     `json:"renewal_success_count"`
+	ClickThroughRate       float64 `json:"click_through_rate"`
+	UpgradePerClickRate    float64 `json:"upgrade_per_click_rate"`
+	UpgradePerExposureRate float64 `json:"upgrade_per_exposure_rate"`
+	PaidPerUpgradeRate     float64 `json:"paid_per_upgrade_rate"`
+	PaidPerClickRate       float64 `json:"paid_per_click_rate"`
+	PaidPerExposureRate    float64 `json:"paid_per_exposure_rate"`
+	LastEventAt            string  `json:"last_event_at,omitempty"`
+}
+
+type AdminExperimentAnalyticsPageItem struct {
+	PageKey             string  `json:"page_key"`
+	ExposureCount       int     `json:"exposure_count"`
+	ClickCount          int     `json:"click_count"`
+	UpgradeIntentCount  int     `json:"upgrade_intent_count"`
+	PaymentSuccessCount int     `json:"payment_success_count"`
+	RenewalSuccessCount int     `json:"renewal_success_count"`
+	ClickThroughRate    float64 `json:"click_through_rate"`
+	UpgradePerClickRate float64 `json:"upgrade_per_click_rate"`
+	PaidPerUpgradeRate  float64 `json:"paid_per_upgrade_rate"`
+	PaidPerExposureRate float64 `json:"paid_per_exposure_rate"`
+	LastEventAt         string  `json:"last_event_at,omitempty"`
+}
+
+type AdminExperimentAnalyticsTrendPoint struct {
+	Date                string  `json:"date"`
+	ExposureCount       int     `json:"exposure_count"`
+	ClickCount          int     `json:"click_count"`
+	UpgradeIntentCount  int     `json:"upgrade_intent_count"`
+	PaymentSuccessCount int     `json:"payment_success_count"`
+	RenewalSuccessCount int     `json:"renewal_success_count"`
+	ClickThroughRate    float64 `json:"click_through_rate"`
+	UpgradePerClickRate float64 `json:"upgrade_per_click_rate"`
+	PaidPerExposureRate float64 `json:"paid_per_exposure_rate"`
+}
+
+type AdminExperimentAnalyticsPayChannelItem struct {
+	PayChannel          string  `json:"pay_channel"`
+	PaymentSuccessCount int     `json:"payment_success_count"`
+	RenewalSuccessCount int     `json:"renewal_success_count"`
+	PaidSuccessCount    int     `json:"paid_success_count"`
+	PaidShareRate       float64 `json:"paid_share_rate"`
+	LastEventAt         string  `json:"last_event_at,omitempty"`
+}
+
+type AdminExperimentAnalyticsDeviceItem struct {
+	ExperimentKey          string  `json:"experiment_key"`
+	VariantKey             string  `json:"variant_key"`
+	PageKey                string  `json:"page_key"`
+	DeviceType             string  `json:"device_type"`
+	ExposureCount          int     `json:"exposure_count"`
+	ClickCount             int     `json:"click_count"`
+	UpgradeIntentCount     int     `json:"upgrade_intent_count"`
+	PaymentSuccessCount    int     `json:"payment_success_count"`
+	RenewalSuccessCount    int     `json:"renewal_success_count"`
+	ClickThroughRate       float64 `json:"click_through_rate"`
+	UpgradePerClickRate    float64 `json:"upgrade_per_click_rate"`
+	UpgradePerExposureRate float64 `json:"upgrade_per_exposure_rate"`
+	PaidPerUpgradeRate     float64 `json:"paid_per_upgrade_rate"`
+	PaidPerClickRate       float64 `json:"paid_per_click_rate"`
+	PaidPerExposureRate    float64 `json:"paid_per_exposure_rate"`
+	LastEventAt            string  `json:"last_event_at,omitempty"`
+}
+
+type AdminExperimentAnalyticsUserStageItem struct {
+	ExperimentKey          string  `json:"experiment_key"`
+	VariantKey             string  `json:"variant_key"`
+	PageKey                string  `json:"page_key"`
+	UserStage              string  `json:"user_stage"`
+	ExposureCount          int     `json:"exposure_count"`
+	ClickCount             int     `json:"click_count"`
+	UpgradeIntentCount     int     `json:"upgrade_intent_count"`
+	PaymentSuccessCount    int     `json:"payment_success_count"`
+	RenewalSuccessCount    int     `json:"renewal_success_count"`
+	ClickThroughRate       float64 `json:"click_through_rate"`
+	UpgradePerClickRate    float64 `json:"upgrade_per_click_rate"`
+	UpgradePerExposureRate float64 `json:"upgrade_per_exposure_rate"`
+	PaidPerUpgradeRate     float64 `json:"paid_per_upgrade_rate"`
+	PaidPerClickRate       float64 `json:"paid_per_click_rate"`
+	PaidPerExposureRate    float64 `json:"paid_per_exposure_rate"`
+	LastEventAt            string  `json:"last_event_at,omitempty"`
+}
+
+type AdminExperimentAnalyticsVariantTrendPoint struct {
+	Date                string  `json:"date"`
+	ExperimentKey       string  `json:"experiment_key"`
+	VariantKey          string  `json:"variant_key"`
+	PageKey             string  `json:"page_key"`
+	DeviceType          string  `json:"device_type"`
+	UserStage           string  `json:"user_stage"`
+	ExposureCount       int     `json:"exposure_count"`
+	ClickCount          int     `json:"click_count"`
+	UpgradeIntentCount  int     `json:"upgrade_intent_count"`
+	PaymentSuccessCount int     `json:"payment_success_count"`
+	RenewalSuccessCount int     `json:"renewal_success_count"`
+	ClickThroughRate    float64 `json:"click_through_rate"`
+	UpgradePerClickRate float64 `json:"upgrade_per_click_rate"`
+	PaidPerExposureRate float64 `json:"paid_per_exposure_rate"`
+}
+
+type AdminExperimentAnalyticsSummary struct {
+	Days                int                                         `json:"days"`
+	Overview            AdminExperimentAnalyticsOverview            `json:"overview"`
+	Items               []AdminExperimentAnalyticsItem              `json:"items"`
+	PageBreakdown       []AdminExperimentAnalyticsPageItem          `json:"page_breakdown"`
+	DailyTrend          []AdminExperimentAnalyticsTrendPoint        `json:"daily_trend"`
+	PayChannelBreakdown []AdminExperimentAnalyticsPayChannelItem    `json:"pay_channel_breakdown"`
+	DeviceBreakdown     []AdminExperimentAnalyticsDeviceItem        `json:"device_breakdown"`
+	UserStageBreakdown  []AdminExperimentAnalyticsUserStageItem     `json:"user_stage_breakdown"`
+	VariantDailyTrend   []AdminExperimentAnalyticsVariantTrendPoint `json:"variant_daily_trend"`
 }

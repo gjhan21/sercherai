@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "strategy-engine"
+version = "0.1.0"
+description = "Independent strategy engine service for stock selection and futures strategy jobs"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "akshare",
+  "fastapi>=0.116,<1.0",
+  "pydantic-settings>=2.10,<3.0",
+  "uvicorn>=0.35,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1.0",
+  "pytest>=8.4,<9.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
