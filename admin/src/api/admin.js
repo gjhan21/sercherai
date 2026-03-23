@@ -104,6 +104,12 @@ export function updateUserKYCStatus(id, kycStatus) {
   });
 }
 
+export function resetUserPassword(id, password) {
+  return http.put(`/admin/users/${encodeURIComponent(id)}/password`, {
+    password
+  });
+}
+
 export function listBrowseHistories(params) {
   return http.get("/admin/users/browse-histories", { params: buildParams(params) });
 }
@@ -208,6 +214,32 @@ export function listDataSourceHealthLogs(sourceKey, params) {
   });
 }
 
+export function listMarketDataQualityLogs(params) {
+  return http.get("/admin/data-sources/market-quality-logs", {
+    params: buildParams(params)
+  });
+}
+
+export function getMarketDataQualitySummary(params) {
+  return http.get("/admin/data-sources/market-quality-summary", {
+    params: buildParams(params)
+  });
+}
+
+export function getMarketDerivedTruthSummary(params) {
+  return http.get("/admin/data-sources/market-derived-truth-summary", {
+    params: buildParams(params)
+  });
+}
+
+export function rebuildStockDerivedTruth(payload) {
+  return http.post("/admin/stocks/quotes/rebuild-derived-truth", payload);
+}
+
+export function rebuildFuturesDerivedTruth(payload) {
+  return http.post("/admin/futures/quotes/rebuild-derived-truth", payload);
+}
+
 export function listWorkflowMessages(params) {
   return http.get("/admin/workflow/messages", { params: buildParams(params) });
 }
@@ -283,16 +315,116 @@ export function getStockSelectionOverview() {
   return http.get("/admin/stock-selection/overview");
 }
 
+export function getFuturesSelectionOverview() {
+  return http.get("/admin/futures-selection/overview");
+}
+
 export function listStockSelectionRuns(params) {
   return http.get("/admin/stock-selection/runs", { params: buildParams(params) });
+}
+
+export function listFuturesSelectionRuns(params) {
+  return http.get("/admin/futures-selection/runs", { params: buildParams(params) });
 }
 
 export function createStockSelectionRun(payload) {
   return http.post("/admin/stock-selection/runs", payload, { timeout: 60000 });
 }
 
+export function createFuturesSelectionRun(payload) {
+  return http.post("/admin/futures-selection/runs", payload, { timeout: 60000 });
+}
+
 export function getStockSelectionRun(runID) {
   return http.get(`/admin/stock-selection/runs/${encodeURIComponent(runID)}`);
+}
+
+export function getFuturesSelectionRun(runID) {
+  return http.get(`/admin/futures-selection/runs/${encodeURIComponent(runID)}`);
+}
+
+export function compareFuturesSelectionRuns(runIDs = []) {
+  return http.get("/admin/futures-selection/runs/compare", {
+    params: buildParams({ run_ids: Array.isArray(runIDs) ? runIDs.join(",") : runIDs })
+  });
+}
+
+export function listFuturesSelectionProfiles(params) {
+  return http.get("/admin/futures-selection/profiles", { params: buildParams(params) });
+}
+
+export function listFuturesSelectionProfileVersions(id) {
+  return http.get(`/admin/futures-selection/profiles/${encodeURIComponent(id)}/versions`);
+}
+
+export function createFuturesSelectionProfile(payload) {
+  return http.post("/admin/futures-selection/profiles", payload);
+}
+
+export function updateFuturesSelectionProfile(id, payload) {
+  return http.put(`/admin/futures-selection/profiles/${encodeURIComponent(id)}`, payload);
+}
+
+export function publishFuturesSelectionProfile(id) {
+  return http.post(`/admin/futures-selection/profiles/${encodeURIComponent(id)}/publish`);
+}
+
+export function rollbackFuturesSelectionProfile(id, payload) {
+  return http.post(`/admin/futures-selection/profiles/${encodeURIComponent(id)}/rollback`, payload);
+}
+
+export function listFuturesSelectionTemplates(params) {
+  return http.get("/admin/futures-selection/templates", { params: buildParams(params) });
+}
+
+export function createFuturesSelectionTemplate(payload) {
+  return http.post("/admin/futures-selection/templates", payload);
+}
+
+export function updateFuturesSelectionTemplate(id, payload) {
+  return http.put(`/admin/futures-selection/templates/${encodeURIComponent(id)}`, payload);
+}
+
+export function setDefaultFuturesSelectionTemplate(id) {
+  return http.post(`/admin/futures-selection/templates/${encodeURIComponent(id)}/set-default`);
+}
+
+export function listFuturesSelectionCandidates(runID, params) {
+  return http.get(`/admin/futures-selection/runs/${encodeURIComponent(runID)}/candidates`, {
+    params: buildParams(params)
+  });
+}
+
+export function listFuturesSelectionPortfolio(runID) {
+  return http.get(`/admin/futures-selection/runs/${encodeURIComponent(runID)}/portfolio`);
+}
+
+export function listFuturesSelectionRunEvidence(runID, params) {
+  return http.get(`/admin/futures-selection/runs/${encodeURIComponent(runID)}/evidence`, {
+    params: buildParams(params)
+  });
+}
+
+export function listFuturesSelectionRunEvaluation(runID, params) {
+  return http.get(`/admin/futures-selection/runs/${encodeURIComponent(runID)}/evaluation`, {
+    params: buildParams(params)
+  });
+}
+
+export function listFuturesSelectionEvaluationLeaderboard(params) {
+  return http.get("/admin/futures-selection/evaluation/leaderboard", {
+    params: buildParams(params)
+  });
+}
+
+export function approveFuturesSelectionReview(runID, payload) {
+  return http.post(`/admin/futures-selection/reviews/${encodeURIComponent(runID)}/approve`, payload, {
+    timeout: 60000
+  });
+}
+
+export function rejectFuturesSelectionReview(runID, payload) {
+  return http.post(`/admin/futures-selection/reviews/${encodeURIComponent(runID)}/reject`, payload);
 }
 
 export function compareStockSelectionRuns(runIDs = []) {
@@ -381,6 +513,16 @@ export function approveStockSelectionReview(runID, payload) {
 
 export function rejectStockSelectionReview(runID, payload) {
   return http.post(`/admin/stock-selection/reviews/${encodeURIComponent(runID)}/reject`, payload);
+}
+
+export function getStrategyGraphSnapshot(snapshotID) {
+  return http.get(`/admin/strategy-graph/snapshots/${encodeURIComponent(snapshotID)}`);
+}
+
+export function queryStrategyGraphSubgraph(params) {
+  return http.get("/admin/strategy-graph/subgraph", {
+    params: buildParams(params)
+  });
 }
 
 export function retrySchedulerJobRun(id, payload) {

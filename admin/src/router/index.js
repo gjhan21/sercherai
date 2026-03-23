@@ -21,10 +21,24 @@ const MarketCenterView = () => import("../views/MarketCenterView.vue");
 const ExperimentAnalyticsView = () => import("../views/ExperimentAnalyticsView.vue");
 const StockSelectionOverviewView = () => import("../views/stock-selection/StockSelectionOverviewView.vue");
 const StockSelectionRunsView = () => import("../views/stock-selection/StockSelectionRunsView.vue");
+const StockSelectionRulesView = () => import("../views/stock-selection/StockSelectionRulesView.vue");
+const StockSelectionGraphView = () => import("../views/stock-selection/StockSelectionGraphView.vue");
+const StockSelectionRolesView = () => import("../views/stock-selection/StockSelectionRolesView.vue");
 const StockSelectionTemplatesView = () => import("../views/stock-selection/StockSelectionTemplatesView.vue");
 const StockSelectionProfilesView = () => import("../views/stock-selection/StockSelectionProfilesView.vue");
+const StockSelectionFactorsView = () => import("../views/stock-selection/StockSelectionFactorsView.vue");
 const StockSelectionCandidatesView = () => import("../views/stock-selection/StockSelectionCandidatesView.vue");
 const StockSelectionEvaluationView = () => import("../views/stock-selection/StockSelectionEvaluationView.vue");
+const FuturesSelectionOverviewView = () => import("../views/futures-selection/FuturesSelectionOverviewView.vue");
+const FuturesSelectionRunsView = () => import("../views/futures-selection/FuturesSelectionRunsView.vue");
+const FuturesSelectionRulesView = () => import("../views/futures-selection/FuturesSelectionRulesView.vue");
+const FuturesSelectionGraphView = () => import("../views/futures-selection/FuturesSelectionGraphView.vue");
+const FuturesSelectionRolesView = () => import("../views/futures-selection/FuturesSelectionRolesView.vue");
+const FuturesSelectionTemplatesView = () => import("../views/futures-selection/FuturesSelectionTemplatesView.vue");
+const FuturesSelectionProfilesView = () => import("../views/futures-selection/FuturesSelectionProfilesView.vue");
+const FuturesSelectionFactorsView = () => import("../views/futures-selection/FuturesSelectionFactorsView.vue");
+const FuturesSelectionCandidatesView = () => import("../views/futures-selection/FuturesSelectionCandidatesView.vue");
+const FuturesSelectionEvaluationView = () => import("../views/futures-selection/FuturesSelectionEvaluationView.vue");
 const RiskCenterView = () => import("../views/RiskCenterView.vue");
 const AuthSecurityView = () => import("../views/AuthSecurityView.vue");
 const SystemConfigsView = () => import("../views/SystemConfigsView.vue");
@@ -124,6 +138,30 @@ const routes = [
         meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
       },
       {
+        path: "stock-selection/rules",
+        name: "stock-selection-rules",
+        component: StockSelectionRulesView,
+        meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
+      },
+      {
+        path: "stock-selection/factors",
+        name: "stock-selection-factors",
+        component: StockSelectionFactorsView,
+        meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
+      },
+      {
+        path: "stock-selection/graph",
+        name: "stock-selection-graph",
+        component: StockSelectionGraphView,
+        meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
+      },
+      {
+        path: "stock-selection/roles",
+        name: "stock-selection-roles",
+        component: StockSelectionRolesView,
+        meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
+      },
+      {
         path: "stock-selection/templates",
         name: "stock-selection-templates",
         component: StockSelectionTemplatesView,
@@ -142,10 +180,88 @@ const routes = [
         meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
       },
       {
+        path: "stock-selection/reviews",
+        name: "stock-selection-reviews",
+        redirect: (to) => ({
+          name: "stock-selection-candidates",
+          query: to.query
+        }),
+        meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
+      },
+      {
         path: "stock-selection/evaluation",
         name: "stock-selection-evaluation",
         component: StockSelectionEvaluationView,
         meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
+      },
+      {
+        path: "futures-selection/overview",
+        name: "futures-selection-overview",
+        component: FuturesSelectionOverviewView,
+        meta: { permission: "futures_selection.view", navKey: "/futures-selection/overview" }
+      },
+      {
+        path: "futures-selection/runs",
+        name: "futures-selection-runs",
+        component: FuturesSelectionRunsView,
+        meta: { permission: "futures_selection.view", navKey: "/futures-selection/overview" }
+      },
+      {
+        path: "futures-selection/rules",
+        name: "futures-selection-rules",
+        component: FuturesSelectionRulesView,
+        meta: { permission: "futures_selection.view", navKey: "/futures-selection/overview" }
+      },
+      {
+        path: "futures-selection/factors",
+        name: "futures-selection-factors",
+        component: FuturesSelectionFactorsView,
+        meta: { permission: "futures_selection.view", navKey: "/futures-selection/overview" }
+      },
+      {
+        path: "futures-selection/graph",
+        name: "futures-selection-graph",
+        component: FuturesSelectionGraphView,
+        meta: { permission: "futures_selection.view", navKey: "/futures-selection/overview" }
+      },
+      {
+        path: "futures-selection/roles",
+        name: "futures-selection-roles",
+        component: FuturesSelectionRolesView,
+        meta: { permission: "futures_selection.view", navKey: "/futures-selection/overview" }
+      },
+      {
+        path: "futures-selection/templates",
+        name: "futures-selection-templates",
+        component: FuturesSelectionTemplatesView,
+        meta: { permission: "futures_selection.view", navKey: "/futures-selection/overview" }
+      },
+      {
+        path: "futures-selection/profiles",
+        name: "futures-selection-profiles",
+        component: FuturesSelectionProfilesView,
+        meta: { permission: "futures_selection.view", navKey: "/futures-selection/overview" }
+      },
+      {
+        path: "futures-selection/candidates",
+        name: "futures-selection-candidates",
+        component: FuturesSelectionCandidatesView,
+        meta: { permission: "futures_selection.view", navKey: "/futures-selection/overview" }
+      },
+      {
+        path: "futures-selection/reviews",
+        name: "futures-selection-reviews",
+        redirect: (to) => ({
+          name: "futures-selection-candidates",
+          query: to.query
+        }),
+        meta: { permission: "futures_selection.view", navKey: "/futures-selection/overview" }
+      },
+      {
+        path: "futures-selection/evaluation",
+        name: "futures-selection-evaluation",
+        component: FuturesSelectionEvaluationView,
+        meta: { permission: "futures_selection.view", navKey: "/futures-selection/overview" }
       },
       {
         path: "membership-center",

@@ -325,8 +325,12 @@
           v-else
           tone="info"
           eyebrow="历史档案"
-          title="暂无可展示的历史推荐"
-          description="可以先刷新历史档案，或去策略中心查看当前主推荐。"
+          :title="archiveAccessLocked ? '登录后解锁完整历史档案' : '暂无可展示的历史推荐'"
+          :description="
+            archiveAccessLocked
+              ? '当前先展示档案结构与复盘说明；登录后会自动补齐历史推荐时间线。'
+              : '可以先刷新历史档案，或去策略中心查看当前主推荐。'
+          "
           compact
         >
           <template #actions>
@@ -550,6 +554,7 @@ const versionHistoryMap = ref({});
 const selectedArchiveHistoryKeys = ref({});
 const memberStageLoading = ref(false);
 const isVIPUser = ref(false);
+const archiveAccessLocked = ref(false);
 
 const archiveRows = computed(() =>
   (rawItems.value || []).map((item, index) => {
@@ -729,6 +734,16 @@ const archiveUpgradeHint = computed(() => {
 async function loadArchive() {
   loading.value = true;
   errorMessage.value = "";
+  archiveAccessLocked.value = false;
+  if (!isLoggedIn.value) {
+    archiveAccessLocked.value = true;
+    rawItems.value = useDemoFallback ? [...fallbackRecommendations] : [];
+    insightMap.value = useDemoFallback ? { ...fallbackInsights } : {};
+    versionHistoryMap.value = {};
+    lastUpdatedAt.value = formatDateTime(new Date().toISOString());
+    loading.value = false;
+    return;
+  }
   try {
     const data = await listStockRecommendations({ page: 1, page_size: 20 });
     const items = Array.isArray(data?.items) ? data.items : [];
@@ -740,7 +755,14 @@ async function loadArchive() {
     }
     lastUpdatedAt.value = formatDateTime(new Date().toISOString());
   } catch (error) {
-    errorMessage.value = parseErrorMessage(error);
+    if (!isLoggedIn.value && isAuthBlockedError(error)) {
+      archiveAccessLocked.value = true;
+      rawItems.value = [];
+      errorMessage.value = "";
+      lastUpdatedAt.value = formatDateTime(new Date().toISOString());
+    } else {
+      errorMessage.value = parseErrorMessage(error);
+    }
   } finally {
     loading.value = false;
   }
@@ -1116,6 +1138,15 @@ function parseErrorMessage(error) {
     return error;
   }
   return error?.message || error?.response?.data?.message || "数据请求失败";
+}
+
+function isAuthBlockedError(error) {
+  const status = Number(error?.code || error?.original?.response?.status || 0);
+  const message = String(error?.message || error?.original?.response?.data?.message || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return status === 401 || message.includes("authorization") || message.includes("unauthorized");
 }
 
 onMounted(() => {

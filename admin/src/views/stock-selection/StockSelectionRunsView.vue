@@ -7,16 +7,25 @@ import {
   compareStockSelectionRuns,
   createStockSelectionRun,
   getStockSelectionRun,
+  getStrategyGraphSnapshot,
+  queryStrategyGraphSubgraph,
   listStockSelectionProfiles,
   listStockSelectionRuns
 } from "../../api/admin";
 import {
+  formatStockSelectionAssetDomain,
   formatStockSelectionDateTime,
+  formatStockSelectionGraphEntityKey,
+  formatStockSelectionGraphEntityType,
+  formatStockSelectionGraphRelationType,
+  formatStockSelectionGraphWriteStatus,
   formatStockSelectionMarketRegime,
   formatStockSelectionMode,
   formatStockSelectionPercent,
   formatStockSelectionReviewStatus,
   formatStockSelectionRunStatus,
+  formatStockSelectionSource,
+  formatStockSelectionStageDetail,
   formatStockSelectionStage,
   formatStockSelectionUniverseScope
 } from "../../lib/stock-selection";
@@ -38,6 +47,14 @@ const detailVisible = ref(false);
 const selectedRun = ref(null);
 const selectedCompareRunIDs = ref([]);
 const compareResult = ref(null);
+const graphLoading = ref(false);
+const graphErrorMessage = ref("");
+const graphSnapshot = ref(null);
+const graphSubgraphVisible = ref(false);
+const graphSubgraphLoading = ref(false);
+const graphSubgraphErrorMessage = ref("");
+const graphSubgraph = ref(null);
+const graphSubgraphEntity = ref(null);
 
 const filters = reactive({
   status: "",
@@ -55,6 +72,145 @@ function tagType(status) {
   if (normalized === "FAILED" || normalized === "REJECTED") return "danger";
   if (normalized === "RUNNING" || normalized === "PENDING") return "warning";
   return "info";
+}
+
+function getRunContext(run) {
+  return run?.context_meta && typeof run.context_meta === "object" ? run.context_meta : {};
+}
+
+function getRunGraphSnapshotID(run) {
+  return String(getRunContext(run)?.graph_snapshot_id || "").trim();
+}
+
+function getRunGraphWriteStatus(run) {
+  return String(getRunContext(run)?.graph_write_status || "").trim();
+}
+
+function getRunGraphSummary(run) {
+  return String(getRunContext(run)?.graph_summary || "").trim();
+}
+
+function getRunRelatedEntities(run) {
+  const items = getRunContext(run)?.related_entities;
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items
+    .map((item, index) => ({
+      key:
+        String(item?.entity_key || item?.label || "").trim() ||
+        `entity-${index}`,
+      entityKey: String(item?.entity_key || item?.label || "").trim(),
+      label: String(item?.label || item?.entity_key || "").trim(),
+      type: String(item?.entity_type || item?.kind || "").trim(),
+      assetDomain: String(item?.asset_domain || "").trim()
+    }))
+    .filter((item) => item.label);
+}
+
+function getRunMemoryFeedback(run) {
+  const contextFeedback = getRunContext(run)?.memory_feedback;
+  if (contextFeedback && typeof contextFeedback === "object") {
+    return {
+      summary: String(contextFeedback.summary || "").trim(),
+      suggestions: Array.isArray(contextFeedback.suggestions)
+        ? contextFeedback.suggestions
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+        : []
+    };
+  }
+  const stageLog = Array.isArray(run?.stage_logs)
+    ? run.stage_logs.find((item) => item.stage_key === "MEMORY_FEEDBACK")
+    : null;
+  return {
+    summary: String(stageLog?.detail_message || "").trim(),
+    suggestions: Array.isArray(stageLog?.payload_snapshot?.suggestions)
+      ? stageLog.payload_snapshot.suggestions
+          .map((item) => String(item || "").trim())
+          .filter(Boolean)
+      : []
+  };
+}
+
+function resetGraphSnapshot() {
+  graphLoading.value = false;
+  graphErrorMessage.value = "";
+  graphSnapshot.value = null;
+}
+
+function resetGraphSubgraph() {
+  graphSubgraphVisible.value = false;
+  graphSubgraphLoading.value = false;
+  graphSubgraphErrorMessage.value = "";
+  graphSubgraph.value = null;
+  graphSubgraphEntity.value = null;
+}
+
+async function loadGraphSnapshot(run = selectedRun.value) {
+  const snapshotID = getRunGraphSnapshotID(run);
+  if (!snapshotID) {
+    resetGraphSnapshot();
+    return;
+  }
+  graphLoading.value = true;
+  graphErrorMessage.value = "";
+  try {
+    graphSnapshot.value = await getStrategyGraphSnapshot(snapshotID);
+  } catch (error) {
+    graphSnapshot.value = null;
+    graphErrorMessage.value = error?.message || "读取图快照失败";
+  } finally {
+    graphLoading.value = false;
+  }
+}
+
+function getGraphEntityTags(snapshot) {
+  const items = Array.isArray(snapshot?.entities) ? snapshot.entities : [];
+  return items
+    .slice(0, 12)
+    .map((item, index) => ({
+      key: String(item?.entity_key || item?.label || "").trim() || `graph-entity-${index}`,
+      entityKey: String(item?.entity_key || item?.label || "").trim(),
+      label: String(item?.label || item?.entity_key || "").trim(),
+      type: String(item?.entity_type || "").trim(),
+      assetDomain: String(item?.asset_domain || "").trim()
+    }))
+    .filter((item) => item.label);
+}
+
+function getGraphRelationTags(snapshot) {
+  const items = Array.isArray(snapshot?.relations) ? snapshot.relations : [];
+  return items
+    .slice(0, 8)
+    .map((item, index) => ({
+      key: `${item?.source_key || "source"}-${item?.relation_type || "relation"}-${item?.target_key || "target"}-${index}`,
+      label: `${formatStockSelectionGraphEntityKey(item?.source_key)} ${formatStockSelectionGraphRelationType(item?.relation_type)} ${formatStockSelectionGraphEntityKey(item?.target_key)}`
+    }));
+}
+
+async function handleInspectGraphEntity(entity) {
+  if (!entity?.type || !entity?.entityKey) {
+    return;
+  }
+  graphSubgraphVisible.value = true;
+  graphSubgraphLoading.value = true;
+  graphSubgraphErrorMessage.value = "";
+  graphSubgraph.value = null;
+  graphSubgraphEntity.value = entity;
+  try {
+    graphSubgraph.value = await queryStrategyGraphSubgraph({
+      entity_type: entity.type,
+      entity_key: entity.entityKey,
+      asset_domain: entity.assetDomain || undefined,
+      depth: 2
+    });
+  } catch (error) {
+    graphSubgraph.value = null;
+    graphSubgraphErrorMessage.value = error?.message || "读取图谱子图失败";
+  } finally {
+    graphSubgraphLoading.value = false;
+  }
 }
 
 async function fetchProfiles() {
@@ -86,8 +242,11 @@ async function openRunDetail(runID) {
   }
   detailVisible.value = true;
   detailLoading.value = true;
+  resetGraphSnapshot();
+  resetGraphSubgraph();
   try {
     selectedRun.value = await getStockSelectionRun(runID);
+    await loadGraphSnapshot(selectedRun.value);
   } catch (error) {
     ElMessage.error(error?.message || "加载运行详情失败");
   } finally {
@@ -159,7 +318,10 @@ onMounted(async () => {
         <el-button v-if="canManage" type="primary" :loading="creating" @click="handleQuickRun">
           立即运行
         </el-button>
-        <el-button :disabled="selectedCompareRunIDs.length < 2" @click="handleCompare">对比选中 Run</el-button>
+        <el-button type="primary" plain @click="router.push({ name: 'stock-selection-profiles' })">
+          打开策略设计
+        </el-button>
+        <el-button :disabled="selectedCompareRunIDs.length < 2" @click="handleCompare">对比选中运行</el-button>
       </div>
     </template>
 
@@ -300,12 +462,28 @@ onMounted(async () => {
               {{ selectedRun.context_meta?.selected_trade_date || "-" }}
             </el-descriptions-item>
             <el-descriptions-item label="行情来源">
-              {{ selectedRun.context_meta?.price_source || "-" }}
+              {{ formatStockSelectionSource(selectedRun.context_meta?.price_source) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="图快照编号">
+              {{ getRunGraphSnapshotID(selectedRun) || "-" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="图写入状态">
+              {{ formatStockSelectionGraphWriteStatus(getRunGraphWriteStatus(selectedRun)) }}
             </el-descriptions-item>
             <el-descriptions-item label="结果摘要" :span="2">
               {{ selectedRun.result_summary || "-" }}
             </el-descriptions-item>
           </el-descriptions>
+
+          <div class="toolbar" style="margin-top: 12px; justify-content: flex-end; flex-wrap: wrap">
+            <el-button
+              type="primary"
+              plain
+              @click="router.push({ name: 'stock-selection-candidates', query: { run_id: selectedRun.run_id } })"
+            >
+              打开候选与审核发布
+            </el-button>
+          </div>
 
           <div class="card" style="margin-top: 12px" v-if="selectedRun.context_meta">
             <div class="card-title">上下文与过滤条件</div>
@@ -313,7 +491,7 @@ onMounted(async () => {
               <el-descriptions-item label="列表真相交易日">
                 {{ selectedRun.context_meta?.selected_trade_date || "-" }}
               </el-descriptions-item>
-              <el-descriptions-item label="listing_days 代理">
+              <el-descriptions-item label="上市天数近似过滤">
                 {{ selectedRun.context_meta?.listing_days_filter_applied === false ? "已跳过" : "已启用" }}
               </el-descriptions-item>
               <el-descriptions-item label="价格区间">
@@ -331,6 +509,87 @@ onMounted(async () => {
                 {{ selectedRun.context_meta?.universe_filters?.min_avg_turnover ?? "-" }}
               </el-descriptions-item>
             </el-descriptions>
+          </div>
+
+          <div
+            class="card"
+            style="margin-top: 12px"
+            v-if="
+              getRunGraphSnapshotID(selectedRun) ||
+              getRunGraphSummary(selectedRun) ||
+              getRunRelatedEntities(selectedRun).length ||
+              getRunMemoryFeedback(selectedRun).summary ||
+              getRunMemoryFeedback(selectedRun).suggestions.length
+            "
+          >
+            <div class="card-title">图谱快照与记忆反馈</div>
+            <div class="toolbar" style="margin-bottom: 12px; justify-content: flex-end">
+              <el-button
+                size="small"
+                :loading="graphLoading"
+                :disabled="!getRunGraphSnapshotID(selectedRun)"
+                @click="loadGraphSnapshot(selectedRun)"
+              >
+                刷新图快照
+              </el-button>
+            </div>
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item label="图快照编号">
+                {{ getRunGraphSnapshotID(selectedRun) || "-" }}
+              </el-descriptions-item>
+              <el-descriptions-item label="图写入状态">
+                {{ formatStockSelectionGraphWriteStatus(getRunGraphWriteStatus(selectedRun)) }}
+              </el-descriptions-item>
+              <el-descriptions-item label="图谱摘要" :span="2">
+                {{ getRunGraphSummary(selectedRun) || "本次运行还没有落出额外图谱摘要。" }}
+              </el-descriptions-item>
+              <el-descriptions-item label="记忆反馈" :span="2">
+                {{ getRunMemoryFeedback(selectedRun).summary || "本次运行还没有额外记忆反馈。" }}
+              </el-descriptions-item>
+              <el-descriptions-item label="下次建议" :span="2">
+                {{ getRunMemoryFeedback(selectedRun).suggestions.join("；") || "-" }}
+              </el-descriptions-item>
+              <el-descriptions-item label="节点 / 关系" :span="2">
+                {{
+                  graphSnapshot
+                    ? `${graphSnapshot.entities?.length || 0} 个节点 / ${graphSnapshot.relations?.length || 0} 条关系`
+                    : graphLoading
+                      ? "图快照加载中"
+                      : graphErrorMessage || "尚未读取图快照详情"
+                }}
+              </el-descriptions-item>
+            </el-descriptions>
+            <div class="chip-wrap" style="margin-top: 12px" v-if="getRunRelatedEntities(selectedRun).length">
+              <el-tag
+                v-for="item in getRunRelatedEntities(selectedRun)"
+                :key="item.key"
+                type="info"
+                class="clickable-chip"
+                @click="handleInspectGraphEntity(item)"
+              >
+                {{ item.label }}<template v-if="item.type"> / {{ formatStockSelectionGraphEntityType(item.type) }}</template>
+              </el-tag>
+            </div>
+            <div class="chip-wrap" style="margin-top: 12px" v-if="getGraphEntityTags(graphSnapshot).length">
+              <el-tag
+                v-for="item in getGraphEntityTags(graphSnapshot)"
+                :key="item.key"
+                type="success"
+                class="clickable-chip"
+                @click="handleInspectGraphEntity(item)"
+              >
+                {{ item.label }}<template v-if="item.type"> / {{ formatStockSelectionGraphEntityType(item.type) }}</template>
+              </el-tag>
+            </div>
+            <div class="chip-wrap" style="margin-top: 12px" v-if="getGraphRelationTags(graphSnapshot).length">
+              <el-tag
+                v-for="item in getGraphRelationTags(graphSnapshot)"
+                :key="item.key"
+                type="warning"
+              >
+                {{ item.label }}
+              </el-tag>
+            </div>
           </div>
 
           <div class="card" style="margin-top: 12px" v-if="selectedRun.compare_summary">
@@ -401,7 +660,9 @@ onMounted(async () => {
               <el-table-column prop="input_count" label="输入" min-width="80" />
               <el-table-column prop="output_count" label="输出" min-width="80" />
               <el-table-column prop="duration_ms" label="耗时(ms)" min-width="100" />
-              <el-table-column prop="detail_message" label="说明" min-width="220" />
+              <el-table-column prop="detail_message" label="说明" min-width="220">
+                <template #default="{ row }">{{ formatStockSelectionStageDetail(row.detail_message) }}</template>
+              </el-table-column>
               <el-table-column label="转化率" min-width="110">
                 <template #default="{ row }">
                   {{
@@ -412,6 +673,75 @@ onMounted(async () => {
                 </template>
               </el-table-column>
             </el-table>
+          </div>
+        </template>
+      </div>
+    </el-drawer>
+
+    <el-drawer
+      v-model="graphSubgraphVisible"
+      append-to-body
+      size="520px"
+      :title="graphSubgraphEntity ? `图谱证据：${graphSubgraphEntity.label}` : '图谱证据'"
+    >
+      <div v-loading="graphSubgraphLoading">
+        <el-alert
+          v-if="graphSubgraphErrorMessage"
+          :title="graphSubgraphErrorMessage"
+          type="error"
+          show-icon
+          style="margin-bottom: 12px"
+        />
+
+        <template v-if="graphSubgraph">
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="根实体">
+              {{ graphSubgraph.entity?.label || graphSubgraphEntity?.label || "-" }}
+              <template v-if="graphSubgraph.entity?.entity_type || graphSubgraphEntity?.type">
+                / {{ formatStockSelectionGraphEntityType(graphSubgraph.entity?.entity_type || graphSubgraphEntity?.type) }}
+              </template>
+            </el-descriptions-item>
+            <el-descriptions-item label="实体域">
+              {{ formatStockSelectionAssetDomain(graphSubgraph.entity?.asset_domain || graphSubgraphEntity?.assetDomain) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="匹配快照">
+              {{ (graphSubgraph.matched_snapshot_ids || []).join("、") || "-" }}
+            </el-descriptions-item>
+            <el-descriptions-item label="节点 / 关系">
+              {{ graphSubgraph.entities?.length || 0 }} 个节点 / {{ graphSubgraph.relations?.length || 0 }} 条关系
+            </el-descriptions-item>
+            <el-descriptions-item label="图后端">
+              {{ graphSubgraph.backend || "-" }}
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <div class="card" style="margin-top: 12px" v-if="(graphSubgraph.entities || []).length">
+            <div class="card-title">关联节点</div>
+            <div class="chip-wrap">
+              <el-tag
+                v-for="item in graphSubgraph.entities || []"
+                :key="`${item.entity_type}-${item.entity_key}`"
+                type="success"
+              >
+                {{ item.label || item.entity_key }}
+                <template v-if="item.entity_type"> / {{ formatStockSelectionGraphEntityType(item.entity_type) }}</template>
+              </el-tag>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top: 12px" v-if="(graphSubgraph.relations || []).length">
+            <div class="card-title">关联关系</div>
+            <div class="chip-wrap">
+              <el-tag
+                v-for="(item, index) in graphSubgraph.relations || []"
+                :key="`${item.source_key}-${item.relation_type}-${item.target_key}-${index}`"
+                type="warning"
+              >
+                {{ formatStockSelectionGraphEntityKey(item.source_key) }}
+                {{ formatStockSelectionGraphRelationType(item.relation_type) }}
+                {{ formatStockSelectionGraphEntityKey(item.target_key) }}
+              </el-tag>
+            </div>
           </div>
         </template>
       </div>
@@ -436,5 +766,9 @@ onMounted(async () => {
   margin-top: 10px;
   color: var(--el-text-color-regular);
   font-size: 13px;
+}
+
+.clickable-chip {
+  cursor: pointer;
 }
 </style>

@@ -38,6 +38,30 @@ def test_futures_strategy_pipeline_builds_publish_payloads() -> None:
     assert all(item.strategy.status == "PUBLISHED" for item in report.publish_payloads)
     assert all(item.guidance.entry_range for item in report.publish_payloads)
     assert report.context_meta["source"] == "sample-fallback"
+    assert report.market_regime in {"BASE", "TREND_CONTINUE", "POLICY_POSITIVE", "POLICY_NEGATIVE", "SUPPLY_SHOCK", "LIQUIDITY_SHOCK"}
+    assert len(report.stage_logs) == 8
+    assert report.graph_summary
+    assert "市场状态" in report.graph_summary
+    assert all(
+        regime not in report.graph_summary
+        for regime in ["BASE", "TREND_CONTINUE", "POLICY_POSITIVE", "POLICY_NEGATIVE", "SUPPLY_SHOCK", "LIQUIDITY_SHOCK"]
+    )
+    assert report.related_entities
+    assert any("期货状态" in (item.label or "") for item in report.related_entities)
+    assert report.graph_entities
+    assert report.graph_relations
+    assert report.memory_feedback.summary
+    assert "市场状态" in report.memory_feedback.summary
+    assert all(
+        regime not in report.memory_feedback.summary
+        for regime in ["BASE", "TREND_CONTINUE", "POLICY_POSITIVE", "POLICY_NEGATIVE", "SUPPLY_SHOCK", "LIQUIDITY_SHOCK"]
+    )
+    assert any("期货图谱增强完成" == item.detail_message for item in report.stage_logs)
+    assert any("已登记日终异步评估补写" == item.detail_message for item in report.stage_logs)
+    assert report.portfolio_entries
+    assert report.evidence_records
+    assert report.evaluation_summary["status"] == "PENDING"
+    assert report.context_meta["run_id"].startswith("futures-")
 
 
 def test_futures_feature_factory_uses_term_structure_and_turnover_confirmation() -> None:

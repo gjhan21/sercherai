@@ -19,9 +19,8 @@ const router = useRouter();
 const tabs = [
   { label: "总览", to: "/stock-selection/overview" },
   { label: "运行中心", to: "/stock-selection/runs" },
-  { label: "策略模板", to: "/stock-selection/templates" },
-  { label: "策略配置", to: "/stock-selection/profiles" },
-  { label: "候选与组合", to: "/stock-selection/candidates" },
+  { label: "策略设计", to: "/stock-selection/profiles" },
+  { label: "候选与审核发布", to: "/stock-selection/candidates" },
   { label: "评估复盘", to: "/stock-selection/evaluation" }
 ];
 

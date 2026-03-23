@@ -1558,6 +1558,10 @@ func (r *InMemoryGrowthRepo) AdminUpdateUserKYCStatus(id string, kycStatus strin
 	return nil
 }
 
+func (r *InMemoryGrowthRepo) AdminResetUserPasswordHash(id string, passwordHash string) error {
+	return nil
+}
+
 func (r *InMemoryGrowthRepo) AdminDashboardOverview() (model.AdminDashboardOverview, error) {
 	return model.AdminDashboardOverview{
 		TotalUsers:              1200,
@@ -1842,7 +1846,7 @@ func (r *InMemoryGrowthRepo) AdminListDataSourceHealthLogs(sourceKey string, pag
 
 func inMemoryDataSourceExists(sourceKey string) bool {
 	switch strings.ToLower(strings.TrimSpace(sourceKey)) {
-	case "wind", "ds_new_001", "mock_stock", "tushare":
+	case "wind", "ds_new_001", "mock_stock", "tushare", "akshare", "tickermd", "myself":
 		return true
 	default:
 		return false
@@ -1854,6 +1858,8 @@ func (r *InMemoryGrowthRepo) AdminListSystemConfigs(keyword string, page int, pa
 		{ID: "cfg_stock_model", ConfigKey: "stock.model.version", ConfigValue: "v1", Description: "股票推荐模型版本", UpdatedBy: "system", UpdatedAt: "2026-02-25T00:00:00+08:00"},
 		{ID: "cfg_futures_model", ConfigKey: "futures.model.version", ConfigValue: "v1", Description: "期货策略模型版本", UpdatedBy: "system", UpdatedAt: "2026-02-25T00:00:00+08:00"},
 		{ID: "cfg_stock_quotes_default_source", ConfigKey: "stock.quotes.default_source_key", ConfigValue: "TUSHARE", Description: "股票行情默认数据源", UpdatedBy: "system", UpdatedAt: "2026-02-28T00:00:00+08:00"},
+		{ID: "cfg_market_instrument_stock_priority", ConfigKey: marketInstrumentStockPriorityConfigKey, ConfigValue: "TUSHARE,AKSHARE,TICKERMD,MYSELF,MOCK", Description: "股票主数据多源优先级", UpdatedBy: "system", UpdatedAt: "2026-03-22T00:00:00+08:00"},
+		{ID: "cfg_market_instrument_futures_priority", ConfigKey: marketInstrumentFuturesPriorityConfigKey, ConfigValue: "TUSHARE,AKSHARE,TICKERMD,MYSELF,MOCK", Description: "期货主数据多源优先级", UpdatedBy: "system", UpdatedAt: "2026-03-22T00:00:00+08:00"},
 	}
 	return items, len(items), nil
 }

@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import { login, mockLogin } from "../api/auth";
 import { getAccessProfile } from "../api/admin";
 import { resolveFirstAccessibleRoute } from "../lib/admin-navigation";
-import { clearSession, saveSession } from "../lib/session";
+import { clearSession, formatSessionRole, saveSession } from "../lib/session";
 
 const router = useRouter();
 const submitting = ref(false);
@@ -67,7 +67,7 @@ async function handleSubmit() {
     }
 
     if ((payload.role || "").toUpperCase() !== "ADMIN") {
-      throw new Error("当前账号不是 ADMIN 角色");
+      throw new Error("当前账号不是管理员角色");
     }
 
     // Persist the access token first so the profile request can attach Authorization.
@@ -142,7 +142,7 @@ async function handleSubmit() {
           </el-form-item>
           <el-form-item label="角色">
             <el-select v-model="form.role">
-              <el-option label="ADMIN" value="ADMIN" />
+              <el-option :label="formatSessionRole('ADMIN')" value="ADMIN" />
             </el-select>
           </el-form-item>
         </template>

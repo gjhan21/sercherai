@@ -33,28 +33,30 @@ class JobRunner:
         logger.info("job started", extra={"job_id": job_id, "job_type": record.job_type})
 
         try:
-            result = self._dispatch(record.job_type, record.payload)
+            result = self._dispatch(job_id, record.job_type, record.payload)
             self._store.mark_succeeded(job_id, result)
             logger.info("job finished", extra={"job_id": job_id, "job_type": record.job_type})
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.exception("job failed: %s", job_id)
             self._store.mark_failed(job_id, str(exc))
 
-    def _dispatch(self, job_type: str, payload: dict) -> JobResult:
+    def _dispatch(self, job_id: str, job_type: str, payload: dict) -> JobResult:
+        enriched_payload = dict(payload)
+        enriched_payload.setdefault("run_id", job_id)
         if job_type == "stock-selection":
-            report, warnings = self._stock_selection_pipeline.run(payload)
+            report, warnings = self._stock_selection_pipeline.run(enriched_payload)
             return JobResult(
                 summary=f"stock-selection completed with {report.selected_count} publish-ready candidates",
-                payload_echo=payload,
+                payload_echo=enriched_payload,
                 artifacts={"report": report.model_dump(mode="json")},
                 warnings=warnings,
             )
 
         if job_type == "futures-strategy":
-            report, warnings = self._futures_strategy_pipeline.run(payload)
+            report, warnings = self._futures_strategy_pipeline.run(enriched_payload)
             return JobResult(
                 summary=f"futures-strategy completed with {report.selected_count} publish-ready strategies",
-                payload_echo=payload,
+                payload_echo=enriched_payload,
                 artifacts={"report": report.model_dump(mode="json")},
                 warnings=warnings,
             )
@@ -64,5 +66,5 @@ class JobRunner:
 
         return JobResult(
             summary=f"{job_type} phase-1 pipeline accepted and simulated successfully",
-            payload_echo=payload,
+            payload_echo=enriched_payload,
         )

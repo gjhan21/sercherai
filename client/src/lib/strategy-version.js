@@ -2,6 +2,50 @@ function toText(value) {
   return String(value || "").trim();
 }
 
+function normalizeStrategyDiffTextList(items, limit = 4) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  const deduped = [];
+  const seen = new Set();
+  items.forEach((item) => {
+    const text = toText(item);
+    if (!text || seen.has(text)) {
+      return;
+    }
+    seen.add(text);
+    deduped.push(text);
+  });
+  return deduped.slice(0, limit);
+}
+
+function normalizeStrategyVersionDiff(raw) {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const added = normalizeStrategyDiffTextList(raw.added);
+  const removed = normalizeStrategyDiffTextList(raw.removed);
+  const promoted = normalizeStrategyDiffTextList(raw.promoted);
+  const downgradeReasons = normalizeStrategyDiffTextList(raw.downgrade_reasons, 3);
+  const summary = toText(raw.summary);
+  const currentAssetChange = toText(raw.current_asset_change).toUpperCase();
+  const comparePublishID = toText(raw.compare_publish_id);
+  const compareVersion = Number(raw.compare_version || 0);
+  if (!summary && !comparePublishID && compareVersion <= 0 && added.length === 0 && removed.length === 0 && promoted.length === 0 && downgradeReasons.length === 0 && !currentAssetChange) {
+    return null;
+  }
+  return {
+    added,
+    removed,
+    promoted,
+    downgradeReasons,
+    summary,
+    currentAssetChange,
+    comparePublishID,
+    compareVersion
+  };
+}
+
 function truncateStrategyText(value, maxLength = 12) {
   const text = toText(value);
   if (!text || text.length <= maxLength) {
@@ -25,7 +69,13 @@ function formatStrategyMarketRegime(value) {
       ROTATION: "轮动切换",
       EVENT_DRIVEN: "事件驱动",
       DEFENSIVE: "防御修复",
-      RISK_OFF: "风险回避"
+      RISK_OFF: "风险回避",
+      BASE: "基准情景",
+      TREND_CONTINUE: "趋势延续",
+      POLICY_POSITIVE: "政策利多",
+      POLICY_NEGATIVE: "政策扰动",
+      SUPPLY_SHOCK: "供给冲击",
+      LIQUIDITY_SHOCK: "流动性冲击"
     }[toText(value).toUpperCase()] || toText(value)
   );
 }
@@ -47,6 +97,45 @@ function firstEvidenceNote(explanation) {
   return firstMeaningfulStrategyText(
     explanation.evidence_cards.flatMap((item) => [item?.note, item?.value]).filter(Boolean)
   );
+}
+
+export function buildStrategyRelatedEntities(explanation, options = {}) {
+  const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 4;
+  if (!Array.isArray(explanation?.related_entities)) {
+    return [];
+  }
+  const result = [];
+  const seen = new Set();
+  explanation.related_entities.forEach((item) => {
+    const label = toText(item?.label || item?.entity_key);
+    if (!label || seen.has(label)) {
+      return;
+    }
+    seen.add(label);
+    result.push(label);
+  });
+  return result.slice(0, limit);
+}
+
+export function buildStrategyMemoryFeedbackText(explanation, fallback = "") {
+  return firstMeaningfulStrategyText([
+    explanation?.memory_feedback?.summary,
+    firstMeaningfulStrategyText(explanation?.memory_feedback?.suggestions),
+    fallback
+  ]);
+}
+
+export function buildStrategyProofSourceText(explanation, fallback = "") {
+  const relatedEntities = buildStrategyRelatedEntities(explanation, { limit: 3 });
+  const relatedText = relatedEntities.length ? `关联 ${relatedEntities.join(" / ")}` : "";
+  return firstMeaningfulStrategyText([
+    firstEvidenceNote(explanation),
+    relatedText,
+    explanation?.consensus_summary,
+    explanation?.graph_summary,
+    buildStrategyMemoryFeedbackText(explanation),
+    fallback
+  ]);
 }
 
 export function buildStrategyRiskBoundaryText(explanation, fallback = "") {
@@ -102,11 +191,7 @@ export function buildStrategyEvaluationText(explanation) {
 export function buildStrategyInsightSections(explanation, fallback = "") {
   return {
     whyNow: buildStrategySummaryText(explanation, fallback),
-    proofSource: firstMeaningfulStrategyText([
-      firstEvidenceNote(explanation),
-      explanation?.consensus_summary,
-      explanation?.graph_summary
-    ]),
+    proofSource: buildStrategyProofSourceText(explanation, fallback),
     riskBoundary: buildStrategyRiskBoundaryText(explanation, "当前未补更多风险边界。"),
     evaluation: buildStrategyEvaluationText(explanation)
   };
@@ -144,6 +229,7 @@ export function buildStrategySummaryText(explanation, fallback = "") {
   return firstMeaningfulStrategyText([
     explanation?.confidence_reason,
     firstEvidenceNote(explanation),
+    buildStrategyMemoryFeedbackText(explanation),
     explanation?.consensus_summary,
     explanation?.graph_summary,
     fallback
@@ -202,6 +288,7 @@ export function buildStrategyProofTags(explanation, options = {}) {
   const marketRegimeText = formatStrategyMarketRegime(explanation.market_regime);
   const portfolioRoleText = formatStrategyPortfolioRole(explanation.portfolio_role);
   const themeText = firstMeaningfulStrategyText(explanation.theme_tags);
+  const relatedEntityText = firstMeaningfulStrategyText(buildStrategyRelatedEntities(explanation, { limit: 1 }));
   const evaluationText = buildStrategyEvaluationText(explanation);
 
   if (includeSeedCount && Number.isFinite(seedCount) && seedCount > 0) {
@@ -224,6 +311,9 @@ export function buildStrategyProofTags(explanation, options = {}) {
   }
   if (themeText) {
     tags.push(`题材 ${truncateStrategyText(themeText, 10)}`);
+  }
+  if (relatedEntityText) {
+    tags.push(`关联 ${truncateStrategyText(relatedEntityText, 10)}`);
   }
   if (evaluationText) {
     tags.push(evaluationText);
@@ -325,6 +415,7 @@ export function mapStrategyVersionHistory(items, formatDateTime, options = {}) {
         recordReason: item?.confidence_reason || item?.reason_summary || "",
         publishVersion: Number(item?.publish_version || 0),
         tradeDate: item?.trade_date || "",
+        versionDiff: normalizeStrategyVersionDiff(item?.version_diff),
         note: [
           item?.confidence_reason || item?.reason_summary || "当前版本未补更多摘要。",
           formatStrategyMarketRegime(item?.market_regime),
@@ -407,6 +498,7 @@ export function buildStrategyVersionDiff(config = {}) {
   if (!explanation) {
     return null;
   }
+  const structuredDiff = normalizeStrategyVersionDiff(config.versionDiff || explanation?.version_diff);
   const recordReason = toText(config.recordReason);
   const afterReason = toText(explanation.confidence_reason || recordReason);
   const fallbackRecordLabel = toText(config.fallbackRecordLabel) || "record";
@@ -439,6 +531,42 @@ export function buildStrategyVersionDiff(config = {}) {
     metaParts.push(batchText);
   }
 
+  if (structuredDiff) {
+    const diffParts = [];
+    if (structuredDiff.summary) {
+      diffParts.push(structuredDiff.summary);
+    }
+    if (structuredDiff.added.length) {
+      diffParts.push(`新增 ${structuredDiff.added.join("、")}`);
+    }
+    if (structuredDiff.removed.length) {
+      diffParts.push(`移除 ${structuredDiff.removed.join("、")}`);
+    }
+    if (structuredDiff.promoted.length) {
+      diffParts.push(`上调优先级 ${structuredDiff.promoted.join("、")}`);
+    }
+    if (structuredDiff.downgradeReasons.length) {
+      diffParts.push(`下降原因 ${structuredDiff.downgradeReasons.join("；")}`);
+    }
+    let diffLabel = "版本差异";
+    if (structuredDiff.currentAssetChange === "ADDED") {
+      diffLabel = "新增";
+    } else if (structuredDiff.currentAssetChange === "PROMOTED") {
+      diffLabel = "上调优先级";
+    } else if (structuredDiff.currentAssetChange === "WEAKENED") {
+      diffLabel = "下降原因";
+    }
+    return {
+      meta: metaParts.join(" · "),
+      beforeLabel: beforeVersion,
+      beforeNote: recordReason || "记录版本未补更多摘要。",
+      afterLabel: afterVersion,
+      afterNote: afterReason || "当前 explanation 未补更多摘要。",
+      diffLabel,
+      diffNote: diffParts.filter(Boolean).join(" · ") || [regimeText, riskNote].filter(Boolean).join(" · ")
+    };
+  }
+
   return {
     meta: metaParts.join(" · "),
     beforeLabel: beforeVersion,
@@ -455,6 +583,11 @@ export function buildStrategyHistoryCompareState(config = {}) {
   const fallbackItem = config.fallbackItem || historyItems[0] || null;
   const selectedItem = findSelectedStrategyHistoryItem(historyItems, config.selectedKey, fallbackItem);
   const explanation = config.explanation;
+  const explanationPublishVersion = Number(explanation?.publish_version || 0);
+  const selectedVersionDiff =
+    selectedItem && explanationPublishVersion > 0 && selectedItem.publishVersion === explanationPublishVersion - 1
+      ? explanation?.version_diff || selectedItem.versionDiff
+      : selectedItem?.versionDiff;
   return {
     selectedItem,
     selectedKey: selectedItem?.key || "",
@@ -472,7 +605,8 @@ export function buildStrategyHistoryCompareState(config = {}) {
             upgradedText: config.upgradedText,
             reasonChangedText: config.reasonChangedText,
             versionChangedText: config.versionChangedText,
-            includeJobInMeta: config.includeJobInMeta
+            includeJobInMeta: config.includeJobInMeta,
+            versionDiff: selectedVersionDiff
           })
         : null
   };

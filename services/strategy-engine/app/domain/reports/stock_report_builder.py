@@ -16,6 +16,7 @@ from app.schemas.stock import (
     StockSelectionReport,
     StockStageLog,
 )
+from app.schemas.research import MemoryFeedback, ResearchGraphSnapshot
 
 
 class StockReportBuilder:
@@ -35,6 +36,8 @@ class StockReportBuilder:
         evaluation_records: list[StockEvaluationRecord] | None = None,
         candidate_snapshots: list[StockCandidateSnapshot] | None = None,
         watchlist: list[StockFeature] | None = None,
+        graph_snapshot: ResearchGraphSnapshot | None = None,
+        memory_feedback: MemoryFeedback | None = None,
     ) -> StockSelectionReport:
         trade_date = payload.trade_date or datetime.now().strftime("%Y-%m-%d")
         valid_from = f"{trade_date}T00:00:00Z"
@@ -130,15 +133,16 @@ class StockReportBuilder:
         universe_count = stage_counts.get("UNIVERSE", 0)
         seed_pool_count = stage_counts.get("SEED_POOL", 0)
         candidate_count = stage_counts.get("CANDIDATE_POOL", 0)
+        market_regime_label = _market_regime_label(market_regime)
         report_summary = (
-            f"本次处于 {market_regime} 市场状态，从 {universe_count} 只股票池经 {seed_pool_count} 只种子池、"
+            f"本次处于 {market_regime_label}，从 {universe_count} 只股票池经 {seed_pool_count} 只种子池、"
             f"{candidate_count} 只候选池，最终形成 {len(candidates)} 只可发布组合，并保留 {len(watchlist)} 只观察名单。"
         )
         if warnings:
             report_summary = f"{report_summary} 风控提醒：{'；'.join(warnings)}"
 
         risk_summary = (
-            f"市场状态 {market_regime}；LOW {risk_counter['LOW']} / MEDIUM {risk_counter['MEDIUM']} / HIGH {risk_counter['HIGH']}；"
+            f"市场状态 {market_regime_label}；低风险 {risk_counter['LOW']} / 中风险 {risk_counter['MEDIUM']} / 高风险 {risk_counter['HIGH']}；"
             f"观察名单 {len(watchlist)}"
         )
         return StockSelectionReport(
@@ -147,8 +151,14 @@ class StockReportBuilder:
             risk_summary=risk_summary,
             selected_count=len(candidates),
             market_regime=market_regime,
+            graph_snapshot_id=graph_snapshot.snapshot_id if graph_snapshot else "",
+            graph_summary=graph_snapshot.summary if graph_snapshot else "",
             template_snapshot=template_snapshot or {},
             evaluation_summary=evaluation_summary or {},
+            related_entities=list(graph_snapshot.related_entities) if graph_snapshot else [],
+            graph_entities=list(graph_snapshot.entities) if graph_snapshot else [],
+            graph_relations=list(graph_snapshot.relations) if graph_snapshot else [],
+            memory_feedback=memory_feedback or MemoryFeedback(),
             stage_counts=stage_counts,
             stage_durations_ms=stage_durations_ms or {},
             stage_logs=stage_logs or [],
@@ -201,7 +211,7 @@ def _strategy_version(payload: StockSelectionPayload, market_regime: str) -> str
 
 
 def _item_risk_summary(item: StockFeature) -> str:
-    parts = [f"风险级别 {item.risk_level}", f"波动率 {item.volatility20:.2f}%", f"回撤 {item.drawdown20:.2f}%"]
+    parts = [f"风险级别 {_risk_level_label(item.risk_level)}", f"波动率 {item.volatility20:.2f}%", f"回撤 {item.drawdown20:.2f}%"]
     if item.risk_flags:
         parts.append("风险旗标 " + " / ".join(item.risk_flags[:2]))
     return "；".join(parts)
@@ -213,3 +223,21 @@ def _sector_tags(item: StockFeature) -> list[str]:
 
 def _portfolio_role_for_index(index: int) -> str:
     return "CORE" if index <= 2 else "SATELLITE"
+
+
+def _market_regime_label(value: str) -> str:
+    return {
+        "UPTREND": "上升趋势",
+        "ROTATION": "轮动切换",
+        "EVENT_DRIVEN": "事件驱动",
+        "DEFENSIVE": "防御修复",
+        "RISK_OFF": "风险回避",
+    }.get(str(value or "").strip().upper(), value)
+
+
+def _risk_level_label(value: str) -> str:
+    return {
+        "LOW": "低风险",
+        "MEDIUM": "中风险",
+        "HIGH": "高风险",
+    }.get(str(value or "").strip().upper(), value)

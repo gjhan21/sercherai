@@ -24,8 +24,8 @@ def test_stock_universe_builder_dedupes_and_respects_explicit_exclusion() -> Non
 
     assert [item.symbol for item in result.seeds] == ["600519.SH"]
     assert result.meta["universe_count"] == 1
-    assert any("excluded" in item for item in result.warnings)
-    assert any("duplicated" in item for item in result.warnings)
+    assert any("显式排除列表过滤" in item for item in result.warnings)
+    assert any("重复股票" in item for item in result.warnings)
 
 
 def test_stock_universe_builder_skips_listing_days_when_go_context_disables_proxy() -> None:
@@ -45,7 +45,7 @@ def test_stock_universe_builder_skips_listing_days_when_go_context_disables_prox
             meta={
                 "selected_trade_date": "2026-03-20",
                 "listing_days_filter_applied": False,
-                "warnings": ["auto universe skipped min_listing_days proxy because stock truth coverage is only 129 days"],
+                "warnings": ["自动股票池因本地行情覆盖仅 129 天，已跳过上市天数代理过滤"],
             },
         ),
     )

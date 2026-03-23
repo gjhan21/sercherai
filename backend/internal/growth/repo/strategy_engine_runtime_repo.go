@@ -16,6 +16,9 @@ const (
 )
 
 func (r *MySQLGrowthRepo) AdminListStrategyScenarioTemplates(targetType string, status string, page int, pageSize int) ([]model.StrategyScenarioTemplate, int, error) {
+	if err := r.ensureStrategyScenarioTemplatesMaterialized(targetType); err != nil {
+		return nil, 0, err
+	}
 	items, err := r.listStrategyScenarioTemplatesAll()
 	if err != nil {
 		return nil, 0, err
@@ -111,6 +114,9 @@ func (r *MySQLGrowthRepo) AdminUpdateStrategyPublishPolicy(id string, item model
 }
 
 func (r *MySQLGrowthRepo) ResolveActiveStrategyScenarioTemplate(targetType string) (*model.StrategyScenarioTemplate, error) {
+	if err := r.ensureStrategyScenarioTemplatesMaterialized(targetType); err != nil {
+		return nil, err
+	}
 	items, err := r.listStrategyScenarioTemplatesAll()
 	if err != nil {
 		return nil, err
@@ -122,7 +128,96 @@ func (r *MySQLGrowthRepo) ResolveActiveStrategyScenarioTemplate(targetType strin
 			return &cloned, nil
 		}
 	}
-	return nil, nil
+	fallback := builtInStrategyScenarioTemplate(targetType)
+	if fallback == nil {
+		return nil, nil
+	}
+	cloned := *fallback
+	return &cloned, nil
+}
+
+func (r *MySQLGrowthRepo) ensureStrategyScenarioTemplatesMaterialized(targetType string) error {
+	items, err := r.listStrategyScenarioTemplatesAll()
+	if err != nil {
+		return err
+	}
+	activeDefaults := make(map[string]bool, len(items))
+	for _, item := range items {
+		if item.Status == "ACTIVE" && item.IsDefault {
+			activeDefaults[item.TargetType] = true
+		}
+	}
+	for _, requiredTarget := range strategyScenarioTemplateTargetsForBootstrap(targetType) {
+		if activeDefaults[requiredTarget] {
+			continue
+		}
+		builtIn := builtInStrategyScenarioTemplate(requiredTarget)
+		if builtIn == nil {
+			continue
+		}
+		builtIn.UpdatedBy = strategyBuiltInPolicyOperator
+		if err := r.persistStrategyConfig(strategyScenarioTemplateConfigPrefix+builtIn.ID, builtIn, builtIn.Description, strategyBuiltInPolicyOperator); err != nil {
+			return err
+		}
+		activeDefaults[requiredTarget] = true
+	}
+	return nil
+}
+
+func strategyScenarioTemplateTargetsForBootstrap(targetType string) []string {
+	targetType = strings.ToUpper(strings.TrimSpace(targetType))
+	switch targetType {
+	case "STOCK":
+		return []string{"STOCK"}
+	case "FUTURES":
+		return []string{"FUTURES"}
+	case "", "ALL":
+		return []string{"STOCK", "FUTURES"}
+	default:
+		return []string{"STOCK", "FUTURES"}
+	}
+}
+
+func builtInStrategyScenarioTemplate(targetType string) *model.StrategyScenarioTemplate {
+	targetType = strings.ToUpper(strings.TrimSpace(targetType))
+	switch targetType {
+	case "STOCK":
+		return &model.StrategyScenarioTemplate{
+			ID:         "scenario_default_stock",
+			Name:       "股票四象限模板",
+			TargetType: "STOCK",
+			Status:     "ACTIVE",
+			IsDefault:  true,
+			Items: []model.StrategyScenarioTemplateItem{
+				{Scenario: "bull", Label: "进攻", ThesisTemplate: "景气扩散与资金跟随，趋势继续强化。", Action: "加仓", RiskSignal: "低", ScoreBias: 0},
+				{Scenario: "base", Label: "常态", ThesisTemplate: "维持当前节奏，等待下一轮验证。", Action: "持有", RiskSignal: "中", ScoreBias: 0},
+				{Scenario: "bear", Label: "收缩", ThesisTemplate: "市场回撤导致估值与情绪压缩。", Action: "减仓", RiskSignal: "中高", ScoreBias: 0},
+				{Scenario: "shock", Label: "防守", ThesisTemplate: "黑天鹅或流动性冲击下先保命。", Action: "回避", RiskSignal: "高", ScoreBias: 0},
+			},
+			Description: "系统自动落库的股票默认场景模板，可在后台继续编辑与审计。",
+			UpdatedBy:   "system",
+		}
+	case "FUTURES":
+		return &model.StrategyScenarioTemplate{
+			ID:         "scenario_default_futures",
+			Name:       "期货六世界模板",
+			TargetType: "FUTURES",
+			Status:     "ACTIVE",
+			IsDefault:  true,
+			Items: []model.StrategyScenarioTemplateItem{
+				{Scenario: "base", Label: "常态", ThesisTemplate: "主线逻辑延续但尚未出现强加速，继续跟踪基差、库存与持仓确认。", Action: "观察", RiskSignal: "中", ScoreBias: 0},
+				{Scenario: "trend_continue", Label: "趋势延续", ThesisTemplate: "趋势、持仓与成交同步确认，顺势策略仍可延展。", Action: "顺势跟进", RiskSignal: "中低", ScoreBias: 0},
+				{Scenario: "policy_positive", Label: "政策利多", ThesisTemplate: "政策边际改善强化需求或风险偏好，优先验证资金是否跟随。", Action: "择机加仓", RiskSignal: "中", ScoreBias: 0},
+				{Scenario: "policy_negative", Label: "政策压制", ThesisTemplate: "监管或政策扰动压制预期，需要收缩仓位并重估胜率。", Action: "降杠杆", RiskSignal: "中高", ScoreBias: 0},
+				{Scenario: "supply_shock", Label: "供给冲击", ThesisTemplate: "供给侧扰动抬升波动，关注库存、升贴水和跨品种传导。", Action: "事件驱动", RiskSignal: "高", ScoreBias: 0},
+				{Scenario: "liquidity_shock", Label: "流动性冲击", ThesisTemplate: "流动性恶化或风险偏好骤降，优先控制回撤与滑点风险。", Action: "防守回避", RiskSignal: "高", ScoreBias: 0},
+			},
+			Description: "系统自动落库的期货默认场景模板，可在后台继续编辑与审计。",
+			UpdatedBy:   "system",
+		}
+	default:
+		return nil
+	}
 }
 
 func (r *MySQLGrowthRepo) ResolveActiveStrategyPublishPolicy(targetType string) (*model.StrategyPublishPolicy, error) {

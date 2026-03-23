@@ -43,6 +43,11 @@ func (r *MySQLGrowthRepo) AdminGetStockSelectionOverview() (model.AdminStockSele
 	if leaderboardErr != nil {
 		warnings = append(warnings, fmt.Sprintf("智能选股评估榜单加载失败: %v", leaderboardErr))
 	}
+	evaluationSummaryV2, evaluationSummaryV2Err := r.loadStockSelectionOverviewEvaluationSummary()
+	if evaluationSummaryV2Err != nil {
+		warnings = append(warnings, fmt.Sprintf("智能选股评估摘要加载失败: %v", evaluationSummaryV2Err))
+		evaluationSummaryV2 = map[string]any{}
+	}
 
 	dataFreshness := map[string]any{}
 	latestTradeDate := ""
@@ -82,12 +87,7 @@ func (r *MySQLGrowthRepo) AdminGetStockSelectionOverview() (model.AdminStockSele
 			"market_regime_bias":    defaultTemplate.MarketRegimeBias,
 		}
 	}
-	evaluationSummaryV2 := map[string]any{
-		"leaderboard_items": leaderboard,
-	}
-	for key, value := range evaluationSummary {
-		evaluationSummaryV2[key] = value
-	}
+	evaluationSummaryV2["leaderboard_items"] = leaderboard
 
 	return model.AdminStockSelectionOverview{
 		DefaultProfile:          defaultProfile,
@@ -770,6 +770,7 @@ func (r *MySQLGrowthRepo) persistCompletedStockSelectionRun(
 	if resultSummary == "" {
 		resultSummary = fmt.Sprintf("stock-selection completed with %d publish-ready candidates", report.SelectedCount)
 	}
+	contextMeta := buildStockSelectionRunContextMeta(report)
 	if _, err = tx.Exec(`
 UPDATE stock_selection_runs
 SET job_id = ?,
@@ -799,7 +800,7 @@ WHERE run_id = ?`,
 		report.StageCounts["CANDIDATE_POOL"],
 		report.SelectedCount,
 		strings.TrimSpace(report.MarketRegime),
-		stockSelectionMustJSON(report.ContextMeta),
+		stockSelectionMustJSON(contextMeta),
 		stockSelectionMustJSON(report.TemplateSnapshot),
 		stockSelectionMustJSON(buildStockSelectionCompareSummary(nil, report.PortfolioEntries)),
 		startedAt,
@@ -1147,6 +1148,26 @@ func parseJSONMap(text string) map[string]any {
 		return map[string]any{}
 	}
 	return payload
+}
+
+func buildStockSelectionRunContextMeta(report strategyEngineStockSelectionReport) map[string]any {
+	result := make(map[string]any, len(report.ContextMeta)+4)
+	for key, value := range report.ContextMeta {
+		result[key] = value
+	}
+	if strings.TrimSpace(report.GraphSummary) != "" {
+		result["graph_summary"] = strings.TrimSpace(report.GraphSummary)
+	}
+	if strings.TrimSpace(report.GraphSnapshotID) != "" {
+		result["graph_snapshot_id"] = strings.TrimSpace(report.GraphSnapshotID)
+	}
+	if len(report.RelatedEntities) > 0 {
+		result["related_entities"] = report.RelatedEntities
+	}
+	if len(report.MemoryFeedback) > 0 {
+		result["memory_feedback"] = report.MemoryFeedback
+	}
+	return result
 }
 
 func parseJSONStringList(text string) []string {

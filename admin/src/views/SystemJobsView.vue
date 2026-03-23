@@ -18,6 +18,11 @@ import {
   updateSchedulerJobDefinition,
   updateSchedulerJobDefinitionStatus
 } from "../api/admin";
+import {
+  buildSchedulerDefinitionCreateOptions,
+  buildSchedulerDefinitionOptions,
+  validateSchedulerDefinitionJobName
+} from "../lib/system-jobs-admin";
 import { getAccessToken, hasPermission } from "../lib/session";
 
 const metricsLoading = ref(false);
@@ -319,39 +324,12 @@ const filteredJobFailureReasons = computed(() => {
 });
 
 const definitionJobOptions = computed(() => {
-  const optionMap = {};
-  (supportedJobOptions.value || []).forEach((item) => {
-    const jobName = String(item?.job_name || "").trim();
-    if (!jobName) {
-      return;
-    }
-    optionMap[jobName] = {
-      job_name: jobName,
-      display_name: String(item?.display_name || "").trim() || formatJobName(jobName),
-      module: String(item?.module || "").trim().toUpperCase(),
-      alias_of: String(item?.alias_of || "").trim()
-    };
-  });
-  (definitions.value || []).forEach((item) => {
-    const jobName = String(item?.job_name || "").trim();
-    if (!jobName || optionMap[jobName]) {
-      return;
-    }
-    optionMap[jobName] = {
-      job_name: jobName,
-      display_name: String(item?.display_name || "").trim() || formatJobName(jobName),
-      module: String(item?.module || "").trim().toUpperCase(),
-      alias_of: ""
-    };
-  });
-  return Object.values(optionMap).sort((a, b) => {
-    const moduleCompare = String(a.module || "").localeCompare(String(b.module || ""), "zh-Hans-CN");
-    if (moduleCompare !== 0) {
-      return moduleCompare;
-    }
-    return String(a.job_name || "").localeCompare(String(b.job_name || ""), "zh-Hans-CN");
-  });
+  return buildSchedulerDefinitionOptions(supportedJobOptions.value, definitions.value);
 });
+
+const definitionCreateJobOptions = computed(() =>
+  buildSchedulerDefinitionCreateOptions(supportedJobOptions.value, definitions.value)
+);
 
 const definitionCronPreview = computed(() => buildDefinitionCronExpression());
 
@@ -986,6 +964,15 @@ async function submitDefinition() {
   };
   if (!payload.job_name || !payload.display_name || !payload.cron_expr) {
     errorMessage.value = "任务编码/任务名称/调度表达式不能为空";
+    return;
+  }
+  const jobNameError = validateSchedulerDefinitionJobName(
+    payload.job_name,
+    definitions.value,
+    definitionFormMode.value === "edit" ? definitionForm.id : ""
+  );
+  if (jobNameError) {
+    errorMessage.value = jobNameError;
     return;
   }
   definitionForm.cron_expr = payload.cron_expr;
@@ -2492,18 +2479,24 @@ onMounted(refreshAll);
             <el-select
               v-model="definitionForm.job_name"
               filterable
+              allow-create
+              default-first-option
+              reserve-keyword
               clearable
               :loading="supportedJobsLoading"
               :disabled="definitionFormMode === 'edit'"
-              placeholder="请选择系统支持的任务"
+              placeholder="请选择系统支持的任务，或输入自定义任务编码"
             >
               <el-option
-                v-for="item in definitionJobOptions"
+                v-for="item in definitionFormMode === 'create' ? definitionCreateJobOptions : definitionJobOptions"
                 :key="item.job_name"
-                :label="`${item.display_name} [${formatModule(item.module)}] (${item.job_name})${item.alias_of ? ` · 别名→${item.alias_of}` : ''}`"
+                :label="`${item.display_name} [${formatModule(item.module)}] (${item.job_name})${item.alias_of ? ` · 别名→${item.alias_of}` : ''}${item.used ? ' · 已配置' : ''}`"
                 :value="item.job_name"
               />
             </el-select>
+          </el-form-item>
+          <el-form-item v-if="definitionFormMode === 'create' && !definitionCreateJobOptions.length" label="任务编码提示">
+            <el-text type="info">系统内置任务已全部配置，可直接输入自定义任务编码创建新定义。</el-text>
           </el-form-item>
           <el-form-item v-if="definitionFormMode === 'edit'" label="任务编码说明">
             <el-text type="info">编辑模式下任务编码不可修改，如需更换请删除后重新创建。</el-text>

@@ -12,6 +12,7 @@ from app.domain.decision.stock_decision_fusion import StockDecisionFusion
 from app.domain.features.futures_feature_factory import FuturesFeatureFactory
 from app.domain.features.stock_feature_factory import StockFeatureFactory
 from app.domain.graph.market_graph_builder import MarketGraphBuilder
+from app.domain.graph.strategy_graph_client import StrategyGraphClient
 from app.domain.pipelines.futures_strategy_pipeline import FuturesStrategyPipeline
 from app.domain.pipelines.stock_selection_pipeline import StockSelectionPipeline
 from app.domain.publish.go_backend_publisher import GoBackendPublisher
@@ -55,6 +56,7 @@ def get_container() -> Container:
     job_store = InMemoryJobStore()
     publish_store = InMemoryPublishStore()
     market_graph_builder = MarketGraphBuilder()
+    strategy_graph_client = StrategyGraphClient(settings=settings)
     agent_panel = AgentPanel()
     report_renderer = ReportRenderer()
     stock_selection_pipeline = StockSelectionPipeline(
@@ -68,6 +70,7 @@ def get_container() -> Container:
         stock_decision_fusion=StockDecisionFusion(),
         stock_scenario_engine=StockScenarioEngine(agent_panel=agent_panel),
         market_graph_builder=market_graph_builder,
+        strategy_graph_client=strategy_graph_client,
     )
     futures_strategy_pipeline = FuturesStrategyPipeline(
         futures_seed_loader=FuturesSeedLoader(settings=settings),
@@ -77,6 +80,7 @@ def get_container() -> Container:
         futures_report_builder=FuturesReportBuilder(),
         futures_scenario_engine=FuturesScenarioEngine(agent_panel=agent_panel),
         market_graph_builder=market_graph_builder,
+        strategy_graph_client=strategy_graph_client,
     )
     job_runner = JobRunner(
         job_store,

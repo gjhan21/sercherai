@@ -81,6 +81,24 @@ var inMemoryStrategyScenarioTemplates = []model.StrategyScenarioTemplate{
 		UpdatedBy:   "system",
 		UpdatedAt:   "2026-03-18T09:00:00+08:00",
 	},
+	{
+		ID:         "scenario_default_futures",
+		Name:       "期货六世界模板",
+		TargetType: "FUTURES",
+		Status:     "ACTIVE",
+		IsDefault:  true,
+		Items: []model.StrategyScenarioTemplateItem{
+			{Scenario: "base", Label: "常态", ThesisTemplate: "主线逻辑延续但尚未出现强加速，继续跟踪基差、库存与持仓确认。", Action: "观察", RiskSignal: "中", ScoreBias: 0},
+			{Scenario: "trend_continue", Label: "趋势延续", ThesisTemplate: "趋势、持仓与成交同步确认，顺势策略仍可延展。", Action: "顺势跟进", RiskSignal: "中低", ScoreBias: 0},
+			{Scenario: "policy_positive", Label: "政策利多", ThesisTemplate: "政策边际改善强化需求或风险偏好，优先验证资金是否跟随。", Action: "择机加仓", RiskSignal: "中", ScoreBias: 0},
+			{Scenario: "policy_negative", Label: "政策压制", ThesisTemplate: "监管或政策扰动压制预期，需要收缩仓位并重估胜率。", Action: "降杠杆", RiskSignal: "中高", ScoreBias: 0},
+			{Scenario: "supply_shock", Label: "供给冲击", ThesisTemplate: "供给侧扰动抬升波动，关注库存、升贴水和跨品种传导。", Action: "事件驱动", RiskSignal: "高", ScoreBias: 0},
+			{Scenario: "liquidity_shock", Label: "流动性冲击", ThesisTemplate: "流动性恶化或风险偏好骤降，优先控制回撤与滑点风险。", Action: "防守回避", RiskSignal: "高", ScoreBias: 0},
+		},
+		Description: "默认期货场景模板",
+		UpdatedBy:   "system",
+		UpdatedAt:   "2026-03-22T09:00:00+08:00",
+	},
 }
 
 var inMemoryStrategyPublishPolicies = []model.StrategyPublishPolicy{

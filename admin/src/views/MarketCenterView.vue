@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import StrategyEngineConfigPanel from "../components/StrategyEngineConfigPanel.vue";
 import {
   batchCheckDataSources,
@@ -12,11 +12,14 @@ import {
   ensureMarketRhythmTasks,
   generateDailyFuturesStrategies,
   generateDailyStockRecommendations,
+  getMarketDataQualitySummary,
+  getMarketDerivedTruthSummary,
   getFuturesStrategyEnginePublishRecord,
   getFuturesStrategyEnginePublishReplay,
   getStockStrategyEnginePublishRecord,
   getStockStrategyEnginePublishReplay,
   listDataSources,
+  listMarketDataQualityLogs,
   listFuturesStrategyEnginePublishHistory,
   listMarketRhythmTasks,
   listNewsArticles,
@@ -28,6 +31,8 @@ import {
   listSystemConfigs,
   listStockStrategyEnginePublishHistory,
   listStockRecommendations,
+  rebuildFuturesDerivedTruth,
+  rebuildStockDerivedTruth,
   syncFuturesInventory,
   syncFuturesQuotes,
   syncMarketNewsSource,
@@ -39,8 +44,22 @@ import {
   updateStockRecommendationStatus
 } from "../api/admin";
 import { sanitizeHTML } from "../lib/html";
+import {
+  buildMarketQualityDrillQuery,
+  DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS,
+  MARKET_QUALITY_LOOKBACK_OPTIONS,
+  buildMarketQualityDialogTitle,
+  collectMarketQualityIssueOptions,
+  formatMarketQualityLookbackLabel,
+  formatMarketQualityPayload,
+  formatTruthRebuildSuccessMessage,
+  marketQualitySeverityTagType,
+  normalizeMarketCenterRouteState,
+  normalizeMarketQualityLookbackHours
+} from "../lib/market-data-admin";
 import { getAccessToken, hasPermission } from "../lib/session";
 
+const route = useRoute();
 const router = useRouter();
 const activeTab = ref("stocks");
 const strategyConfigPanelRef = ref(null);
@@ -173,6 +192,13 @@ const stockEvalSummary = ref({
 });
 const stockSourceOptions = ref([]);
 const stockSourceHealthMap = ref({});
+const stockQualityLogs = ref([]);
+const stockQualityIssueFilter = ref("");
+const stockQualitySummary = ref(null);
+const stockQualityLogsLoading = ref(false);
+const stockQualityLookbackHours = ref(DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS);
+const stockTruthRebuilding = ref(false);
+const stockTruthRebuildSummary = ref(null);
 const stockDefaultSourceLoading = ref(false);
 const stockDefaultSourceKey = ref("TUSHARE");
 const stockLastSyncResult = ref(null);
@@ -270,6 +296,15 @@ const futuresInventorySyncing = ref(false);
 const futuresSourceLoading = ref(false);
 const futuresSourceOptions = ref([]);
 const futuresSourceHealthMap = ref({});
+const futuresQualityLogs = ref([]);
+const futuresQualityIssueFilter = ref("");
+const futuresQualitySummary = ref(null);
+const futuresQualityLogsLoading = ref(false);
+const futuresQualityLookbackHours = ref(DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS);
+const futuresTruthRebuilding = ref(false);
+const futuresTruthRebuildSummary = ref(null);
+const marketQualityDetailDialogVisible = ref(false);
+const marketQualityDetailLog = ref(null);
 const futuresDefaultSourceLoading = ref(false);
 const futuresDefaultSourceKey = ref("TUSHARE");
 const futuresLastSyncResult = ref(null);
@@ -313,6 +348,43 @@ const marketNewsSyncForm = reactive({
   days: 7,
   limit: 50
 });
+const marketTruthRebuildForm = reactive({
+  trade_date: "",
+  days: 3
+});
+
+const marketQualityDetailTitle = computed(() =>
+  buildMarketQualityDialogTitle(marketQualityDetailLog.value || {})
+);
+const marketQualityDetailPayload = computed(() =>
+  formatMarketQualityPayload(marketQualityDetailLog.value?.payload || "")
+);
+const stockQualityIssueOptions = computed(() => collectMarketQualityIssueOptions(stockQualityLogs.value, 6));
+const futuresQualityIssueOptions = computed(() => collectMarketQualityIssueOptions(futuresQualityLogs.value, 6));
+const visibleStockQualityLogs = computed(() => {
+  const issueCode = String(stockQualityIssueFilter.value || "").trim().toUpperCase();
+  if (!issueCode) {
+    return stockQualityLogs.value;
+  }
+  return stockQualityLogs.value.filter(
+    (item) => String(item?.issue_code || "").trim().toUpperCase() === issueCode
+  );
+});
+const visibleFuturesQualityLogs = computed(() => {
+  const issueCode = String(futuresQualityIssueFilter.value || "").trim().toUpperCase();
+  if (!issueCode) {
+    return futuresQualityLogs.value;
+  }
+  return futuresQualityLogs.value.filter(
+    (item) => String(item?.issue_code || "").trim().toUpperCase() === issueCode
+  );
+});
+const stockQualityLookbackLabel = computed(() =>
+  formatMarketQualityLookbackLabel(stockQualityLookbackHours.value)
+);
+const futuresQualityLookbackLabel = computed(() =>
+  formatMarketQualityLookbackLabel(futuresQualityLookbackHours.value)
+);
 
 const eventsLoading = ref(false);
 const eventsSubmitting = ref(false);
@@ -1091,6 +1163,233 @@ function buildLastSyncResult(data) {
     contracts: Array.isArray(data?.contracts) ? data.contracts : [],
     result: data?.result || null
   };
+}
+
+async function fetchMarketQualityLogsForAsset(assetClass, options = {}) {
+  const { keepMessage = false } = options;
+  const normalizedAssetClass = normalizeSourceKey(assetClass);
+  const loadingRef =
+    normalizedAssetClass === "FUTURES" ? futuresQualityLogsLoading : stockQualityLogsLoading;
+  const targetRef = normalizedAssetClass === "FUTURES" ? futuresQualityLogs : stockQualityLogs;
+  loadingRef.value = true;
+  if (!keepMessage) {
+    errorMessage.value = "";
+  }
+  try {
+    const data = await listMarketDataQualityLogs({
+      asset_class: normalizedAssetClass,
+      hours: getMarketQualityLookbackHours(normalizedAssetClass),
+      page: 1,
+      page_size: 6
+    });
+    targetRef.value = Array.isArray(data?.items) ? data.items : [];
+  } catch (error) {
+    targetRef.value = [];
+    if (!keepMessage) {
+      errorMessage.value = normalizeErrorMessage(error, "加载市场数据质量日志失败");
+    }
+  } finally {
+    loadingRef.value = false;
+  }
+}
+
+function openMarketQualityLogDetail(item) {
+  marketQualityDetailLog.value = item || null;
+  marketQualityDetailDialogVisible.value = true;
+}
+
+function applyMarketQualityIssueFilter(assetClass, issueCode) {
+  const normalizedAssetClass = normalizeSourceKey(assetClass);
+  const normalizedIssueCode = String(issueCode || "").trim().toUpperCase();
+  if (normalizedAssetClass === "FUTURES") {
+    futuresQualityIssueFilter.value = normalizedIssueCode;
+    return;
+  }
+  stockQualityIssueFilter.value = normalizedIssueCode;
+}
+
+function clearMarketQualityIssueFilter(assetClass) {
+  applyMarketQualityIssueFilter(assetClass, "");
+}
+
+function getMarketQualityLookbackRef(assetClass) {
+  return normalizeSourceKey(assetClass) === "FUTURES"
+    ? futuresQualityLookbackHours
+    : stockQualityLookbackHours;
+}
+
+function getMarketQualityLookbackHours(assetClass) {
+  return normalizeMarketQualityLookbackHours(getMarketQualityLookbackRef(assetClass).value);
+}
+
+function resolveMarketQualityAssetClassByTab(tab) {
+  return tab === "futures" ? "FUTURES" : "STOCK";
+}
+
+function applyMarketCenterRouteState(query = route.query) {
+  const state = normalizeMarketCenterRouteState(query);
+  activeTab.value = state.tab;
+  const assetClass = resolveMarketQualityAssetClassByTab(state.tab);
+  getMarketQualityLookbackRef(assetClass).value = state.quality_hours;
+  applyMarketQualityIssueFilter(assetClass, state.issue_code);
+}
+
+function openDataSourcesWithMarketQuality(item) {
+  const assetClass = normalizeSourceKey(item?.asset_class || "");
+  router.push({
+    name: "data-sources",
+    query: buildMarketQualityDrillQuery({
+      return_tab: assetClass === "FUTURES" ? "futures" : "stocks",
+      asset_class: item?.asset_class || "",
+      data_kind: item?.data_kind || "",
+      issue_code: item?.issue_code || "",
+      hours: getMarketQualityLookbackHours(item?.asset_class || "")
+    })
+  });
+}
+
+function openDataSourcesWithQualitySummary(assetClass, summary, mode = "latest") {
+  const normalizedAssetClass = normalizeSourceKey(assetClass);
+  const issueCode =
+    mode === "error"
+      ? String(summary?.latest_error_issue_code || "").trim()
+      : String(summary?.latest_issue_code || "").trim();
+  if (!issueCode) {
+    return;
+  }
+  const severity =
+    mode === "error"
+      ? "ERROR"
+      : String(summary?.latest_severity || "").trim().toUpperCase();
+  router.push({
+    name: "data-sources",
+    query: buildMarketQualityDrillQuery({
+      return_tab: normalizedAssetClass === "FUTURES" ? "futures" : "stocks",
+      asset_class: normalizedAssetClass,
+      severity,
+      issue_code: issueCode,
+      hours: getMarketQualityLookbackHours(normalizedAssetClass)
+    })
+  });
+}
+
+function openDataSourcesWithQualityIssue(assetClass, issueCode) {
+  const normalizedAssetClass = normalizeSourceKey(assetClass);
+  const normalizedIssueCode = String(issueCode || "").trim().toUpperCase();
+  if (!normalizedIssueCode) {
+    return;
+  }
+  router.push({
+    name: "data-sources",
+    query: buildMarketQualityDrillQuery({
+      return_tab: normalizedAssetClass === "FUTURES" ? "futures" : "stocks",
+      asset_class: normalizedAssetClass,
+      issue_code: normalizedIssueCode,
+      hours: getMarketQualityLookbackHours(normalizedAssetClass)
+    })
+  });
+}
+
+function formatQualitySummaryLatest(summary) {
+  if (!summary?.latest_issue_code) {
+    return "-";
+  }
+  return `${summary.latest_source_key || "-"} · ${summary.latest_severity || "-"} · ${summary.latest_issue_code}`;
+}
+
+function formatQualitySummaryLatestError(summary) {
+  if (!summary?.latest_error_issue_code) {
+    return "-";
+  }
+  return `${summary.latest_error_source_key || "-"} · ${summary.latest_error_issue_code}`;
+}
+
+async function fetchMarketQualitySummary(assetClass, options = {}) {
+  const { keepMessage = false } = options;
+  const normalizedAssetClass = normalizeSourceKey(assetClass);
+  const summaryRef = normalizedAssetClass === "FUTURES" ? futuresQualitySummary : stockQualitySummary;
+  if (!keepMessage) {
+    errorMessage.value = "";
+  }
+  try {
+    const data = await getMarketDataQualitySummary({
+      asset_class: normalizedAssetClass,
+      hours: getMarketQualityLookbackHours(normalizedAssetClass)
+    });
+    summaryRef.value = data || null;
+  } catch (error) {
+    summaryRef.value = null;
+    if (!keepMessage) {
+      errorMessage.value = normalizeErrorMessage(error, "加载质量概览失败");
+    }
+  }
+}
+
+async function fetchMarketQualityDashboardForAsset(assetClass, options = {}) {
+  await Promise.all([
+    fetchMarketQualitySummary(assetClass, options),
+    fetchMarketQualityLogsForAsset(assetClass, options)
+  ]);
+}
+
+async function fetchMarketDerivedTruthSummary(assetClass, options = {}) {
+  const { keepMessage = false, preserveCurrent = false } = options;
+  const normalizedAssetClass = normalizeSourceKey(assetClass);
+  const summaryRef =
+    normalizedAssetClass === "FUTURES" ? futuresTruthRebuildSummary : stockTruthRebuildSummary;
+  if (!keepMessage) {
+    errorMessage.value = "";
+  }
+  try {
+    const data = await getMarketDerivedTruthSummary({
+      asset_class: normalizedAssetClass
+    });
+    summaryRef.value = data || null;
+  } catch (error) {
+    if (!preserveCurrent) {
+      summaryRef.value = null;
+    }
+    if (!keepMessage) {
+      errorMessage.value = normalizeErrorMessage(error, "加载 truth 重建摘要失败");
+    }
+  }
+}
+
+async function handleRebuildMarketTruth(assetClass) {
+  if (!ensureCanEditMarket()) {
+    return;
+  }
+  const normalizedAssetClass = normalizeSourceKey(assetClass);
+  const loadingRef =
+    normalizedAssetClass === "FUTURES" ? futuresTruthRebuilding : stockTruthRebuilding;
+  const summaryRef =
+    normalizedAssetClass === "FUTURES" ? futuresTruthRebuildSummary : stockTruthRebuildSummary;
+  loadingRef.value = true;
+  clearMessages();
+  summaryRef.value = null;
+  try {
+    const payload = {
+      trade_date: String(marketTruthRebuildForm.trade_date || "").trim(),
+      days: Number(marketTruthRebuildForm.days) || 3
+    };
+    const data =
+      normalizedAssetClass === "FUTURES"
+        ? await rebuildFuturesDerivedTruth(payload)
+        : await rebuildStockDerivedTruth(payload);
+    summaryRef.value = data;
+    message.value = formatTruthRebuildSuccessMessage(normalizedAssetClass, data);
+    await Promise.all([
+      fetchMarketQualityDashboardForAsset(normalizedAssetClass, { keepMessage: true }),
+      fetchMarketDerivedTruthSummary(normalizedAssetClass, {
+        keepMessage: true,
+        preserveCurrent: true
+      })
+    ]);
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "执行 truth 派生重建失败");
+  } finally {
+    loadingRef.value = false;
+  }
 }
 
 async function fetchStockDefaultSourceKey(options = {}) {
@@ -2420,6 +2719,8 @@ async function refreshCurrentTab() {
     await Promise.all([
       fetchRhythmBoard({ keepMessage: true }),
       fetchStockSourceOptions({ keepMessage: true }),
+      fetchMarketQualityDashboardForAsset("STOCK", { keepMessage: true }),
+      fetchMarketDerivedTruthSummary("STOCK", { keepMessage: true }),
       fetchMarketNewsSourceOptions({ keepMessage: true }),
       fetchStocks(),
       fetchStockPublishHistory({ keepMessage: true }),
@@ -2432,6 +2733,8 @@ async function refreshCurrentTab() {
   if (activeTab.value === "futures") {
     await Promise.all([
       fetchFuturesSourceOptions({ keepMessage: true }),
+      fetchMarketQualityDashboardForAsset("FUTURES", { keepMessage: true }),
+      fetchMarketDerivedTruthSummary("FUTURES", { keepMessage: true }),
       fetchFutures(),
       fetchFuturesPublishHistory({ keepMessage: true })
     ]);
@@ -2453,6 +2756,10 @@ async function refreshAll(options = {}) {
       fetchRhythmBoard({ keepMessage: true }),
       fetchStockSourceOptions({ keepMessage: true }),
       fetchFuturesSourceOptions({ keepMessage: true }),
+      fetchMarketQualityDashboardForAsset("STOCK", { keepMessage: true }),
+      fetchMarketQualityDashboardForAsset("FUTURES", { keepMessage: true }),
+      fetchMarketDerivedTruthSummary("STOCK", { keepMessage: true }),
+      fetchMarketDerivedTruthSummary("FUTURES", { keepMessage: true }),
       fetchMarketNewsSourceOptions({ keepMessage: true }),
       fetchStocks({ keepMessage: true }),
       fetchStockPublishHistory({ keepMessage: true }),
@@ -2472,6 +2779,7 @@ async function refreshAll(options = {}) {
 }
 
 onMounted(() => {
+  applyMarketCenterRouteState();
   refreshAll({ silentMessage: true });
 });
 
@@ -2489,7 +2797,7 @@ watch(activeTab, async (tab) => {
     <div class="page-header">
       <div>
         <h1 class="page-title">策略中心</h1>
-        <p class="muted">股票推荐、期货策略与市场事件维护发布</p>
+        <p class="muted">这里只保留运营节奏、市场事件和旧链路兜底入口；智能研究、数据同步和质量排查已拆到独立菜单。</p>
       </div>
       <div class="toolbar" style="margin-bottom: 0">
         <el-button :loading="refreshingAll" @click="refreshAll">刷新全部</el-button>
@@ -2632,40 +2940,42 @@ watch(activeTab, async (tab) => {
       </div>
     </div>
 
-    <div class="card" style="margin-bottom: 12px">
-      <div class="toolbar rhythm-board-head">
-        <div>
-          <h2 class="rhythm-board-title">A/B 实验埋点看板已迁移</h2>
-          <p class="muted">实验埋点分析已经独立到左侧菜单，策略中心只保留策略与运营节奏相关内容。</p>
+    <div class="legacy-entry-grid">
+      <div class="card" style="margin-bottom: 12px">
+        <div class="toolbar rhythm-board-head">
+          <div>
+            <h2 class="rhythm-board-title">智能选股已独立</h2>
+            <p class="muted">股票研究、运行、候选审核与评估复盘请统一进入独立模块。</p>
+          </div>
+          <el-button type="primary" plain @click="router.push({ name: 'stock-selection-overview' })">
+            前往智能选股
+          </el-button>
         </div>
-        <el-button type="primary" plain @click="router.push({ name: 'experiment-analytics' })">
-          前往实验埋点看板
-        </el-button>
       </div>
-      <el-alert
-        title="A/B 实验埋点看板已迁移到独立菜单“实验埋点看板”，后续请在新页面单独查看实验、分组、设备和用户阶段趋势。"
-        type="info"
-        :closable="false"
-        show-icon
-      />
-    </div>
 
-    <div class="card" style="margin-bottom: 12px">
-      <div class="toolbar rhythm-board-head">
-        <div>
-          <h2 class="rhythm-board-title">智能选股模块已独立</h2>
-          <p class="muted">研究、运行、审核、发布闭环现在统一放到“智能选股”菜单，策略中心继续保留旧每日生成链路和迁移期兜底入口。</p>
+      <div class="card" style="margin-bottom: 12px">
+        <div class="toolbar rhythm-board-head">
+          <div>
+            <h2 class="rhythm-board-title">智能期货已独立</h2>
+            <p class="muted">期货研究、运行、候选审核与评估复盘请统一进入独立模块。</p>
+          </div>
+          <el-button type="primary" plain @click="router.push({ name: 'futures-selection-overview' })">
+            前往智能期货
+          </el-button>
         </div>
-        <el-button type="primary" plain @click="router.push({ name: 'stock-selection-overview' })">
-          前往智能选股
-        </el-button>
       </div>
-      <el-alert
-        title="新模块已经拆分为总览、运行中心、策略配置、候选与组合四页；旧 /admin/stocks/recommendations/generate-daily 仍保留给调度与兜底。"
-        type="success"
-        :closable="false"
-        show-icon
-      />
+
+      <div class="card" style="margin-bottom: 12px">
+        <div class="toolbar rhythm-board-head">
+          <div>
+            <h2 class="rhythm-board-title">数据链路已独立</h2>
+            <p class="muted">行情/资讯同步、健康检查、truth 重建和质量日志统一迁到数据源管理。</p>
+          </div>
+          <el-button type="primary" plain @click="router.push({ name: 'data-sources' })">
+            前往数据源管理
+          </el-button>
+        </div>
+      </div>
     </div>
 
     <el-tabs v-model="activeTab" type="border-card">
@@ -2826,619 +3136,51 @@ watch(activeTab, async (tab) => {
         </div>
 
         <div class="card" style="margin-bottom: 12px">
-          <div class="toolbar" style="margin-bottom: 8px; flex-wrap: wrap">
-            <el-select
-              v-model="stockQuoteSyncForm.source_key"
-              filterable
-              allow-create
-              default-first-option
-              :loading="stockSourceLoading"
-              placeholder="选择行情数据源"
-              style="width: 260px"
-            >
-              <el-option
-                v-for="item in stockSourceOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-                :disabled="item.disabled"
-              />
-            </el-select>
-            <el-button :loading="stockSourceLoading" @click="fetchStockSourceOptions({ keepMessage: true })">
-              刷新数据源
-            </el-button>
-            <el-tag type="warning" effect="plain">
-              默认源：{{ stockDefaultSourceKey || "-" }}
-            </el-tag>
-            <el-button
-              :loading="stockDefaultSourceLoading"
-              :disabled="!stockDefaultSourceKey"
-              @click="applyStockDefaultSource"
-            >
-              使用默认源
-            </el-button>
-            <el-switch
-              v-model="stockAutoFallback"
-              inline-prompt
-              active-text="自动回退链路"
-              inactive-text="不回退"
-            />
-            <el-tag v-if="currentStockSourceOption" :type="sourceHealthTagType(currentStockSourceOption.health_status)">
-              {{
-                currentStockSourceOption.health_status
-                  ? `健康：${currentStockSourceOption.health_status}`
-                  : "健康：未检查"
-              }}
-            </el-tag>
-            <el-text v-if="currentStockSourceOption?.health_message" type="info" size="small">
-              {{ currentStockSourceOption.health_message }}
-            </el-text>
-            <el-input
-              v-model="stockQuoteSyncForm.symbols"
-              placeholder="股票代码，逗号分隔（可选）"
-              style="width: 280px"
-            />
-            <el-input-number
-              v-model="stockQuoteSyncForm.days"
-              :min="20"
-              :max="365"
-              :step="5"
-              style="width: 150px"
-            />
-            <el-button
-              v-if="canEditMarket"
-              type="primary"
-              plain
-              :loading="stockQuoteSyncing"
-              @click="handleSyncStockQuotes"
-            >
-              同步行情
-            </el-button>
-
-            <el-divider direction="vertical" />
-
-            <el-input-number
-              v-model="stockQuantQuery.lookback_days"
-              :min="30"
-              :max="365"
-              :step="10"
-              style="width: 150px"
-            />
-            <el-input-number
-              v-model="stockQuantQuery.limit"
-              :min="1"
-              :max="50"
-              style="width: 120px"
-            />
-            <el-button type="success" plain :loading="stockQuantLoading" @click="refreshStockQuantTop">
-              计算Top股票
-            </el-button>
-            <el-text type="info">最近更新：{{ stockQuantUpdatedAt ? formatDateTime(stockQuantUpdatedAt) : "-" }}</el-text>
-          </div>
-
-          <div class="sync-inline-hint">
-            <el-text type="info" size="small">
-              支持 `AUTO`、`MYSELF` 或自定义链路，如 `TUSHARE,AKSHARE,TICKERMD,MYSELF`，用于按顺序回源。
-            </el-text>
-          </div>
-
-          <div v-if="stockLastSyncResult" class="sync-result-board">
-            <div class="sync-result-head">
-              <div>
-                <h3>最近一次股票行情同步</h3>
-                <p class="muted">
-                  请求源 {{ formatRequestedSourceLabel(stockLastSyncResult) }}
-                  · 实际源 {{ stockLastSyncResult.source_key || "-" }}
-                  · 执行链路 {{ formatSyncResolvedSourceKeys(stockLastSyncResult.result, stockLastSyncResult.source_key) }}
-                </p>
-              </div>
-              <div class="publish-compare-tags">
-                <el-tag
-                  v-for="item in buildSyncMetricTags(stockLastSyncResult.result)"
-                  :key="`stock-sync-tag-${item.key}`"
-                  :type="item.type"
-                >
-                  {{ item.label }}
-                </el-tag>
-                <el-tag v-if="buildSyncMetricTags(stockLastSyncResult.result).length === 0" type="info">
-                  处理 {{ stockLastSyncResult.count || 0 }} 条
-                </el-tag>
-              </div>
+          <div class="section-header">
+            <div>
+              <h3 style="margin: 0">股票数据链路已迁移</h3>
+              <p class="muted" style="margin: 6px 0 0">
+                股票行情同步、市场资讯、truth 重建、质量排查、Top 股票量化与回测，统一迁到数据源管理或智能选股，不再在策略中心重复维护。
+              </p>
             </div>
-
-            <div class="sync-result-grid">
-              <div class="sync-result-card">
-                <h4>请求参数</h4>
-                <ul class="publish-replay-list">
-                  <li>同步窗口：{{ stockLastSyncResult.days || "-" }} 天</li>
-                  <li>股票范围：{{ formatSyncRequestScope(stockLastSyncResult.symbols, "默认股票池") }}</li>
-                  <li>处理条数：{{ stockLastSyncResult.count || 0 }}</li>
-                </ul>
-              </div>
-
-              <div class="sync-result-card">
-                <h4>分源执行明细</h4>
-                <div class="sync-result-source-list">
-                  <div
-                    v-for="item in (stockLastSyncResult.result?.results || [])"
-                    :key="`stock-sync-item-${item.source_key}`"
-                    class="sync-result-source-item"
-                  >
-                    <div class="sync-result-source-head">
-                      <strong>{{ item.source_key || "-" }}</strong>
-                      <el-tag size="small" :type="syncExecutionStatusTagType(item.status)">
-                        {{ item.status || "UNKNOWN" }}
-                      </el-tag>
-                    </div>
-                    <p class="sync-result-source-meta">{{ formatSyncItemMetrics(item) }}</p>
-                    <p v-if="item.message && item.message !== 'ok'" class="sync-result-source-message">
-                      {{ item.message }}
-                    </p>
-                  </div>
-                  <p v-if="!(stockLastSyncResult.result?.results || []).length" class="muted">暂无分源执行记录</p>
-                </div>
-              </div>
+            <div class="inline-actions inline-actions--left">
+              <el-button type="primary" plain @click="router.push({ name: 'data-sources' })">
+                前往数据源管理
+              </el-button>
+              <el-button type="primary" @click="router.push({ name: 'stock-selection-overview' })">
+                前往智能选股
+              </el-button>
             </div>
           </div>
 
-          <el-table
-            :data="stockQuantList"
-            border
-            stripe
-            size="small"
-            v-loading="stockQuantLoading"
-            empty-text="暂无量化评分结果，请先同步行情"
-          >
-            <el-table-column prop="rank" label="排名" width="66" />
-            <el-table-column prop="symbol" label="代码" min-width="100" />
-            <el-table-column prop="name" label="名称" min-width="120" />
-            <el-table-column prop="score" label="总分" min-width="90" />
-            <el-table-column prop="trend_score" label="趋势分" min-width="88" />
-            <el-table-column prop="flow_score" label="资金分" min-width="88" />
-            <el-table-column prop="value_score" label="估值分" min-width="88" />
-            <el-table-column prop="news_score" label="资讯分" min-width="88" />
-            <el-table-column prop="momentum_20" label="20日动量(%)" min-width="110" />
-            <el-table-column prop="momentum_5" label="5日动量(%)" min-width="100" />
-            <el-table-column prop="volume_ratio" label="量比" min-width="80" />
-            <el-table-column prop="net_mf_amount" label="主力净流入" min-width="110" />
-            <el-table-column prop="pe_ttm" label="PE(TTM)" min-width="88" />
-            <el-table-column prop="pb" label="PB" min-width="72" />
-            <el-table-column prop="volatility_20" label="20日波动(%)" min-width="110" />
-            <el-table-column prop="drawdown_20" label="20日回撤(%)" min-width="110" />
-            <el-table-column prop="risk_level" label="风险" min-width="80">
-              <template #default="{ row }">
-                <el-tag :type="statusTagType(row.risk_level)">{{ row.risk_level }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="信号摘要" min-width="280">
-              <template #default="{ row }">
-                <div class="stock-reason-cell">
-                  <span class="stock-reason-summary">{{ row.reason_summary || "-" }}</span>
-                  <div v-if="Array.isArray(row.reasons) && row.reasons.length > 0" class="stock-reason-tags">
-                    <el-tag v-for="reason in row.reasons.slice(0, 3)" :key="reason" size="small" type="info">
-                      {{ reason }}
-                    </el-tag>
-                  </div>
-                </div>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-
-        <div class="card" style="margin-bottom: 12px">
-          <div class="toolbar" style="margin-bottom: 8px; flex-wrap: wrap">
-            <el-text type="primary">市场资讯抓取</el-text>
-            <el-select
-              v-model="marketNewsSyncForm.source_key"
-              filterable
-              allow-create
-              default-first-option
-              :loading="marketNewsSourceLoading"
-              placeholder="选择资讯数据源"
-              style="width: 280px"
-            >
-              <el-option
-                v-for="item in marketNewsSourceOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-                :disabled="item.disabled"
-              />
-            </el-select>
-            <el-button :loading="marketNewsSourceLoading" @click="fetchMarketNewsSourceOptions({ keepMessage: true })">
-              刷新数据源
-            </el-button>
-            <el-tag type="warning" effect="plain">
-              默认源：{{ marketNewsDefaultSourceKey || "-" }}
-            </el-tag>
-            <el-button
-              :loading="marketNewsDefaultSourceLoading"
-              :disabled="!marketNewsDefaultSourceKey"
-              @click="applyMarketNewsDefaultSource"
-            >
-              使用默认源
-            </el-button>
-            <el-tag
-              v-if="currentMarketNewsSourceOption"
-              :type="sourceHealthTagType(currentMarketNewsSourceOption.health_status)"
-            >
-              {{
-                currentMarketNewsSourceOption.health_status
-                  ? `健康：${currentMarketNewsSourceOption.health_status}`
-                  : "健康：未检查"
-              }}
-            </el-tag>
-            <el-text v-if="currentMarketNewsSourceOption?.health_message" type="info" size="small">
-              {{ currentMarketNewsSourceOption.health_message }}
-            </el-text>
-            <el-input
-              v-model="marketNewsSyncForm.symbols"
-              placeholder="股票代码，逗号分隔（可选）"
-              style="width: 260px"
-            />
-            <el-input-number
-              v-model="marketNewsSyncForm.days"
-              :min="1"
-              :max="90"
-              :step="1"
-              style="width: 140px"
-            />
-            <el-input-number
-              v-model="marketNewsSyncForm.limit"
-              :min="1"
-              :max="500"
-              :step="10"
-              style="width: 140px"
-            />
-            <el-button
-              v-if="canEditMarket"
-              type="primary"
-              plain
-              :loading="marketNewsSyncing"
-              @click="handleSyncMarketNews"
-            >
-              同步市场资讯
-            </el-button>
-          </div>
-
-          <div class="sync-inline-hint">
-            <el-text type="info" size="small">
-              支持 `AUTO` 或自定义链路，如 `AKSHARE,TUSHARE`，用于资讯主源失败后的顺序回源。
-            </el-text>
-          </div>
-
-          <div v-if="marketNewsLastSyncResult" class="sync-result-board">
-            <div class="sync-result-head">
-              <div>
-                <h3>最近一次市场资讯同步</h3>
-                <p class="muted">
-                  请求源 {{ formatRequestedSourceLabel(marketNewsLastSyncResult) }}
-                  · 实际源 {{ marketNewsLastSyncResult.source_key || "-" }}
-                  · 执行链路 {{ formatSyncResolvedSourceKeys(marketNewsLastSyncResult.result, marketNewsLastSyncResult.source_key) }}
-                </p>
-              </div>
-              <div class="publish-compare-tags">
-                <el-tag
-                  v-for="item in buildSyncMetricTags(marketNewsLastSyncResult.result)"
-                  :key="`market-news-sync-tag-${item.key}`"
-                  :type="item.type"
-                >
-                  {{ item.label }}
-                </el-tag>
-                <el-tag v-if="buildSyncMetricTags(marketNewsLastSyncResult.result).length === 0" type="info">
-                  处理 {{ marketNewsLastSyncResult.count || 0 }} 条
-                </el-tag>
-              </div>
+          <div class="truth-summary-grid" style="margin-top: 12px">
+            <div class="truth-summary-card">
+              <div class="truth-summary-card__title">迁移到数据源管理</div>
+              <ul class="truth-summary-list">
+                <li>股票行情同步与默认源切换</li>
+                <li>市场资讯同步与来源回退链路</li>
+                <li>本地 truth 派生重建与质量日志排查</li>
+                <li>多源健康检查、同步摘要和执行质量概览</li>
+              </ul>
             </div>
-
-            <div class="sync-result-grid">
-              <div class="sync-result-card">
-                <h4>请求参数</h4>
-                <ul class="publish-replay-list">
-                  <li>回看窗口：{{ marketNewsLastSyncResult.days || "-" }} 天</li>
-                  <li>抓取上限：{{ marketNewsLastSyncResult.limit || "-" }} 条</li>
-                  <li>关联股票：{{ formatSyncRequestScope(marketNewsLastSyncResult.symbols, "不限股票代码") }}</li>
-                </ul>
-              </div>
-
-              <div class="sync-result-card">
-                <h4>分源执行明细</h4>
-                <div class="sync-result-source-list">
-                  <div
-                    v-for="item in (marketNewsLastSyncResult.result?.results || [])"
-                    :key="`market-news-sync-item-${item.source_key}`"
-                    class="sync-result-source-item"
-                  >
-                    <div class="sync-result-source-head">
-                      <strong>{{ item.source_key || "-" }}</strong>
-                      <el-tag size="small" :type="syncExecutionStatusTagType(item.status)">
-                        {{ item.status || "UNKNOWN" }}
-                      </el-tag>
-                    </div>
-                    <p class="sync-result-source-meta">{{ formatSyncItemMetrics(item) }}</p>
-                    <p v-if="item.message && item.message !== 'ok'" class="sync-result-source-message">
-                      {{ item.message }}
-                    </p>
-                  </div>
-                  <p v-if="!(marketNewsLastSyncResult.result?.results || []).length" class="muted">暂无分源执行记录</p>
-                </div>
-              </div>
+            <div class="truth-summary-card">
+              <div class="truth-summary-card__title">迁移到智能选股</div>
+              <ul class="truth-summary-list">
+                <li>研究运行、候选审核与发布闭环</li>
+                <li>策略模板、因子与规则配置</li>
+                <li>评估复盘、版本差异与研究证据</li>
+                <li>默认作为股票研究工作台使用</li>
+              </ul>
             </div>
-          </div>
-        </div>
-
-        <div class="card" style="margin-bottom: 12px">
-          <div class="toolbar" style="margin-bottom: 8px; flex-wrap: wrap">
-            <el-text type="primary">量化回测评估（TopN组合）</el-text>
-            <el-input-number
-              v-model="stockEvalQuery.days"
-              :min="20"
-              :max="365"
-              :step="10"
-              style="width: 150px"
-            />
-            <el-input-number
-              v-model="stockEvalQuery.top_n"
-              :min="1"
-              :max="30"
-              style="width: 120px"
-            />
-            <el-button type="success" plain :loading="stockEvalLoading" @click="refreshStockQuantEvaluation">
-              刷新评估
-            </el-button>
-            <el-button plain :loading="stockEvalExporting" @click="exportStockQuantEvaluationCSV">
-              导出CSV
-            </el-button>
-            <el-tag type="info">
-              样本日：{{ stockEvalSummary.sample_days || 0 }}，样本数：{{ stockEvalSummary.sample_count || 0 }}
-            </el-tag>
-            <el-tag type="success">5日均收益：{{ formatPercent(stockEvalSummary.avg_return_5, 2, true) }}</el-tag>
-            <el-tag type="success">10日均收益：{{ formatPercent(stockEvalSummary.avg_return_10, 2, true) }}</el-tag>
-            <el-tag type="warning">5日命中率：{{ formatPercent(stockEvalSummary.hit_rate_5) }}</el-tag>
-            <el-tag type="warning">10日命中率：{{ formatPercent(stockEvalSummary.hit_rate_10) }}</el-tag>
-            <el-tag type="danger">5日最大回撤：{{ formatPercent(stockEvalSummary.max_drawdown_5) }}</el-tag>
-            <el-tag type="danger">10日最大回撤：{{ formatPercent(stockEvalSummary.max_drawdown_10) }}</el-tag>
-          </div>
-          <div class="stock-eval-curves">
-            <div class="stock-eval-curve-card">
-              <div class="stock-eval-curve-title">5日累计收益与超额曲线</div>
-              <svg
-                :viewBox="`0 0 ${stockEvalCurve5.width} ${stockEvalCurve5.height}`"
-                xmlns="http://www.w3.org/2000/svg"
-                class="stock-eval-svg"
-              >
-                <line x1="28" :y1="stockEvalCurve5.height - 28" :x2="stockEvalCurve5.width - 28" :y2="stockEvalCurve5.height - 28" stroke="#d1d5db" />
-                <line x1="28" y1="28" x2="28" :y2="stockEvalCurve5.height - 28" stroke="#d1d5db" />
-                <line
-                  x1="28"
-                  :y1="curveZeroLineY(stockEvalCurve5)"
-                  :x2="stockEvalCurve5.width - 28"
-                  :y2="curveZeroLineY(stockEvalCurve5)"
-                  stroke="#e5e7eb"
-                  stroke-dasharray="4 4"
-                />
-                <path
-                  v-for="line in stockEvalCurve5.paths"
-                  :key="line.key"
-                  :d="line.d"
-                  fill="none"
-                  :stroke="line.color"
-                  stroke-width="2.2"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <div class="stock-eval-legend">
-                <span v-for="line in stockEvalCurve5.paths" :key="line.key" class="stock-eval-legend-item">
-                  <i class="stock-eval-legend-dot" :style="{ backgroundColor: line.color }" />
-                  {{ line.label }}
-                </span>
-              </div>
+            <div class="truth-summary-card">
+              <div class="truth-summary-card__title">策略中心仍保留</div>
+              <ul class="truth-summary-list">
+                <li>旧每日推荐生成入口和人工补录兜底</li>
+                <li>Strategy Engine 发布归档和版本对比</li>
+                <li>最终推荐结果列表与状态维护</li>
+                <li>运营节奏与市场事件协同入口</li>
+              </ul>
             </div>
-            <div class="stock-eval-curve-card">
-              <div class="stock-eval-curve-title">10日累计收益与超额曲线</div>
-              <svg
-                :viewBox="`0 0 ${stockEvalCurve10.width} ${stockEvalCurve10.height}`"
-                xmlns="http://www.w3.org/2000/svg"
-                class="stock-eval-svg"
-              >
-                <line x1="28" :y1="stockEvalCurve10.height - 28" :x2="stockEvalCurve10.width - 28" :y2="stockEvalCurve10.height - 28" stroke="#d1d5db" />
-                <line x1="28" y1="28" x2="28" :y2="stockEvalCurve10.height - 28" stroke="#d1d5db" />
-                <line
-                  x1="28"
-                  :y1="curveZeroLineY(stockEvalCurve10)"
-                  :x2="stockEvalCurve10.width - 28"
-                  :y2="curveZeroLineY(stockEvalCurve10)"
-                  stroke="#e5e7eb"
-                  stroke-dasharray="4 4"
-                />
-                <path
-                  v-for="line in stockEvalCurve10.paths"
-                  :key="line.key"
-                  :d="line.d"
-                  fill="none"
-                  :stroke="line.color"
-                  stroke-width="2.2"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <div class="stock-eval-legend">
-                <span v-for="line in stockEvalCurve10.paths" :key="line.key" class="stock-eval-legend-item">
-                  <i class="stock-eval-legend-dot" :style="{ backgroundColor: line.color }" />
-                  {{ line.label }}
-                </span>
-              </div>
-            </div>
-          </div>
-          <el-table
-            :data="stockEvalList"
-            border
-            stripe
-            size="small"
-            v-loading="stockEvalLoading"
-            empty-text="暂无评估数据，请先计算Top股票并生成历史快照"
-          >
-            <el-table-column prop="trade_date" label="交易日" min-width="110" />
-            <el-table-column prop="sample_count" label="样本数" min-width="80" />
-            <el-table-column label="5日均收益" min-width="100">
-              <template #default="{ row }">
-                {{ formatPercent(row.avg_return_5, 2, true) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="5日命中率" min-width="100">
-              <template #default="{ row }">
-                {{ formatPercent(row.hit_rate_5) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="10日均收益" min-width="110">
-              <template #default="{ row }">
-                {{ formatPercent(row.avg_return_10, 2, true) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="10日命中率" min-width="110">
-              <template #default="{ row }">
-                {{ formatPercent(row.hit_rate_10) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="基准5日收益" min-width="110">
-              <template #default="{ row }">
-                {{ formatPercent(row.benchmark_return, 2, true) }}
-              </template>
-            </el-table-column>
-          </el-table>
-
-          <div class="toolbar" style="margin-top: 10px; margin-bottom: 6px">
-            <el-text type="primary">按风险等级表现</el-text>
-            <el-text type="info">按 TopN 历史样本分组统计</el-text>
-          </div>
-          <el-table
-            :data="stockEvalRiskList"
-            border
-            stripe
-            size="small"
-            v-loading="stockEvalLoading"
-            empty-text="暂无风险分组数据"
-          >
-            <el-table-column prop="risk_level" label="风险等级" min-width="100">
-              <template #default="{ row }">
-                <el-tag :type="statusTagType(row.risk_level)">{{ row.risk_level || "-" }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="sample_count" label="样本数" min-width="80" />
-            <el-table-column label="5日均收益" min-width="110">
-              <template #default="{ row }">
-                {{ formatPercent(row.avg_return_5, 2, true) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="5日命中率" min-width="110">
-              <template #default="{ row }">
-                {{ formatPercent(row.hit_rate_5) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="10日均收益" min-width="120">
-              <template #default="{ row }">
-                {{ formatPercent(row.avg_return_10, 2, true) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="10日命中率" min-width="120">
-              <template #default="{ row }">
-                {{ formatPercent(row.hit_rate_10) }}
-              </template>
-            </el-table-column>
-          </el-table>
-
-          <div class="toolbar" style="margin-top: 10px; margin-bottom: 6px">
-            <el-text type="primary">Top10 成分轮动</el-text>
-            <el-text type="info">观察每日新增/移除，跟踪稳定性</el-text>
-          </div>
-          <el-table
-            :data="stockEvalRotationList"
-            border
-            stripe
-            size="small"
-            v-loading="stockEvalLoading"
-            empty-text="暂无成分轮动数据"
-          >
-            <el-table-column prop="trade_date" label="交易日" min-width="110" />
-            <el-table-column prop="stayed_count" label="延续数" min-width="80" />
-            <el-table-column prop="changed_count" label="变动数" min-width="80" />
-            <el-table-column label="新增成分" min-width="220">
-              <template #default="{ row }">
-                <div class="stock-reason-tags">
-                  <el-tag v-for="symbol in row.entered || []" :key="`${row.trade_date}-in-${symbol}`" size="small" type="success">
-                    {{ symbol }}
-                  </el-tag>
-                  <span v-if="!(row.entered || []).length">-</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column label="移除成分" min-width="220">
-              <template #default="{ row }">
-                <div class="stock-reason-tags">
-                  <el-tag v-for="symbol in row.exited || []" :key="`${row.trade_date}-out-${symbol}`" size="small" type="danger">
-                    {{ symbol }}
-                  </el-tag>
-                  <span v-if="!(row.exited || []).length">-</span>
-                </div>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-
-        <div class="card" style="margin-bottom: 12px">
-          <div class="toolbar" style="margin-bottom: 8px">
-            <el-text type="primary">行情同步执行日志</el-text>
-            <el-text type="info">仅展示 STOCK / SYNC_QUOTES</el-text>
-            <el-button :loading="stockSyncLogsLoading" @click="fetchStockSyncLogs({ keepMessage: true })">
-              刷新日志
-            </el-button>
-          </div>
-          <el-table
-            :data="stockSyncLogs"
-            border
-            stripe
-            size="small"
-            v-loading="stockSyncLogsLoading"
-            empty-text="暂无行情同步日志"
-          >
-            <el-table-column label="时间" min-width="165">
-              <template #default="{ row }">
-                {{ formatDateTime(row.created_at) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="operator_user_id" label="操作人" min-width="120">
-              <template #default="{ row }">
-                {{ row.operator_user_id || "-" }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="target_id" label="实际数据源" min-width="120" />
-            <el-table-column prop="before_value" label="请求数据源" min-width="120">
-              <template #default="{ row }">
-                {{ row.before_value || "-" }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="sync_count" label="同步条数" min-width="95" />
-            <el-table-column prop="reason" label="参数摘要" min-width="180">
-              <template #default="{ row }">
-                {{ row.reason || "-" }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="after_value" label="执行结果" min-width="120">
-              <template #default="{ row }">
-                {{ row.after_value || "-" }}
-              </template>
-            </el-table-column>
-          </el-table>
-
-          <div class="pagination">
-            <el-text type="info">第 {{ stockSyncLogsPage }} 页，共 {{ stockSyncLogsTotal }} 条</el-text>
-            <el-pagination
-              background
-              layout="prev, pager, next"
-              :current-page="stockSyncLogsPage"
-              :page-size="stockSyncLogsPageSize"
-              :total="stockSyncLogsTotal"
-              @current-change="handleStockSyncLogPageChange"
-            />
           </div>
         </div>
 
@@ -3675,230 +3417,50 @@ watch(activeTab, async (tab) => {
         </div>
 
         <div class="card" style="margin-bottom: 12px">
-          <div class="toolbar" style="margin-bottom: 8px; flex-wrap: wrap">
-            <el-text type="primary">期货行情同步</el-text>
-            <el-select
-              v-model="futuresQuoteSyncForm.source_key"
-              filterable
-              allow-create
-              default-first-option
-              :loading="futuresSourceLoading"
-              placeholder="选择期货行情源"
-              style="width: 280px"
-            >
-              <el-option
-                v-for="item in futuresSourceOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-                :disabled="item.disabled"
-              />
-            </el-select>
-            <el-button :loading="futuresSourceLoading" @click="fetchFuturesSourceOptions({ keepMessage: true })">
-              刷新数据源
-            </el-button>
-            <el-tag type="warning" effect="plain">
-              默认源：{{ futuresDefaultSourceKey || "-" }}
-            </el-tag>
-            <el-button
-              :loading="futuresDefaultSourceLoading"
-              :disabled="!futuresDefaultSourceKey"
-              @click="applyFuturesDefaultSource"
-            >
-              使用默认源
-            </el-button>
-            <el-tag v-if="currentFuturesSourceOption" :type="sourceHealthTagType(currentFuturesSourceOption.health_status)">
-              {{
-                currentFuturesSourceOption.health_status
-                  ? `健康：${currentFuturesSourceOption.health_status}`
-                  : "健康：未检查"
-              }}
-            </el-tag>
-            <el-text v-if="currentFuturesSourceOption?.health_message" type="info" size="small">
-              {{ currentFuturesSourceOption.health_message }}
-            </el-text>
-            <el-input
-              v-model="futuresQuoteSyncForm.contracts"
-              placeholder="合约代码，逗号分隔（可选）"
-              style="width: 280px"
-            />
-            <el-input-number
-              v-model="futuresQuoteSyncForm.days"
-              :min="20"
-              :max="365"
-              :step="5"
-              style="width: 150px"
-            />
-            <el-button v-if="canEditMarket" type="primary" plain :loading="futuresQuoteSyncing" @click="handleSyncFuturesQuotes">
-              同步期货行情
-            </el-button>
-          </div>
-
-          <div class="sync-inline-hint">
-            <el-text type="info" size="small">
-              支持 `AUTO`、`MYSELF` 或自定义链路，如 `TUSHARE,TICKERMD,AKSHARE,MYSELF`，用于按顺序回源。
-            </el-text>
-          </div>
-
-          <div v-if="futuresLastSyncResult" class="sync-result-board">
-            <div class="sync-result-head">
-              <div>
-                <h3>最近一次期货行情同步</h3>
-                <p class="muted">
-                  请求源 {{ formatRequestedSourceLabel(futuresLastSyncResult) }}
-                  · 实际源 {{ futuresLastSyncResult.source_key || "-" }}
-                  · 执行链路 {{ formatSyncResolvedSourceKeys(futuresLastSyncResult.result, futuresLastSyncResult.source_key) }}
-                </p>
-              </div>
-              <div class="publish-compare-tags">
-                <el-tag
-                  v-for="item in buildSyncMetricTags(futuresLastSyncResult.result)"
-                  :key="`futures-sync-tag-${item.key}`"
-                  :type="item.type"
-                >
-                  {{ item.label }}
-                </el-tag>
-                <el-tag v-if="buildSyncMetricTags(futuresLastSyncResult.result).length === 0" type="info">
-                  处理 {{ futuresLastSyncResult.count || 0 }} 条
-                </el-tag>
-              </div>
+          <div class="section-header">
+            <div>
+              <h3 style="margin: 0">期货数据链路已迁移</h3>
+              <p class="muted" style="margin: 6px 0 0">
+                期货行情同步、主力映射 truth 重建、质量排查与仓单同步统一迁到数据源管理；研究运行、候选审核与发布统一迁到智能期货。
+              </p>
             </div>
-
-            <div class="sync-result-grid">
-              <div class="sync-result-card">
-                <h4>请求参数</h4>
-                <ul class="publish-replay-list">
-                  <li>同步窗口：{{ futuresLastSyncResult.days || "-" }} 天</li>
-                  <li>合约范围：{{ formatSyncRequestScope(futuresLastSyncResult.contracts, "默认期货池") }}</li>
-                  <li>处理条数：{{ futuresLastSyncResult.count || 0 }}</li>
-                </ul>
-              </div>
-
-              <div class="sync-result-card">
-                <h4>分源执行明细</h4>
-                <div class="sync-result-source-list">
-                  <div
-                    v-for="item in (futuresLastSyncResult.result?.results || [])"
-                    :key="`futures-sync-item-${item.source_key}`"
-                    class="sync-result-source-item"
-                  >
-                    <div class="sync-result-source-head">
-                      <strong>{{ item.source_key || "-" }}</strong>
-                      <el-tag size="small" :type="syncExecutionStatusTagType(item.status)">
-                        {{ item.status || "UNKNOWN" }}
-                      </el-tag>
-                    </div>
-                    <p class="sync-result-source-meta">{{ formatSyncItemMetrics(item) }}</p>
-                    <p v-if="item.message && item.message !== 'ok'" class="sync-result-source-message">
-                      {{ item.message }}
-                    </p>
-                  </div>
-                  <p v-if="!(futuresLastSyncResult.result?.results || []).length" class="muted">暂无分源执行记录</p>
-                </div>
-              </div>
+            <div class="inline-actions inline-actions--left">
+              <el-button type="primary" plain @click="router.push({ name: 'data-sources' })">
+                前往数据源管理
+              </el-button>
+              <el-button type="primary" @click="router.push({ name: 'futures-selection-overview' })">
+                前往智能期货
+              </el-button>
             </div>
           </div>
-        </div>
 
-        <div class="card" style="margin-bottom: 12px">
-          <div class="toolbar" style="margin-bottom: 8px; flex-wrap: wrap">
-            <el-text type="primary">期货仓单同步</el-text>
-            <el-select
-              v-model="futuresInventorySyncForm.source_key"
-              filterable
-              allow-create
-              default-first-option
-              :loading="futuresSourceLoading"
-              placeholder="选择仓单数据源"
-              style="width: 280px"
-            >
-              <el-option
-                v-for="item in futuresSourceOptions"
-                :key="`inventory-source-${item.value}`"
-                :label="item.label"
-                :value="item.value"
-                :disabled="item.disabled"
-              />
-            </el-select>
-            <el-input
-              v-model="futuresInventorySyncForm.symbols"
-              placeholder="品种代码，逗号分隔（如 RB,AU,CU）"
-              style="width: 280px"
-            />
-            <el-input-number
-              v-model="futuresInventorySyncForm.days"
-              :min="5"
-              :max="365"
-              :step="5"
-              style="width: 150px"
-            />
-            <el-button v-if="canEditMarket" type="primary" plain :loading="futuresInventorySyncing" @click="handleSyncFuturesInventory">
-              同步期货仓单
-            </el-button>
-          </div>
-
-          <div class="sync-inline-hint">
-            <el-text type="info" size="small">
-              当前最小闭环先支持 TUSHARE / MOCK，品种代码会自动归一到根符号（如 `RB2405` -> `RB`）。
-            </el-text>
-          </div>
-
-          <div v-if="futuresInventoryLastSyncResult" class="sync-result-board">
-            <div class="sync-result-head">
-              <div>
-                <h3>最近一次期货仓单同步</h3>
-                <p class="muted">
-                  请求源 {{ formatRequestedSourceLabel(futuresInventoryLastSyncResult) }}
-                  · 实际源 {{ futuresInventoryLastSyncResult.source_key || "-" }}
-                  · 执行链路 {{ formatSyncResolvedSourceKeys(futuresInventoryLastSyncResult.result, futuresInventoryLastSyncResult.source_key) }}
-                </p>
-              </div>
-              <div class="publish-compare-tags">
-                <el-tag
-                  v-for="item in buildSyncMetricTags(futuresInventoryLastSyncResult.result)"
-                  :key="`futures-inventory-sync-tag-${item.key}`"
-                  :type="item.type"
-                >
-                  {{ item.label }}
-                </el-tag>
-                <el-tag v-if="buildSyncMetricTags(futuresInventoryLastSyncResult.result).length === 0" type="info">
-                  处理 {{ futuresInventoryLastSyncResult.count || 0 }} 条
-                </el-tag>
-              </div>
+          <div class="truth-summary-grid" style="margin-top: 12px">
+            <div class="truth-summary-card">
+              <div class="truth-summary-card__title">迁移到数据源管理</div>
+              <ul class="truth-summary-list">
+                <li>期货行情同步、默认源切换和回退链路</li>
+                <li>主力映射 truth 重建与质量日志排查</li>
+                <li>仓单与库存类数据同步入口</li>
+                <li>多源健康检查、执行摘要和质量概览</li>
+              </ul>
             </div>
-
-            <div class="sync-result-grid">
-              <div class="sync-result-card">
-                <h4>请求参数</h4>
-                <ul class="publish-replay-list">
-                  <li>同步窗口：{{ futuresInventoryLastSyncResult.days || "-" }} 天</li>
-                  <li>品种范围：{{ formatSyncRequestScope(futuresInventoryLastSyncResult.symbols, "默认仓单池") }}</li>
-                  <li>处理条数：{{ futuresInventoryLastSyncResult.count || 0 }}</li>
-                </ul>
-              </div>
-
-              <div class="sync-result-card">
-                <h4>分源执行明细</h4>
-                <div class="sync-result-source-list">
-                  <div
-                    v-for="item in (futuresInventoryLastSyncResult.result?.results || [])"
-                    :key="`futures-inventory-sync-item-${item.source_key}`"
-                    class="sync-result-source-item"
-                  >
-                    <div class="sync-result-source-head">
-                      <strong>{{ item.source_key || "-" }}</strong>
-                      <el-tag size="small" :type="syncExecutionStatusTagType(item.status)">
-                        {{ item.status || "UNKNOWN" }}
-                      </el-tag>
-                    </div>
-                    <p class="sync-result-source-meta">{{ formatSyncItemMetrics(item) }}</p>
-                    <p v-if="item.message && item.message !== 'ok'" class="sync-result-source-message">
-                      {{ item.message }}
-                    </p>
-                  </div>
-                  <p v-if="!(futuresInventoryLastSyncResult.result?.results || []).length" class="muted">暂无分源执行记录</p>
-                </div>
-              </div>
+            <div class="truth-summary-card">
+              <div class="truth-summary-card__title">迁移到智能期货</div>
+              <ul class="truth-summary-list">
+                <li>研究运行、候选审核与发布闭环</li>
+                <li>策略模板、规则与因子配置</li>
+                <li>图谱证据、评估复盘与版本差异</li>
+                <li>默认作为期货研究工作台使用</li>
+              </ul>
+            </div>
+            <div class="truth-summary-card">
+              <div class="truth-summary-card__title">策略中心仍保留</div>
+              <ul class="truth-summary-list">
+                <li>旧每日期货策略生成入口和人工补录兜底</li>
+                <li>Strategy Engine 期货发布归档和版本对比</li>
+                <li>最终策略列表与状态维护</li>
+                <li>运营节奏与市场事件协同入口</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -4008,6 +3570,46 @@ watch(activeTab, async (tab) => {
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <el-dialog
+      v-model="marketQualityDetailDialogVisible"
+      :title="marketQualityDetailTitle"
+      width="760px"
+      destroy-on-close
+    >
+      <el-descriptions :column="2" border>
+        <el-descriptions-item label="资产">
+          {{ marketQualityDetailLog?.asset_class || "-" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="来源">
+          {{ marketQualityDetailLog?.source_key || "-" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="问题编码">
+          {{ marketQualityDetailLog?.issue_code || "-" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="级别">
+          {{ marketQualityDetailLog?.severity || "-" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="交易日">
+          {{ marketQualityDetailLog?.trade_date || "-" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="创建时间">
+          {{ marketQualityDetailLog?.created_at || "-" }}
+        </el-descriptions-item>
+      </el-descriptions>
+
+      <div style="margin-top: 12px">
+        <div class="sync-result-card-title">问题说明</div>
+        <p class="quality-detail-message">{{ marketQualityDetailLog?.issue_message || "-" }}</p>
+      </div>
+
+      <div style="margin-top: 12px">
+        <div class="sync-result-card-title">payload</div>
+        <pre class="publish-detail-pre publish-detail-pre--compact">{{
+          marketQualityDetailPayload || "无 payload"
+        }}</pre>
+      </div>
+    </el-dialog>
 
     <el-dialog
       v-model="stockPublishDetailDialogVisible"
@@ -4871,6 +4473,29 @@ watch(activeTab, async (tab) => {
   gap: 8px;
 }
 
+.sync-result-issue-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.sync-result-issue-tag {
+  cursor: pointer;
+}
+
+.sync-result-issue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sync-result-issue-link {
+  padding: 0;
+  min-height: auto;
+}
+
 .sync-result-source-item {
   padding: 10px;
   border: 1px solid #e5e7eb;
@@ -4895,6 +4520,23 @@ watch(activeTab, async (tab) => {
 
 .sync-result-source-message {
   color: #9f1239;
+}
+
+.sync-result-source-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.sync-result-card-title {
+  font-weight: 600;
+  color: #111827;
+}
+
+.quality-detail-message {
+  margin: 8px 0 0;
+  color: #374151;
+  line-height: 1.7;
 }
 
 </style>

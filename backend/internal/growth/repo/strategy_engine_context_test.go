@@ -14,14 +14,17 @@ import (
 
 const strategyStockContextTradeDateQueryPattern = `SELECT MAX\(trade_date\)\s+FROM market_daily_bar_truth`
 const strategyStockContextCandidatesQueryPattern = `SELECT t\.instrument_key,\s+COALESCE\(NULLIF\(mi\.display_name, ''\), t\.instrument_key\) AS display_name,\s+t\.selected_source_key,\s+COALESCE\(t\.volume, 0\),\s+COALESCE\(t\.turnover, 0\),\s+COALESCE\(CAST\(mi\.metadata_json AS CHAR\), ''\)\s+FROM market_daily_bar_truth`
+const strategyStockContextInstrumentListDateQueryPattern = `SELECT instrument_key, list_date\s+FROM market_instruments`
 const strategyStockContextListingDateQueryPattern = `SELECT instrument_key, MIN\(trade_date\)\s+FROM market_daily_bar_truth`
 const strategyStockContextCoverageStartQueryPattern = `SELECT MIN\(trade_date\)\s+FROM market_daily_bar_truth\s+WHERE asset_class = \?`
 const strategyStockContextHistoryQueryPattern = `SELECT instrument_key, trade_date, open_price, high_price, low_price, close_price, prev_close_price, volume, turnover\s+FROM market_daily_bar_truth`
+const strategyStockContextStatusTruthQueryPattern = `SELECT instrument_key, list_date, is_suspended, is_st, risk_warning, status_reason_codes_json\s+FROM stock_status_truth`
 const strategyStockContextDailyBasicQueryPattern = `SELECT t\.symbol, t\.trade_date, t\.turnover_rate, t\.volume_ratio, t\.pe_ttm, t\.pb, t\.total_mv, t\.circ_mv, t\.source_key\s+FROM stock_daily_basic`
 const strategyStockContextMoneyflowQueryPattern = `SELECT t\.symbol, t\.trade_date, t\.net_mf_amount, t\.buy_lg_amount, t\.sell_lg_amount, t\.buy_elg_amount, t\.sell_elg_amount, t\.source_key\s+FROM stock_moneyflow_daily`
 const strategyStockContextNewsQueryPattern = `SELECT primary_symbol, symbols_json, title\s+FROM market_news_items`
 const strategyFuturesContextTradeDateQueryPattern = `SELECT MAX\(trade_date\)\s+FROM market_daily_bar_truth`
 const strategyFuturesContextCandidatesQueryPattern = `SELECT t\.instrument_key,\s+SUBSTRING_INDEX\(t\.instrument_key, '\.', 1\) AS contract_key,\s+COALESCE\(NULLIF\(mi\.display_name, ''\), SUBSTRING_INDEX\(t\.instrument_key, '\.', 1\)\) AS display_name,\s+t\.selected_source_key\s+FROM market_daily_bar_truth`
+const strategyFuturesContextMappingQueryPattern = `SELECT m\.dominant_instrument_key,\s+COALESCE\(t\.turnover, 0\)\s+FROM futures_contract_mappings`
 const strategyFuturesContextHistoryQueryPattern = `SELECT instrument_key, trade_date, close_price, prev_close_price, settle_price, prev_settle_price, volume, turnover, open_interest\s+FROM market_daily_bar_truth`
 const strategyFuturesContextSupplementQueryPattern = `SELECT instrument_key, trade_date, source_key, close_price, settle_price, prev_settle_price, turnover, open_interest\s+FROM market_daily_bars`
 const strategyFuturesContextNewsQueryPattern = `SELECT primary_symbol, symbols_json, title\s+FROM market_news_items`
@@ -129,6 +132,9 @@ func TestBuildStrategyEngineStockSelectionContextUsesTruthBarsAndNews(t *testing
 	mock.ExpectQuery(strategyStockContextHistoryQueryPattern).
 		WithArgs(marketAssetClassStock, "600519.SH", "300750.SZ", "2026-01-17", "2026-03-18").
 		WillReturnRows(buildStrategyStockContextHistoryRows())
+	mock.ExpectQuery(strategyStockContextStatusTruthQueryPattern).
+		WithArgs("2026-03-18", "600519.SH", "300750.SZ").
+		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "list_date", "is_suspended", "is_st", "risk_warning", "status_reason_codes_json"}))
 
 	mock.ExpectQuery(strategyStockContextDailyBasicQueryPattern).
 		WithArgs("600519.SH", "300750.SZ", "2026-03-18", "600519.SH", "300750.SZ").
@@ -219,6 +225,9 @@ func TestBuildStrategyEngineStockSelectionContextFallsBackToNeutralNewsSignals(t
 	mock.ExpectQuery(strategyStockContextHistoryQueryPattern).
 		WithArgs(marketAssetClassStock, "600519.SH", "2026-01-17", "2026-03-18").
 		WillReturnRows(buildStrategySingleSymbolHistoryRows("600519.SH", 120, 2.2, 1000, 25))
+	mock.ExpectQuery(strategyStockContextStatusTruthQueryPattern).
+		WithArgs("2026-03-18", "600519.SH").
+		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "list_date", "is_suspended", "is_st", "risk_warning", "status_reason_codes_json"}))
 	mock.ExpectQuery(strategyStockContextDailyBasicQueryPattern).
 		WithArgs("600519.SH", "2026-03-18", "600519.SH").
 		WillReturnRows(sqlmock.NewRows([]string{"symbol", "trade_date", "turnover_rate", "volume_ratio", "pe_ttm", "pb", "total_mv", "circ_mv", "source_key"}).
@@ -245,7 +254,7 @@ func TestBuildStrategyEngineStockSelectionContextFallsBackToNeutralNewsSignals(t
 	if ctx.Seeds[0].NewsHeat != 0 || ctx.Seeds[0].PositiveNewsRate != 0.5 {
 		t.Fatalf("expected neutral news fallback, got %+v", ctx.Seeds[0])
 	}
-	if !strings.Contains(strings.Join(ctx.Meta.Warnings, " | "), "fallback to neutral defaults") {
+	if !strings.Contains(strings.Join(ctx.Meta.Warnings, " | "), "已回退到中性默认值") {
 		t.Fatalf("expected news fallback warning, got %#v", ctx.Meta.Warnings)
 	}
 
@@ -282,9 +291,15 @@ func TestBuildStrategyEngineStockSelectionContextAutoModeAppliesUniverseFilters(
 			rows = appendStrategyHistoryRows(rows, "300750.SZ", 220, 2.2, 800, 26)
 			return rows
 		}())
-	mock.ExpectQuery(strategyStockContextListingDateQueryPattern).
+	mock.ExpectQuery(strategyStockContextStatusTruthQueryPattern).
+		WithArgs("2026-03-19", "600519.SH", "600001.SH", "300750.SZ").
+		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "list_date", "is_suspended", "is_st", "risk_warning", "status_reason_codes_json"}).
+			AddRow("600519.SH", time.Date(2020, 1, 2, 0, 0, 0, 0, time.Local), 0, 0, 0, `[]`).
+			AddRow("600001.SH", time.Date(2020, 1, 2, 0, 0, 0, 0, time.Local), 0, 1, 1, `["RISK_WARNING"]`).
+			AddRow("300750.SZ", time.Date(2020, 1, 2, 0, 0, 0, 0, time.Local), 1, 0, 0, `["SUSPENDED_PROXY"]`))
+	mock.ExpectQuery(strategyStockContextInstrumentListDateQueryPattern).
 		WithArgs(marketAssetClassStock, "600519.SH", "600001.SH", "300750.SZ").
-		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "min_trade_date"}).
+		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "list_date"}).
 			AddRow("600519.SH", time.Date(2025, 1, 1, 0, 0, 0, 0, time.Local)).
 			AddRow("600001.SH", time.Date(2024, 1, 1, 0, 0, 0, 0, time.Local)).
 			AddRow("300750.SZ", time.Date(2024, 1, 1, 0, 0, 0, 0, time.Local)))
@@ -318,10 +333,44 @@ func TestBuildStrategyEngineStockSelectionContextAutoModeAppliesUniverseFilters(
 		t.Fatalf("expected valid symbol 600519.SH, got %+v", ctx.Seeds[0])
 	}
 	joinedWarnings := strings.Join(ctx.Meta.Warnings, " | ")
-	if !strings.Contains(joinedWarnings, "suspended") || !strings.Contains(joinedWarnings, "ST symbols") {
+	if !strings.Contains(joinedWarnings, "停牌/成交代理过滤") || !strings.Contains(joinedWarnings, "ST/风险警示代理过滤") {
 		t.Fatalf("expected auto filter warnings, got %#v", ctx.Meta.Warnings)
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestLoadStrategyStockListingDateMapFallsBackToNormalizedTruthVariants(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+	expectedDate := time.Date(2024, 9, 11, 0, 0, 0, 0, time.Local)
+
+	mock.ExpectQuery(strategyStockContextInstrumentListDateQueryPattern).
+		WithArgs(marketAssetClassStock, "601012", "600036").
+		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "list_date"}))
+	mock.ExpectQuery(strategyStockContextListingDateQueryPattern).
+		WithArgs(marketAssetClassStock, "601012", "600036", "601012", "600036").
+		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "min_trade_date"}).
+			AddRow("601012.SH", expectedDate).
+			AddRow("600036.SH", expectedDate))
+
+	got, err := repo.loadStrategyStockListingDateMap([]string{"601012", "600036"})
+	if err != nil {
+		t.Fatalf("loadStrategyStockListingDateMap returned error: %v", err)
+	}
+	if !got["601012"].Equal(expectedDate) {
+		t.Fatalf("expected normalized fallback date for 601012, got %v", got["601012"])
+	}
+	if !got["600036"].Equal(expectedDate) {
+		t.Fatalf("expected normalized fallback date for 600036, got %v", got["600036"])
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
 	}
@@ -353,8 +402,14 @@ func TestBuildStrategyEngineStockSelectionContextAutoModeSkipsListingDaysWhenTru
 			rows = appendStrategyHistoryRows(rows, "300750", 380, 3.2, 500000, 30)
 			return rows
 		}())
-	mock.ExpectQuery(strategyStockContextListingDateQueryPattern).
+	mock.ExpectQuery(strategyStockContextStatusTruthQueryPattern).
+		WithArgs("2026-03-20", "600519", "300750").
+		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "list_date", "is_suspended", "is_st", "risk_warning", "status_reason_codes_json"}))
+	mock.ExpectQuery(strategyStockContextInstrumentListDateQueryPattern).
 		WithArgs(marketAssetClassStock, "600519", "300750").
+		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "list_date"}))
+	mock.ExpectQuery(strategyStockContextListingDateQueryPattern).
+		WithArgs(marketAssetClassStock, "600519", "300750", "600519", "300750").
 		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "min_trade_date"}).
 			AddRow("600519", time.Date(2025, 11, 11, 0, 0, 0, 0, time.Local)).
 			AddRow("300750", time.Date(2025, 11, 11, 0, 0, 0, 0, time.Local)))
@@ -390,7 +445,7 @@ func TestBuildStrategyEngineStockSelectionContextAutoModeSkipsListingDaysWhenTru
 	if ctx.Meta.ListingDaysFilterApplied {
 		t.Fatalf("expected listing days proxy filter to be disabled when truth coverage is too short")
 	}
-	if !strings.Contains(strings.Join(ctx.Meta.Warnings, " | "), "skipped min_listing_days proxy") {
+	if !strings.Contains(strings.Join(ctx.Meta.Warnings, " | "), "已跳过上市天数代理过滤") {
 		t.Fatalf("expected coverage guard warning, got %#v", ctx.Meta.Warnings)
 	}
 
@@ -592,7 +647,7 @@ func TestBuildStrategyEngineFuturesStrategyContextFallsBackToNeutralNewsSignals(
 	if ctx.Seeds[0].CurveSlopePct <= 0 {
 		t.Fatalf("expected curve slope metric, got %+v", ctx.Seeds[0])
 	}
-	if !strings.Contains(strings.Join(ctx.Meta.Warnings, " | "), "fallback to neutral defaults") {
+	if !strings.Contains(strings.Join(ctx.Meta.Warnings, " | "), "已回退到中性默认值") {
 		t.Fatalf("expected news fallback warning, got %#v", ctx.Meta.Warnings)
 	}
 
@@ -645,8 +700,13 @@ func TestBuildStrategyEngineFuturesStrategyContextPrefersRealTruthBeforeMock(t *
 	mock.ExpectQuery(strategyFuturesContextTradeDateQueryPattern).
 		WithArgs(marketAssetClassFutures, "2026-03-19", "MOCK").
 		WillReturnRows(sqlmock.NewRows([]string{"max_trade_date"}).AddRow(realTradeDate))
+	mock.ExpectQuery(strategyFuturesContextMappingQueryPattern).
+		WithArgs(marketAssetClassFutures, realTradeDate.Format("2006-01-02"), "MOCK", 6).
+		WillReturnRows(sqlmock.NewRows([]string{"dominant_instrument_key", "turnover"}).
+			AddRow("IF2406.CFX", 880000000).
+			AddRow("AU2406.SHF", 520000000))
 	mock.ExpectQuery(strategyFuturesContextCandidatesQueryPattern).
-		WithArgs(marketAssetClassFutures, "2024-06-18", "MOCK", 6).
+		WithArgs(marketAssetClassFutures, "2024-06-18", "MOCK", "IF2406", "AU2406").
 		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "contract_key", "display_name", "selected_source_key"}).
 			AddRow("IF2406.CFX", "IF2406", "股指主力", "AKSHARE").
 			AddRow("AU2406.SHF", "AU2406", "沪金主力", "AKSHARE"))
@@ -685,9 +745,72 @@ func TestBuildStrategyEngineFuturesStrategyContextPrefersRealTruthBeforeMock(t *
 		t.Fatalf("expected AKSHARE price source, got %s", ctx.Meta.PriceSource)
 	}
 	for _, warning := range ctx.Meta.Warnings {
-		if strings.Contains(warning, "fallback to MOCK truth source") {
+		if strings.Contains(warning, "MOCK 真相源") {
 			t.Fatalf("expected no mock fallback warning, got %#v", ctx.Meta.Warnings)
 		}
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestBuildStrategyEngineFuturesStrategyContextUsesMappedDominantContractsWhenContractsEmpty(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+	selectedTradeDate := time.Date(2026, 3, 18, 0, 0, 0, 0, time.Local)
+
+	mock.ExpectQuery(strategyFuturesContextTradeDateQueryPattern).
+		WithArgs(marketAssetClassFutures, "2026-03-19", "MOCK").
+		WillReturnRows(sqlmock.NewRows([]string{"max_trade_date"}).AddRow(selectedTradeDate))
+	mock.ExpectQuery(strategyFuturesContextMappingQueryPattern).
+		WithArgs(marketAssetClassFutures, selectedTradeDate.Format("2006-01-02"), "MOCK", 6).
+		WillReturnRows(sqlmock.NewRows([]string{"dominant_instrument_key", "turnover"}).
+			AddRow("IF2606.CFX", 980000000).
+			AddRow("AU2606.SHF", 760000000))
+	mock.ExpectQuery(strategyFuturesContextCandidatesQueryPattern).
+		WithArgs(marketAssetClassFutures, "2026-03-18", "MOCK", "IF2606", "AU2606").
+		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "contract_key", "display_name", "selected_source_key"}).
+			AddRow("IF2606.CFX", "IF2606", "沪深300股指", "TUSHARE").
+			AddRow("AU2606.SHF", "AU2606", "沪金主力", "TUSHARE"))
+	mock.ExpectQuery(strategyFuturesContextHistoryQueryPattern).
+		WithArgs(marketAssetClassFutures, "IF2606.CFX", "AU2606.SHF", "2026-02-01", "2026-03-18").
+		WillReturnRows(buildStrategyFuturesContextHistoryRows())
+	mock.ExpectQuery(strategyFuturesContextNewsQueryPattern).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"primary_symbol", "symbols_json", "title"}))
+	mock.ExpectQuery(strategyFuturesContextTermStructureQueryPattern).
+		WithArgs(marketAssetClassFutures, "2026-03-18", "MOCK", "IF%", "AU%").
+		WillReturnRows(buildStrategyFuturesTermStructureRows(
+			"IF2606.CFX", 4012.8,
+			"IF2609.CFX", 4036.2,
+			"AU2606.SHF", 536.7,
+			"AU2608.SHF", 539.1,
+		))
+	mock.ExpectQuery(strategyFuturesContextInventoryQueryPattern).
+		WithArgs("2026-03-18", "IF", "AU").
+		WillReturnRows(sqlmock.NewRows([]string{"symbol", "trade_date", "total_receipt_volume", "total_previous_volume", "total_change_volume"}))
+	mock.ExpectQuery(strategyFuturesContextSpreadQueryPattern).
+		WithArgs("IF2606", "AU2606", "IF2606", "AU2606").
+		WillReturnRows(sqlmock.NewRows([]string{"contract_a", "contract_b", "percentile", "status"}))
+
+	ctx, err := repo.BuildStrategyEngineFuturesStrategyContext(model.StrategyEngineFuturesStrategyContextRequest{
+		TradeDate: "2026-03-19",
+		Limit:     2,
+	})
+	if err != nil {
+		t.Fatalf("BuildStrategyEngineFuturesStrategyContext returned error: %v", err)
+	}
+	if len(ctx.Seeds) != 2 {
+		t.Fatalf("expected 2 mapped seeds, got %d", len(ctx.Seeds))
+	}
+	if ctx.Seeds[0].Contract != "IF2606" || ctx.Seeds[1].Contract != "AU2606" {
+		t.Fatalf("expected mapped dominant contracts, got %+v", ctx.Seeds)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -745,7 +868,7 @@ func TestBuildStrategyEngineFuturesStrategyContextExplicitContractsFallBackToMoc
 	if ctx.Meta.PriceSource != "MOCK" {
 		t.Fatalf("expected MOCK price source after fallback, got %s", ctx.Meta.PriceSource)
 	}
-	if !strings.Contains(strings.Join(ctx.Meta.Warnings, " | "), "fallback to MOCK truth source") {
+	if !strings.Contains(strings.Join(ctx.Meta.Warnings, " | "), "MOCK 真相源") {
 		t.Fatalf("expected mock fallback warning, got %#v", ctx.Meta.Warnings)
 	}
 
@@ -831,7 +954,7 @@ func TestBuildStrategyEngineFuturesStrategyContextAllowsMockFallbackOnShortHisto
 	if ctx.Meta.PriceSource != "MOCK" {
 		t.Fatalf("expected MOCK price source after short-history fallback, got %s", ctx.Meta.PriceSource)
 	}
-	if !strings.Contains(strings.Join(ctx.Meta.Warnings, " | "), "after explicit opt-in") {
+	if !strings.Contains(strings.Join(ctx.Meta.Warnings, " | "), "显式允许后已切换到 MOCK 真相源") {
 		t.Fatalf("expected explicit opt-in fallback warning, got %#v", ctx.Meta.Warnings)
 	}
 

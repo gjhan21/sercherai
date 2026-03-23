@@ -103,6 +103,28 @@ type GrowthService interface {
 	AdminListStockSelectionRuns(status string, reviewStatus string, profileID string, page int, pageSize int) ([]model.StockSelectionRun, int, error)
 	AdminCreateStockSelectionRun(input model.StockSelectionRunCreateRequest, operator string) (model.StockSelectionRun, error)
 	AdminGetStockSelectionRun(runID string) (model.StockSelectionRun, error)
+	AdminGetFuturesSelectionOverview() (model.AdminFuturesSelectionOverview, error)
+	AdminListFuturesSelectionRuns(status string, reviewStatus string, profileID string, page int, pageSize int) ([]model.FuturesSelectionRun, int, error)
+	AdminCreateFuturesSelectionRun(input model.FuturesSelectionRunCreateRequest, operator string) (model.FuturesSelectionRun, error)
+	AdminGetFuturesSelectionRun(runID string) (model.FuturesSelectionRun, error)
+	AdminCompareFuturesSelectionRuns(runIDs []string) (model.FuturesSelectionRunCompareResult, error)
+	AdminListFuturesSelectionProfiles(status string, page int, pageSize int) ([]model.FuturesSelectionProfile, int, error)
+	AdminListFuturesSelectionProfileVersions(profileID string) ([]model.FuturesSelectionProfileVersion, error)
+	AdminCreateFuturesSelectionProfile(item model.FuturesSelectionProfile, changeNote string) (model.FuturesSelectionProfile, error)
+	AdminUpdateFuturesSelectionProfile(id string, item model.FuturesSelectionProfile, changeNote string) (model.FuturesSelectionProfile, error)
+	AdminPublishFuturesSelectionProfile(id string, operator string) (model.FuturesSelectionProfile, error)
+	AdminRollbackFuturesSelectionProfile(id string, versionNo int, changeNote string, operator string) (model.FuturesSelectionProfile, error)
+	AdminListFuturesSelectionProfileTemplates(status string, page int, pageSize int) ([]model.FuturesSelectionProfileTemplate, int, error)
+	AdminCreateFuturesSelectionProfileTemplate(item model.FuturesSelectionProfileTemplate) (model.FuturesSelectionProfileTemplate, error)
+	AdminUpdateFuturesSelectionProfileTemplate(id string, item model.FuturesSelectionProfileTemplate) (model.FuturesSelectionProfileTemplate, error)
+	AdminSetDefaultFuturesSelectionProfileTemplate(id string, operator string) (model.FuturesSelectionProfileTemplate, error)
+	AdminListFuturesSelectionEvaluationLeaderboard(templateID string, profileID string, marketRegime string) ([]model.FuturesSelectionEvaluationLeaderboardItem, error)
+	AdminListFuturesSelectionRunCandidates(runID string) ([]model.FuturesSelectionCandidateSnapshot, error)
+	AdminListFuturesSelectionRunPortfolio(runID string) ([]model.FuturesSelectionPortfolioEntry, error)
+	AdminListFuturesSelectionRunEvidence(runID string, contract string) ([]model.FuturesSelectionRunEvidence, error)
+	AdminListFuturesSelectionRunEvaluations(runID string, contract string) ([]model.FuturesSelectionRunEvaluation, error)
+	AdminApproveFuturesSelectionReview(runID string, operator string, reviewNote string, force bool, overrideReason string) (model.FuturesSelectionPublishReview, error)
+	AdminRejectFuturesSelectionReview(runID string, operator string, reviewNote string) (model.FuturesSelectionPublishReview, error)
 	AdminCompareStockSelectionRuns(runIDs []string) (model.StockSelectionRunCompareResult, error)
 	AdminListStockSelectionProfiles(status string, page int, pageSize int) ([]model.StockSelectionProfile, int, error)
 	AdminListStockSelectionProfileVersions(profileID string) ([]model.StockSelectionProfileVersion, error)
@@ -122,6 +144,8 @@ type GrowthService interface {
 	AdminListStockSelectionReviews(status string, page int, pageSize int) ([]model.StockSelectionPublishReview, int, error)
 	AdminApproveStockSelectionReview(runID string, operator string, reviewNote string, force bool, overrideReason string) (model.StockSelectionPublishReview, error)
 	AdminRejectStockSelectionReview(runID string, operator string, reviewNote string) (model.StockSelectionPublishReview, error)
+	AdminGetStrategyGraphSnapshot(snapshotID string) (model.StrategyGraphSnapshot, error)
+	AdminQueryStrategyGraphSubgraph(query model.StrategyGraphSubgraphQuery) (model.StrategyGraphSubgraph, error)
 	AdminListStrategyEnginePublishHistory(jobType string) ([]model.StrategyEnginePublishRecordSummary, error)
 	AdminGetStrategyEnginePublishRecord(publishID string) (model.StrategyEnginePublishRecord, error)
 	AdminGetStrategyEnginePublishReplay(publishID string) (model.StrategyEnginePublishReplay, error)
@@ -163,6 +187,7 @@ type GrowthService interface {
 	AdminUpdateUserStatus(id string, status string) error
 	AdminUpdateUserMemberLevel(id string, memberLevel string) error
 	AdminUpdateUserKYCStatus(id string, kycStatus string) error
+	AdminResetUserPasswordHash(id string, passwordHash string) error
 	AdminDashboardOverview() (model.AdminDashboardOverview, error)
 	AdminCreateOperationLog(module string, action string, targetType string, targetID string, operatorUserID string, beforeValue string, afterValue string, reason string) error
 	AdminListOperationLogs(module string, action string, operatorUserID string, page int, pageSize int) ([]model.AdminOperationLog, int, error)
@@ -185,6 +210,10 @@ type GrowthService interface {
 	AdminCheckDataSourceHealth(sourceKey string) (model.DataSourceHealthCheck, error)
 	AdminBatchCheckDataSourceHealth(sourceKeys []string) ([]model.DataSourceHealthCheck, error)
 	AdminListDataSourceHealthLogs(sourceKey string, page int, pageSize int) ([]model.DataSourceHealthLog, int, error)
+	AdminListMarketDataQualityLogs(assetClass string, dataKind string, severity string, issueCode string, hours int, page int, pageSize int) ([]model.MarketDataQualityLog, int, error)
+	AdminGetMarketDataQualitySummary(assetClass string, hours int) (model.MarketDataQualitySummary, error)
+	AdminGetMarketDerivedTruthSummary(assetClass string) (*model.MarketDerivedTruthSummary, error)
+	AdminRebuildMarketDerivedTruth(assetClass string, tradeDate string, days int) (model.MarketDerivedTruthRebuildResult, error)
 	AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error)
 	AdminUpsertSystemConfig(configKey string, configValue string, description string, operator string) error
 	AdminListReviewTasks(module string, status string, submitterID string, reviewerID string, page int, pageSize int) ([]model.ReviewTask, int, error)
@@ -591,6 +620,22 @@ func (s *growthService) AdminGenerateDailyStockRecommendations(tradeDate string)
 	return s.repo.AdminGenerateDailyStockRecommendations(tradeDate)
 }
 
+func (s *growthService) AdminGetFuturesSelectionOverview() (model.AdminFuturesSelectionOverview, error) {
+	return s.repo.AdminGetFuturesSelectionOverview()
+}
+
+func (s *growthService) AdminListFuturesSelectionRuns(status string, reviewStatus string, profileID string, page int, pageSize int) ([]model.FuturesSelectionRun, int, error) {
+	return s.repo.AdminListFuturesSelectionRuns(status, reviewStatus, profileID, page, pageSize)
+}
+
+func (s *growthService) AdminCreateFuturesSelectionRun(input model.FuturesSelectionRunCreateRequest, operator string) (model.FuturesSelectionRun, error) {
+	return s.repo.AdminCreateFuturesSelectionRun(input, operator)
+}
+
+func (s *growthService) AdminGetFuturesSelectionRun(runID string) (model.FuturesSelectionRun, error) {
+	return s.repo.AdminGetFuturesSelectionRun(runID)
+}
+
 func (s *growthService) AdminListStrategyEnginePublishHistory(jobType string) ([]model.StrategyEnginePublishRecordSummary, error) {
 	return s.repo.AdminListStrategyEnginePublishHistory(jobType)
 }
@@ -693,6 +738,10 @@ func (s *growthService) AdminUpdateUserMemberLevel(id string, memberLevel string
 
 func (s *growthService) AdminUpdateUserKYCStatus(id string, kycStatus string) error {
 	return s.repo.AdminUpdateUserKYCStatus(id, kycStatus)
+}
+
+func (s *growthService) AdminResetUserPasswordHash(id string, passwordHash string) error {
+	return s.repo.AdminResetUserPasswordHash(id, passwordHash)
 }
 
 func (s *growthService) AdminDashboardOverview() (model.AdminDashboardOverview, error) {

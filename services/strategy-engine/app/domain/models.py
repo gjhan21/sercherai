@@ -189,3 +189,20 @@ class FuturesFeature:
     spread_pair: str = ""
     reasons: list[str] = field(default_factory=list)
     reason_summary: str = ""
+    positive_reasons: list[str] = field(default_factory=list)
+    veto_reasons: list[str] = field(default_factory=list)
+    evidence_cards: list[dict[str, Any]] = field(default_factory=list)
+    evidence_summary: str = ""
+    portfolio_role: str = ""
+    risk_flags: list[str] = field(default_factory=list)
+    related_entities: list[dict[str, Any]] = field(default_factory=list)
+
+    def factor_breakdown(self) -> dict[str, float]:
+        return {
+            "trend": round(self.trend_score, 2),
+            "money_flow": round(self.flow_score, 2),
+            "basis_term": round(self.carry_score, 2),
+            "event": round(self.news_score, 2),
+            "conviction": round(self.conviction_score, 2),
+            "total_score": round(self.conviction_score, 2),
+        }

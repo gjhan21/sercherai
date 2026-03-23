@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import StockSelectionModuleShell from "../../components/StockSelectionModuleShell.vue";
 import {
@@ -29,6 +30,7 @@ import {
 } from "../../lib/stock-selection";
 import { hasPermission } from "../../lib/session";
 
+const router = useRouter();
 const canManage = hasPermission("stock_selection.manage");
 const loading = ref(false);
 const dialogVisible = ref(false);
@@ -460,12 +462,15 @@ onMounted(async () => {
 
 <template>
   <StockSelectionModuleShell
-    title="智能选股策略配置"
-    description="把股票池、种子挖掘、因子权重、组合规则和发布规则都做成中文可视化表单，保存时仍兼容现有配置结构。"
+    title="智能选股策略设计"
+    description="这里收口股票研究模板、股票池规则、因子权重和配置方案。主流程先在这里定策略，再去运行中心和候选审核页完成闭环。"
   >
     <template #actions>
       <div class="toolbar" style="margin-bottom: 0; flex-wrap: wrap">
         <el-button :loading="loading" @click="fetchProfiles">刷新配置</el-button>
+        <el-button plain @click="router.push({ name: 'stock-selection-templates' })">策略模板</el-button>
+        <el-button plain @click="router.push({ name: 'stock-selection-rules' })">股票池规则</el-button>
+        <el-button plain @click="router.push({ name: 'stock-selection-factors' })">因子与权重</el-button>
         <el-button v-if="canManage" type="primary" @click="openCreate">新建配置方案</el-button>
       </div>
     </template>

@@ -185,3 +185,44 @@ func TestAdminListStockSelectionReviewsHandlesPendingRowsWithoutPublishVersion(t
 		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }
+
+func TestBuildStockSelectionRunContextMetaIncludesResearchFields(t *testing.T) {
+	report := strategyEngineStockSelectionReport{
+		GraphSummary:    "图谱显示机器人主线和算力题材继续共振。",
+		GraphSnapshotID: "gss_demo_001",
+		ContextMeta: map[string]any{
+			"selected_trade_date": "2026-03-21",
+			"graph_write_status":  "WRITTEN",
+		},
+		RelatedEntities: []map[string]any{
+			{"label": "机器人", "entity_type": "ConceptTheme"},
+			{"label": "算力", "entity_type": "ConceptTheme"},
+		},
+		MemoryFeedback: map[string]any{
+			"summary":     "题材共振较强，但高位分歧需要继续跟踪。",
+			"suggestions": []any{"下次降低高波动票权重", "优先观察成交额持续性"},
+		},
+	}
+
+	contextMeta := buildStockSelectionRunContextMeta(report)
+	if got := stringValue(contextMeta["selected_trade_date"]); got != "2026-03-21" {
+		t.Fatalf("expected selected_trade_date to be preserved, got %q", got)
+	}
+	if got := stringValue(contextMeta["graph_summary"]); got != report.GraphSummary {
+		t.Fatalf("expected graph_summary=%q, got %q", report.GraphSummary, got)
+	}
+	if got := stringValue(contextMeta["graph_snapshot_id"]); got != report.GraphSnapshotID {
+		t.Fatalf("expected graph_snapshot_id=%q, got %q", report.GraphSnapshotID, got)
+	}
+	relatedEntities, ok := contextMeta["related_entities"].([]map[string]any)
+	if !ok || len(relatedEntities) != 2 {
+		t.Fatalf("expected 2 related_entities, got %#v", contextMeta["related_entities"])
+	}
+	memoryFeedback, ok := contextMeta["memory_feedback"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected memory_feedback map, got %#v", contextMeta["memory_feedback"])
+	}
+	if got := stringValue(memoryFeedback["summary"]); got == "" {
+		t.Fatalf("expected memory_feedback summary to be stored")
+	}
+}

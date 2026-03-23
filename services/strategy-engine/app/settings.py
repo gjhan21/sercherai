@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     simulate_job_delay_seconds: float = Field(default=0.05, ge=0.0, le=5.0)
     go_backend_base_url: str = ""
     go_backend_timeout_ms: int = Field(default=8000, ge=500, le=60000)
+    graph_service_base_url: str = ""
+    graph_service_timeout_ms: int = Field(default=3000, ge=500, le=30000)
     allow_sample_stock_seeds: bool = False
     allow_sample_futures_seeds: bool = False
 

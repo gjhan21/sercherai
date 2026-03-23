@@ -31,6 +31,7 @@ type MySQLGrowthRepo struct {
 	db             *sql.DB
 	redis          *redis.Client
 	strategyEngine *strategyEngineClient
+	strategyGraph  *strategyGraphClient
 }
 
 var repoIDSequence atomic.Uint64
@@ -40,6 +41,7 @@ func NewMySQLGrowthRepo(db *sql.DB, redisClient *redis.Client, cfg config.Config
 		db:             db,
 		redis:          redisClient,
 		strategyEngine: newStrategyEngineClient(cfg),
+		strategyGraph:  newStrategyGraphClient(cfg),
 	}
 }
 
@@ -4177,6 +4179,10 @@ WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT'
 	if err != nil {
 		return model.StockRecommendationInsight{}, err
 	}
+	explanation := r.buildStockStrategyExplanation(item, detail)
+	if contexts, contextErr := r.listStrategyEngineAssetContexts("stock-selection", item.Symbol, defaultVersionHistoryLimit); contextErr == nil {
+		applyStrategyVersionDiffToExplanation(&explanation, contexts, item.Symbol)
+	}
 
 	return model.StockRecommendationInsight{
 		Recommendation:   item,
@@ -4186,7 +4192,7 @@ WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT'
 		Performance:      performancePoints,
 		Benchmark:        benchmarkPoints,
 		PerformanceStats: performanceStats,
-		Explanation:      r.buildStockStrategyExplanation(item, detail),
+		Explanation:      explanation,
 		GeneratedAt:      time.Now().Format(time.RFC3339),
 	}, nil
 }
@@ -4254,6 +4260,7 @@ WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT'
 		}
 		items = append(items, historyItem)
 	}
+	applyStrategyVersionDiffToHistoryItems(items, contexts, item.Symbol)
 	return items, nil
 }
 
@@ -4748,6 +4755,10 @@ func (r *MySQLGrowthRepo) GetFuturesStrategyInsight(userID string, strategyID st
 
 	scoreWeights := r.loadFuturesStrategyScoreWeights()
 	scoreFramework := buildFuturesScoreFramework(strategy, guidance, stats, relatedNews, relatedEvents, scoreWeights)
+	explanation := r.buildFuturesStrategyExplanation(strategy, guidance)
+	if contexts, contextErr := r.listStrategyEngineAssetContexts("futures-strategy", strategy.Contract, defaultVersionHistoryLimit); contextErr == nil {
+		applyStrategyVersionDiffToExplanation(&explanation, contexts, strategy.Contract)
+	}
 	return model.FuturesStrategyInsight{
 		Strategy:         strategy,
 		Guidance:         guidance,
@@ -4757,7 +4768,7 @@ func (r *MySQLGrowthRepo) GetFuturesStrategyInsight(userID string, strategyID st
 		Performance:      performance,
 		Benchmark:        benchmark,
 		PerformanceStats: stats,
-		Explanation:      r.buildFuturesStrategyExplanation(strategy, guidance),
+		Explanation:      explanation,
 		GeneratedAt:      time.Now().Format(time.RFC3339),
 	}, nil
 }
@@ -4803,6 +4814,7 @@ func (r *MySQLGrowthRepo) GetFuturesStrategyVersionHistory(userID string, strate
 			},
 		))
 	}
+	applyStrategyVersionDiffToHistoryItems(items, contexts, strategy.Contract)
 	return items, nil
 }
 
@@ -7200,6 +7212,21 @@ func (r *MySQLGrowthRepo) AdminUpdateUserKYCStatus(id string, kycStatus string) 
 	return err
 }
 
+func (r *MySQLGrowthRepo) AdminResetUserPasswordHash(id string, passwordHash string) error {
+	result, err := r.db.Exec("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", passwordHash, time.Now(), id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (r *MySQLGrowthRepo) AdminDashboardOverview() (model.AdminDashboardOverview, error) {
 	result := model.AdminDashboardOverview{}
 	now := time.Now()
@@ -8880,6 +8907,16 @@ func (r *MySQLGrowthRepo) ensureBuiltinDataSources() error {
 			Key:         marketNewsPriorityConfigKey,
 			Value:       "AKSHARE,TUSHARE",
 			Description: "市场资讯多源优先级",
+		},
+		{
+			Key:         marketInstrumentStockPriorityConfigKey,
+			Value:       "TUSHARE,AKSHARE,TICKERMD,MYSELF,MOCK",
+			Description: "股票主数据多源优先级",
+		},
+		{
+			Key:         marketInstrumentFuturesPriorityConfigKey,
+			Value:       "TUSHARE,AKSHARE,TICKERMD,MYSELF,MOCK",
+			Description: "期货主数据多源优先级",
 		},
 		{
 			Key:         "market.news.default_source_key",

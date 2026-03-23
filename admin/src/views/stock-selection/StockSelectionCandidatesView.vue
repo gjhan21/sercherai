@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { computed, onMounted, reactive, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
 import StockSelectionModuleShell from "../../components/StockSelectionModuleShell.vue";
 import {
   approveStockSelectionReview,
@@ -15,15 +16,25 @@ import {
 import {
   formatStockSelectionDateTime,
   formatStockSelectionDiffStatus,
+  formatStockSelectionEvaluationScope,
+  formatStockSelectionEvaluationStatus,
+  formatStockSelectionLabel,
   formatStockSelectionMarketRegime,
   formatStockSelectionPercent,
   formatStockSelectionReviewStatus,
   formatStockSelectionRiskLevel,
+  formatStockSelectionSource,
   formatStockSelectionStage,
   summarizeStockSelectionDiff
 } from "../../lib/stock-selection";
+import {
+  extractReviewConflictReason,
+  resolveReviewDialogMeta
+} from "../../lib/review-action-dialog";
 import { hasPermission } from "../../lib/session";
 
+const route = useRoute();
+const router = useRouter();
 const canManage = hasPermission("stock_selection.manage");
 const loading = ref(false);
 const actionLoading = ref(false);
@@ -35,6 +46,13 @@ const portfolioEntries = ref([]);
 const evidenceRecords = ref([]);
 const evaluationRecords = ref([]);
 const selectedCandidate = ref(null);
+const reviewDialogVisible = ref(false);
+const reviewDialogMode = ref("approve");
+const reviewDialogError = ref("");
+const reviewDialogForm = reactive({
+  reviewNote: "",
+  overrideReason: ""
+});
 
 const candidatePool = computed(() =>
   candidateSnapshots.value.filter((item) => item.stage === "CANDIDATE_POOL")
@@ -51,6 +69,21 @@ const selectedEvaluations = computed(() =>
 const watchlistCandidates = computed(() =>
   candidatePool.value.filter((item) => String(item.portfolio_role || "").toUpperCase() === "WATCHLIST")
 );
+const reviewWarningMessages = computed(() =>
+  Array.isArray(runDetail.value?.warning_messages) ? runDetail.value.warning_messages : []
+);
+const reviewDialogTitle = computed(() => {
+  return resolveReviewDialogMeta(reviewDialogMode.value).title;
+});
+const reviewDialogPrimaryText = computed(() => {
+  return resolveReviewDialogMeta(reviewDialogMode.value).primaryText;
+});
+const reviewDialogPrimaryType = computed(() => {
+  return resolveReviewDialogMeta(reviewDialogMode.value).primaryType;
+});
+const reviewDialogSummaryTone = computed(() => {
+  return resolveReviewDialogMeta(reviewDialogMode.value).summaryTone;
+});
 
 function formatDateTime(value) {
   return formatStockSelectionDateTime(value);
@@ -71,6 +104,11 @@ async function fetchRunOptions() {
     page_size: 50
   });
   runOptions.value = Array.isArray(data?.items) ? data.items : [];
+  const queryRunID = String(route.query.run_id || "").trim();
+  if (queryRunID && runOptions.value.some((item) => item.run_id === queryRunID)) {
+    selectedRunID.value = queryRunID;
+    return;
+  }
   if (!selectedRunID.value && runOptions.value.length > 0) {
     selectedRunID.value = runOptions.value[0].run_id;
   }
@@ -106,66 +144,108 @@ async function fetchRunArtifacts() {
   }
 }
 
-async function handleApprove(force = false) {
-  if (!selectedRunID.value) {
-    return;
-  }
-  actionLoading.value = true;
-  try {
-    const payload = {
-      review_note: force ? "人工确认允许覆盖发布" : "候选池审核通过，允许发布",
-      force,
-      override_reason: ""
-    };
-    if (force) {
-      const result = await ElMessageBox.prompt("请输入人工覆盖原因", "强制发布", {
-        confirmButtonText: "发布",
-        cancelButtonText: "取消"
-      });
-      payload.override_reason = result.value;
-      payload.review_note = `人工覆盖发布：${result.value}`;
-    }
-    await approveStockSelectionReview(selectedRunID.value, payload);
-    ElMessage.success(force ? "已执行强制发布" : "审核已通过并发布");
-    await fetchRunArtifacts();
-    await fetchRunOptions();
-  } catch (error) {
-    if (error === "cancel") {
-      return;
-    }
-    ElMessage.error(error?.message || "审核通过失败");
-  } finally {
-    actionLoading.value = false;
-  }
+function resetReviewDialog() {
+  reviewDialogMode.value = "approve";
+  reviewDialogError.value = "";
+  reviewDialogForm.reviewNote = "";
+  reviewDialogForm.overrideReason = "";
 }
 
-async function handleReject() {
+function openReviewDialog(mode) {
+  if (!selectedRunID.value || !runDetail.value) {
+    return;
+  }
+  reviewDialogMode.value = mode;
+  reviewDialogError.value = "";
+  if (mode === "approve") {
+    reviewDialogForm.reviewNote = "候选池审核通过，允许发布";
+    reviewDialogForm.overrideReason = "";
+  } else if (mode === "force") {
+    reviewDialogForm.reviewNote = "人工确认允许覆盖发布";
+  } else {
+    reviewDialogForm.reviewNote = "";
+    reviewDialogForm.overrideReason = "";
+  }
+  reviewDialogVisible.value = true;
+}
+
+function closeReviewDialog() {
+  if (actionLoading.value) {
+    return;
+  }
+  reviewDialogVisible.value = false;
+  resetReviewDialog();
+}
+
+async function submitReviewDialog() {
   if (!selectedRunID.value) {
     return;
   }
+  if (reviewDialogMode.value === "blocked") {
+    reviewDialogMode.value = "force";
+    reviewDialogError.value = "";
+    if (!reviewDialogForm.reviewNote.trim()) {
+      reviewDialogForm.reviewNote = "人工确认允许覆盖发布";
+    }
+    return;
+  }
+  const reviewNote = reviewDialogForm.reviewNote.trim();
+  const overrideReason = reviewDialogForm.overrideReason.trim();
+  if (!reviewNote) {
+    reviewDialogError.value = reviewDialogMode.value === "reject" ? "请填写驳回原因" : "请填写审核说明";
+    return;
+  }
+  if (reviewDialogMode.value === "force" && !overrideReason) {
+    reviewDialogError.value = "请填写人工覆盖原因";
+    return;
+  }
   actionLoading.value = true;
+  reviewDialogError.value = "";
   try {
-    const result = await ElMessageBox.prompt("请输入驳回原因", "驳回审核", {
-      confirmButtonText: "驳回",
-      cancelButtonText: "取消"
-    });
-    await rejectStockSelectionReview(selectedRunID.value, {
-      review_note: result.value
-    });
-    ElMessage.success("审核已驳回");
+    if (reviewDialogMode.value === "reject") {
+      await rejectStockSelectionReview(selectedRunID.value, {
+        review_note: reviewNote
+      });
+      ElMessage.success("审核已驳回");
+    } else {
+      const force = reviewDialogMode.value === "force";
+      await approveStockSelectionReview(selectedRunID.value, {
+        review_note: reviewNote,
+        force,
+        override_reason: force ? overrideReason : ""
+      });
+      ElMessage.success(force ? "已执行强制发布" : "审核已通过并发布");
+    }
+    reviewDialogVisible.value = false;
+    resetReviewDialog();
     await fetchRunArtifacts();
     await fetchRunOptions();
   } catch (error) {
-    if (error === "cancel") {
+    const conflictReason = extractReviewConflictReason(error);
+    if (conflictReason) {
+      reviewDialogMode.value = "blocked";
+      reviewDialogError.value = conflictReason;
       return;
     }
-    ElMessage.error(error?.message || "驳回失败");
+    reviewDialogError.value =
+      error?.message || (reviewDialogMode.value === "reject" ? "驳回失败" : "审核通过失败");
   } finally {
     actionLoading.value = false;
   }
 }
 
 watch(selectedRunID, fetchRunArtifacts);
+
+watch(
+  () => route.query.run_id,
+  async (runID) => {
+    const normalized = String(runID || "").trim();
+    if (!normalized || normalized === selectedRunID.value) {
+      return;
+    }
+    selectedRunID.value = normalized;
+  }
+);
 
 onMounted(async () => {
   await fetchRunOptions();
@@ -175,8 +255,8 @@ onMounted(async () => {
 
 <template>
   <StockSelectionModuleShell
-    title="智能选股候选与组合"
-    description="这里承接最近成功运行的候选池、最终组合和审核发布动作，详细 HTML 或 Markdown 报告继续复用通用发布记录。"
+    title="智能选股候选与审核发布"
+    description="这里统一承接候选池、最终组合、证据面板和审核发布动作，不再拆成独立审核页。详细 HTML 或 Markdown 报告继续复用通用发布记录。"
   >
     <template #actions>
       <div class="toolbar" style="margin-bottom: 0; flex-wrap: wrap">
@@ -193,7 +273,8 @@ onMounted(async () => {
             :value="run.run_id"
           />
         </el-select>
-        <el-button :loading="loading" @click="fetchRunArtifacts">刷新当前 Run</el-button>
+        <el-button plain @click="router.push({ name: 'stock-selection-runs' })">返回运行中心</el-button>
+        <el-button :loading="loading" @click="fetchRunArtifacts">刷新当前运行</el-button>
       </div>
     </template>
 
@@ -214,7 +295,7 @@ onMounted(async () => {
             v-if="canManage"
             type="success"
             :loading="actionLoading"
-            @click="handleApprove(false)"
+            @click="openReviewDialog('approve')"
           >
             审核通过并发布
           </el-button>
@@ -222,7 +303,7 @@ onMounted(async () => {
             v-if="canManage"
             type="warning"
             :loading="actionLoading"
-            @click="handleApprove(true)"
+            @click="openReviewDialog('force')"
           >
             强制发布
           </el-button>
@@ -231,7 +312,7 @@ onMounted(async () => {
             type="danger"
             plain
             :loading="actionLoading"
-            @click="handleReject"
+            @click="openReviewDialog('reject')"
           >
             驳回
           </el-button>
@@ -255,7 +336,7 @@ onMounted(async () => {
           {{ runDetail.context_meta?.selected_trade_date || "-" }}
         </el-descriptions-item>
         <el-descriptions-item label="行情来源">
-          {{ runDetail.context_meta?.price_source || "-" }}
+          {{ formatStockSelectionSource(runDetail.context_meta?.price_source) }}
         </el-descriptions-item>
       </el-descriptions>
 
@@ -305,11 +386,15 @@ onMounted(async () => {
           <el-table-column prop="symbol" label="代码" min-width="120" />
           <el-table-column prop="name" label="名称" min-width="140" />
           <el-table-column prop="quant_score" label="量化分" min-width="90" />
-          <el-table-column prop="portfolio_role" label="角色" min-width="90" />
+          <el-table-column label="角色" min-width="90">
+            <template #default="{ row }">{{ formatStockSelectionLabel(row.portfolio_role || "PORTFOLIO") }}</template>
+          </el-table-column>
           <el-table-column prop="risk_level" label="风险" min-width="90">
             <template #default="{ row }">{{ formatStockSelectionRiskLevel(row.risk_level) }}</template>
           </el-table-column>
-          <el-table-column prop="evaluation_status" label="评估" min-width="90" />
+          <el-table-column prop="evaluation_status" label="评估" min-width="90">
+            <template #default="{ row }">{{ formatStockSelectionEvaluationStatus(row.evaluation_status) }}</template>
+          </el-table-column>
           <el-table-column prop="selected" label="入组合" min-width="80">
             <template #default="{ row }">
               <el-tag :type="row.selected ? 'success' : 'info'">
@@ -335,12 +420,16 @@ onMounted(async () => {
           <el-table-column prop="symbol" label="代码" min-width="120" />
           <el-table-column prop="name" label="名称" min-width="140" />
           <el-table-column prop="quant_score" label="量化分" min-width="90" />
-          <el-table-column prop="portfolio_role" label="角色" min-width="90" />
+          <el-table-column label="角色" min-width="90">
+            <template #default="{ row }">{{ formatStockSelectionLabel(row.portfolio_role || "WATCHLIST") }}</template>
+          </el-table-column>
           <el-table-column prop="weight_suggestion" label="仓位建议" min-width="120" />
           <el-table-column prop="risk_level" label="风险" min-width="90">
             <template #default="{ row }">{{ formatStockSelectionRiskLevel(row.risk_level) }}</template>
           </el-table-column>
-          <el-table-column prop="evaluation_status" label="评估" min-width="90" />
+          <el-table-column prop="evaluation_status" label="评估" min-width="90">
+            <template #default="{ row }">{{ formatStockSelectionEvaluationStatus(row.evaluation_status) }}</template>
+          </el-table-column>
         </el-table>
       </div>
 
@@ -362,7 +451,9 @@ onMounted(async () => {
           <el-table-column prop="risk_level" label="风险" min-width="90">
             <template #default="{ row }">{{ formatStockSelectionRiskLevel(row.risk_level) }}</template>
           </el-table-column>
-          <el-table-column prop="evaluation_status" label="评估" min-width="90" />
+          <el-table-column prop="evaluation_status" label="评估" min-width="90">
+            <template #default="{ row }">{{ formatStockSelectionEvaluationStatus(row.evaluation_status) }}</template>
+          </el-table-column>
         </el-table>
       </div>
     </div>
@@ -371,11 +462,11 @@ onMounted(async () => {
       <div class="card-title">因子拆解</div>
       <div class="tag-wrap" style="margin-bottom: 12px">
         <el-tag type="info">{{ selectedCandidate.symbol }}</el-tag>
-        <el-tag type="success">{{ selectedCandidate.portfolio_role || "候选" }}</el-tag>
+        <el-tag type="success">{{ formatStockSelectionLabel(selectedCandidate.portfolio_role || "PORTFOLIO") }}</el-tag>
         <el-tag type="warning">{{ formatStockSelectionRiskLevel(selectedCandidate.risk_level) }}</el-tag>
         <el-tag type="primary">{{ formatStockSelectionDiffStatus(selectedCandidate.previous_publish_diff) }}</el-tag>
         <el-tag v-if="selectedCandidate.evaluation_status" type="info">
-          评估：{{ selectedCandidate.evaluation_status }}
+          评估：{{ formatStockSelectionEvaluationStatus(selectedCandidate.evaluation_status) }}
         </el-tag>
       </div>
       <el-descriptions :column="3" border size="small">
@@ -433,7 +524,7 @@ onMounted(async () => {
             shadow="never"
           >
             <div class="mini-card-title">
-              {{ formatStockSelectionStage(item.stage) }} / {{ item.portfolio_role || "候选" }}
+              {{ formatStockSelectionStage(item.stage) }} / {{ formatStockSelectionLabel(item.portfolio_role || "PORTFOLIO") }}
             </div>
             <div class="muted" style="margin-bottom: 8px">{{ item.evidence_summary || "-" }}</div>
             <el-tag
@@ -456,13 +547,15 @@ onMounted(async () => {
           <el-card class="mini-card" shadow="never">
             <div class="mini-list">差异状态：{{ formatStockSelectionDiffStatus(selectedCandidate.previous_publish_diff) }}</div>
             <div class="mini-list">差异说明：{{ summarizeStockSelectionDiff(selectedCandidate.previous_publish_diff) }}</div>
-            <div class="mini-list">状态：{{ selectedCandidate.evaluation_status || "PENDING" }}</div>
+            <div class="mini-list">状态：{{ formatStockSelectionEvaluationStatus(selectedCandidate.evaluation_status || "PENDING") }}</div>
           </el-card>
           <el-table :data="selectedEvaluations" border stripe size="small" empty-text="评估尚未生成">
             <el-table-column prop="horizon_day" label="窗口" min-width="80">
               <template #default="{ row }">{{ row.horizon_day }} 日</template>
             </el-table-column>
-            <el-table-column prop="evaluation_scope" label="范围" min-width="100" />
+            <el-table-column prop="evaluation_scope" label="范围" min-width="100">
+              <template #default="{ row }">{{ formatStockSelectionEvaluationScope(row.evaluation_scope) }}</template>
+            </el-table-column>
             <el-table-column prop="entry_date" label="入场日" min-width="110" />
             <el-table-column prop="exit_date" label="出场日" min-width="110" />
             <el-table-column prop="return_pct" label="收益" min-width="90">
@@ -482,6 +575,119 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+
+    <el-dialog
+      v-model="reviewDialogVisible"
+      :title="reviewDialogTitle"
+      width="620px"
+      class="review-action-dialog"
+      destroy-on-close
+      :close-on-click-modal="!actionLoading"
+      :close-on-press-escape="!actionLoading"
+      @close="closeReviewDialog"
+    >
+      <div class="review-dialog-body">
+        <div class="review-summary" :class="`review-summary--${reviewDialogSummaryTone}`">
+          <div class="review-summary__title">
+            {{ runDetail?.template_name || "未指定模板" }} / {{ formatStockSelectionMarketRegime(runDetail?.market_regime) }}
+          </div>
+          <div class="review-summary__meta">
+            <span>运行 {{ runDetail?.run_id || "-" }}</span>
+            <span>候选 {{ runDetail?.candidate_count || 0 }}</span>
+            <span>组合 {{ runDetail?.selected_count || 0 }}</span>
+            <span>警告 {{ runDetail?.warning_count || 0 }}</span>
+          </div>
+        </div>
+
+        <el-alert
+          v-if="reviewDialogMode === 'approve'"
+          type="info"
+          :closable="false"
+          show-icon
+          title="将按默认发布策略检查风险阈值；若警告数量超限，系统会拦截本次发布。"
+        />
+        <el-alert
+          v-else-if="reviewDialogMode === 'force'"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="强制发布会绕过默认阈值拦截，请确认风险可控并留下清晰的人工覆盖原因。"
+        />
+        <el-alert
+          v-else-if="reviewDialogMode === 'reject'"
+          type="error"
+          :closable="false"
+          show-icon
+          title="驳回后本次组合不会进入发布链路，建议把原因写清楚，方便后续复盘。"
+        />
+        <el-alert
+          v-else
+          type="warning"
+          :closable="false"
+          show-icon
+          :title="reviewDialogError || '默认发布已被策略引擎拦截，请确认后再决定是否改为强制发布。'"
+        />
+        <el-alert
+          v-if="reviewDialogError && reviewDialogMode !== 'blocked'"
+          type="error"
+          :closable="false"
+          show-icon
+          :title="reviewDialogError"
+        />
+
+        <div v-if="reviewWarningMessages.length" class="review-warning-list">
+          <div class="review-warning-list__title">本次运行提醒</div>
+          <div class="tag-wrap">
+            <el-tag
+              v-for="warning in reviewWarningMessages"
+              :key="warning"
+              type="warning"
+              effect="light"
+            >
+              {{ warning }}
+            </el-tag>
+          </div>
+        </div>
+
+        <el-form
+          v-if="reviewDialogMode !== 'blocked'"
+          label-position="top"
+          class="review-form"
+        >
+          <el-form-item :label="reviewDialogMode === 'reject' ? '驳回原因' : '审核说明'">
+            <el-input
+              v-model="reviewDialogForm.reviewNote"
+              type="textarea"
+              :rows="4"
+              resize="none"
+              :placeholder="reviewDialogMode === 'reject' ? '请输入驳回原因' : '请输入审核说明，便于发布审计与后续复盘'"
+            />
+          </el-form-item>
+          <el-form-item v-if="reviewDialogMode === 'force'" label="人工覆盖原因">
+            <el-input
+              v-model="reviewDialogForm.overrideReason"
+              type="textarea"
+              :rows="3"
+              resize="none"
+              placeholder="请说明为什么要强制发布，以及人工判断依据"
+            />
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <template #footer>
+        <div class="review-dialog-footer">
+          <el-button :disabled="actionLoading" @click="closeReviewDialog">取消</el-button>
+          <el-button
+            :type="reviewDialogPrimaryType"
+            :loading="actionLoading"
+            @click="submitReviewDialog"
+          >
+            {{ reviewDialogPrimaryText }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </StockSelectionModuleShell>
 </template>
 
@@ -530,5 +736,68 @@ onMounted(async () => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.review-dialog-body {
+  display: grid;
+  gap: 14px;
+}
+
+.review-summary {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(241, 245, 249, 0.98));
+}
+
+.review-summary--primary {
+  border-color: rgba(59, 130, 246, 0.22);
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.96), rgba(224, 242, 254, 0.9));
+}
+
+.review-summary--warning {
+  border-color: rgba(245, 158, 11, 0.26);
+  background: linear-gradient(135deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.92));
+}
+
+.review-summary--danger {
+  border-color: rgba(239, 68, 68, 0.2);
+  background: linear-gradient(135deg, rgba(254, 242, 242, 0.96), rgba(254, 226, 226, 0.92));
+}
+
+.review-summary__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.review-summary__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.review-warning-list {
+  display: grid;
+  gap: 8px;
+}
+
+.review-warning-list__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.review-form {
+  margin-top: 2px;
+}
+
+.review-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 </style>

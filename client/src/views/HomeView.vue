@@ -56,6 +56,9 @@
           <p class="lead-stock-note">
             {{ primaryStock?.takeProfit || "目标区间待补充" }} · {{ primaryStock?.stopLoss || "风控线待补充" }}
           </p>
+          <p v-if="recommendationAccessLocked && recommendationAccessNote" class="lead-stock-why">
+            {{ recommendationAccessNote }}
+          </p>
           <p v-if="primaryStockWhyText" class="lead-stock-why">{{ primaryStockWhyText }}</p>
           <div v-if="primaryStockProofTags.length" class="lead-stock-proof-list">
             <span
@@ -124,8 +127,12 @@
           v-else
           tone="info"
           eyebrow="观察清单"
-          title="今日观察清单待生成"
-          description="同步推荐数据后，这里会自动展示今天最值得先看的股票。"
+          :title="recommendationAccessLocked ? '登录后解锁今日观察清单' : '今日观察清单待生成'"
+          :description="
+            recommendationAccessLocked
+              ? '当前先展示公开页面结构；登录后这里会自动补齐今日推荐与观察清单。'
+              : '同步推荐数据后，这里会自动展示今天最值得先看的股票。'
+          "
           compact
         />
       </article>
@@ -713,6 +720,8 @@ const newsHighlights = ref(useDemoFallback ? [...fallbackNewsHighlights] : []);
 const vipStateLoading = ref(false);
 const isVIPUser = ref(false);
 const vipOffer = ref(useDemoFallback ? fallbackVipProducts[0] : null);
+const recommendationAccessLocked = ref(false);
+const recommendationAccessNote = ref("");
 
 const rawStockRecommendations = ref(useDemoFallback ? fallbackStockRecommendations : []);
 const stockDetailMap = ref(useDemoFallback ? { ...fallbackDetails } : {});
@@ -1029,6 +1038,9 @@ const mobileQuickHint = computed(() => {
   if (loading.value || newsLoading.value || vipStateLoading.value) {
     return "正在同步推荐、资讯和会员状态，请稍候...";
   }
+  if (recommendationAccessLocked.value) {
+    return recommendationAccessNote.value || "游客模式下先看公开资讯；登录后会自动补齐今日推荐与期货方案。";
+  }
   if (loadError.value || newsError.value) {
     return "部分数据加载失败，建议先点击“刷新首页”再继续浏览。";
   }
@@ -1041,6 +1053,14 @@ const homeStatus = computed(() => {
       label: "同步中",
       title: "首页关键数据正在更新",
       desc: "推荐、资讯和会员状态会在同步完成后自动刷新。"
+    };
+  }
+  if (recommendationAccessLocked.value) {
+    return {
+      tone: "info",
+      label: "游客模式",
+      title: "登录后解锁今日推荐与期货方案",
+      desc: recommendationAccessNote.value || "当前先展示公开资讯与页面结构，登录后会自动补齐决策数据。"
     };
   }
   const issues = [loadError.value, newsError.value].filter(Boolean);
@@ -1221,8 +1241,25 @@ const tasks = computed(() => {
 async function loadHomeData() {
   loading.value = true;
   loadError.value = "";
+  recommendationAccessLocked.value = false;
+  recommendationAccessNote.value = "";
+
+  if (!isLoggedIn.value) {
+    recommendationAccessLocked.value = true;
+    recommendationAccessNote.value = "股票推荐需要登录后查看；期货方案需要登录后查看，当前先展示公开资讯与页面结构。";
+    rawStockRecommendations.value = useDemoFallback ? fallbackStockRecommendations : [];
+    rawArbitragePlans.value = useDemoFallback ? fallbackArbitragePlans : [];
+    stockDetailMap.value = useDemoFallback ? { ...fallbackDetails } : {};
+    stockPerformanceMap.value = useDemoFallback ? { ...fallbackPerformances } : {};
+    stockExplanationMap.value = useDemoFallback ? buildFallbackStockExplanationMap(fallbackStockRecommendations) : {};
+    futuresGuidance.value = useDemoFallback ? fallbackGuidance : null;
+    lastUpdatedAt.value = formatDateTime(new Date().toISOString());
+    loading.value = false;
+    return;
+  }
 
   const errors = [];
+  const accessHints = [];
   try {
     const [stockResult, arbitrageResult] = await Promise.allSettled([
       listStockRecommendations({ page: 1, page_size: 8 }),
@@ -1235,7 +1272,11 @@ async function loadHomeData() {
       }
       await hydrateStockDetails(rawStockRecommendations.value.slice(0, 6));
     } else if (stockResult.status === "rejected") {
-      errors.push(`股票推荐加载失败：${stockResult.reason?.message || "unknown error"}`);
+      if (!isLoggedIn.value && isAuthBlockedError(stockResult.reason)) {
+        accessHints.push("股票推荐需要登录后查看");
+      } else {
+        errors.push(`股票推荐加载失败：${stockResult.reason?.message || "unknown error"}`);
+      }
     }
 
     if (arbitrageResult.status === "fulfilled" && Array.isArray(arbitrageResult.value?.items)) {
@@ -1244,9 +1285,17 @@ async function loadHomeData() {
       }
       await hydrateFuturesGuidance(rawArbitragePlans.value[0]?.contract_a);
     } else if (arbitrageResult.status === "rejected") {
-      errors.push(`期货套利加载失败：${arbitrageResult.reason?.message || "unknown error"}`);
+      if (!isLoggedIn.value && isAuthBlockedError(arbitrageResult.reason)) {
+        accessHints.push("期货方案需要登录后查看");
+      } else {
+        errors.push(`期货套利加载失败：${arbitrageResult.reason?.message || "unknown error"}`);
+      }
     }
 
+    if (accessHints.length > 0) {
+      recommendationAccessLocked.value = true;
+      recommendationAccessNote.value = `${accessHints.join("；")}，当前先展示公开资讯与页面结构。`;
+    }
     if (errors.length > 0) {
       loadError.value = errors.join("；");
     }
@@ -1657,6 +1706,15 @@ function normalizeInsightKeyword(value) {
   return String(value || "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function isAuthBlockedError(error) {
+  const status = Number(error?.code || error?.original?.response?.status || 0);
+  const message = String(error?.message || error?.original?.response?.data?.message || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return status === 401 || message.includes("authorization") || message.includes("unauthorized");
 }
 
 function calcCumulativeReturn(points) {

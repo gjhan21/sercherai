@@ -42,15 +42,20 @@ def test_create_stock_selection_job_and_query_status() -> None:
     assert len(report["publish_payloads"]) == 5
     assert report["stage_counts"]["PORTFOLIO"] == 5
     assert report["market_regime"] in {"UPTREND", "ROTATION", "EVENT_DRIVEN", "DEFENSIVE", "RISK_OFF"}
-    assert len(report["stage_logs"]) == 6
+    assert len(report["stage_logs"]) == 10
     assert len(report["portfolio_entries"]) == 5
     assert len(report["evidence_records"]) >= 5
     assert len(report["simulations"]) == 5
     assert report["graph_summary"]
+    assert report["related_entities"]
+    assert report["graph_entities"]
+    assert report["graph_relations"]
+    assert report["memory_feedback"]["summary"]
     assert report["consensus_summary"]
     assert all("invalidations" in item for item in report["candidates"])
     assert all(item["risk_level"] in {"LOW", "MEDIUM"} for item in report["candidates"])
     assert report["publish_payloads"][0]["recommendation"]["source_type"] == "SYSTEM"
+    assert detail["result"]["payload_echo"]["run_id"] == accepted["job_id"]
 
 
 def test_create_futures_strategy_job_and_query_status() -> None:
@@ -81,7 +86,12 @@ def test_create_futures_strategy_job_and_query_status() -> None:
     assert len(report["strategies"]) == 3
     assert len(report["publish_payloads"]) == 3
     assert len(report["simulations"]) == 3
+    assert len(report["stage_logs"]) == 8
     assert report["graph_summary"]
+    assert report["related_entities"]
+    assert report["graph_entities"]
+    assert report["graph_relations"]
+    assert report["memory_feedback"]["summary"]
     assert report["consensus_summary"]
     assert report["strategies"][0]["direction"] in {"LONG", "SHORT"}
     assert "entry_price" in report["strategies"][0]

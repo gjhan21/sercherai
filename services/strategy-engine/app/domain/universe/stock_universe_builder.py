@@ -70,9 +70,9 @@ class StockUniverseBuilder:
 
         warnings = list(seed_result.warnings)
         if filter_counters["excluded_symbols"] > 0:
-            warnings.append(f"universe builder excluded {filter_counters['excluded_symbols']} explicit symbols")
+            warnings.append(f"股票池构建阶段按显式排除列表过滤 {filter_counters['excluded_symbols']} 只股票")
         if filter_counters["duplicates"] > 0:
-            warnings.append(f"universe builder removed {filter_counters['duplicates']} duplicated symbols")
+            warnings.append(f"股票池构建阶段去重 {filter_counters['duplicates']} 只重复股票")
         for key, label in (
             ("listing_days", "上市天数"),
             ("avg_turnover20", "20日均成交额"),
@@ -86,7 +86,7 @@ class StockUniverseBuilder:
         ):
             count = filter_counters.get(key, 0)
             if count > 0:
-                warnings.append(f"universe builder 因 {label} 过滤 {count} 只股票")
+                warnings.append(f"股票池构建阶段因 {label} 过滤 {count} 只股票")
 
         meta = dict(seed_result.meta)
         meta.setdefault("selection_mode", payload.selection_mode)
@@ -174,6 +174,7 @@ def _listing_days_filter_applied(meta: dict[str, Any]) -> bool:
     if isinstance(warnings, list):
         for item in warnings:
             text = str(item).strip().lower()
-            if "skipped min_listing_days proxy" in text:
+            raw_text = str(item).strip()
+            if "skipped min_listing_days proxy" in text or "跳过上市天数代理过滤" in raw_text:
                 return False
     return True

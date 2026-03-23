@@ -2015,6 +2015,40 @@ func (h *AdminGrowthHandler) UpdateUserKYCStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
+func (h *AdminGrowthHandler) ResetUserPassword(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "user id required", Data: struct{}{}})
+		return
+	}
+	if strings.HasPrefix(strings.ToLower(id), "admin_") {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "admin user password should be reset from access module", Data: struct{}{}})
+		return
+	}
+
+	var req dto.AdminResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	passwordHash, err := bcryptHash(req.Password)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := h.service.AdminResetUserPasswordHash(id, passwordHash); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40404, Message: "user not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "USER", "RESET_PASSWORD", "USER", id, "", "UPDATED", "ADMIN_RESET")
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
 func (h *AdminGrowthHandler) DashboardOverview(c *gin.Context) {
 	item, err := h.service.AdminDashboardOverview()
 	if err != nil {
@@ -2601,7 +2635,8 @@ func (h *AdminGrowthHandler) SubmitReviewTask(c *gin.Context) {
 	operator, _ := operatorVal.(string)
 	id, err := h.service.AdminSubmitReviewTask(req.Module, req.TargetID, operator, req.ReviewerID, req.SubmitNote)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		status, code := resolveWorkflowReviewHTTPError(err)
+		c.JSON(status, dto.APIResponse{Code: code, Message: err.Error(), Data: struct{}{}})
 		return
 	}
 	h.writeOperationLog(c, "WORKFLOW", "SUBMIT_REVIEW", strings.ToUpper(req.Module), req.TargetID, "", "REVIEWING", req.SubmitNote)
@@ -2618,7 +2653,8 @@ func (h *AdminGrowthHandler) ReviewTaskDecision(c *gin.Context) {
 	operatorVal, _ := c.Get("user_id")
 	operator, _ := operatorVal.(string)
 	if err := h.service.AdminReviewTaskDecision(id, req.Status, operator, req.ReviewNote); err != nil {
-		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		status, code := resolveWorkflowReviewHTTPError(err)
+		c.JSON(status, dto.APIResponse{Code: code, Message: err.Error(), Data: struct{}{}})
 		return
 	}
 	h.writeOperationLog(c, "WORKFLOW", "REVIEW_DECISION", "REVIEW_TASK", id, "PENDING", strings.ToUpper(req.Status), req.ReviewNote)
@@ -2633,7 +2669,8 @@ func (h *AdminGrowthHandler) AssignReviewTask(c *gin.Context) {
 		return
 	}
 	if err := h.service.AdminAssignReviewTask(id, req.ReviewerID); err != nil {
-		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		status, code := resolveWorkflowReviewHTTPError(err)
+		c.JSON(status, dto.APIResponse{Code: code, Message: err.Error(), Data: struct{}{}})
 		return
 	}
 	h.writeOperationLog(c, "WORKFLOW", "ASSIGN_REVIEW", "REVIEW_TASK", id, "", req.ReviewerID, "")

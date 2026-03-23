@@ -424,6 +424,139 @@ func TestGetStockRecommendationVersionHistoryUsesBackfilledLocalContexts(t *test
 	}
 }
 
+func TestApplyStrategyVersionDiffUsesStructuredPublishChanges(t *testing.T) {
+	currentRecord := buildExplanationPublishRecordDetail(
+		"publish_diff_current_001",
+		"job_diff_current_001",
+		12,
+		"2026-03-22",
+		[]string{"600519.SH", "300750.SZ"},
+		"新版图谱摘要",
+		"新版共识摘要",
+		"新版理由",
+		"stock-live-v12",
+		[]string{"跌破五日线"},
+		[]string{"新版告警"},
+		[]string{},
+		[]string{"新版备注"},
+	)
+	currentRecord.ReportSnapshot["candidates"] = []map[string]any{
+		{
+			"symbol":         "600519.SH",
+			"rank":           1,
+			"reason_summary": "新版理由",
+			"risk_summary":   "控制节奏，仓位更克制",
+		},
+		{
+			"symbol":         "300750.SZ",
+			"rank":           2,
+			"reason_summary": "新增标的",
+			"risk_summary":   "波动加大需分批",
+		},
+	}
+
+	previousRecord := buildExplanationPublishRecordDetail(
+		"publish_diff_previous_001",
+		"job_diff_previous_001",
+		11,
+		"2026-03-21",
+		[]string{"600519.SH", "601318.SH"},
+		"旧版图谱摘要",
+		"旧版共识摘要",
+		"旧版理由",
+		"stock-live-v11",
+		[]string{"跌破前低"},
+		[]string{"旧版告警"},
+		[]string{},
+		[]string{"旧版备注"},
+	)
+	previousRecord.ReportSnapshot["candidates"] = []map[string]any{
+		{
+			"symbol":         "600519.SH",
+			"rank":           2,
+			"reason_summary": "旧版理由",
+			"risk_summary":   "常规跟踪",
+		},
+		{
+			"symbol":         "601318.SH",
+			"rank":           1,
+			"reason_summary": "移除标的",
+			"risk_summary":   "旧版候选",
+		},
+	}
+
+	currentCtx := buildStrategyEngineAssetContext(model.StrategyEnginePublishRecord{
+		PublishID:      currentRecord.PublishID,
+		JobID:          currentRecord.JobID,
+		JobType:        currentRecord.JobType,
+		Version:        currentRecord.Version,
+		CreatedAt:      currentRecord.CreatedAt,
+		TradeDate:      currentRecord.TradeDate,
+		SelectedCount:  currentRecord.SelectedCount,
+		PayloadCount:   currentRecord.PayloadCount,
+		AssetKeys:      currentRecord.AssetKeys,
+		ReportSnapshot: currentRecord.ReportSnapshot,
+		Replay: model.StrategyEnginePublishReplay{
+			WarningCount:      currentRecord.Replay.WarningCount,
+			WarningMessages:   currentRecord.Replay.WarningMessages,
+			VetoedAssets:      currentRecord.Replay.VetoedAssets,
+			InvalidatedAssets: currentRecord.Replay.InvalidatedAssets,
+			Notes:             currentRecord.Replay.Notes,
+		},
+	}, model.StrategyEngineJobRecord{}, "600519.SH")
+	previousCtx := buildStrategyEngineAssetContext(model.StrategyEnginePublishRecord{
+		PublishID:      previousRecord.PublishID,
+		JobID:          previousRecord.JobID,
+		JobType:        previousRecord.JobType,
+		Version:        previousRecord.Version,
+		CreatedAt:      previousRecord.CreatedAt,
+		TradeDate:      previousRecord.TradeDate,
+		SelectedCount:  previousRecord.SelectedCount,
+		PayloadCount:   previousRecord.PayloadCount,
+		AssetKeys:      previousRecord.AssetKeys,
+		ReportSnapshot: previousRecord.ReportSnapshot,
+		Replay: model.StrategyEnginePublishReplay{
+			WarningCount:      previousRecord.Replay.WarningCount,
+			WarningMessages:   previousRecord.Replay.WarningMessages,
+			VetoedAssets:      previousRecord.Replay.VetoedAssets,
+			InvalidatedAssets: previousRecord.Replay.InvalidatedAssets,
+			Notes:             previousRecord.Replay.Notes,
+		},
+	}, model.StrategyEngineJobRecord{}, "600519.SH")
+	if currentCtx == nil || previousCtx == nil {
+		t.Fatalf("expected both strategy contexts to be built")
+	}
+
+	diff := buildStrategyVersionDiffFromContexts(*currentCtx, *previousCtx, "600519.SH")
+	if diff.CurrentAssetChange != "PROMOTED" {
+		t.Fatalf("expected promoted current asset change, got %+v", diff)
+	}
+	if strings.Join(diff.Added, ",") != "300750.SZ" {
+		t.Fatalf("expected added symbol diff, got %+v", diff)
+	}
+	if strings.Join(diff.Removed, ",") != "601318.SH" {
+		t.Fatalf("expected removed symbol diff, got %+v", diff)
+	}
+	if strings.Join(diff.Promoted, ",") != "600519.SH" {
+		t.Fatalf("expected promoted symbol diff, got %+v", diff)
+	}
+	if len(diff.DowngradeReasons) == 0 || !strings.Contains(strings.Join(diff.DowngradeReasons, "；"), "600519.SH") {
+		t.Fatalf("expected downgrade reasons to describe current asset updates, got %+v", diff)
+	}
+
+	explanation := model.StrategyClientExplanation{}
+	applyStrategyVersionDiffToExplanation(&explanation, []strategyEngineAssetContext{*currentCtx, *previousCtx}, "600519.SH")
+	if explanation.VersionDiff.CurrentAssetChange != "PROMOTED" {
+		t.Fatalf("expected explanation version diff to be applied, got %+v", explanation.VersionDiff)
+	}
+
+	historyItems := []model.StrategyVersionHistoryItem{{PublishID: currentRecord.PublishID}, {PublishID: previousRecord.PublishID}}
+	applyStrategyVersionDiffToHistoryItems(historyItems, []strategyEngineAssetContext{*currentCtx, *previousCtx}, "600519.SH")
+	if historyItems[0].VersionDiff.CurrentAssetChange != "PROMOTED" {
+		t.Fatalf("expected history item version diff to be applied, got %+v", historyItems[0].VersionDiff)
+	}
+}
+
 func TestBuildFuturesStrategyExplanationUsesLocalSnapshotWithoutRemoteFetch(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

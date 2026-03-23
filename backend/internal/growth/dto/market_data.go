@@ -18,3 +18,8 @@ type MarketNewsSyncRequest struct {
 	Days      int      `json:"days" binding:"omitempty,gte=1,lte=90"`
 	Limit     int      `json:"limit" binding:"omitempty,gte=1,lte=500"`
 }
+
+type MarketDerivedTruthRebuildRequest struct {
+	TradeDate string `json:"trade_date"`
+	Days      int    `json:"days" binding:"omitempty,gte=1,lte=365"`
+}

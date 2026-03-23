@@ -154,9 +154,13 @@ type strategyEngineStockSelectionReport struct {
 	RiskSummary        string                                 `json:"risk_summary"`
 	SelectedCount      int                                    `json:"selected_count"`
 	MarketRegime       string                                 `json:"market_regime"`
+	GraphSummary       string                                 `json:"graph_summary"`
+	GraphSnapshotID    string                                 `json:"graph_snapshot_id"`
 	ContextMeta        map[string]any                         `json:"context_meta"`
 	TemplateSnapshot   map[string]any                         `json:"template_snapshot"`
 	EvaluationSummary  map[string]any                         `json:"evaluation_summary"`
+	RelatedEntities    []map[string]any                       `json:"related_entities"`
+	MemoryFeedback     map[string]any                         `json:"memory_feedback"`
 	StageCounts        map[string]int                         `json:"stage_counts"`
 	StageDurationsMS   map[string]int64                       `json:"stage_durations_ms"`
 	StageLogs          []strategyEngineStockStageLog          `json:"stage_logs"`
@@ -256,12 +260,88 @@ type strategyEngineFuturesArtifacts struct {
 }
 
 type strategyEngineFuturesStrategyReport struct {
-	SelectedCount  int                                   `json:"selected_count"`
-	PublishPayload []strategyEngineFuturesPublishPayload `json:"publish_payloads"`
-	PublishID      string                                `json:"-"`
-	PublishVersion int                                   `json:"-"`
-	ReportSummary  string                                `json:"-"`
-	JobRecord      model.StrategyEngineJobRecord         `json:"-"`
+	TradeDate          string                                   `json:"trade_date"`
+	SelectedCount      int                                      `json:"selected_count"`
+	MarketRegime       string                                   `json:"market_regime"`
+	GraphSummary       string                                   `json:"graph_summary"`
+	GraphSnapshotID    string                                   `json:"graph_snapshot_id"`
+	ReportSummary      string                                   `json:"report_summary"`
+	ContextMeta        map[string]any                           `json:"context_meta"`
+	TemplateSnapshot   map[string]any                           `json:"template_snapshot"`
+	EvaluationSummary  map[string]any                           `json:"evaluation_summary"`
+	RelatedEntities    []map[string]any                         `json:"related_entities"`
+	MemoryFeedback     map[string]any                           `json:"memory_feedback"`
+	StageCounts        map[string]int                           `json:"stage_counts"`
+	StageDurationsMS   map[string]int64                         `json:"stage_durations_ms"`
+	StageLogs          []strategyEngineStockStageLog            `json:"stage_logs"`
+	EvidenceRecords    []strategyEngineFuturesEvidenceRecord    `json:"evidence_records"`
+	EvaluationRecords  []strategyEngineFuturesEvaluationRecord  `json:"evaluation_records"`
+	CandidateSnapshots []strategyEngineFuturesCandidateSnapshot `json:"candidate_snapshots"`
+	PortfolioEntries   []strategyEngineFuturesPortfolioEntry    `json:"portfolio_entries"`
+	PublishPayload     []strategyEngineFuturesPublishPayload    `json:"publish_payloads"`
+	PublishID          string                                   `json:"-"`
+	PublishVersion     int                                      `json:"-"`
+	JobRecord          model.StrategyEngineJobRecord            `json:"-"`
+}
+
+type strategyEngineFuturesCandidateSnapshot struct {
+	Contract            string         `json:"contract"`
+	Name                string         `json:"name"`
+	Stage               string         `json:"stage"`
+	Score               float64        `json:"score"`
+	Direction           string         `json:"direction"`
+	RiskLevel           string         `json:"risk_level"`
+	Selected            bool           `json:"selected"`
+	Rank                int            `json:"rank"`
+	ReasonSummary       string         `json:"reason_summary"`
+	EvidenceSummary     string         `json:"evidence_summary"`
+	PortfolioRole       string         `json:"portfolio_role"`
+	RiskSummary         string         `json:"risk_summary"`
+	FactorBreakdownJSON map[string]any `json:"factor_breakdown_json"`
+}
+
+type strategyEngineFuturesPortfolioEntry struct {
+	Contract            string         `json:"contract"`
+	Name                string         `json:"name"`
+	Rank                int            `json:"rank"`
+	Score               float64        `json:"score"`
+	Direction           string         `json:"direction"`
+	RiskLevel           string         `json:"risk_level"`
+	PositionRange       string         `json:"position_range"`
+	ReasonSummary       string         `json:"reason_summary"`
+	EvidenceSummary     string         `json:"evidence_summary"`
+	PortfolioRole       string         `json:"portfolio_role"`
+	RiskSummary         string         `json:"risk_summary"`
+	FactorBreakdownJSON map[string]any `json:"factor_breakdown_json"`
+}
+
+type strategyEngineFuturesEvidenceRecord struct {
+	Contract        string           `json:"contract"`
+	Name            string           `json:"name"`
+	Stage           string           `json:"stage"`
+	PortfolioRole   string           `json:"portfolio_role"`
+	EvidenceSummary string           `json:"evidence_summary"`
+	EvidenceCards   []map[string]any `json:"evidence_cards"`
+	PositiveReasons []string         `json:"positive_reasons"`
+	VetoReasons     []string         `json:"veto_reasons"`
+	RiskFlags       []string         `json:"risk_flags"`
+	RelatedEntities []map[string]any `json:"related_entities"`
+}
+
+type strategyEngineFuturesEvaluationRecord struct {
+	Contract        string  `json:"contract"`
+	Name            string  `json:"name"`
+	HorizonDay      int     `json:"horizon_day"`
+	EvaluationScope string  `json:"evaluation_scope"`
+	EntryDate       string  `json:"entry_date"`
+	ExitDate        string  `json:"exit_date"`
+	EntryPrice      float64 `json:"entry_price"`
+	ExitPrice       float64 `json:"exit_price"`
+	ReturnPct       float64 `json:"return_pct"`
+	ExcessReturnPct float64 `json:"excess_return_pct"`
+	MaxDrawdownPct  float64 `json:"max_drawdown_pct"`
+	HitFlag         bool    `json:"hit_flag"`
+	BenchmarkSymbol string  `json:"benchmark_symbol"`
 }
 
 type strategyEngineFuturesPublishPayload struct {
@@ -1211,9 +1291,6 @@ func (r *MySQLGrowthRepo) backfillStrategyEnginePublishRecord(publishID string) 
 }
 
 func (r *MySQLGrowthRepo) AdminPublishStrategyEngineJob(jobID string, operator string, force bool, overrideReason string) (model.StrategyEnginePublishRecord, error) {
-	if r.strategyEngine == nil {
-		return model.StrategyEnginePublishRecord{}, sql.ErrNoRows
-	}
 	job, err := r.AdminGetStrategyEngineJob(jobID)
 	if err != nil {
 		return model.StrategyEnginePublishRecord{}, err
@@ -1222,25 +1299,341 @@ func (r *MySQLGrowthRepo) AdminPublishStrategyEngineJob(jobID string, operator s
 	if err != nil {
 		return model.StrategyEnginePublishRecord{}, err
 	}
+	if r.strategyEngine == nil {
+		return r.publishStrategyEngineArchivedJob(job, operator, force, overrideReason, policy, nil)
+	}
+
 	published, err := r.strategyEngine.publishJob(jobID, operator, force, overrideReason, policy)
 	if err != nil {
+		if isStrategyEngineLivePublishJobMissing(err) {
+			return r.publishStrategyEngineArchivedJob(job, operator, force, overrideReason, policy, nil)
+		}
 		return model.StrategyEnginePublishRecord{}, err
 	}
+	return r.persistRemoteStrategyEnginePublish(job, published, operator, force, overrideReason, policy)
+}
+
+func (r *MySQLGrowthRepo) persistRemoteStrategyEnginePublish(
+	job model.StrategyEngineJobRecord,
+	published strategyEnginePublishRecord,
+	operator string,
+	force bool,
+	overrideReason string,
+	policy *model.StrategyPublishPolicy,
+) (model.StrategyEnginePublishRecord, error) {
 	record, err := r.strategyEngine.getPublishRecord(published.PublishID)
 	if err != nil {
-		return model.StrategyEnginePublishRecord{}, err
+		if !isStrategyEnginePublishRecordMissing(err) {
+			return model.StrategyEnginePublishRecord{}, err
+		}
+		return r.publishStrategyEngineArchivedJob(job, operator, force, overrideReason, policy, &model.StrategyEnginePublishRecord{
+			PublishID:     published.PublishID,
+			JobID:         job.JobID,
+			JobType:       job.JobType,
+			Version:       published.Version,
+			TradeDate:     published.TradeDate,
+			ReportSummary: published.ReportSummary,
+			SelectedCount: published.SelectedCount,
+			PayloadCount:  published.PayloadCount,
+		})
 	}
-	jobRecord, err := r.strategyEngine.getJobRecord(jobID)
+
+	jobRecord, err := r.strategyEngine.getJobRecord(job.JobID)
 	if err != nil {
-		return model.StrategyEnginePublishRecord{}, err
+		if isNotFoundStrategySnapshot(err) || isStrategyEngineJobMissing(err) {
+			jobRecord = job
+		} else {
+			return model.StrategyEnginePublishRecord{}, err
+		}
 	}
 	if err := r.upsertStrategyEngineJobSnapshot(jobRecord); err != nil {
 		return model.StrategyEnginePublishRecord{}, err
 	}
-	if err := r.createStrategyEngineJobReplay(jobID, record, operator, force, overrideReason, policy); err != nil {
+	if err := r.createStrategyEngineJobReplay(job.JobID, record, operator, force, overrideReason, policy); err != nil {
 		return model.StrategyEnginePublishRecord{}, err
 	}
 	return record, nil
+}
+
+func (r *MySQLGrowthRepo) publishStrategyEngineArchivedJob(
+	job model.StrategyEngineJobRecord,
+	operator string,
+	force bool,
+	overrideReason string,
+	policy *model.StrategyPublishPolicy,
+	seed *model.StrategyEnginePublishRecord,
+) (model.StrategyEnginePublishRecord, error) {
+	job = hydrateStrategyEngineJobSummary(job)
+	if strings.ToUpper(strings.TrimSpace(job.Status)) != "SUCCEEDED" || job.Result == nil {
+		return model.StrategyEnginePublishRecord{}, fmt.Errorf("job is not ready for publish")
+	}
+
+	report := strategySnapshotReport(job.Result)
+	if len(report) == 0 {
+		return model.StrategyEnginePublishRecord{}, fmt.Errorf("job does not contain a publishable report artifact")
+	}
+
+	replay := buildStrategyEngineArchivedPublishReplay(job.JobType, report, job.Result.Warnings)
+	if err := validateStrategyEngineArchivedPublishPolicy(job.JobType, report, replay, policy, force); err != nil {
+		return model.StrategyEnginePublishRecord{}, err
+	}
+
+	replay = appendStrategyEngineArchivedPublishNotes(replay, operator, force, overrideReason, policy)
+
+	assetKeys := strategySnapshotAssetKeys(report)
+	if len(assetKeys) == 0 && seed != nil {
+		assetKeys = append([]string{}, seed.AssetKeys...)
+	}
+
+	publishPayloads := sliceOfMaps(report["publish_payloads"])
+	if len(publishPayloads) == 0 && seed != nil && len(seed.PublishPayloads) > 0 {
+		publishPayloads = append([]map[string]any{}, seed.PublishPayloads...)
+	}
+
+	selectedCount := strategyEngineSelectedCount(report, assetKeys)
+	if selectedCount == 0 && seed != nil {
+		selectedCount = seed.SelectedCount
+	}
+	payloadCount := len(publishPayloads)
+	if payloadCount == 0 && seed != nil {
+		payloadCount = seed.PayloadCount
+	}
+
+	createdAt := time.Now().UTC().Format(time.RFC3339)
+	if seed != nil && strings.TrimSpace(seed.CreatedAt) != "" {
+		createdAt = strings.TrimSpace(seed.CreatedAt)
+	}
+	version := strategyEngineNextPublishVersion(job)
+	if seed != nil && seed.Version > version {
+		version = seed.Version
+	}
+	publishID := newID("publish")
+	if seed != nil && strings.TrimSpace(seed.PublishID) != "" {
+		publishID = strings.TrimSpace(seed.PublishID)
+	}
+
+	record := model.StrategyEnginePublishRecord{
+		PublishID:       publishID,
+		JobID:           job.JobID,
+		JobType:         job.JobType,
+		Version:         version,
+		CreatedAt:       createdAt,
+		TradeDate:       firstNonEmptyString(job.TradeDate, strategySnapshotTradeDate(job.Payload), strategySnapshotTradeDate(job.ResultPayloadEcho()), strategySnapshotReportTradeDate(job.Result)),
+		ReportSummary:   firstNonEmptyString(asString(report["report_summary"]), strings.TrimSpace(job.Result.Summary)),
+		SelectedCount:   selectedCount,
+		AssetKeys:       assetKeys,
+		PayloadCount:    payloadCount,
+		PublishPayloads: publishPayloads,
+		ReportSnapshot:  report,
+		Replay: model.StrategyEnginePublishReplay{
+			PublishID:      publishID,
+			JobID:          job.JobID,
+			PublishVersion: version,
+			Operator:       strings.TrimSpace(operator),
+			ForcePublish:   force,
+			OverrideReason: strings.TrimSpace(overrideReason),
+			PolicySnapshot: buildStrategyPublishPolicyPreview(policy),
+			CreatedAt:      createdAt,
+			StorageSource:  "LOCAL_ARCHIVED",
+			WarningCount:   replay.WarningCount,
+			WarningMessages: append([]string{},
+				replay.WarningMessages...),
+			VetoedAssets:      append([]string{}, replay.VetoedAssets...),
+			InvalidatedAssets: append([]string{}, replay.InvalidatedAssets...),
+			Notes:             append([]string{}, replay.Notes...),
+		},
+	}
+	if strings.TrimSpace(record.ReportSummary) == "" && seed != nil {
+		record.ReportSummary = strings.TrimSpace(seed.ReportSummary)
+	}
+	if strings.TrimSpace(record.TradeDate) == "" && seed != nil {
+		record.TradeDate = strings.TrimSpace(seed.TradeDate)
+	}
+	if err := r.upsertStrategyEngineJobSnapshot(job); err != nil {
+		return model.StrategyEnginePublishRecord{}, err
+	}
+	if err := r.createStrategyEngineJobReplay(job.JobID, record, operator, force, overrideReason, policy); err != nil {
+		return model.StrategyEnginePublishRecord{}, err
+	}
+	return record, nil
+}
+
+func buildStrategyEngineArchivedPublishReplay(jobType string, report map[string]any, warnings []string) model.StrategyEnginePublishReplay {
+	items, keyName := strategyEnginePublishItems(jobType, report)
+
+	invalidatedAssets := make([]string, 0)
+	for _, item := range items {
+		assetKey := strings.TrimSpace(asString(item[keyName]))
+		if assetKey == "" || !strategyEngineHasInvalidations(item["invalidations"]) {
+			continue
+		}
+		invalidatedAssets = append(invalidatedAssets, assetKey)
+	}
+
+	vetoedAssets := make([]string, 0)
+	for _, item := range sliceOfMaps(report["simulations"]) {
+		assetKey := strings.TrimSpace(asString(item["asset_key"]))
+		if assetKey == "" || !asBool(item["vetoed"]) {
+			continue
+		}
+		vetoedAssets = append(vetoedAssets, assetKey)
+	}
+
+	notes := make([]string, 0, 4)
+	if len(warnings) > 0 {
+		notes = append(notes, fmt.Sprintf("本次发布包含 %d 条风控或过滤提醒。", len(warnings)))
+	}
+	if len(vetoedAssets) > 0 {
+		notes = append(notes, "被风险 agent 否决的标的: "+strings.Join(vetoedAssets, "、")+"。")
+	}
+	if len(invalidatedAssets) > 0 {
+		notes = append(notes, fmt.Sprintf("已记录失效条件的标的数: %d。", len(invalidatedAssets)))
+	}
+	if len(notes) == 0 {
+		notes = append(notes, "本次发布未出现额外警告，可作为后续复盘基线版本。")
+	}
+
+	return model.StrategyEnginePublishReplay{
+		WarningCount:      len(warnings),
+		WarningMessages:   append([]string{}, warnings...),
+		VetoedAssets:      vetoedAssets,
+		InvalidatedAssets: invalidatedAssets,
+		Notes:             notes,
+	}
+}
+
+func validateStrategyEngineArchivedPublishPolicy(
+	jobType string,
+	report map[string]any,
+	replay model.StrategyEnginePublishReplay,
+	policy *model.StrategyPublishPolicy,
+	force bool,
+) error {
+	if policy == nil {
+		return nil
+	}
+
+	items, keyName := strategyEnginePublishItems(jobType, report)
+	riskRank := map[string]int{"LOW": 1, "MEDIUM": 2, "HIGH": 3}
+	allowedRank := riskRank[strings.ToUpper(strings.TrimSpace(policy.MaxRiskLevel))]
+	if allowedRank == 0 {
+		allowedRank = riskRank["MEDIUM"]
+	}
+
+	breaches := make([]string, 0, 3)
+	highRiskAssets := make([]string, 0)
+	for _, item := range items {
+		assetKey := strings.TrimSpace(asString(item[keyName]))
+		if assetKey == "" {
+			continue
+		}
+		if riskRank[strings.ToUpper(strings.TrimSpace(asString(item["risk_level"])))] > allowedRank {
+			highRiskAssets = append(highRiskAssets, assetKey)
+		}
+	}
+	if len(highRiskAssets) > 0 {
+		breaches = append(breaches, fmt.Sprintf("存在风险等级超过 %s 的标的: %s", policy.MaxRiskLevel, strings.Join(highRiskAssets, "、")))
+	}
+	if replay.WarningCount > policy.MaxWarningCount {
+		breaches = append(breaches, fmt.Sprintf("警告数量 %d 超过阈值 %d", replay.WarningCount, policy.MaxWarningCount))
+	}
+	if len(replay.VetoedAssets) > 0 && !policy.AllowVetoedPublish {
+		breaches = append(breaches, "存在被 veto 的标的: "+strings.Join(replay.VetoedAssets, "、"))
+	}
+
+	if len(breaches) > 0 && !force {
+		return fmt.Errorf("发布策略拦截: %s", strings.Join(breaches, "；"))
+	}
+	return nil
+}
+
+func appendStrategyEngineArchivedPublishNotes(
+	replay model.StrategyEnginePublishReplay,
+	operator string,
+	force bool,
+	overrideReason string,
+	policy *model.StrategyPublishPolicy,
+) model.StrategyEnginePublishReplay {
+	if force && strings.TrimSpace(overrideReason) != "" {
+		replay.Notes = append(replay.Notes, "人工覆盖发布原因: "+strings.TrimSpace(overrideReason)+"。")
+	} else if force {
+		replay.Notes = append(replay.Notes, "本次发布通过人工覆盖放行。")
+	}
+	if policy != nil && strings.TrimSpace(policy.DefaultPublisher) != "" {
+		replay.Notes = append(replay.Notes, "策略默认发布者: "+strings.TrimSpace(policy.DefaultPublisher)+"。")
+	}
+	if policy != nil && strings.TrimSpace(policy.OverrideNoteTemplate) != "" {
+		replay.Notes = append(replay.Notes, strings.TrimSpace(policy.OverrideNoteTemplate))
+	}
+	replay.Notes = append(replay.Notes, "发布操作人: "+firstNonEmpty(strings.TrimSpace(operator), "system")+"。")
+	return replay
+}
+
+func strategyEnginePublishItems(jobType string, report map[string]any) ([]map[string]any, string) {
+	if strings.TrimSpace(jobType) == "stock-selection" {
+		return sliceOfMaps(report["candidates"]), "symbol"
+	}
+	return sliceOfMaps(report["strategies"]), "contract"
+}
+
+func strategyEngineHasInvalidations(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case bool:
+		return typed
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case []string:
+		return len(typed) > 0
+	case []map[string]any:
+		return len(typed) > 0
+	case []any:
+		return len(typed) > 0
+	case map[string]any:
+		return len(typed) > 0
+	default:
+		return false
+	}
+}
+
+func strategyEngineSelectedCount(report map[string]any, assetKeys []string) int {
+	if raw, ok := report["selected_count"]; ok {
+		return asInt(raw)
+	}
+	return len(assetKeys)
+}
+
+func strategyEngineNextPublishVersion(job model.StrategyEngineJobRecord) int {
+	nextVersion := maxInt(job.LatestPublishVersion, 0)
+	for _, replay := range job.Replays {
+		nextVersion = maxInt(nextVersion, replay.PublishVersion)
+	}
+	return nextVersion + 1
+}
+
+func isStrategyEngineLivePublishJobMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "returned 404 when publishing job") && strings.Contains(message, "job not found")
+}
+
+func isStrategyEnginePublishRecordMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "returned 404 when fetching publish record")
+}
+
+func isStrategyEngineJobMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "returned 404 when fetching job") && strings.Contains(message, "job not found")
 }
 
 func (r *MySQLGrowthRepo) AdminGetStrategyEnginePublishRecord(publishID string) (model.StrategyEnginePublishRecord, error) {

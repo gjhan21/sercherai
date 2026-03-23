@@ -4,6 +4,7 @@ import {
   getUserSourceSummary,
   getUserCenterOverview,
   listUsers,
+  resetUserPassword,
   updateUserKYCStatus,
   updateUserMemberLevel,
   updateUserSubscription,
@@ -84,6 +85,15 @@ const centerData = ref({
 });
 const centerSubscriptionDraft = ref({});
 const centerSavingSubscriptionID = ref("");
+const passwordDialogVisible = ref(false);
+const passwordSubmitting = ref(false);
+const passwordDialogError = ref("");
+const passwordForm = reactive({
+  userID: "",
+  account: "",
+  password: "",
+  confirmPassword: ""
+});
 
 const statusOptions = ["ACTIVE", "DISABLED", "BANNED"];
 const kycStatusOptions = ["PENDING", "APPROVED", "REJECTED"];
@@ -236,8 +246,17 @@ function ensureCanEditUsers() {
   if (canEditUsers) {
     return true;
   }
-  errorMessage.value = "当前账号只有查看权限，无法修改用户状态、KYC、会员等级或订阅配置";
+  errorMessage.value = "当前账号只有查看权限，无法修改用户状态、KYC、会员等级、密码或订阅配置";
   return false;
+}
+
+function resetPasswordDialogState() {
+  passwordDialogError.value = "";
+  passwordSubmitting.value = false;
+  passwordForm.userID = "";
+  passwordForm.account = "";
+  passwordForm.password = "";
+  passwordForm.confirmPassword = "";
 }
 
 async function fetchUsers(options = {}) {
@@ -337,6 +356,54 @@ async function handleUpdateMemberLevel(user) {
     message.value = `用户 ${user.id} 会员等级已更新为 ${target}`;
   } catch (error) {
     errorMessage.value = error.message || "更新会员等级失败";
+  }
+}
+
+function openResetPasswordDialog(user) {
+  if (!ensureCanEditUsers()) {
+    return;
+  }
+  resetPasswordDialogState();
+  passwordForm.userID = user?.id || "";
+  passwordForm.account = user?.phone || user?.email || "-";
+  passwordDialogVisible.value = true;
+}
+
+async function handleResetUserPassword() {
+  if (!ensureCanEditUsers()) {
+    return;
+  }
+  const userID = String(passwordForm.userID || "").trim();
+  const password = String(passwordForm.password || "");
+  const confirmPassword = String(passwordForm.confirmPassword || "");
+
+  passwordDialogError.value = "";
+  errorMessage.value = "";
+  message.value = "";
+
+  if (!userID) {
+    passwordDialogError.value = "缺少用户ID，请关闭后重试";
+    return;
+  }
+  if (password.length < 8) {
+    passwordDialogError.value = "新密码长度至少为8位";
+    return;
+  }
+  if (password !== confirmPassword) {
+    passwordDialogError.value = "两次输入的密码不一致";
+    return;
+  }
+
+  passwordSubmitting.value = true;
+  try {
+    await resetUserPassword(userID, password);
+    passwordDialogVisible.value = false;
+    resetPasswordDialogState();
+    message.value = `用户 ${userID} 密码已更新`;
+  } catch (error) {
+    passwordDialogError.value = normalizeErrorMessage(error, "修改用户密码失败");
+  } finally {
+    passwordSubmitting.value = false;
   }
 }
 
@@ -1082,9 +1149,20 @@ onMounted(fetchUsers);
         </el-table-column>
 
         <el-table-column prop="created_at" label="创建时间" min-width="180" />
-        <el-table-column label="客户中心" width="110" fixed="right">
+        <el-table-column label="操作" width="190" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="openUserCenter(row)">查看</el-button>
+            <div class="inline-actions inline-actions--compact">
+              <el-button size="small" @click="openUserCenter(row)">查看</el-button>
+              <el-button
+                v-if="canEditUsers"
+                size="small"
+                type="warning"
+                plain
+                @click="openResetPasswordDialog(row)"
+              >
+                修改密码
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -1411,6 +1489,57 @@ onMounted(fetchUsers);
         <el-button @click="centerDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="passwordDialogVisible"
+      title="修改用户密码"
+      width="420px"
+      destroy-on-close
+      @closed="resetPasswordDialogState"
+    >
+      <el-alert
+        v-if="passwordDialogError"
+        :title="passwordDialogError"
+        type="error"
+        show-icon
+        style="margin-bottom: 12px"
+      />
+
+      <div class="password-dialog-stack">
+        <div class="password-dialog-meta">
+          <span>用户ID</span>
+          <strong>{{ passwordForm.userID || "-" }}</strong>
+        </div>
+        <div class="password-dialog-meta">
+          <span>账号</span>
+          <strong>{{ passwordForm.account || "-" }}</strong>
+        </div>
+        <el-input
+          v-model="passwordForm.password"
+          type="password"
+          show-password
+          clearable
+          maxlength="64"
+          placeholder="请输入新密码，至少8位"
+        />
+        <el-input
+          v-model="passwordForm.confirmPassword"
+          type="password"
+          show-password
+          clearable
+          maxlength="64"
+          placeholder="请再次输入新密码"
+          @keyup.enter="handleResetUserPassword"
+        />
+      </div>
+
+      <template #footer>
+        <el-button @click="passwordDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="passwordSubmitting" @click="handleResetUserPassword">
+          确认修改
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1419,6 +1548,10 @@ onMounted(fetchUsers);
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.inline-actions--compact {
+  flex-wrap: wrap;
 }
 
 .section-header {
@@ -1516,5 +1649,32 @@ onMounted(fetchUsers);
   flex-wrap: wrap;
   color: var(--el-text-color-secondary);
   font-size: 12px;
+}
+
+.password-dialog-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.password-dialog-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-extra-light);
+}
+
+.password-dialog-meta span {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.password-dialog-meta strong {
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+  font-weight: 600;
 }
 </style>

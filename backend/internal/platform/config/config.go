@@ -37,6 +37,8 @@ type Config struct {
 	StrategyEngineBaseURL      string
 	StrategyEngineTimeoutMS    int
 	StrategyEnginePollMS       int
+	StrategyGraphBaseURL       string
+	StrategyGraphTimeoutMS     int
 }
 
 func Load() Config {
@@ -73,6 +75,8 @@ func Load() Config {
 		StrategyEngineBaseURL:      getEnv("STRATEGY_ENGINE_BASE_URL", ""),
 		StrategyEngineTimeoutMS:    getEnvInt("STRATEGY_ENGINE_TIMEOUT_MS", 15000),
 		StrategyEnginePollMS:       getEnvInt("STRATEGY_ENGINE_POLL_MS", 250),
+		StrategyGraphBaseURL:       getEnv("STRATEGY_GRAPH_BASE_URL", ""),
+		StrategyGraphTimeoutMS:     getEnvInt("STRATEGY_GRAPH_TIMEOUT_MS", 5000),
 	}
 }
 

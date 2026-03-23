@@ -353,6 +353,17 @@ func (h *AdminGrowthHandler) PublishStrategyEngineJob(c *gin.Context) {
 			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "strategy engine job not found", Data: struct{}{}})
 			return
 		}
+		if detail, ok := extractStrategyPublishConflictDetail(err); ok {
+			c.JSON(http.StatusConflict, dto.APIResponse{
+				Code:    40901,
+				Message: detail,
+				Data: gin.H{
+					"conflict_type": "PUBLISH_POLICY_BLOCKED",
+					"detail":        detail,
+				},
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}

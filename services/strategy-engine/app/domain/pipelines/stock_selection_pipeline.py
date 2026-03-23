@@ -8,6 +8,7 @@ from app.domain.agents.agent_panel import AgentPanel
 from app.domain.decision.stock_decision_fusion import StockDecisionFusion
 from app.domain.features.stock_feature_factory import StockFeatureFactory
 from app.domain.graph.market_graph_builder import MarketGraphBuilder
+from app.domain.graph.strategy_graph_client import StrategyGraphClient
 from app.domain.models import MarketSeed, StockFeature
 from app.domain.reports.stock_report_builder import StockReportBuilder
 from app.domain.risk.portfolio_guard import PortfolioGuard
@@ -16,6 +17,7 @@ from app.domain.seeds.market_seed_loader import MarketSeedLoader
 from app.domain.seeds.stock_seed_miner import StockSeedMiner
 from app.domain.selectors.stock_selector import StockSelector
 from app.domain.universe.stock_universe_builder import StockUniverseBuilder
+from app.schemas.research import MemoryFeedback, MemoryFeedbackItem, StrategyGraphWriteResult
 from app.schemas.stock import (
     StockCandidateSnapshot,
     StockEvidenceRecord,
@@ -38,6 +40,7 @@ class StockSelectionPipeline:
         stock_decision_fusion: Optional[StockDecisionFusion] = None,
         stock_scenario_engine: Optional[StockScenarioEngine] = None,
         market_graph_builder: Optional[MarketGraphBuilder] = None,
+        strategy_graph_client: Optional[StrategyGraphClient] = None,
     ) -> None:
         self._market_seed_loader = market_seed_loader
         self._stock_feature_factory = stock_feature_factory
@@ -49,11 +52,13 @@ class StockSelectionPipeline:
         self._stock_decision_fusion = stock_decision_fusion or StockDecisionFusion()
         self._stock_scenario_engine = stock_scenario_engine or StockScenarioEngine(agent_panel=AgentPanel())
         self._market_graph_builder = market_graph_builder or MarketGraphBuilder()
+        self._strategy_graph_client = strategy_graph_client
 
     def run(self, raw_payload: dict) -> tuple[StockSelectionReport, list[str]]:
         payload = StockSelectionPayload.model_validate(raw_payload)
         if not payload.trade_date:
             payload.trade_date = datetime.now().strftime("%Y-%m-%d")
+        run_id = payload.run_id.strip() or _build_run_id(payload)
         agent_options = {
             "enabled_agents": payload.enabled_agents,
             "positive_threshold": payload.positive_threshold,
@@ -82,7 +87,7 @@ class StockSelectionPipeline:
                 input_count=len(seed_result.seeds),
                 output_count=len(seed_result.seeds),
                 duration_ms=regime_duration,
-                detail_message=f"detected market_regime={market_regime}",
+                detail_message=f"已识别市场状态：{_market_regime_label(market_regime)}",
                 payload_snapshot={
                     "template_key": payload.template_key,
                     "template_name": payload.template_name,
@@ -105,10 +110,38 @@ class StockSelectionPipeline:
                 input_count=len(seed_result.seeds),
                 output_count=len(features),
                 duration_ms=universe_duration,
-                detail_message=f"selection_mode={payload.selection_mode} universe_scope={payload.effective_universe_scope()}",
+                detail_message=(
+                    f"股票池标准化完成，选股模式 {_selection_mode_label(payload.selection_mode)}，"
+                    f"范围 {payload.effective_universe_scope()}"
+                ),
                 payload_snapshot={
                     "profile_id": payload.profile_id,
                     "meta_source": universe_result.meta.get("source", ""),
+                },
+            )
+        )
+
+        graph_start = perf_counter()
+        graph_snapshot = self._market_graph_builder.build_stock(
+            features,
+            run_id=run_id,
+            trade_date=payload.trade_date,
+            market_regime=market_regime,
+        )
+        graph_duration = _duration_ms(graph_start)
+        stage_counts["GRAPH_ENRICHMENT"] = len(graph_snapshot.entities)
+        stage_durations_ms["GRAPH_ENRICHMENT"] = graph_duration
+        stage_logs.append(
+            StockStageLog(
+                stage_key="GRAPH_ENRICHMENT",
+                stage_order=3,
+                input_count=len(features),
+                output_count=len(graph_snapshot.entities),
+                duration_ms=graph_duration,
+                detail_message="图谱增强完成",
+                payload_snapshot={
+                    "related_entities": [item.label for item in graph_snapshot.related_entities[:6]],
+                    "relation_count": len(graph_snapshot.relations),
                 },
             )
         )
@@ -121,11 +154,11 @@ class StockSelectionPipeline:
         stage_logs.append(
             StockStageLog(
                 stage_key="THEME_EVENT",
-                stage_order=3,
+                stage_order=4,
                 input_count=len(features),
                 output_count=len(features),
                 duration_ms=theme_event_duration,
-                detail_message="theme/event enrichment completed",
+                detail_message="题材与事件增强完成",
                 payload_snapshot={"top_themes": _top_theme_tags(features)},
             )
         )
@@ -141,11 +174,11 @@ class StockSelectionPipeline:
         stage_logs.append(
             StockStageLog(
                 stage_key="SEED_POOL",
-                stage_order=4,
+                stage_order=5,
                 input_count=len(features),
                 output_count=len(seed_pool),
                 duration_ms=seed_pool_duration,
-                detail_message="5 fixed buckets with market regime + template routing",
+                detail_message="五大固定种子桶已完成市场状态与模板路由",
                 payload_snapshot={
                     "bucket_members": seed_mining_result.bucket_members,
                     "bucket_limits": seed_mining_result.bucket_limits,
@@ -162,13 +195,13 @@ class StockSelectionPipeline:
         stage_logs.append(
             StockStageLog(
                 stage_key="CANDIDATE_POOL",
-                stage_order=5,
+                stage_order=6,
                 input_count=len(seed_pool),
                 output_count=len(candidate_pool),
                 duration_ms=candidate_duration,
                 detail_message=(
-                    f"fusion weights quant={payload.quant_weight:.2f},event={payload.event_weight:.2f},"
-                    f"resonance={payload.resonance_weight:.2f},risk={payload.liquidity_risk_weight:.2f}"
+                    f"融合权重：量化 {payload.quant_weight:.2f}，事件 {payload.event_weight:.2f}，"
+                    f"共振 {payload.resonance_weight:.2f}，风险 {payload.liquidity_risk_weight:.2f}"
                 ),
                 payload_snapshot={"top_symbols": [item.symbol for item in candidate_pool[:10]]},
             )
@@ -185,11 +218,14 @@ class StockSelectionPipeline:
         stage_logs.append(
             StockStageLog(
                 stage_key="PORTFOLIO",
-                stage_order=6,
+                stage_order=7,
                 input_count=len(candidate_pool),
                 output_count=len(guarded),
                 duration_ms=portfolio_duration,
-                detail_message=f"portfolio limit={payload.limit} max_risk={payload.max_risk_level}",
+                detail_message=(
+                    f"组合约束完成：持仓上限 {payload.limit}，"
+                    f"最大风险 {_risk_level_label(payload.max_risk_level)}"
+                ),
                 payload_snapshot={
                     "selected_symbols": [item.symbol for item in guarded],
                     "watchlist_symbols": [item.symbol for item in watchlist],
@@ -198,9 +234,21 @@ class StockSelectionPipeline:
         )
 
         warnings = [*universe_result.warnings, *guard_result.warnings]
+        graph_write_result = _write_graph_snapshot(self._strategy_graph_client, graph_snapshot)
+        if graph_write_result.snapshot_id:
+            graph_snapshot.snapshot_id = graph_write_result.snapshot_id
+        if graph_write_result.status == "FAILED" and graph_write_result.error_message:
+            warnings.append(f"图谱快照写入失败：{graph_write_result.error_message}")
+
         candidate_snapshots = _build_candidate_snapshots(features, seed_pool, candidate_pool, guarded, watchlist)
         evidence_records = _build_evidence_records(candidate_pool, guarded, watchlist)
         evaluation_summary = _build_evaluation_summary(guarded, watchlist)
+        memory_feedback = _build_memory_feedback(
+            market_regime=market_regime,
+            warnings=warnings,
+            portfolio=guarded,
+            watchlist=watchlist,
+        )
         report = self._stock_report_builder.build(
             payload,
             guarded,
@@ -215,15 +263,57 @@ class StockSelectionPipeline:
             evaluation_records=[],
             candidate_snapshots=candidate_snapshots,
             watchlist=watchlist,
+            graph_snapshot=graph_snapshot,
+            memory_feedback=memory_feedback,
         )
+        stage_logs.append(
+            StockStageLog(
+                stage_key="REVIEW_PAYLOAD",
+                stage_order=8,
+                input_count=len(guarded),
+                output_count=len(report.publish_payloads),
+                duration_ms=0,
+                detail_message="已生成可审核发布载荷",
+                payload_snapshot={
+                    "graph_snapshot_id": graph_snapshot.snapshot_id,
+                    "publish_count": len(report.publish_payloads),
+                },
+            )
+        )
+        stage_logs.append(
+            StockStageLog(
+                stage_key="FORWARD_EVALUATION",
+                stage_order=9,
+                status="PENDING",
+                input_count=len(guarded) + len(watchlist),
+                output_count=0,
+                duration_ms=0,
+                detail_message="已登记日终异步评估补写",
+                payload_snapshot={"horizons": [1, 3, 5, 10, 20]},
+            )
+        )
+        stage_logs.append(
+            StockStageLog(
+                stage_key="MEMORY_FEEDBACK",
+                stage_order=10,
+                input_count=len(guarded) + len(watchlist),
+                output_count=len(memory_feedback.items),
+                duration_ms=0,
+                detail_message=memory_feedback.summary,
+                payload_snapshot={"suggestions": memory_feedback.suggestions[:3]},
+            )
+        )
+        report.stage_logs = stage_logs
         report.context_meta = universe_result.meta
         report.context_meta["market_regime"] = market_regime
+        report.context_meta["run_id"] = run_id
+        report.context_meta["graph_snapshot_id"] = graph_snapshot.snapshot_id
+        report.context_meta["graph_write_status"] = graph_write_result.status
         if payload.template_key:
             report.context_meta["template_key"] = payload.template_key
         if payload.template_name:
             report.context_meta["template_name"] = payload.template_name
         report.simulations = self._stock_scenario_engine.simulate(guarded, agent_options)
-        report.graph_summary = self._market_graph_builder.build_stock(guarded)
         report.consensus_summary = _build_consensus_summary(report.simulations)
         return report, warnings
 
@@ -232,11 +322,18 @@ def _build_consensus_summary(simulations: list) -> str:
     veto_count = sum(1 for item in simulations if item.vetoed)
     go_count = sum(1 for item in simulations if item.consensus_action == "GO")
     hold_count = sum(1 for item in simulations if item.consensus_action == "HOLD")
-    return f"多代理收敛：GO {go_count}，HOLD {hold_count}，VETO {veto_count}。"
+    return f"多代理收敛：通过 {go_count}，观望 {hold_count}，否决 {veto_count}。"
 
 
 def _duration_ms(started_at: float) -> int:
     return int((perf_counter() - started_at) * 1000)
+
+
+def _build_run_id(payload: StockSelectionPayload) -> str:
+    trade_date = payload.trade_date or datetime.now().strftime("%Y-%m-%d")
+    if payload.profile_id:
+        return f"stock-{payload.profile_id}-{trade_date}"
+    return f"stock-auto-{trade_date}"
 
 
 def _build_candidate_snapshots(
@@ -353,6 +450,7 @@ def _build_evidence_records(
 ) -> list[StockEvidenceRecord]:
     items: list[StockEvidenceRecord] = []
     seen: set[tuple[str, str]] = set()
+    watchlist_symbols = {item.symbol for item in watchlist}
     for stage, features in (
         ("CANDIDATE_POOL", candidate_pool),
         ("PORTFOLIO", portfolio),
@@ -367,7 +465,7 @@ def _build_evidence_records(
                     symbol=item.symbol,
                     name=item.name,
                     stage=stage,
-                    portfolio_role=item.portfolio_role or ("WATCHLIST" if item.symbol in {x.symbol for x in watchlist} else "SATELLITE"),
+                    portfolio_role=item.portfolio_role or ("WATCHLIST" if item.symbol in watchlist_symbols else "SATELLITE"),
                     evidence_summary=item.evidence_summary,
                     evidence_cards=item.evidence_cards,
                     positive_reasons=item.positive_reasons,
@@ -409,3 +507,101 @@ def _feature_risk_summary(item: StockFeature) -> str:
     if item.risk_flags:
         parts.append(" / ".join(item.risk_flags[:2]))
     return "；".join(parts)
+
+
+def _write_graph_snapshot(
+    strategy_graph_client: StrategyGraphClient | None,
+    graph_snapshot,
+) -> StrategyGraphWriteResult:
+    if strategy_graph_client is None:
+        return StrategyGraphWriteResult(status="SKIPPED")
+    return strategy_graph_client.write_snapshot(graph_snapshot)
+
+
+def _build_memory_feedback(
+    *,
+    market_regime: str,
+    warnings: list[str],
+    portfolio: list[StockFeature],
+    watchlist: list[StockFeature],
+) -> MemoryFeedback:
+    suggestions: list[str] = []
+    failure_signals: list[str] = []
+    items: list[MemoryFeedbackItem] = []
+    high_risk_count = sum(1 for item in portfolio if item.risk_level == "HIGH")
+    if high_risk_count >= max(1, len(portfolio) // 2):
+        suggestions.append("下次可下调高波动标的权重，优先保留低回撤核心仓。")
+        items.append(
+            MemoryFeedbackItem(
+                title="高风险占比偏高",
+                level="WARN",
+                detail=f"当前组合中高风险股票 {high_risk_count} 只。",
+                suggestion="下轮运行提高最小流动性和风险修正权重。",
+                source="portfolio",
+            )
+        )
+    if watchlist:
+        suggestions.append("观察名单可作为下一轮事件驱动补位池。")
+        items.append(
+            MemoryFeedbackItem(
+                title="观察名单保留",
+                level="INFO",
+                detail=f"本轮保留 {len(watchlist)} 只观察名单用于后续追踪。",
+                suggestion="优先跟踪观察名单中的题材确认和资金回流。",
+                source="watchlist",
+            )
+        )
+    for warning in warnings[:3]:
+        failure_signals.append(warning)
+        items.append(
+            MemoryFeedbackItem(
+                title="风控提醒",
+                level="WARN",
+                detail=warning,
+                suggestion="下次运行前校验 universe 过滤与风控阈值。",
+                source="warnings",
+            )
+        )
+    if market_regime == "RISK_OFF":
+        suggestions.append("市场偏风险回避，建议提高最小分数并收紧仓位上限。")
+    elif market_regime == "EVENT_DRIVEN":
+        suggestions.append("市场偏事件驱动，可提高 event/resonance 桶的配额。")
+    summary = f"记忆反馈已生成：{len(items)} 条提示，市场状态 {_market_regime_label(market_regime)}。"
+    return MemoryFeedback(
+        summary=summary,
+        suggestions=list(dict.fromkeys(suggestions))[:4],
+        failure_signals=failure_signals[:4],
+        items=items[:6],
+    )
+
+
+def _market_regime_label(value: str) -> str:
+    mapping = {
+        "UPTREND": "上升趋势",
+        "ROTATION": "轮动切换",
+        "EVENT_DRIVEN": "事件驱动",
+        "DEFENSIVE": "防御修复",
+        "RISK_OFF": "风险回避",
+    }
+    key = str(value or "").strip().upper()
+    return mapping.get(key, key or "-")
+
+
+def _selection_mode_label(value: str) -> str:
+    mapping = {
+        "AUTO": "自动",
+        "MANUAL": "手动",
+        "DEBUG": "调试",
+    }
+    key = str(value or "").strip().upper()
+    return mapping.get(key, key or "-")
+
+
+def _risk_level_label(value: str) -> str:
+    mapping = {
+        "LOW": "低风险",
+        "MEDIUM": "中风险",
+        "HIGH": "高风险",
+    }
+    key = str(value or "").strip().upper()
+    return mapping.get(key, key or "-")

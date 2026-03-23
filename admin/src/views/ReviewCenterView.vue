@@ -83,7 +83,7 @@ const detailForm = reactive({
   decision_note: ""
 });
 
-const moduleOptions = ["NEWS", "STOCK", "FUTURES"];
+const moduleOptions = ["NEWS"];
 const decisionOptions = ["APPROVED", "REJECTED"];
 const slaWarnHours = 24;
 const slaDangerHours = 48;
@@ -1010,7 +1010,7 @@ onBeforeUnmount(() => {
     <div class="page-header">
       <div>
         <h1 class="page-title">审核中心</h1>
-        <p class="muted">提交审核、分配审核员、处理通过/驳回</p>
+        <p class="muted">这里仅处理通用内容审核与流程任务；智能选股、智能期货的发布审核已收口到各自模块内。</p>
       </div>
       <div class="toolbar" style="margin-bottom: 0">
         <el-tag type="info">当前管理员：{{ currentUserID || "-" }}</el-tag>
@@ -1036,6 +1036,13 @@ onBeforeUnmount(() => {
       v-if="!canEditReview"
       title="当前账号为只读审核权限，可查看任务、SLA 和导出结果，但不能提交、分配、通过或驳回。"
       type="info"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 12px"
+    />
+    <el-alert
+      title="股票与期货的候选审核、强制发布、驳回动作请分别前往“智能选股”和“智能期货”的“候选与审核发布”页面处理。"
+      type="warning"
       :closable="false"
       show-icon
       style="margin-bottom: 12px"
@@ -1069,8 +1076,8 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="canEditReview" class="card" style="margin-bottom: 12px">
-      <div class="section-header">
-        <h3 style="margin: 0">提交审核任务</h3>
+        <div class="section-header">
+        <h3 style="margin: 0">提交通用审核任务</h3>
       </div>
       <el-form label-width="110px">
         <div class="dialog-grid">

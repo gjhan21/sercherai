@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { adminNavigationItems } from "../lib/admin-navigation";
-import { clearSession, getSession, hasPermission } from "../lib/session";
+import { clearSession, formatSessionRole, getSession, hasPermission } from "../lib/session";
 
 const route = useRoute();
 const router = useRouter();
@@ -35,7 +35,7 @@ function logout() {
         <div class="header-title">管理后台</div>
         <div class="header-actions">
           <el-text type="info">当前用户：{{ session?.userID || "-" }}</el-text>
-          <el-tag type="success">{{ session?.role || "ADMIN" }}</el-tag>
+          <el-tag type="success">{{ formatSessionRole(session?.role) }}</el-tag>
           <el-button plain @click="logout">退出登录</el-button>
         </div>
       </el-header>

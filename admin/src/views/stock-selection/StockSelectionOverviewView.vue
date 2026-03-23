@@ -5,9 +5,11 @@ import { ElMessage } from "element-plus";
 import StockSelectionModuleShell from "../../components/StockSelectionModuleShell.vue";
 import { createStockSelectionRun, getStockSelectionOverview } from "../../api/admin";
 import {
+  formatStockSelectionLabel,
   formatStockSelectionMarketRegime,
   formatStockSelectionMode,
   formatStockSelectionRunStatus,
+  formatStockSelectionSource,
   formatStockSelectionUniverseScope
 } from "../../lib/stock-selection";
 import { hasPermission } from "../../lib/session";
@@ -67,6 +69,20 @@ function formatPercent(value) {
   return `${(numeric * 100).toFixed(2)}%`;
 }
 
+function resolveEvaluationMetric(row, primaryKey, legacyKey) {
+  const primary = Number(row?.[primaryKey]);
+  if (Number.isFinite(primary)) {
+    return primary;
+  }
+  if (legacyKey) {
+    const legacy = Number(row?.[legacyKey]);
+    if (Number.isFinite(legacy)) {
+      return legacy;
+    }
+  }
+  return NaN;
+}
+
 function runTagType(status) {
   const normalized = String(status || "").toUpperCase();
   if (normalized === "SUCCEEDED") return "success";
@@ -118,7 +134,7 @@ onMounted(fetchOverview);
 <template>
   <StockSelectionModuleShell
     title="智能选股总览"
-    description="把默认配置方案、最近运行、数据新鲜度和 5/10/20 日评估摘要集中到一个入口里，方便先看状态再决定是否重跑。"
+    description="把默认配置方案、最近运行、数据新鲜度和 1/3/5/10/20 日研究评估摘要集中到一个入口里，方便先看状态再决定是否重跑。"
   >
     <template #actions>
       <div class="toolbar" style="margin-bottom: 0; flex-wrap: wrap">
@@ -202,6 +218,9 @@ onMounted(fetchOverview);
           <el-descriptions-item label="上下文新鲜度">
             {{ overview.data_freshness?.selected_trade_date || "-" }}
           </el-descriptions-item>
+          <el-descriptions-item label="行情来源">
+            {{ formatStockSelectionSource(overview.data_freshness?.price_source) }}
+          </el-descriptions-item>
           <el-descriptions-item label="待审核数量">
             {{ overview.pending_review_count || 0 }}
           </el-descriptions-item>
@@ -217,28 +236,39 @@ onMounted(fetchOverview);
         type="success"
         style="margin-right: 8px; margin-bottom: 8px"
       >
-        {{ item.rank }}. {{ item.symbol }} / {{ item.name }} / {{ item.portfolio_role || "组合" }}
+        {{ item.rank }}. {{ item.symbol }} / {{ item.name }} / {{ formatStockSelectionLabel(item.portfolio_role || "PORTFOLIO") }}
       </el-tag>
     </div>
 
     <div class="card" v-loading="loading">
-      <div class="card-title">5 / 10 / 20 日评估摘要</div>
+      <div class="card-title">1 / 3 / 5 / 10 / 20 日研究评估摘要</div>
       <el-table :data="evaluationRows" border stripe size="small" empty-text="暂无评估摘要">
         <el-table-column prop="window" label="窗口" min-width="90">
           <template #default="{ row }">{{ row.window }} 日</template>
         </el-table-column>
         <el-table-column prop="sample_count" label="样本数" min-width="90" />
-        <el-table-column prop="avg_return_5" label="5日均收益" min-width="120">
-          <template #default="{ row }">{{ formatPercent(row.avg_return_5 || 0) }}</template>
+        <el-table-column label="平均收益" min-width="120">
+          <template #default="{ row }">
+            {{ formatPercent(resolveEvaluationMetric(row, "avg_return_pct", `avg_return_${row.window}`)) }}
+          </template>
         </el-table-column>
-        <el-table-column prop="hit_rate_5" label="5日命中率" min-width="120">
-          <template #default="{ row }">{{ formatPercent(row.hit_rate_5 || 0) }}</template>
+        <el-table-column label="平均超额" min-width="120">
+          <template #default="{ row }">
+            {{ formatPercent(resolveEvaluationMetric(row, "avg_excess_return_pct", "")) }}
+          </template>
         </el-table-column>
-        <el-table-column prop="avg_return_10" label="10日均收益" min-width="120">
-          <template #default="{ row }">{{ formatPercent(row.avg_return_10 || 0) }}</template>
+        <el-table-column label="命中率" min-width="120">
+          <template #default="{ row }">
+            {{ formatPercent(resolveEvaluationMetric(row, "hit_rate", `hit_rate_${row.window}`)) }}
+          </template>
         </el-table-column>
-        <el-table-column prop="hit_rate_10" label="10日命中率" min-width="120">
-          <template #default="{ row }">{{ formatPercent(row.hit_rate_10 || 0) }}</template>
+        <el-table-column label="平均回撤" min-width="120">
+          <template #default="{ row }">
+            {{ formatPercent(resolveEvaluationMetric(row, "avg_max_drawdown_pct", `max_drawdown_${row.window}`)) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="worst_max_drawdown_pct" label="最差回撤" min-width="120">
+          <template #default="{ row }">{{ formatPercent(row.worst_max_drawdown_pct) }}</template>
         </el-table-column>
         <el-table-column prop="generated_at" label="生成时间" min-width="170">
           <template #default="{ row }">{{ formatDateTime(row.generated_at) }}</template>

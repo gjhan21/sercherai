@@ -1,4 +1,9 @@
 const STORAGE_KEY = "sercherai_admin_session";
+const ROLE_LABELS = {
+  ADMIN: "管理员",
+  USER: "普通用户",
+  CONTENT_EDITOR: "内容编辑"
+};
 
 export function getSession() {
   const raw = localStorage.getItem(STORAGE_KEY);
@@ -37,6 +42,16 @@ export function hasPermission(code) {
 
 export function getAccessToken() {
   return getSession()?.accessToken || "";
+}
+
+export function formatSessionRole(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toUpperCase();
+  if (!normalized) {
+    return "管理员";
+  }
+  return ROLE_LABELS[normalized] || value;
 }
 
 export function saveSession(payload) {

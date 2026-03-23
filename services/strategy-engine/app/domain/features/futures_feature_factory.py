@@ -105,6 +105,12 @@ class FuturesFeatureFactory:
                 spread_pair=item.spread_pair,
             )
             feature.reasons = _build_reasons(feature)
+            feature.positive_reasons = list(feature.reasons[:4])
+            feature.veto_reasons = _build_veto_reasons(feature)
+            feature.evidence_cards = _build_evidence_cards(feature)
+            feature.evidence_summary = "；".join((feature.positive_reasons or feature.reasons)[:2])
+            feature.risk_flags = _build_risk_flags(feature)
+            feature.related_entities = _build_related_entities(feature)
             feature.reason_summary = "；".join(feature.reasons[:3])
             features.append(feature)
         return features
@@ -196,6 +202,80 @@ def _direction_cn(direction: str) -> str:
     if direction == "SHORT":
         return "空"
     return "中性"
+
+
+def _build_veto_reasons(item: FuturesFeature) -> list[str]:
+    reasons: list[str] = []
+    if item.risk_level == "HIGH":
+        reasons.append("风险等级偏高，仅适合轻仓跟踪")
+    if item.volume_ratio < 0.95:
+        reasons.append("量比不足，流动性确认偏弱")
+    if abs(item.basis_pct) >= 0.8:
+        reasons.append(f"基差 {item.basis_pct:.2f}% 偏大，结构波动放大")
+    if item.inventory_pressure <= -0.18:
+        reasons.append("库存或仓单压力偏空")
+    if item.spread_pressure <= -0.12:
+        reasons.append("跨期价差不利于当前方向")
+    return reasons[:4]
+
+
+def _build_risk_flags(item: FuturesFeature) -> list[str]:
+    flags: list[str] = []
+    if item.risk_level == "HIGH":
+        flags.append("高波动")
+    if abs(item.basis_pct) >= 0.8:
+        flags.append("基差放大")
+    if item.inventory_pressure <= -0.18:
+        flags.append("库存压力")
+    if item.spread_pressure <= -0.12:
+        flags.append("价差逆风")
+    return flags[:4]
+
+
+def _build_evidence_cards(item: FuturesFeature) -> list[dict[str, str]]:
+    cards = [
+        {
+            "title": "趋势",
+            "value": f"{item.trend_score:.1f}",
+            "note": f"趋势强度 {item.trend_strength:.2f} / 方向 {_direction_cn(item.direction)}",
+        },
+        {
+            "title": "流动性/资金",
+            "value": f"{item.flow_score:.1f}",
+            "note": f"量比 {item.volume_ratio:.2f} / 持仓变化 {item.oi_change_pct:.2f}%",
+        },
+        {
+            "title": "基差/期限结构",
+            "value": f"{item.carry_score:.1f}",
+            "note": f"基差 {item.basis_pct:.2f}% / 期限结构 {item.term_structure_pct:.2f}%",
+        },
+        {
+            "title": "事件/库存",
+            "value": f"{item.news_score:.1f}",
+            "note": f"资讯偏置 {item.news_bias:.2f} / 库存压力 {item.inventory_pressure:.2f}",
+        },
+    ]
+    if item.spread_pair:
+        cards.append(
+            {
+                "title": "跨期关联",
+                "value": item.spread_pair,
+                "note": f"价差分位 {item.spread_percentile:.2f} / 压力 {item.spread_pressure:.2f}",
+            }
+        )
+    return cards
+
+
+def _build_related_entities(item: FuturesFeature) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    result.append({"entity_type": "Commodity", "label": item.name[:8] or item.contract, "entity_key": item.contract})
+    if item.inventory_focus_area:
+        result.append({"entity_type": "SupplyChainNode", "label": item.inventory_focus_area, "entity_key": item.inventory_focus_area})
+    if item.inventory_focus_warehouse:
+        result.append({"entity_type": "SupplyChainNode", "label": item.inventory_focus_warehouse, "entity_key": item.inventory_focus_warehouse})
+    if item.spread_pair:
+        result.append({"entity_type": "Index", "label": item.spread_pair, "entity_key": item.spread_pair})
+    return result[:4]
 
 
 def _clamp(value: float, min_value: float, max_value: float) -> float:

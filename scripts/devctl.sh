@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="$ROOT_DIR/.run"
 LOG_DIR="$RUN_DIR/logs"
 
-ALL_SERVICES=("strategy-engine" "backend" "admin" "client")
+ALL_SERVICES=("strategy-graph" "strategy-engine" "backend" "admin" "client")
 
 resolve_go_bin() {
   if [[ -x "/opt/homebrew/bin/go" ]]; then
@@ -34,10 +34,10 @@ PYTHON_BIN="$(resolve_python_bin)"
 usage() {
   cat <<'EOF'
 用法:
-  ./scripts/devctl.sh start [strategy-engine|backend|admin|client|all]
-  ./scripts/devctl.sh stop [strategy-engine|backend|admin|client|all]
-  ./scripts/devctl.sh restart [strategy-engine|backend|admin|client|all]
-  ./scripts/devctl.sh status [strategy-engine|backend|admin|client|all]
+  ./scripts/devctl.sh start [strategy-graph|strategy-engine|backend|admin|client|all]
+  ./scripts/devctl.sh stop [strategy-graph|strategy-engine|backend|admin|client|all]
+  ./scripts/devctl.sh restart [strategy-graph|strategy-engine|backend|admin|client|all]
+  ./scripts/devctl.sh status [strategy-graph|strategy-engine|backend|admin|client|all]
 
 说明:
   - 默认目标为 all
@@ -53,6 +53,7 @@ ensure_dirs() {
 
 service_env_file() {
   case "$1" in
+    strategy-graph) echo "$ROOT_DIR/.run/strategy-graph.env" ;;
     strategy-engine) echo "$ROOT_DIR/.run/strategy-engine.env" ;;
     backend) echo "$ROOT_DIR/.run/backend.env" ;;
     admin) echo "$ROOT_DIR/.run/admin.env" ;;
@@ -101,6 +102,7 @@ PY
 
 service_port() {
   case "$1" in
+    strategy-graph) read_env_override "$(service_env_file strategy-graph)" "STRATEGY_GRAPH_PORT" "18082" ;;
     strategy-engine) read_env_override "$(service_env_file strategy-engine)" "STRATEGY_ENGINE_PORT" "18081" ;;
     backend) read_env_override "$(service_env_file backend)" "APP_PORT" "18080" ;;
     admin) read_env_override "$(service_env_file admin)" "ADMIN_PORT" "5174" ;;
@@ -111,6 +113,9 @@ service_port() {
 
 service_url() {
   case "$1" in
+    strategy-graph)
+      echo "http://127.0.0.1:$(service_port strategy-graph)"
+      ;;
     strategy-engine)
       echo "http://127.0.0.1:$(service_port strategy-engine)"
       ;;
@@ -129,6 +134,9 @@ service_url() {
 
 service_health_url() {
   case "$1" in
+    strategy-graph)
+      echo "$(service_url strategy-graph)/health"
+      ;;
     strategy-engine)
       echo "$(service_url strategy-engine)/internal/v1/health"
       ;;
@@ -143,6 +151,27 @@ service_health_url() {
 
 service_cmd() {
   case "$1" in
+    strategy-graph)
+      cat <<EOF
+STRATEGY_GRAPH_ENV_FILE="$ROOT_DIR/.run/strategy-graph.env"
+if [ -f "\$STRATEGY_GRAPH_ENV_FILE" ]; then
+  set -a
+  . "\$STRATEGY_GRAPH_ENV_FILE"
+  set +a
+fi
+cd "$ROOT_DIR/services/strategy-graph"
+if [ ! -x ".venv/bin/python" ]; then
+  "$PYTHON_BIN" -m venv .venv
+fi
+if [ ! -f ".venv/.deps_ready" ] || [ pyproject.toml -nt ".venv/.deps_ready" ]; then
+  .venv/bin/python -m pip install -q -e '.[dev]'
+  touch .venv/.deps_ready
+fi
+STRATEGY_GRAPH_HOST="\${STRATEGY_GRAPH_HOST:-0.0.0.0}"
+STRATEGY_GRAPH_PORT="\${STRATEGY_GRAPH_PORT:-18082}"
+exec env STRATEGY_GRAPH_HOST="\${STRATEGY_GRAPH_HOST}" STRATEGY_GRAPH_PORT="\${STRATEGY_GRAPH_PORT}" .venv/bin/python -m uvicorn app.main:app --host "\${STRATEGY_GRAPH_HOST}" --port "\${STRATEGY_GRAPH_PORT}"
+EOF
+      ;;
     strategy-engine)
       cat <<EOF
 STRATEGY_ENGINE_ENV_FILE="$ROOT_DIR/.run/strategy-engine.env"
@@ -162,7 +191,8 @@ fi
 STRATEGY_ENGINE_HOST="\${STRATEGY_ENGINE_HOST:-0.0.0.0}"
 STRATEGY_ENGINE_PORT="\${STRATEGY_ENGINE_PORT:-18081}"
 STRATEGY_ENGINE_GO_BACKEND_BASE_URL="\${STRATEGY_ENGINE_GO_BACKEND_BASE_URL:-$(service_url backend)}"
-exec env STRATEGY_ENGINE_HOST="\${STRATEGY_ENGINE_HOST}" STRATEGY_ENGINE_PORT="\${STRATEGY_ENGINE_PORT}" STRATEGY_ENGINE_GO_BACKEND_BASE_URL="\${STRATEGY_ENGINE_GO_BACKEND_BASE_URL}" .venv/bin/python -m uvicorn app.main:app --host "\${STRATEGY_ENGINE_HOST}" --port "\${STRATEGY_ENGINE_PORT}"
+STRATEGY_ENGINE_GRAPH_SERVICE_BASE_URL="\${STRATEGY_ENGINE_GRAPH_SERVICE_BASE_URL:-$(service_url strategy-graph)}"
+exec env STRATEGY_ENGINE_HOST="\${STRATEGY_ENGINE_HOST}" STRATEGY_ENGINE_PORT="\${STRATEGY_ENGINE_PORT}" STRATEGY_ENGINE_GO_BACKEND_BASE_URL="\${STRATEGY_ENGINE_GO_BACKEND_BASE_URL}" STRATEGY_ENGINE_GRAPH_SERVICE_BASE_URL="\${STRATEGY_ENGINE_GRAPH_SERVICE_BASE_URL}" .venv/bin/python -m uvicorn app.main:app --host "\${STRATEGY_ENGINE_HOST}" --port "\${STRATEGY_ENGINE_PORT}"
 EOF
       ;;
     backend)
@@ -175,7 +205,8 @@ if [ -f "\$BACKEND_ENV_FILE" ]; then
 fi
 APP_PORT="\${APP_PORT:-$(service_port backend)}"
 STRATEGY_ENGINE_BASE_URL="\${STRATEGY_ENGINE_BASE_URL:-$(service_url strategy-engine)}"
-cd "$ROOT_DIR/backend" && exec env APP_PORT="\${APP_PORT}" TUSHARE_TOKEN="\${TUSHARE_TOKEN:-}" STRATEGY_ENGINE_BASE_URL="\${STRATEGY_ENGINE_BASE_URL}" GOCACHE=\$(pwd)/.gocache GOMODCACHE=\$(pwd)/.gomodcache GOPATH=\$(pwd)/.gopath "$GO_BIN" run .
+STRATEGY_GRAPH_BASE_URL="\${STRATEGY_GRAPH_BASE_URL:-$(service_url strategy-graph)}"
+cd "$ROOT_DIR/backend" && exec env APP_PORT="\${APP_PORT}" TUSHARE_TOKEN="\${TUSHARE_TOKEN:-}" STRATEGY_ENGINE_BASE_URL="\${STRATEGY_ENGINE_BASE_URL}" STRATEGY_GRAPH_BASE_URL="\${STRATEGY_GRAPH_BASE_URL}" GOCACHE=\$(pwd)/.gocache GOMODCACHE=\$(pwd)/.gomodcache GOPATH=\$(pwd)/.gopath "$GO_BIN" run .
 EOF
       ;;
     admin)
@@ -213,6 +244,7 @@ EOF
 
 service_wait_checks() {
   case "$1" in
+    strategy-graph) echo "160" ;;
     strategy-engine) echo "320" ;;
     *) echo "80" ;;
   esac

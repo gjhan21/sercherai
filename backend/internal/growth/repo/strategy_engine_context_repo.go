@@ -85,6 +85,10 @@ func (r *MySQLGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.S
 	if err != nil {
 		return model.StrategyEngineStockSelectionContextResponse{}, err
 	}
+	statusTruthMap, err := r.loadStrategyStockStatusTruthMap(candidateSymbols, selectedTradeDate)
+	if err != nil {
+		return model.StrategyEngineStockSelectionContextResponse{}, err
+	}
 	listingDateMap := map[string]time.Time{}
 	listingDaysFilterEnabled := true
 	listingCoverageWarning := ""
@@ -102,7 +106,7 @@ func (r *MySQLGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.S
 				coverageDays := int(selectedTradeDate.Sub(coverageStart).Hours() / 24)
 				if coverageDays < input.MinListingDays {
 					listingDaysFilterEnabled = false
-					listingCoverageWarning = fmt.Sprintf("auto universe skipped min_listing_days proxy because stock truth coverage is only %d days", coverageDays)
+					listingCoverageWarning = fmt.Sprintf("自动股票池因本地行情覆盖仅 %d 天，已跳过上市天数代理过滤", coverageDays)
 				}
 			}
 		}
@@ -134,8 +138,9 @@ func (r *MySQLGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.S
 	}
 	for _, candidate := range candidates {
 		quotes := historyMap[candidate.Symbol]
+		statusTruth, hasStatusTruth := statusTruthMap[candidate.Symbol]
 		if autoMode {
-			filtered, filterKey := shouldFilterAutoStockUniverseCandidate(candidate, selectedTradeDate, quotes, listingDateMap[candidate.Symbol], listingDaysFilterEnabled, input)
+			filtered, filterKey := shouldFilterAutoStockUniverseCandidate(candidate, statusTruth, hasStatusTruth, selectedTradeDate, quotes, listingDateMap[candidate.Symbol], listingDaysFilterEnabled, input)
 			if filtered {
 				filterCounters[filterKey]++
 				continue
@@ -146,7 +151,7 @@ func (r *MySQLGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.S
 			if len(filteredInclude) > 0 {
 				return model.StrategyEngineStockSelectionContextResponse{}, fmt.Errorf("insufficient stock truth history for %s on %s", candidate.Symbol, selectedTradeDate.Format("2006-01-02"))
 			}
-			warnings = appendUniqueText(warnings, fmt.Sprintf("%s history is shorter than 20 trading sessions and was skipped", candidate.Symbol))
+			warnings = appendUniqueText(warnings, fmt.Sprintf("%s 历史样本不足 20 个交易日，已跳过", candidate.Symbol))
 			continue
 		}
 		if basic, ok := dailyBasics[candidate.Symbol]; ok {
@@ -165,6 +170,12 @@ func (r *MySQLGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.S
 			score.PositiveNewsRate = 0.5
 		}
 		priceSources[candidate.PriceSource] = struct{}{}
+		suspendedProxy := candidate.Volume <= 0 || candidate.Turnover <= 0
+		stRiskProxy := isSTRiskCandidate(candidate)
+		if hasStatusTruth {
+			suspendedProxy = statusTruth.IsSuspended
+			stRiskProxy = statusTruth.IsST
+		}
 		seeds = append(seeds, model.StrategyEngineStockSeed{
 			Symbol:           candidate.Symbol,
 			Name:             candidate.Name,
@@ -184,8 +195,8 @@ func (r *MySQLGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.S
 			PositiveNewsRate: roundTo(score.PositiveNewsRate, 4),
 			ListingDays:      strategyStockListingDays(selectedTradeDate, listingDateMap[candidate.Symbol], quotes),
 			AvgTurnover20:    roundTo(averageStockTurnover20(quotes), 4),
-			SuspendedProxy:   candidate.Volume <= 0 || candidate.Turnover <= 0,
-			STRiskProxy:      isSTRiskCandidate(candidate),
+			SuspendedProxy:   suspendedProxy,
+			STRiskProxy:      stRiskProxy,
 			Industry:         candidate.Industry,
 			Sector:           candidate.Sector,
 			ThemeTags:        append([]string(nil), candidate.ThemeTags...),
@@ -200,20 +211,20 @@ func (r *MySQLGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.S
 		return model.StrategyEngineStockSelectionContextResponse{}, fmt.Errorf("stock truth data does not provide enough 20-session history for %s", selectedTradeDate.Format("2006-01-02"))
 	}
 	if noNewsSignals(newsSignals, seeds) {
-		warnings = appendUniqueText(warnings, fmt.Sprintf("market news is unavailable in the last %d days, fallback to neutral defaults", strategyEngineStockNewsWindowDays))
+		warnings = appendUniqueText(warnings, fmt.Sprintf("最近 %d 天暂无市场资讯信号，已回退到中性默认值", strategyEngineStockNewsWindowDays))
 	}
 	if autoMode {
 		if filterCounters["listing_days"] > 0 {
-			warnings = appendUniqueText(warnings, fmt.Sprintf("auto universe excluded %d symbols by min_listing_days proxy", filterCounters["listing_days"]))
+			warnings = appendUniqueText(warnings, fmt.Sprintf("自动股票池按上市天数代理过滤 %d 只股票", filterCounters["listing_days"]))
 		}
 		if filterCounters["avg_turnover"] > 0 {
-			warnings = appendUniqueText(warnings, fmt.Sprintf("auto universe excluded %d symbols by min_avg_turnover proxy", filterCounters["avg_turnover"]))
+			warnings = appendUniqueText(warnings, fmt.Sprintf("自动股票池按 20 日均成交额代理过滤 %d 只股票", filterCounters["avg_turnover"]))
 		}
 		if filterCounters["suspended"] > 0 {
-			warnings = appendUniqueText(warnings, fmt.Sprintf("auto universe excluded %d suspended symbols by volume/turnover proxy", filterCounters["suspended"]))
+			warnings = appendUniqueText(warnings, fmt.Sprintf("自动股票池按停牌/成交代理过滤 %d 只股票", filterCounters["suspended"]))
 		}
 		if filterCounters["st"] > 0 {
-			warnings = appendUniqueText(warnings, fmt.Sprintf("auto universe excluded %d ST symbols by display_name/metadata proxy", filterCounters["st"]))
+			warnings = appendUniqueText(warnings, fmt.Sprintf("自动股票池按 ST/风险警示代理过滤 %d 只股票", filterCounters["st"]))
 		}
 	}
 
@@ -291,7 +302,7 @@ func (r *MySQLGrowthRepo) BuildStrategyEngineFuturesStrategyContext(input model.
 		requestedLimit,
 		true,
 		[]string{
-			fmt.Sprintf("real-source futures history is shorter than 14 trading sessions on %s, fallback to MOCK truth source after explicit opt-in", selectedTradeDate.Format("2006-01-02")),
+			fmt.Sprintf("实盘期货在 %s 的历史少于 14 个交易日，显式允许后已切换到 MOCK 真相源", selectedTradeDate.Format("2006-01-02")),
 		},
 	)
 }
@@ -308,7 +319,18 @@ func (r *MySQLGrowthRepo) buildStrategyEngineFuturesStrategyContextResponse(requ
 		}
 	}
 
-	candidates, err := r.loadStrategyFuturesContextCandidates(selectedTradeDate, includeContracts, candidateLimit, mockFallback)
+	candidateContracts := includeContracts
+	if len(candidateContracts) == 0 {
+		mappedContracts, err := r.loadStrategyFuturesMappedContracts(selectedTradeDate, candidateLimit, mockFallback)
+		if err != nil {
+			return model.StrategyEngineFuturesStrategyContextResponse{}, err
+		}
+		if len(mappedContracts) > 0 {
+			candidateContracts = mappedContracts
+		}
+	}
+
+	candidates, err := r.loadStrategyFuturesContextCandidates(selectedTradeDate, candidateContracts, candidateLimit, mockFallback)
 	if err != nil {
 		return model.StrategyEngineFuturesStrategyContextResponse{}, err
 	}
@@ -352,7 +374,7 @@ func (r *MySQLGrowthRepo) buildStrategyEngineFuturesStrategyContextResponse(requ
 
 	warnings := append([]string(nil), extraWarnings...)
 	if mockFallback && len(warnings) == 0 {
-		warnings = append(warnings, fmt.Sprintf("real-source futures bars are unavailable on or before %s, fallback to MOCK truth source", requestedTradeDate.Format("2006-01-02")))
+		warnings = append(warnings, fmt.Sprintf("截至 %s 未找到实盘期货 bars，已回退到 MOCK 真相源", requestedTradeDate.Format("2006-01-02")))
 	}
 	seeds := make([]model.StrategyEngineFuturesSeed, 0, requestedLimit)
 	priceSources := make(map[string]struct{})
@@ -367,7 +389,7 @@ func (r *MySQLGrowthRepo) buildStrategyEngineFuturesStrategyContextResponse(requ
 			if len(includeContracts) > 0 {
 				return model.StrategyEngineFuturesStrategyContextResponse{}, fmt.Errorf("insufficient futures truth history for %s on %s", candidate.Contract, selectedTradeDate.Format("2006-01-02"))
 			}
-			warnings = appendUniqueText(warnings, fmt.Sprintf("%s history is shorter than 14 trading sessions and was skipped", candidate.Contract))
+			warnings = appendUniqueText(warnings, fmt.Sprintf("%s 历史样本不足 14 个交易日，已跳过", candidate.Contract))
 			continue
 		}
 		priceSources[candidate.PriceSource] = struct{}{}
@@ -380,7 +402,7 @@ func (r *MySQLGrowthRepo) buildStrategyEngineFuturesStrategyContextResponse(requ
 		return model.StrategyEngineFuturesStrategyContextResponse{}, fmt.Errorf("futures truth data does not provide enough 14-session history for %s", selectedTradeDate.Format("2006-01-02"))
 	}
 	if noFuturesNewsSignals(newsSignals, seeds) {
-		warnings = appendUniqueText(warnings, fmt.Sprintf("market news is unavailable in the last %d days, fallback to neutral defaults", strategyEngineFuturesNewsWindowDays))
+		warnings = appendUniqueText(warnings, fmt.Sprintf("最近 %d 天暂无市场资讯信号，已回退到中性默认值", strategyEngineFuturesNewsWindowDays))
 	}
 
 	return model.StrategyEngineFuturesStrategyContextResponse{
@@ -599,32 +621,162 @@ func (r *MySQLGrowthRepo) loadStrategyStockListingDateMap(symbols []string) (map
 	if len(symbols) == 0 {
 		return map[string]time.Time{}, nil
 	}
+	result := make(map[string]time.Time, len(symbols))
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(symbols)), ",")
 	args := make([]any, 0, len(symbols)+1)
 	args = append(args, marketAssetClassStock)
 	for _, symbol := range symbols {
 		args = append(args, symbol)
 	}
+
+	instrumentQuery := fmt.Sprintf(`
+SELECT instrument_key, list_date
+FROM market_instruments
+WHERE asset_class = ? AND instrument_key IN (%s)`, placeholders)
+	rows, err := r.db.Query(instrumentQuery, args...)
+	if err != nil {
+		if !isMarketStatusSchemaCompatError(err) {
+			return nil, err
+		}
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var symbol string
+			var listDate sql.NullTime
+			if err := rows.Scan(&symbol, &listDate); err != nil {
+				return nil, err
+			}
+			if !listDate.Valid {
+				continue
+			}
+			result[strings.ToUpper(strings.TrimSpace(symbol))] = listDate.Time
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	missingSymbols := make([]string, 0, len(symbols))
+	for _, symbol := range symbols {
+		normalized := strings.ToUpper(strings.TrimSpace(symbol))
+		if normalized == "" {
+			continue
+		}
+		if _, ok := result[normalized]; ok {
+			continue
+		}
+		missingSymbols = append(missingSymbols, normalized)
+	}
+	if len(missingSymbols) == 0 {
+		return result, nil
+	}
+
+	baseSymbols := make([]string, 0, len(missingSymbols))
+	baseSeen := make(map[string]struct{}, len(missingSymbols))
+	missingByBase := make(map[string][]string, len(missingSymbols))
+	for _, symbol := range missingSymbols {
+		base := stockContextCandidateDedupKey(symbol)
+		if base == "" {
+			continue
+		}
+		if _, ok := baseSeen[base]; !ok {
+			baseSeen[base] = struct{}{}
+			baseSymbols = append(baseSymbols, base)
+		}
+		missingByBase[base] = append(missingByBase[base], symbol)
+	}
+
+	placeholders = strings.TrimSuffix(strings.Repeat("?,", len(missingSymbols)), ",")
+	basePlaceholders := strings.TrimSuffix(strings.Repeat("?,", len(baseSymbols)), ",")
+	args = make([]any, 0, len(missingSymbols)+len(baseSymbols)+1)
+	args = append(args, marketAssetClassStock)
+	for _, symbol := range missingSymbols {
+		args = append(args, symbol)
+	}
+	for _, base := range baseSymbols {
+		args = append(args, base)
+	}
 	query := fmt.Sprintf(`
 SELECT instrument_key, MIN(trade_date)
 FROM market_daily_bar_truth
-WHERE asset_class = ? AND instrument_key IN (%s)
-GROUP BY instrument_key`, placeholders)
-	rows, err := r.db.Query(query, args...)
+WHERE asset_class = ?
+  AND (instrument_key IN (%s) OR SUBSTRING_INDEX(instrument_key, '.', 1) IN (%s))
+GROUP BY instrument_key`, placeholders, basePlaceholders)
+	rows, err = r.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	result := make(map[string]time.Time, len(symbols))
 	for rows.Next() {
 		var symbol string
 		var firstTradeDate time.Time
 		if err := rows.Scan(&symbol, &firstTradeDate); err != nil {
 			return nil, err
 		}
-		result[strings.ToUpper(strings.TrimSpace(symbol))] = firstTradeDate
+		normalized := strings.ToUpper(strings.TrimSpace(symbol))
+		if normalized != "" {
+			if existing, ok := result[normalized]; !ok || firstTradeDate.Before(existing) {
+				result[normalized] = firstTradeDate
+			}
+		}
+		base := stockContextCandidateDedupKey(normalized)
+		for _, missingSymbol := range missingByBase[base] {
+			if existing, ok := result[missingSymbol]; !ok || firstTradeDate.Before(existing) {
+				result[missingSymbol] = firstTradeDate
+			}
+		}
 	}
 	return result, rows.Err()
+}
+
+func (r *MySQLGrowthRepo) loadStrategyFuturesMappedContracts(selectedTradeDate time.Time, limit int, allowMock bool) ([]string, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	args := []any{marketAssetClassFutures, selectedTradeDate.Format("2006-01-02")}
+	query := `
+SELECT m.dominant_instrument_key, COALESCE(t.turnover, 0)
+FROM futures_contract_mappings m
+LEFT JOIN market_daily_bar_truth t
+  ON t.asset_class = ? AND t.trade_date = m.trade_date AND t.instrument_key = m.dominant_instrument_key
+WHERE m.trade_date = ?`
+	if !allowMock {
+		query += " AND UPPER(COALESCE(m.selected_source_key, '')) <> ?"
+		args = append(args, "MOCK")
+	}
+	query += " ORDER BY COALESCE(t.turnover, 0) DESC, m.product_key ASC LIMIT ?"
+	args = append(args, limit)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		if isMarketStatusSchemaCompatError(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	contracts := make([]string, 0, limit)
+	seen := make(map[string]struct{}, limit)
+	for rows.Next() {
+		var instrumentKey string
+		var turnover float64
+		if err := rows.Scan(&instrumentKey, &turnover); err != nil {
+			return nil, err
+		}
+		contract := normalizeFuturesContextContract(instrumentKey)
+		if contract == "" {
+			continue
+		}
+		if _, ok := seen[contract]; ok {
+			continue
+		}
+		seen[contract] = struct{}{}
+		contracts = append(contracts, contract)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return contracts, nil
 }
 
 func (r *MySQLGrowthRepo) loadStrategyTruthCoverageStart(assetClass string) (time.Time, error) {
@@ -643,16 +795,24 @@ WHERE asset_class = ?`, strings.TrimSpace(assetClass)).Scan(&firstTradeDate); er
 
 func shouldFilterAutoStockUniverseCandidate(
 	candidate strategyStockContextCandidate,
+	statusTruth strategyStockStatusTruth,
+	hasStatusTruth bool,
 	selectedTradeDate time.Time,
 	quotes []stockQuoteCandle,
 	firstTradeDate time.Time,
 	listingDaysFilterEnabled bool,
 	input model.StrategyEngineStockSelectionContextRequest,
 ) (bool, string) {
-	if candidate.Volume <= 0 || candidate.Turnover <= 0 {
+	if hasStatusTruth {
+		if statusTruth.IsSuspended {
+			return true, "suspended"
+		}
+		if statusTruth.IsST {
+			return true, "st"
+		}
+	} else if candidate.Volume <= 0 || candidate.Turnover <= 0 {
 		return true, "suspended"
-	}
-	if isSTRiskCandidate(candidate) {
+	} else if isSTRiskCandidate(candidate) {
 		return true, "st"
 	}
 	if listingDaysFilterEnabled && !firstTradeDate.IsZero() {

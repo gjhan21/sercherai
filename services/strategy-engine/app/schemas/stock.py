@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.research import MemoryFeedback, ResearchGraphEntity, ResearchGraphRelation
 from app.schemas.simulation import ScenarioTemplateConfig, SimulationCard
 
 RiskLevel = Literal["LOW", "MEDIUM", "HIGH"]
@@ -14,6 +15,7 @@ PortfolioRole = Literal["CORE", "SATELLITE", "WATCHLIST"]
 
 
 class StockSelectionPayload(BaseModel):
+    run_id: str = ""
     trade_date: str = ""
     selection_mode: SelectionMode = "AUTO"
     universe_scope: str = ""
@@ -242,10 +244,15 @@ class StockSelectionReport(BaseModel):
     selected_count: int
     market_regime: MarketRegime = "ROTATION"
     graph_summary: str = ""
+    graph_snapshot_id: str = ""
     consensus_summary: str = ""
     context_meta: dict[str, Any] = Field(default_factory=dict)
     template_snapshot: dict[str, Any] = Field(default_factory=dict)
     evaluation_summary: dict[str, Any] = Field(default_factory=dict)
+    related_entities: list[ResearchGraphEntity] = Field(default_factory=list)
+    graph_entities: list[ResearchGraphEntity] = Field(default_factory=list)
+    graph_relations: list[ResearchGraphRelation] = Field(default_factory=list)
+    memory_feedback: MemoryFeedback = Field(default_factory=MemoryFeedback)
     stage_counts: dict[str, int] = Field(default_factory=dict)
     stage_durations_ms: dict[str, int] = Field(default_factory=dict)
     stage_logs: list[StockStageLog] = Field(default_factory=list)

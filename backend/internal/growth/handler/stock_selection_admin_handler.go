@@ -356,6 +356,17 @@ func (h *AdminGrowthHandler) ApproveStockSelectionReview(c *gin.Context) {
 	operator := currentAdminOperator(c)
 	item, err := h.service.AdminApproveStockSelectionReview(c.Param("run_id"), operator, req.ReviewNote, req.Force, req.OverrideReason)
 	if err != nil {
+		if detail, ok := extractStrategyPublishConflictDetail(err); ok {
+			c.JSON(http.StatusConflict, dto.APIResponse{
+				Code:    40901,
+				Message: detail,
+				Data: gin.H{
+					"conflict_type": "PUBLISH_POLICY_BLOCKED",
+					"detail":        detail,
+				},
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}

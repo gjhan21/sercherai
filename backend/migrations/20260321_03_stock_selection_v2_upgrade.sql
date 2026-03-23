@@ -1,14 +1,98 @@
-ALTER TABLE stock_selection_profiles
-  ADD COLUMN template_id varchar(64) NULL AFTER name;
+SET @profiles_template_id_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'stock_selection_profiles'
+    AND COLUMN_NAME = 'template_id'
+);
+SET @profiles_template_id_sql = IF(
+  @profiles_template_id_exists = 0,
+  'ALTER TABLE stock_selection_profiles ADD COLUMN template_id varchar(64) NULL AFTER name',
+  'SELECT 1'
+);
+PREPARE stock_selection_profiles_template_id_stmt FROM @profiles_template_id_sql;
+EXECUTE stock_selection_profiles_template_id_stmt;
+DEALLOCATE PREPARE stock_selection_profiles_template_id_stmt;
 
-ALTER TABLE stock_selection_runs
-  ADD COLUMN template_id varchar(64) NULL AFTER profile_version,
-  ADD COLUMN market_regime varchar(32) NULL AFTER template_id,
-  ADD COLUMN template_snapshot json NULL AFTER context_meta,
-  ADD COLUMN compare_summary json NULL AFTER template_snapshot;
+SET @runs_template_id_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'stock_selection_runs'
+    AND COLUMN_NAME = 'template_id'
+);
+SET @runs_template_id_sql = IF(
+  @runs_template_id_exists = 0,
+  'ALTER TABLE stock_selection_runs ADD COLUMN template_id varchar(64) NULL AFTER profile_version',
+  'SELECT 1'
+);
+PREPARE stock_selection_runs_template_id_stmt FROM @runs_template_id_sql;
+EXECUTE stock_selection_runs_template_id_stmt;
+DEALLOCATE PREPARE stock_selection_runs_template_id_stmt;
 
-ALTER TABLE stock_selection_publish_reviews
-  ADD COLUMN published_portfolio_snapshot json NULL AFTER publish_version;
+SET @runs_market_regime_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'stock_selection_runs'
+    AND COLUMN_NAME = 'market_regime'
+);
+SET @runs_market_regime_sql = IF(
+  @runs_market_regime_exists = 0,
+  'ALTER TABLE stock_selection_runs ADD COLUMN market_regime varchar(32) NULL AFTER template_id',
+  'SELECT 1'
+);
+PREPARE stock_selection_runs_market_regime_stmt FROM @runs_market_regime_sql;
+EXECUTE stock_selection_runs_market_regime_stmt;
+DEALLOCATE PREPARE stock_selection_runs_market_regime_stmt;
+
+SET @runs_template_snapshot_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'stock_selection_runs'
+    AND COLUMN_NAME = 'template_snapshot'
+);
+SET @runs_template_snapshot_sql = IF(
+  @runs_template_snapshot_exists = 0,
+  'ALTER TABLE stock_selection_runs ADD COLUMN template_snapshot json NULL AFTER context_meta',
+  'SELECT 1'
+);
+PREPARE stock_selection_runs_template_snapshot_stmt FROM @runs_template_snapshot_sql;
+EXECUTE stock_selection_runs_template_snapshot_stmt;
+DEALLOCATE PREPARE stock_selection_runs_template_snapshot_stmt;
+
+SET @runs_compare_summary_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'stock_selection_runs'
+    AND COLUMN_NAME = 'compare_summary'
+);
+SET @runs_compare_summary_sql = IF(
+  @runs_compare_summary_exists = 0,
+  'ALTER TABLE stock_selection_runs ADD COLUMN compare_summary json NULL AFTER template_snapshot',
+  'SELECT 1'
+);
+PREPARE stock_selection_runs_compare_summary_stmt FROM @runs_compare_summary_sql;
+EXECUTE stock_selection_runs_compare_summary_stmt;
+DEALLOCATE PREPARE stock_selection_runs_compare_summary_stmt;
+
+SET @reviews_published_snapshot_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'stock_selection_publish_reviews'
+    AND COLUMN_NAME = 'published_portfolio_snapshot'
+);
+SET @reviews_published_snapshot_sql = IF(
+  @reviews_published_snapshot_exists = 0,
+  'ALTER TABLE stock_selection_publish_reviews ADD COLUMN published_portfolio_snapshot json NULL AFTER publish_version',
+  'SELECT 1'
+);
+PREPARE stock_selection_reviews_published_snapshot_stmt FROM @reviews_published_snapshot_sql;
+EXECUTE stock_selection_reviews_published_snapshot_stmt;
+DEALLOCATE PREPARE stock_selection_reviews_published_snapshot_stmt;
 
 CREATE TABLE IF NOT EXISTS stock_selection_profile_templates (
   id varchar(64) NOT NULL,

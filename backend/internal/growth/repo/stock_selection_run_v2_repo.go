@@ -528,6 +528,85 @@ ORDER BY COALESCE(r.template_id, ''), r.profile_id, COALESCE(r.market_regime, ''
 	return items, nil
 }
 
+func (r *MySQLGrowthRepo) loadStockSelectionOverviewEvaluationSummary() (map[string]any, error) {
+	r.ensureStockSelectionEvaluationLeaderboardCoverage("", "", "")
+
+	summary := make(map[string]any, len(stockSelectionEvaluationHorizons))
+	for _, horizon := range stockSelectionEvaluationHorizons {
+		summary[fmt.Sprintf("%d", horizon)] = map[string]any{
+			"horizon_day":            horizon,
+			"sample_count":           0,
+			"avg_return_pct":         0.0,
+			"avg_excess_return_pct":  0.0,
+			"hit_rate":               0.0,
+			"avg_max_drawdown_pct":   0.0,
+			"worst_max_drawdown_pct": 0.0,
+			"generated_at":           "",
+		}
+	}
+
+	rows, err := r.db.Query(`
+SELECT
+  horizon_day,
+  COUNT(*),
+  COALESCE(AVG(return_pct), 0),
+  COALESCE(AVG(excess_return_pct), 0),
+  COALESCE(AVG(CASE WHEN hit_flag THEN 1 ELSE 0 END), 0),
+  COALESCE(AVG(max_drawdown_pct), 0),
+  COALESCE(MIN(max_drawdown_pct), 0),
+  COALESCE(DATE_FORMAT(MAX(updated_at), '%Y-%m-%dT%H:%i:%sZ'), '')
+FROM stock_selection_run_evaluations
+WHERE evaluation_scope = 'PORTFOLIO'
+GROUP BY horizon_day
+ORDER BY horizon_day ASC`)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return summary, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			horizonDay          int
+			sampleCount         int
+			avgReturnPct        float64
+			avgExcessReturnPct  float64
+			hitRate             float64
+			avgMaxDrawdownPct   float64
+			worstMaxDrawdownPct float64
+			generatedAt         string
+		)
+		if err := rows.Scan(
+			&horizonDay,
+			&sampleCount,
+			&avgReturnPct,
+			&avgExcessReturnPct,
+			&hitRate,
+			&avgMaxDrawdownPct,
+			&worstMaxDrawdownPct,
+			&generatedAt,
+		); err != nil {
+			return nil, err
+		}
+		summary[fmt.Sprintf("%d", horizonDay)] = map[string]any{
+			"horizon_day":            horizonDay,
+			"sample_count":           sampleCount,
+			"avg_return_pct":         avgReturnPct,
+			"avg_excess_return_pct":  avgExcessReturnPct,
+			"hit_rate":               hitRate,
+			"avg_max_drawdown_pct":   avgMaxDrawdownPct,
+			"worst_max_drawdown_pct": worstMaxDrawdownPct,
+			"generated_at":           generatedAt,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return summary, nil
+}
+
 func (r *MySQLGrowthRepo) enrichStockSelectionCandidateSnapshots(runID string, items []model.StockSelectionCandidateSnapshot) {
 	evidenceMap, _ := r.loadStockSelectionRunEvidenceMap(runID)
 	evaluationMap, _ := r.loadStockSelectionRunEvaluationStatusMap(runID)

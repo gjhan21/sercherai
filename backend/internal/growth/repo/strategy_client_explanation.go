@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
@@ -402,6 +403,7 @@ func buildStrategyExplanationFromContext(
 		SeedSummary:      buildSeedSummary(seedHighlights, report),
 		SeedHighlights:   seedHighlights,
 		GraphSummary:     asString(report["graph_summary"]),
+		GraphSnapshotID:  asString(report["graph_snapshot_id"]),
 		ConsensusSummary: asString(report["consensus_summary"]),
 		Simulations:      compactSimulations([]model.StrategyExplanationSimulation{simulation}),
 		AgentOpinions:    agentOpinions,
@@ -417,6 +419,8 @@ func buildStrategyExplanationFromContext(
 		RiskBoundary:     firstNonEmpty(asString(ctx.asset["risk_summary"]), asString(report["risk_summary"])),
 		ThemeTags:        stringSlice(ctx.asset["theme_tags"]),
 		SectorTags:       stringSlice(ctx.asset["sector_tags"]),
+		RelatedEntities:  buildExplanationRelatedEntities(sliceOfMaps(report["related_entities"])),
+		MemoryFeedback:   buildExplanationMemoryFeedback(mapValue(report["memory_feedback"])),
 		EvaluationMeta:   mapValue(report["evaluation_summary"]),
 		WorkloadSummary: model.StrategyWorkloadSummary{
 			SeedCount:      len(seedHighlights),
@@ -452,14 +456,19 @@ func buildStrategyVersionHistoryItem(
 		ReasonSummary:    asString(ctx.asset["reason_summary"]),
 		ConfidenceReason: explanation.ConfidenceReason,
 		ConsensusSummary: explanation.ConsensusSummary,
+		GraphSummary:     explanation.GraphSummary,
+		GraphSnapshotID:  explanation.GraphSnapshotID,
 		MarketRegime:     explanation.MarketRegime,
 		PortfolioRole:    explanation.PortfolioRole,
 		RiskBoundary:     explanation.RiskBoundary,
 		ThemeTags:        explanation.ThemeTags,
 		SectorTags:       explanation.SectorTags,
+		RelatedEntities:  explanation.RelatedEntities,
+		MemoryFeedback:   explanation.MemoryFeedback,
 		RiskFlags:        explanation.RiskFlags,
 		Invalidations:    explanation.Invalidations,
 		EvaluationMeta:   explanation.EvaluationMeta,
+		VersionDiff:      explanation.VersionDiff,
 		GeneratedAt:      explanation.GeneratedAt,
 	}
 }
@@ -484,14 +493,19 @@ func buildFallbackVersionHistoryItem(
 		ReasonSummary:    reasonSummary,
 		ConfidenceReason: firstNonEmpty(explanation.ConfidenceReason, reasonSummary),
 		ConsensusSummary: explanation.ConsensusSummary,
+		GraphSummary:     explanation.GraphSummary,
+		GraphSnapshotID:  explanation.GraphSnapshotID,
 		MarketRegime:     explanation.MarketRegime,
 		PortfolioRole:    explanation.PortfolioRole,
 		RiskBoundary:     explanation.RiskBoundary,
 		ThemeTags:        explanation.ThemeTags,
 		SectorTags:       explanation.SectorTags,
+		RelatedEntities:  explanation.RelatedEntities,
+		MemoryFeedback:   explanation.MemoryFeedback,
 		RiskFlags:        explanation.RiskFlags,
 		Invalidations:    explanation.Invalidations,
 		EvaluationMeta:   explanation.EvaluationMeta,
+		VersionDiff:      explanation.VersionDiff,
 		GeneratedAt:      firstNonEmpty(explanation.GeneratedAt, createdAt),
 	}
 }
@@ -505,6 +519,9 @@ func mergeStrategyExplanation(base model.StrategyClientExplanation, live model.S
 	}
 	if live.GraphSummary != "" {
 		base.GraphSummary = live.GraphSummary
+	}
+	if live.GraphSnapshotID != "" {
+		base.GraphSnapshotID = live.GraphSnapshotID
 	}
 	if live.ConsensusSummary != "" {
 		base.ConsensusSummary = live.ConsensusSummary
@@ -542,8 +559,17 @@ func mergeStrategyExplanation(base model.StrategyClientExplanation, live model.S
 	if len(live.SectorTags) > 0 {
 		base.SectorTags = live.SectorTags
 	}
+	if len(live.RelatedEntities) > 0 {
+		base.RelatedEntities = live.RelatedEntities
+	}
+	if live.MemoryFeedback.Summary != "" || len(live.MemoryFeedback.Items) > 0 {
+		base.MemoryFeedback = live.MemoryFeedback
+	}
 	if len(live.EvaluationMeta) > 0 {
 		base.EvaluationMeta = live.EvaluationMeta
+	}
+	if hasStrategyVersionDiff(live.VersionDiff) {
+		base.VersionDiff = live.VersionDiff
 	}
 	base.WorkloadSummary = live.WorkloadSummary
 	if live.StrategyVersion != "" {
@@ -565,6 +591,214 @@ func mergeStrategyExplanation(base model.StrategyClientExplanation, live model.S
 		base.GeneratedAt = live.GeneratedAt
 	}
 	return base
+}
+
+type strategyVersionDiffAsset struct {
+	Key           string
+	Rank          int
+	ReasonSummary string
+	RiskSummary   string
+}
+
+func applyStrategyVersionDiffToExplanation(explanation *model.StrategyClientExplanation, contexts []strategyEngineAssetContext, assetKey string) {
+	if explanation == nil || len(contexts) < 2 {
+		return
+	}
+	diff := buildStrategyVersionDiffFromContexts(contexts[0], contexts[1], assetKey)
+	if hasStrategyVersionDiff(diff) {
+		explanation.VersionDiff = diff
+	}
+}
+
+func applyStrategyVersionDiffToHistoryItems(items []model.StrategyVersionHistoryItem, contexts []strategyEngineAssetContext, assetKey string) {
+	limit := len(items)
+	if len(contexts)-1 < limit {
+		limit = len(contexts) - 1
+	}
+	for index := 0; index < limit; index++ {
+		diff := buildStrategyVersionDiffFromContexts(contexts[index], contexts[index+1], assetKey)
+		if hasStrategyVersionDiff(diff) {
+			items[index].VersionDiff = diff
+		}
+	}
+}
+
+func buildStrategyVersionDiffFromContexts(current strategyEngineAssetContext, previous strategyEngineAssetContext, assetKey string) model.StrategyVersionDiff {
+	currentAssets := buildStrategyVersionDiffAssets(current.record.ReportSnapshot)
+	previousAssets := buildStrategyVersionDiffAssets(previous.record.ReportSnapshot)
+	if len(currentAssets) == 0 && len(previousAssets) == 0 {
+		return model.StrategyVersionDiff{}
+	}
+
+	currentKeys := sortedStrategyVersionDiffAssetKeys(currentAssets)
+	previousKeys := sortedStrategyVersionDiffAssetKeys(previousAssets)
+	previousSet := make(map[string]struct{}, len(previousKeys))
+	currentSet := make(map[string]struct{}, len(currentKeys))
+	for _, key := range previousKeys {
+		previousSet[key] = struct{}{}
+	}
+	for _, key := range currentKeys {
+		currentSet[key] = struct{}{}
+	}
+
+	added := make([]string, 0)
+	removed := make([]string, 0)
+	promoted := make([]string, 0)
+	downgradeReasons := make([]string, 0)
+
+	for _, key := range currentKeys {
+		if _, ok := previousSet[key]; !ok {
+			added = append(added, key)
+		}
+	}
+	for _, key := range previousKeys {
+		if _, ok := currentSet[key]; !ok {
+			removed = append(removed, key)
+		}
+	}
+
+	assetKey = strings.ToUpper(strings.TrimSpace(assetKey))
+	for _, key := range currentKeys {
+		currentAsset, ok := currentAssets[key]
+		if !ok {
+			continue
+		}
+		previousAsset, existsBefore := previousAssets[key]
+		if !existsBefore {
+			continue
+		}
+		if currentAsset.Rank > 0 && previousAsset.Rank > 0 {
+			if currentAsset.Rank < previousAsset.Rank {
+				promoted = append(promoted, key)
+			}
+			if currentAsset.Rank > previousAsset.Rank {
+				downgradeReasons = append(downgradeReasons, key+" 排位由 "+strconvItoa(previousAsset.Rank)+" 调整到 "+strconvItoa(currentAsset.Rank))
+			}
+		}
+		if assetKey != "" && key == assetKey {
+			if previousAsset.ReasonSummary != "" && currentAsset.ReasonSummary != "" && previousAsset.ReasonSummary != currentAsset.ReasonSummary {
+				downgradeReasons = append(downgradeReasons, key+" 理由更新为："+currentAsset.ReasonSummary)
+			}
+			if previousAsset.RiskSummary != "" && currentAsset.RiskSummary != "" && previousAsset.RiskSummary != currentAsset.RiskSummary {
+				downgradeReasons = append(downgradeReasons, key+" 风险边界更新为："+currentAsset.RiskSummary)
+			}
+		}
+	}
+
+	currentAssetChange := ""
+	if assetKey != "" {
+		if containsString(added, assetKey) {
+			currentAssetChange = "ADDED"
+		} else if containsString(promoted, assetKey) {
+			currentAssetChange = "PROMOTED"
+		} else {
+			for _, reason := range downgradeReasons {
+				if strings.HasPrefix(reason, assetKey+" ") {
+					currentAssetChange = "WEAKENED"
+					break
+				}
+			}
+			if currentAssetChange == "" {
+				if _, ok := currentAssets[assetKey]; ok {
+					currentAssetChange = "UNCHANGED"
+				}
+			}
+		}
+	}
+
+	summaryParts := make([]string, 0, 4)
+	if len(added) > 0 {
+		summaryParts = append(summaryParts, "新增 "+strconvItoa(len(added))+" 个")
+	}
+	if len(removed) > 0 {
+		summaryParts = append(summaryParts, "移除 "+strconvItoa(len(removed))+" 个")
+	}
+	if len(promoted) > 0 {
+		summaryParts = append(summaryParts, "上调 "+strconvItoa(len(promoted))+" 个")
+	}
+	if len(downgradeReasons) > 0 {
+		summaryParts = append(summaryParts, "下降提示 "+strconvItoa(len(downgradeReasons))+" 条")
+	}
+
+	return model.StrategyVersionDiff{
+		ComparePublishID:   previous.record.PublishID,
+		CompareVersion:     previous.record.Version,
+		Added:              added,
+		Removed:            removed,
+		Promoted:           compactStrings(promoted),
+		DowngradeReasons:   compactStrings(downgradeReasons),
+		CurrentAssetChange: strings.TrimSpace(currentAssetChange),
+		Summary:            strings.Join(summaryParts, " · "),
+	}
+}
+
+func buildStrategyVersionDiffAssets(report map[string]any) map[string]strategyVersionDiffAsset {
+	result := map[string]strategyVersionDiffAsset{}
+	mergeAsset := func(key string, rank int, reasonSummary string, riskSummary string) {
+		key = strings.ToUpper(strings.TrimSpace(key))
+		if key == "" {
+			return
+		}
+		current := result[key]
+		current.Key = key
+		if rank > 0 && (current.Rank == 0 || rank < current.Rank) {
+			current.Rank = rank
+		}
+		if strings.TrimSpace(reasonSummary) != "" {
+			current.ReasonSummary = strings.TrimSpace(reasonSummary)
+		}
+		if strings.TrimSpace(riskSummary) != "" {
+			current.RiskSummary = strings.TrimSpace(riskSummary)
+		}
+		result[key] = current
+	}
+
+	collect := func(items []map[string]any) {
+		for _, item := range items {
+			mergeAsset(
+				firstNonEmpty(asString(item["symbol"]), asString(item["contract"])),
+				asInt(item["rank"]),
+				asString(item["reason_summary"]),
+				asString(item["risk_summary"]),
+			)
+		}
+	}
+
+	collect(sliceOfMaps(report["portfolio_entries"]))
+	collect(sliceOfMaps(report["candidates"]))
+	collect(sliceOfMaps(report["strategies"]))
+
+	for _, item := range sliceOfMaps(report["publish_payloads"]) {
+		recommendation := mapValue(item["recommendation"])
+		strategy := mapValue(item["strategy"])
+		if len(recommendation) > 0 {
+			mergeAsset(asString(recommendation["symbol"]), 0, asString(recommendation["reason_summary"]), "")
+		}
+		if len(strategy) > 0 {
+			mergeAsset(asString(strategy["contract"]), 0, asString(strategy["reason_summary"]), "")
+		}
+	}
+
+	return result
+}
+
+func sortedStrategyVersionDiffAssetKeys(items map[string]strategyVersionDiffAsset) []string {
+	keys := make([]string, 0, len(items))
+	for key := range items {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func hasStrategyVersionDiff(diff model.StrategyVersionDiff) bool {
+	return strings.TrimSpace(diff.Summary) != "" ||
+		strings.TrimSpace(diff.ComparePublishID) != "" ||
+		len(diff.Added) > 0 ||
+		len(diff.Removed) > 0 ||
+		len(diff.Promoted) > 0 ||
+		len(diff.DowngradeReasons) > 0 ||
+		strings.TrimSpace(diff.CurrentAssetChange) != ""
 }
 
 func buildExplanationScenarios(items []map[string]any) []model.StrategyExplanationScenario {
@@ -593,6 +827,48 @@ func buildExplanationEvidenceCards(items []map[string]any) []model.StrategyExpla
 			continue
 		}
 		result = append(result, card)
+	}
+	return result
+}
+
+func buildExplanationRelatedEntities(items []map[string]any) []model.StrategyExplanationRelatedEntity {
+	result := make([]model.StrategyExplanationRelatedEntity, 0, len(items))
+	for _, item := range items {
+		entity := model.StrategyExplanationRelatedEntity{
+			EntityType:  asString(item["entity_type"]),
+			EntityKey:   asString(item["entity_key"]),
+			Label:       asString(item["label"]),
+			AssetDomain: asString(item["asset_domain"]),
+			Tags:        stringSlice(item["tags"]),
+			Meta:        mapValue(item["meta"]),
+		}
+		if entity.EntityType == "" && entity.EntityKey == "" && entity.Label == "" {
+			continue
+		}
+		result = append(result, entity)
+	}
+	return result
+}
+
+func buildExplanationMemoryFeedback(item map[string]any) model.StrategyExplanationMemoryFeedback {
+	result := model.StrategyExplanationMemoryFeedback{
+		Summary:        asString(item["summary"]),
+		Suggestions:    stringSlice(item["suggestions"]),
+		FailureSignals: stringSlice(item["failure_signals"]),
+		Items:          []model.StrategyExplanationMemoryFeedbackItem{},
+	}
+	for _, raw := range sliceOfMaps(item["items"]) {
+		entry := model.StrategyExplanationMemoryFeedbackItem{
+			Title:      asString(raw["title"]),
+			Level:      asString(raw["level"]),
+			Detail:     asString(raw["detail"]),
+			Suggestion: asString(raw["suggestion"]),
+			Source:     asString(raw["source"]),
+		}
+		if entry.Title == "" && entry.Detail == "" {
+			continue
+		}
+		result.Items = append(result.Items, entry)
 	}
 	return result
 }

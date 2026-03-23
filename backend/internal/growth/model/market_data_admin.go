@@ -1,0 +1,63 @@
+package model
+
+type MarketDataQualityLog struct {
+	ID            string `json:"id"`
+	AssetClass    string `json:"asset_class,omitempty"`
+	DataKind      string `json:"data_kind"`
+	InstrumentKey string `json:"instrument_key,omitempty"`
+	TradeDate     string `json:"trade_date,omitempty"`
+	SourceKey     string `json:"source_key,omitempty"`
+	Severity      string `json:"severity"`
+	IssueCode     string `json:"issue_code"`
+	IssueMessage  string `json:"issue_message,omitempty"`
+	Payload       string `json:"payload,omitempty"`
+	CreatedAt     string `json:"created_at"`
+}
+
+type MarketDataQualitySummary struct {
+	AssetClass           string `json:"asset_class,omitempty"`
+	LookbackHours        int    `json:"lookback_hours"`
+	TotalCount           int    `json:"total_count"`
+	ErrorCount           int    `json:"error_count"`
+	WarnCount            int    `json:"warn_count"`
+	InfoCount            int    `json:"info_count"`
+	DistinctSourceCount  int    `json:"distinct_source_count"`
+	LatestSourceKey      string `json:"latest_source_key,omitempty"`
+	LatestSeverity       string `json:"latest_severity,omitempty"`
+	LatestIssueCode      string `json:"latest_issue_code,omitempty"`
+	LatestIssueMessage   string `json:"latest_issue_message,omitempty"`
+	LatestTradeDate      string `json:"latest_trade_date,omitempty"`
+	LatestCreatedAt      string `json:"latest_created_at,omitempty"`
+	LatestErrorSourceKey string `json:"latest_error_source_key,omitempty"`
+	LatestErrorIssueCode string `json:"latest_error_issue_code,omitempty"`
+	LatestErrorMessage   string `json:"latest_error_message,omitempty"`
+	LatestErrorCreatedAt string `json:"latest_error_created_at,omitempty"`
+}
+
+type MarketDerivedTruthRebuildResult struct {
+	AssetClass          string   `json:"asset_class"`
+	TradeDate           string   `json:"trade_date,omitempty"`
+	StartDate           string   `json:"start_date,omitempty"`
+	EndDate             string   `json:"end_date,omitempty"`
+	Days                int      `json:"days"`
+	TruthBarCount       int      `json:"truth_bar_count"`
+	StockStatusCount    int      `json:"stock_status_count,omitempty"`
+	FuturesMappingCount int      `json:"futures_mapping_count,omitempty"`
+	Warnings            []string `json:"warnings,omitempty"`
+}
+
+type MarketDerivedTruthSummary struct {
+	AssetClass          string   `json:"asset_class"`
+	SourceKey           string   `json:"source_key,omitempty"`
+	IssueCode           string   `json:"issue_code,omitempty"`
+	IssueMessage        string   `json:"issue_message,omitempty"`
+	TradeDate           string   `json:"trade_date,omitempty"`
+	StartDate           string   `json:"start_date,omitempty"`
+	EndDate             string   `json:"end_date,omitempty"`
+	Days                int      `json:"days"`
+	TruthBarCount       int      `json:"truth_bar_count"`
+	StockStatusCount    int      `json:"stock_status_count,omitempty"`
+	FuturesMappingCount int      `json:"futures_mapping_count,omitempty"`
+	Warnings            []string `json:"warnings,omitempty"`
+	CreatedAt           string   `json:"created_at,omitempty"`
+}

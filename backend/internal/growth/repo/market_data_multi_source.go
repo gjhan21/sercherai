@@ -158,6 +158,7 @@ func (r *MySQLGrowthRepo) AdminSyncFuturesInventory(sourceKey string, symbols []
 	for _, resolvedSourceKey := range sourceKeys {
 		sourceItem, err := r.getDataSourceBySourceKey(resolvedSourceKey)
 		if err != nil {
+			r.insertMarketDataQualityLog(marketAssetClassFutures, marketDataKindFuturesInventory, "", "", resolvedSourceKey, "ERROR", "SOURCE_LOOKUP_FAILED", err.Error(), "")
 			failures = append(failures, fmt.Sprintf("%s: %v", resolvedSourceKey, err))
 			result.Results = append(result.Results, model.MarketSourceSyncItemResult{
 				SourceKey: resolvedSourceKey,
@@ -334,7 +335,7 @@ func (r *MySQLGrowthRepo) syncMarketDailyBars(assetClass string, sourceKey strin
 	if len(instrumentKeys) == 0 {
 		return result, errors.New("instrument list is empty")
 	}
-	if err := r.upsertMarketInstruments(assetClass, instrumentKeys); err != nil {
+	if err := r.syncMarketInstrumentMasterData(assetClass, sourceKey, instrumentKeys); err != nil {
 		return result, err
 	}
 
@@ -357,6 +358,7 @@ func (r *MySQLGrowthRepo) syncMarketDailyBars(assetClass string, sourceKey strin
 		}
 		externalSymbols, err := r.resolveMarketExternalSymbols(resolvedSourceKey, assetClass, instrumentKeys)
 		if err != nil {
+			r.insertMarketDataQualityLog(assetClass, marketDataKindDailyBars, "", "", resolvedSourceKey, "ERROR", "SYMBOL_ALIAS_RESOLVE_FAILED", err.Error(), "")
 			failures = append(failures, fmt.Sprintf("%s: %v", resolvedSourceKey, err))
 			result.Results = append(result.Results, model.MarketSourceSyncItemResult{
 				SourceKey: resolvedSourceKey,
@@ -373,6 +375,7 @@ func (r *MySQLGrowthRepo) syncMarketDailyBars(assetClass string, sourceKey strin
 		if err != nil {
 			status = "FAILED"
 			message = err.Error()
+			r.insertMarketDataQualityLog(assetClass, marketDataKindDailyBars, "", "", resolvedSourceKey, "ERROR", "SOURCE_FETCH_FAILED", err.Error(), "")
 			failures = append(failures, fmt.Sprintf("%s: %v", resolvedSourceKey, err))
 		} else {
 			successes++
@@ -380,6 +383,7 @@ func (r *MySQLGrowthRepo) syncMarketDailyBars(assetClass string, sourceKey strin
 			if err != nil {
 				status = "FAILED"
 				message = err.Error()
+				r.insertMarketDataQualityLog(assetClass, marketDataKindDailyBars, "", "", resolvedSourceKey, "ERROR", "BAR_UPSERT_FAILED", err.Error(), "")
 				failures = append(failures, fmt.Sprintf("%s: %v", resolvedSourceKey, err))
 			} else {
 				totalBars += barCount
@@ -438,7 +442,15 @@ func (r *MySQLGrowthRepo) syncMarketDailyBars(assetClass string, sourceKey strin
 		}
 		result.TruthCount = len(truthBars)
 		if assetClass == marketAssetClassStock && len(truthBars) > 0 {
+			if _, err := r.rebuildStockStatusTruth(truthBars); err != nil && !isMarketStatusSchemaCompatError(err) {
+				return result, err
+			}
 			if err := r.syncLegacyStockQuotesFromTruthBars(truthBars); err != nil {
+				return result, err
+			}
+		}
+		if assetClass == marketAssetClassFutures && len(truthBars) > 0 {
+			if _, err := r.rebuildFuturesContractMappings(truthBars); err != nil && !isMarketStatusSchemaCompatError(err) {
 				return result, err
 			}
 		}
