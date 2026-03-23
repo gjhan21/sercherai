@@ -78,6 +78,13 @@ type pythonBridgeNewsItem struct {
 	PublishedAt   string   `json:"published_at"`
 }
 
+type marketSourceRoutingSummary struct {
+	SelectedSource     string
+	FallbackSourceKeys []string
+	RoutingPolicyKey   string
+	DecisionReason     string
+}
+
 func (r *MySQLGrowthRepo) AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error) {
 	result, err := r.AdminSyncStockQuotesDetailed(sourceKey, symbols, days)
 	if err != nil {
@@ -143,11 +150,16 @@ func (r *MySQLGrowthRepo) AdminSyncFuturesInventory(sourceKey string, symbols []
 		days = 365
 	}
 	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(sourceKey, marketAssetClassFutures, marketDataKindFuturesInventory, "market.futures.inventory.source_priority", []string{"TUSHARE", "MOCK"})
+	routingSummary := buildMarketSourceRoutingSummary(sourceKey, sourceKeys, marketAssetClassFutures, marketDataKindFuturesInventory)
 	result := model.MarketSyncResult{
 		AssetClass:         marketAssetClassFutures,
 		DataKind:           marketDataKindFuturesInventory,
 		RequestedSourceKey: strings.ToUpper(strings.TrimSpace(sourceKey)),
 		ResolvedSourceKeys: sourceKeys,
+		SelectedSource:     routingSummary.SelectedSource,
+		FallbackSourceKeys: append([]string(nil), routingSummary.FallbackSourceKeys...),
+		RoutingPolicyKey:   routingSummary.RoutingPolicyKey,
+		DecisionReason:     routingSummary.DecisionReason,
 		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
 	}
 
@@ -239,10 +251,15 @@ func (r *MySQLGrowthRepo) AdminSyncMarketNews(sourceKey string, symbols []string
 		limit = 50
 	}
 	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(sourceKey, "", marketDataKindNewsItems, marketNewsPriorityConfigKey, []string{"AKSHARE", "TUSHARE"})
+	routingSummary := buildMarketSourceRoutingSummary(sourceKey, sourceKeys, "", marketDataKindNewsItems)
 	result := model.MarketSyncResult{
 		DataKind:           marketDataKindNewsItems,
 		RequestedSourceKey: strings.ToUpper(strings.TrimSpace(sourceKey)),
 		ResolvedSourceKeys: sourceKeys,
+		SelectedSource:     routingSummary.SelectedSource,
+		FallbackSourceKeys: append([]string(nil), routingSummary.FallbackSourceKeys...),
+		RoutingPolicyKey:   routingSummary.RoutingPolicyKey,
+		DecisionReason:     routingSummary.DecisionReason,
 		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
 	}
 
@@ -325,11 +342,16 @@ func (r *MySQLGrowthRepo) AdminSyncMarketNews(sourceKey string, symbols []string
 
 func (r *MySQLGrowthRepo) syncMarketDailyBars(assetClass string, sourceKey string, instrumentKeys []string, days int, routeConfigKey string, defaultPriority []string) (model.MarketSyncResult, error) {
 	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(sourceKey, assetClass, marketDataKindDailyBars, routeConfigKey, defaultPriority)
+	routingSummary := buildMarketSourceRoutingSummary(sourceKey, sourceKeys, assetClass, marketDataKindDailyBars)
 	result := model.MarketSyncResult{
 		AssetClass:         assetClass,
 		DataKind:           marketDataKindDailyBars,
 		RequestedSourceKey: strings.ToUpper(strings.TrimSpace(sourceKey)),
 		ResolvedSourceKeys: sourceKeys,
+		SelectedSource:     routingSummary.SelectedSource,
+		FallbackSourceKeys: append([]string(nil), routingSummary.FallbackSourceKeys...),
+		RoutingPolicyKey:   routingSummary.RoutingPolicyKey,
+		DecisionReason:     routingSummary.DecisionReason,
 		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
 	}
 
@@ -522,6 +544,81 @@ func defaultFuturesContracts() []string {
 
 func defaultFuturesInventorySymbols() []string {
 	return []string{"RB", "CU", "AL", "RU", "AU"}
+}
+
+func buildMarketSourceRoutingSummary(requestedSourceKey string, resolvedSourceKeys []string, assetClass string, dataKind string) marketSourceRoutingSummary {
+	selectedSource := ""
+	if len(resolvedSourceKeys) > 0 {
+		selectedSource = strings.ToUpper(strings.TrimSpace(resolvedSourceKeys[0]))
+	}
+	summary := marketSourceRoutingSummary{
+		SelectedSource:     selectedSource,
+		FallbackSourceKeys: appendRemainingSourceKeys(selectedSource, resolvedSourceKeys),
+	}
+	if policy, ok := findDefaultMarketProviderRoutingPolicy(assetClass, dataKind); ok {
+		summary.RoutingPolicyKey = policy.PolicyKey
+	}
+
+	normalizedRequested := strings.ToUpper(strings.TrimSpace(requestedSourceKey))
+	switch normalizedRequested {
+	case "":
+		if summary.RoutingPolicyKey != "" {
+			summary.DecisionReason = "default_primary_source"
+		} else {
+			summary.DecisionReason = "legacy_default_priority"
+		}
+	case "AUTO":
+		if summary.RoutingPolicyKey != "" {
+			summary.DecisionReason = "governed_auto_priority"
+		} else {
+			summary.DecisionReason = "legacy_auto_priority"
+		}
+	default:
+		summary.DecisionReason = "explicit_source"
+		if summary.SelectedSource == "" {
+			summary.SelectedSource = normalizedRequested
+		}
+	}
+	return summary
+}
+
+func buildStrategyContextRoutingSummary(selectedSource string, assetClass string, dataKind string) marketSourceRoutingSummary {
+	normalizedSelected := strings.ToUpper(strings.TrimSpace(selectedSource))
+	summary := marketSourceRoutingSummary{SelectedSource: normalizedSelected}
+	if normalizedSelected == "" {
+		return summary
+	}
+	if policy, ok := findDefaultMarketProviderRoutingPolicy(assetClass, dataKind); ok {
+		summary.RoutingPolicyKey = policy.PolicyKey
+		governedChain := make([]string, 0, 1+len(policy.FallbackProviderKeys))
+		governedChain = append(governedChain, policy.PrimaryProviderKey)
+		governedChain = append(governedChain, policy.FallbackProviderKeys...)
+		summary.FallbackSourceKeys = appendRemainingSourceKeys(normalizedSelected, governedChain)
+	}
+	if normalizedSelected == "MOCK" {
+		summary.DecisionReason = "mock_truth_fallback"
+	} else {
+		summary.DecisionReason = "local_truth_price_source"
+	}
+	return summary
+}
+
+func appendRemainingSourceKeys(selectedSource string, sourceKeys []string) []string {
+	normalizedSelected := strings.ToUpper(strings.TrimSpace(selectedSource))
+	seen := make(map[string]struct{}, len(sourceKeys))
+	items := make([]string, 0, len(sourceKeys))
+	for _, item := range sourceKeys {
+		normalized := strings.ToUpper(strings.TrimSpace(item))
+		if normalized == "" || normalized == normalizedSelected {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		items = append(items, normalized)
+	}
+	return items
 }
 
 func (r *MySQLGrowthRepo) resolveRequestedMarketSourceKeys(raw string, routeConfigKey string, defaultPriority []string) []string {

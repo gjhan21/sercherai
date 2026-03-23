@@ -107,6 +107,10 @@ type MarketSyncResult struct {
 	DataKind           string                       `json:"data_kind"`
 	RequestedSourceKey string                       `json:"requested_source_key,omitempty"`
 	ResolvedSourceKeys []string                     `json:"resolved_source_keys,omitempty"`
+	SelectedSource     string                       `json:"selected_source,omitempty"`
+	FallbackSourceKeys []string                     `json:"fallback_source_keys,omitempty"`
+	RoutingPolicyKey   string                       `json:"routing_policy_key,omitempty"`
+	DecisionReason     string                       `json:"decision_reason,omitempty"`
 	BarCount           int                          `json:"bar_count,omitempty"`
 	NewsCount          int                          `json:"news_count,omitempty"`
 	TruthCount         int                          `json:"truth_count,omitempty"`

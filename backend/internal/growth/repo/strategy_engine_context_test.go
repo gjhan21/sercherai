@@ -169,6 +169,18 @@ func TestBuildStrategyEngineStockSelectionContextUsesTruthBarsAndNews(t *testing
 	if ctx.Meta.PriceSource != "TUSHARE" {
 		t.Fatalf("expected TUSHARE price source, got %s", ctx.Meta.PriceSource)
 	}
+	if ctx.Meta.SelectedSource != "TUSHARE" {
+		t.Fatalf("expected selected source TUSHARE, got %s", ctx.Meta.SelectedSource)
+	}
+	if ctx.Meta.RoutingPolicyKey != "market.stock.daily" {
+		t.Fatalf("expected stock routing policy key, got %s", ctx.Meta.RoutingPolicyKey)
+	}
+	if len(ctx.Meta.FallbackSourceKeys) != 2 || ctx.Meta.FallbackSourceKeys[0] != "AKSHARE" || ctx.Meta.FallbackSourceKeys[1] != "TICKERMD" {
+		t.Fatalf("expected stock fallback sources AKSHARE/TICKERMD, got %#v", ctx.Meta.FallbackSourceKeys)
+	}
+	if ctx.Meta.DecisionReason != "local_truth_price_source" {
+		t.Fatalf("expected local truth decision reason, got %s", ctx.Meta.DecisionReason)
+	}
 	if ctx.Meta.NewsWindowDays != 14 {
 		t.Fatalf("expected 14-day news window, got %d", ctx.Meta.NewsWindowDays)
 	}
@@ -867,6 +879,18 @@ func TestBuildStrategyEngineFuturesStrategyContextExplicitContractsFallBackToMoc
 	}
 	if ctx.Meta.PriceSource != "MOCK" {
 		t.Fatalf("expected MOCK price source after fallback, got %s", ctx.Meta.PriceSource)
+	}
+	if ctx.Meta.SelectedSource != "MOCK" {
+		t.Fatalf("expected selected source MOCK after fallback, got %s", ctx.Meta.SelectedSource)
+	}
+	if ctx.Meta.RoutingPolicyKey != "market.futures.daily" {
+		t.Fatalf("expected futures routing policy key, got %s", ctx.Meta.RoutingPolicyKey)
+	}
+	if len(ctx.Meta.FallbackSourceKeys) != 3 || ctx.Meta.FallbackSourceKeys[0] != "TUSHARE" {
+		t.Fatalf("expected fallback chain to keep governed futures providers, got %#v", ctx.Meta.FallbackSourceKeys)
+	}
+	if ctx.Meta.DecisionReason != "mock_truth_fallback" {
+		t.Fatalf("expected mock fallback decision reason, got %s", ctx.Meta.DecisionReason)
 	}
 	if !strings.Contains(strings.Join(ctx.Meta.Warnings, " | "), "MOCK 真相源") {
 		t.Fatalf("expected mock fallback warning, got %#v", ctx.Meta.Warnings)

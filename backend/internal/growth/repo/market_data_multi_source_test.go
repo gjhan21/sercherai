@@ -293,3 +293,37 @@ func TestResolveRequestedMarketSourceKeysWithGovernanceFallsBackToLegacyPriority
 		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }
+
+func TestBuildMarketSourceRoutingSummaryUsesGovernedAutoPriority(t *testing.T) {
+	summary := buildMarketSourceRoutingSummary("AUTO", []string{"TUSHARE", "AKSHARE", "TICKERMD"}, marketAssetClassStock, marketDataKindDailyBars)
+
+	if summary.SelectedSource != "TUSHARE" {
+		t.Fatalf("expected selected source TUSHARE, got %s", summary.SelectedSource)
+	}
+	if len(summary.FallbackSourceKeys) != 2 || summary.FallbackSourceKeys[0] != "AKSHARE" || summary.FallbackSourceKeys[1] != "TICKERMD" {
+		t.Fatalf("unexpected fallback chain: %#v", summary.FallbackSourceKeys)
+	}
+	if summary.RoutingPolicyKey != "market.stock.daily" {
+		t.Fatalf("expected stock routing policy key, got %s", summary.RoutingPolicyKey)
+	}
+	if summary.DecisionReason != "governed_auto_priority" {
+		t.Fatalf("expected governed auto decision reason, got %s", summary.DecisionReason)
+	}
+}
+
+func TestBuildMarketSourceRoutingSummaryKeepsExplicitSourceDecision(t *testing.T) {
+	summary := buildMarketSourceRoutingSummary("MYSELF", []string{"MYSELF"}, marketAssetClassFutures, marketDataKindDailyBars)
+
+	if summary.SelectedSource != "MYSELF" {
+		t.Fatalf("expected selected source MYSELF, got %s", summary.SelectedSource)
+	}
+	if len(summary.FallbackSourceKeys) != 0 {
+		t.Fatalf("expected no fallback chain for explicit source, got %#v", summary.FallbackSourceKeys)
+	}
+	if summary.RoutingPolicyKey != "market.futures.daily" {
+		t.Fatalf("expected futures routing policy key, got %s", summary.RoutingPolicyKey)
+	}
+	if summary.DecisionReason != "explicit_source" {
+		t.Fatalf("expected explicit source decision reason, got %s", summary.DecisionReason)
+	}
+}

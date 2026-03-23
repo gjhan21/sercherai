@@ -109,38 +109,42 @@ func normalizeStrategyEngineStockContextSymbols(items []string) []string {
 }
 
 type StrategyEngineStockSeed struct {
-	Symbol           string  `json:"symbol"`
-	Name             string  `json:"name"`
-	TradeDate        string  `json:"trade_date"`
-	ClosePrice       float64 `json:"close_price"`
-	Momentum5        float64 `json:"momentum5"`
-	Momentum20       float64 `json:"momentum20"`
-	Volatility20     float64 `json:"volatility20"`
-	VolumeRatio      float64 `json:"volume_ratio"`
-	Drawdown20       float64 `json:"drawdown20"`
-	TrendStrength    float64 `json:"trend_strength"`
-	NetMFAmount      float64 `json:"net_mf_amount"`
-	PeTTM            float64 `json:"pe_ttm"`
-	PB               float64 `json:"pb"`
-	TurnoverRate     float64 `json:"turnover_rate"`
-	NewsHeat         int     `json:"news_heat"`
-	PositiveNewsRate float64 `json:"positive_news_rate"`
-	ListingDays      int     `json:"listing_days"`
-	AvgTurnover20    float64 `json:"avg_turnover_20"`
-	SuspendedProxy   bool    `json:"suspended_proxy"`
-	STRiskProxy      bool    `json:"st_risk_proxy"`
-	Industry         string  `json:"industry,omitempty"`
-	Sector           string  `json:"sector,omitempty"`
+	Symbol           string   `json:"symbol"`
+	Name             string   `json:"name"`
+	TradeDate        string   `json:"trade_date"`
+	ClosePrice       float64  `json:"close_price"`
+	Momentum5        float64  `json:"momentum5"`
+	Momentum20       float64  `json:"momentum20"`
+	Volatility20     float64  `json:"volatility20"`
+	VolumeRatio      float64  `json:"volume_ratio"`
+	Drawdown20       float64  `json:"drawdown20"`
+	TrendStrength    float64  `json:"trend_strength"`
+	NetMFAmount      float64  `json:"net_mf_amount"`
+	PeTTM            float64  `json:"pe_ttm"`
+	PB               float64  `json:"pb"`
+	TurnoverRate     float64  `json:"turnover_rate"`
+	NewsHeat         int      `json:"news_heat"`
+	PositiveNewsRate float64  `json:"positive_news_rate"`
+	ListingDays      int      `json:"listing_days"`
+	AvgTurnover20    float64  `json:"avg_turnover_20"`
+	SuspendedProxy   bool     `json:"suspended_proxy"`
+	STRiskProxy      bool     `json:"st_risk_proxy"`
+	Industry         string   `json:"industry,omitempty"`
+	Sector           string   `json:"sector,omitempty"`
 	ThemeTags        []string `json:"theme_tags,omitempty"`
 	RiskFlags        []string `json:"risk_flags,omitempty"`
 }
 
 type StrategyEngineStockSelectionContextMeta struct {
-	SelectedTradeDate         string   `json:"selected_trade_date"`
-	PriceSource               string   `json:"price_source"`
-	NewsWindowDays            int      `json:"news_window_days"`
-	ListingDaysFilterApplied  bool     `json:"listing_days_filter_applied"`
-	Warnings                  []string `json:"warnings,omitempty"`
+	SelectedTradeDate        string   `json:"selected_trade_date"`
+	PriceSource              string   `json:"price_source"`
+	SelectedSource           string   `json:"selected_source,omitempty"`
+	FallbackSourceKeys       []string `json:"fallback_source_keys,omitempty"`
+	RoutingPolicyKey         string   `json:"routing_policy_key,omitempty"`
+	DecisionReason           string   `json:"decision_reason,omitempty"`
+	NewsWindowDays           int      `json:"news_window_days"`
+	ListingDaysFilterApplied bool     `json:"listing_days_filter_applied"`
+	Warnings                 []string `json:"warnings,omitempty"`
 }
 
 type StrategyEngineStockSelectionContextResponse struct {
@@ -191,10 +195,14 @@ type StrategyEngineFuturesSeed struct {
 }
 
 type StrategyEngineFuturesStrategyContextMeta struct {
-	SelectedTradeDate string   `json:"selected_trade_date"`
-	PriceSource       string   `json:"price_source"`
-	NewsWindowDays    int      `json:"news_window_days"`
-	Warnings          []string `json:"warnings,omitempty"`
+	SelectedTradeDate  string   `json:"selected_trade_date"`
+	PriceSource        string   `json:"price_source"`
+	SelectedSource     string   `json:"selected_source,omitempty"`
+	FallbackSourceKeys []string `json:"fallback_source_keys,omitempty"`
+	RoutingPolicyKey   string   `json:"routing_policy_key,omitempty"`
+	DecisionReason     string   `json:"decision_reason,omitempty"`
+	NewsWindowDays     int      `json:"news_window_days"`
+	Warnings           []string `json:"warnings,omitempty"`
 }
 
 type StrategyEngineFuturesStrategyContextResponse struct {

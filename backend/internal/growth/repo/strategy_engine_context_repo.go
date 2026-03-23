@@ -227,12 +227,18 @@ func (r *MySQLGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.S
 			warnings = appendUniqueText(warnings, fmt.Sprintf("自动股票池按 ST/风险警示代理过滤 %d 只股票", filterCounters["st"]))
 		}
 	}
+	priceSource := summarizeStrategyPriceSource(priceSources)
+	routingSummary := buildStrategyContextRoutingSummary(priceSource, marketAssetClassStock, marketDataKindDailyBars)
 
 	return model.StrategyEngineStockSelectionContextResponse{
 		Seeds: seeds,
 		Meta: model.StrategyEngineStockSelectionContextMeta{
 			SelectedTradeDate:        selectedTradeDate.Format("2006-01-02"),
-			PriceSource:              summarizeStrategyPriceSource(priceSources),
+			PriceSource:              priceSource,
+			SelectedSource:           routingSummary.SelectedSource,
+			FallbackSourceKeys:       append([]string(nil), routingSummary.FallbackSourceKeys...),
+			RoutingPolicyKey:         routingSummary.RoutingPolicyKey,
+			DecisionReason:           routingSummary.DecisionReason,
 			NewsWindowDays:           strategyEngineStockNewsWindowDays,
 			ListingDaysFilterApplied: !autoMode || listingDaysFilterEnabled,
 			Warnings:                 warnings,
@@ -404,14 +410,20 @@ func (r *MySQLGrowthRepo) buildStrategyEngineFuturesStrategyContextResponse(requ
 	if noFuturesNewsSignals(newsSignals, seeds) {
 		warnings = appendUniqueText(warnings, fmt.Sprintf("最近 %d 天暂无市场资讯信号，已回退到中性默认值", strategyEngineFuturesNewsWindowDays))
 	}
+	priceSource := summarizeStrategyPriceSource(priceSources)
+	routingSummary := buildStrategyContextRoutingSummary(priceSource, marketAssetClassFutures, marketDataKindDailyBars)
 
 	return model.StrategyEngineFuturesStrategyContextResponse{
 		Seeds: seeds,
 		Meta: model.StrategyEngineFuturesStrategyContextMeta{
-			SelectedTradeDate: selectedTradeDate.Format("2006-01-02"),
-			PriceSource:       summarizeStrategyPriceSource(priceSources),
-			NewsWindowDays:    strategyEngineFuturesNewsWindowDays,
-			Warnings:          warnings,
+			SelectedTradeDate:  selectedTradeDate.Format("2006-01-02"),
+			PriceSource:        priceSource,
+			SelectedSource:     routingSummary.SelectedSource,
+			FallbackSourceKeys: append([]string(nil), routingSummary.FallbackSourceKeys...),
+			RoutingPolicyKey:   routingSummary.RoutingPolicyKey,
+			DecisionReason:     routingSummary.DecisionReason,
+			NewsWindowDays:     strategyEngineFuturesNewsWindowDays,
+			Warnings:           warnings,
 		},
 	}, nil
 }

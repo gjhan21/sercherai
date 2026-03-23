@@ -399,6 +399,21 @@ func defaultMarketProviderRoutingPolicies() []model.MarketProviderRoutingPolicy 
 	}
 }
 
+func findDefaultMarketProviderRoutingPolicy(assetClass string, dataKind string) (model.MarketProviderRoutingPolicy, bool) {
+	normalizedAssetClass := normalizeMarketProviderFilter(assetClass)
+	normalizedDataKind := normalizeMarketProviderFilter(dataKind)
+	for _, item := range defaultMarketProviderRoutingPolicies() {
+		if normalizeMarketProviderFilter(item.AssetClass) != normalizedAssetClass {
+			continue
+		}
+		if normalizeMarketProviderFilter(item.DataKind) != normalizedDataKind {
+			continue
+		}
+		return item, true
+	}
+	return model.MarketProviderRoutingPolicy{}, false
+}
+
 func (r *InMemoryGrowthRepo) AdminListMarketProviderRegistries(status string) ([]model.MarketProviderRegistry, error) {
 	normalizedStatus := normalizeMarketProviderFilter(status)
 	items := defaultMarketProviderRegistries()
