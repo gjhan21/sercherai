@@ -95,6 +95,8 @@ type GrowthService interface {
 	AdminRebuildMarketDailyTruthDetailed(assetType string, sourceKey string, instrumentKeys []string, tradeDateFrom string, tradeDateTo string) (model.MarketSyncResult, error)
 	AdminSyncFuturesInventory(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
 	AdminSyncMarketNews(sourceKey string, symbols []string, days int, limit int) (model.MarketSyncResult, error)
+	AdminListMarketProviderQualityScores(assetClass string, dataKind string, hours int) ([]model.MarketProviderQualityScore, error)
+	AdminGetMarketProviderGovernanceOverview(assetClass string, dataKind string, hours int) (model.MarketProviderGovernanceOverview, error)
 	BuildStrategyEngineStockSelectionContext(input model.StrategyEngineStockSelectionContextRequest) (model.StrategyEngineStockSelectionContextResponse, error)
 	BuildStrategyEngineFuturesStrategyContext(input model.StrategyEngineFuturesStrategyContextRequest) (model.StrategyEngineFuturesStrategyContextResponse, error)
 	AdminSyncDocFastNewsIncremental(batchSize int) (string, error)

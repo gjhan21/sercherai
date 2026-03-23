@@ -48,3 +48,27 @@ type MarketProviderRoutingPolicy struct {
 	QualityThreshold     float64  `json:"quality_threshold,omitempty"`
 	UpdatedAt            string   `json:"updated_at,omitempty"`
 }
+
+type MarketProviderQualityScore struct {
+	ProviderKey          string   `json:"provider_key"`
+	AssetClass           string   `json:"asset_class,omitempty"`
+	DataKind             string   `json:"data_kind"`
+	FreshnessScore       float64  `json:"freshness_score"`
+	CoverageScore        float64  `json:"coverage_score"`
+	TrustScore           float64  `json:"trust_score"`
+	StabilityScore       float64  `json:"stability_score"`
+	OverallScore         float64  `json:"overall_score"`
+	LatestIssueCode      string   `json:"latest_issue_code,omitempty"`
+	GovernanceSuggestion string   `json:"governance_suggestion,omitempty"`
+	ScoreReasons         []string `json:"score_reasons,omitempty"`
+	LatestObservedAt     string   `json:"latest_observed_at,omitempty"`
+}
+
+type MarketProviderGovernanceOverview struct {
+	AssetClass         string                       `json:"asset_class,omitempty"`
+	DataKind           string                       `json:"data_kind,omitempty"`
+	LookbackHours      int                          `json:"lookback_hours"`
+	QualitySummary     MarketDataQualitySummary     `json:"quality_summary"`
+	ProviderScores     []MarketProviderQualityScore `json:"provider_scores,omitempty"`
+	LatestDerivedTruth *MarketDerivedTruthSummary   `json:"latest_derived_truth,omitempty"`
+}

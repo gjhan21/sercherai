@@ -223,6 +223,8 @@ type GrowthRepo interface {
 	AdminListMarketProviderRegistries(status string) ([]model.MarketProviderRegistry, error)
 	AdminListMarketProviderCapabilities(providerKey string, assetClass string, dataKind string) ([]model.MarketProviderCapability, error)
 	AdminListMarketProviderRoutingPolicies(assetClass string, dataKind string) ([]model.MarketProviderRoutingPolicy, error)
+	AdminListMarketProviderQualityScores(assetClass string, dataKind string, hours int) ([]model.MarketProviderQualityScore, error)
+	AdminGetMarketProviderGovernanceOverview(assetClass string, dataKind string, hours int) (model.MarketProviderGovernanceOverview, error)
 	AdminBuildMarketUniverseSnapshot(sourceKey string, assetScope []string, operator string) (model.MarketUniverseSnapshot, []model.MarketUniverseSnapshotItem, error)
 	AdminCreateMarketDataBackfillRun(input model.MarketBackfillCreateInput, operator string) (model.MarketBackfillRun, error)
 	AdminListMarketDataBackfillRuns(status string, runType string, assetType string, sourceKey string, page int, pageSize int) ([]model.MarketBackfillRun, int, error)

@@ -262,6 +262,171 @@ func TestAdminGetMarketDataQualitySummaryAggregatesCountsAndLatestEntries(t *tes
 	}
 }
 
+func TestAdminGetMarketProviderGovernanceOverviewCombinesQualitySummaryAndProviderScores(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+	latestTradeDate := time.Date(2026, 3, 22, 0, 0, 0, 0, time.Local)
+	latestCreatedAt := time.Date(2026, 3, 22, 10, 0, 0, 0, time.Local)
+	latestErrorAt := time.Date(2026, 3, 22, 9, 15, 0, 0, time.Local)
+	providerUpdatedAt := time.Date(2026, 3, 22, 9, 5, 0, 0, time.Local)
+	providerLatestIssueAt := time.Date(2026, 3, 22, 8, 55, 0, 0, time.Local)
+	truthCreatedAt := time.Date(2026, 3, 22, 10, 5, 0, 0, time.Local)
+
+	mock.ExpectQuery(marketQualitySummaryCountQueryPattern).
+		WithArgs("STOCK", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"total_count",
+			"error_count",
+			"warn_count",
+			"info_count",
+			"distinct_source_count",
+		}).AddRow(4, 1, 2, 1, 2))
+
+	mock.ExpectQuery(marketQualitySummaryLatestQueryPattern).
+		WithArgs("STOCK", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"source_key",
+			"severity",
+			"issue_code",
+			"issue_message",
+			"trade_date",
+			"created_at",
+		}).AddRow(
+			"TUSHARE",
+			"WARN",
+			"BAR_UPSERT_RETRIED",
+			"upsert retried with fallback",
+			latestTradeDate,
+			latestCreatedAt,
+		))
+
+	mock.ExpectQuery(marketQualitySummaryLatestErrorQueryPattern).
+		WithArgs("STOCK", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"source_key",
+			"issue_code",
+			"issue_message",
+			"created_at",
+		}).AddRow(
+			"TUSHARE",
+			"SOURCE_FETCH_FAILED",
+			"upstream timeout",
+			latestErrorAt,
+		))
+
+	mock.ExpectQuery(marketProviderCapabilityListQueryPattern).
+		WithArgs("STOCK", "DAILY_BARS").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"provider_key",
+			"asset_class",
+			"data_kind",
+			"supports_sync",
+			"supports_truth_rebuild",
+			"supports_context_seed",
+			"supports_research_run",
+			"supports_backfill",
+			"supports_batch",
+			"supports_intraday",
+			"supports_history",
+			"supports_metadata_enrichment",
+			"requires_auth",
+			"fallback_allowed",
+			"priority_weight",
+			"updated_at",
+		}).AddRow(
+			"TUSHARE",
+			"STOCK",
+			"DAILY_BARS",
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			false,
+			true,
+			false,
+			true,
+			true,
+			100,
+			providerUpdatedAt,
+		))
+
+	mock.ExpectQuery(marketProviderQualityAggregateQueryPattern).
+		WithArgs("STOCK", "DAILY_BARS", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"source_key",
+			"total_count",
+			"error_count",
+			"warn_count",
+			"latest_created_at",
+		}).AddRow(
+			"TUSHARE",
+			2,
+			1,
+			1,
+			providerLatestIssueAt,
+		))
+
+	mock.ExpectQuery(marketProviderQualityLatestIssueQueryPattern).
+		WithArgs("STOCK", "DAILY_BARS", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"source_key",
+			"issue_code",
+			"created_at",
+		}).AddRow(
+			"TUSHARE",
+			"SOURCE_FETCH_FAILED",
+			providerLatestIssueAt,
+		))
+
+	mock.ExpectQuery(marketDerivedTruthSummaryQueryPattern).
+		WithArgs("STOCK", "LOCAL_TRUTH", "DERIVED_STOCK_STATUS_REBUILT").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"asset_class",
+			"source_key",
+			"issue_code",
+			"issue_message",
+			"payload_json",
+			"created_at",
+		}).AddRow(
+			"STOCK",
+			"LOCAL_TRUTH",
+			"DERIVED_STOCK_STATUS_REBUILT",
+			"rebuilt stock status truth for 12 rows",
+			`{"asset_class":"STOCK","trade_date":"2026-03-22","days":1,"truth_bar_count":120,"stock_status_count":12}`,
+			truthCreatedAt,
+		))
+
+	overview, err := repo.AdminGetMarketProviderGovernanceOverview("stock", "daily_bars", 24)
+	if err != nil {
+		t.Fatalf("AdminGetMarketProviderGovernanceOverview returned error: %v", err)
+	}
+	if overview.AssetClass != "STOCK" || overview.DataKind != "DAILY_BARS" || overview.LookbackHours != 24 {
+		t.Fatalf("unexpected overview head: %+v", overview)
+	}
+	if overview.QualitySummary.TotalCount != 4 || overview.QualitySummary.LatestIssueCode != "BAR_UPSERT_RETRIED" {
+		t.Fatalf("unexpected quality summary in overview: %+v", overview.QualitySummary)
+	}
+	if len(overview.ProviderScores) != 1 || overview.ProviderScores[0].ProviderKey != "TUSHARE" {
+		t.Fatalf("unexpected provider scores in overview: %+v", overview.ProviderScores)
+	}
+	if overview.ProviderScores[0].GovernanceSuggestion == "" {
+		t.Fatalf("expected governance suggestion in overview provider score, got %+v", overview.ProviderScores[0])
+	}
+	if overview.LatestDerivedTruth == nil || overview.LatestDerivedTruth.IssueCode != "DERIVED_STOCK_STATUS_REBUILT" {
+		t.Fatalf("unexpected latest derived truth in overview: %+v", overview.LatestDerivedTruth)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
 func TestAdminRebuildMarketDerivedTruthStocksUsesTruthBarsAndInstrumentMaster(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

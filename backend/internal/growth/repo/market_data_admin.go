@@ -45,6 +45,14 @@ func normalizeMarketQualitySummaryAssetClass(value string) (string, error) {
 	return normalized, nil
 }
 
+func normalizeMarketProviderGovernanceDataKind(value string) string {
+	normalized := normalizeMarketProviderFilter(value)
+	if normalized == "" {
+		return marketDataKindDailyBars
+	}
+	return normalized
+}
+
 func resolveMarketDerivedTruthIssueCode(assetClass string) string {
 	switch normalizeMarketDerivedTruthAssetClass(assetClass) {
 	case marketAssetClassStock:
@@ -371,6 +379,39 @@ LIMIT 1`,
 	return &item, nil
 }
 
+func (r *MySQLGrowthRepo) AdminGetMarketProviderGovernanceOverview(assetClass string, dataKind string, hours int) (model.MarketProviderGovernanceOverview, error) {
+	if hours <= 0 {
+		hours = 24
+	}
+	normalizedAssetClass, err := normalizeMarketQualitySummaryAssetClass(assetClass)
+	if err != nil {
+		return model.MarketProviderGovernanceOverview{}, err
+	}
+	normalizedDataKind := normalizeMarketProviderGovernanceDataKind(dataKind)
+
+	qualitySummary, err := r.AdminGetMarketDataQualitySummary(normalizedAssetClass, hours)
+	if err != nil {
+		return model.MarketProviderGovernanceOverview{}, err
+	}
+	providerScores, err := r.AdminListMarketProviderQualityScores(normalizedAssetClass, normalizedDataKind, hours)
+	if err != nil {
+		return model.MarketProviderGovernanceOverview{}, err
+	}
+	latestDerivedTruth, err := r.AdminGetMarketDerivedTruthSummary(normalizedAssetClass)
+	if err != nil {
+		return model.MarketProviderGovernanceOverview{}, err
+	}
+
+	return model.MarketProviderGovernanceOverview{
+		AssetClass:         normalizedAssetClass,
+		DataKind:           normalizedDataKind,
+		LookbackHours:      hours,
+		QualitySummary:     qualitySummary,
+		ProviderScores:     providerScores,
+		LatestDerivedTruth: latestDerivedTruth,
+	}, nil
+}
+
 func (r *MySQLGrowthRepo) AdminRebuildMarketDerivedTruth(assetClass string, tradeDate string, days int) (model.MarketDerivedTruthRebuildResult, error) {
 	normalizedAssetClass := normalizeMarketDerivedTruthAssetClass(assetClass)
 	if normalizedAssetClass == "" {
@@ -676,6 +717,33 @@ func (r *InMemoryGrowthRepo) AdminGetMarketDerivedTruthSummary(assetClass string
 	item.IssueMessage = "rebuilt futures dominant mappings for 4 rows"
 	item.FuturesMappingCount = 4
 	return item, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetMarketProviderGovernanceOverview(assetClass string, dataKind string, hours int) (model.MarketProviderGovernanceOverview, error) {
+	if hours <= 0 {
+		hours = 24
+	}
+	qualitySummary, err := r.AdminGetMarketDataQualitySummary(assetClass, hours)
+	if err != nil {
+		return model.MarketProviderGovernanceOverview{}, err
+	}
+	providerScores, err := r.AdminListMarketProviderQualityScores(assetClass, normalizeMarketProviderGovernanceDataKind(dataKind), hours)
+	if err != nil {
+		return model.MarketProviderGovernanceOverview{}, err
+	}
+	latestDerivedTruth, err := r.AdminGetMarketDerivedTruthSummary(assetClass)
+	if err != nil {
+		return model.MarketProviderGovernanceOverview{}, err
+	}
+	normalizedAssetClass, _ := normalizeMarketQualitySummaryAssetClass(assetClass)
+	return model.MarketProviderGovernanceOverview{
+		AssetClass:         normalizedAssetClass,
+		DataKind:           normalizeMarketProviderGovernanceDataKind(dataKind),
+		LookbackHours:      hours,
+		QualitySummary:     qualitySummary,
+		ProviderScores:     providerScores,
+		LatestDerivedTruth: latestDerivedTruth,
+	}, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminRebuildMarketDerivedTruth(assetClass string, tradeDate string, days int) (model.MarketDerivedTruthRebuildResult, error) {

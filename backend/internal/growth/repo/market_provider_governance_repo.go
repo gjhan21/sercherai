@@ -2,6 +2,7 @@ package repo
 
 import (
 	"database/sql"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,18 @@ func isMarketProviderGovernanceSchemaCompatError(err error) bool {
 	}
 	text := strings.ToLower(strings.TrimSpace(err.Error()))
 	return strings.Contains(text, "unknown column") || strings.Contains(text, "error 1054")
+}
+
+type marketProviderQualityAggregate struct {
+	TotalCount       int
+	ErrorCount       int
+	WarnCount        int
+	LatestObservedAt time.Time
+}
+
+type marketProviderLatestIssue struct {
+	IssueCode string
+	CreatedAt time.Time
 }
 
 func (r *MySQLGrowthRepo) AdminListMarketProviderRegistries(status string) ([]model.MarketProviderRegistry, error) {
@@ -208,6 +221,110 @@ FROM market_provider_routing_policies`
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (r *MySQLGrowthRepo) AdminListMarketProviderQualityScores(assetClass string, dataKind string, hours int) ([]model.MarketProviderQualityScore, error) {
+	if hours <= 0 {
+		hours = 24
+	}
+	normalizedAssetClass := normalizeMarketProviderFilter(assetClass)
+	normalizedDataKind := normalizeMarketProviderFilter(dataKind)
+
+	capabilities, err := r.AdminListMarketProviderCapabilities("", normalizedAssetClass, normalizedDataKind)
+	if err != nil {
+		if isMarketProviderGovernanceSchemaCompatError(err) {
+			capabilities = defaultMarketProviderCapabilitiesFiltered("", normalizedAssetClass, normalizedDataKind)
+		} else {
+			return nil, err
+		}
+	}
+
+	lookbackStart := time.Now().Add(-time.Duration(hours) * time.Hour)
+	aggregates := make(map[string]marketProviderQualityAggregate)
+	rows, err := r.db.Query(`
+SELECT COALESCE(source_key, '') AS source_key,
+       COUNT(*),
+       COALESCE(SUM(CASE WHEN severity = 'ERROR' THEN 1 ELSE 0 END), 0),
+       COALESCE(SUM(CASE WHEN severity = 'WARN' THEN 1 ELSE 0 END), 0),
+       MAX(created_at)
+FROM market_data_quality_logs
+WHERE asset_class = ? AND data_kind = ? AND created_at >= ?
+GROUP BY COALESCE(source_key, '')`, normalizedAssetClass, normalizedDataKind, lookbackStart)
+	if err != nil {
+		if !isMarketStatusSchemaCompatError(err) {
+			return nil, err
+		}
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var (
+				sourceKey        sql.NullString
+				aggregate        marketProviderQualityAggregate
+				latestObservedAt sql.NullTime
+			)
+			if err := rows.Scan(
+				&sourceKey,
+				&aggregate.TotalCount,
+				&aggregate.ErrorCount,
+				&aggregate.WarnCount,
+				&latestObservedAt,
+			); err != nil {
+				return nil, err
+			}
+			if latestObservedAt.Valid {
+				aggregate.LatestObservedAt = latestObservedAt.Time
+			}
+			aggregates[strings.ToUpper(strings.TrimSpace(sourceKey.String))] = aggregate
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	latestIssues := make(map[string]marketProviderLatestIssue)
+	issueRows, err := r.db.Query(`
+SELECT source_key, issue_code, created_at
+FROM market_data_quality_logs
+WHERE asset_class = ? AND data_kind = ? AND created_at >= ?
+ORDER BY created_at DESC, id DESC`, normalizedAssetClass, normalizedDataKind, lookbackStart)
+	if err != nil {
+		if !isMarketStatusSchemaCompatError(err) {
+			return nil, err
+		}
+	} else {
+		defer issueRows.Close()
+		for issueRows.Next() {
+			var (
+				sourceKey sql.NullString
+				issueCode sql.NullString
+				createdAt time.Time
+			)
+			if err := issueRows.Scan(&sourceKey, &issueCode, &createdAt); err != nil {
+				return nil, err
+			}
+			normalizedSourceKey := strings.ToUpper(strings.TrimSpace(sourceKey.String))
+			if normalizedSourceKey == "" {
+				continue
+			}
+			if _, exists := latestIssues[normalizedSourceKey]; exists {
+				continue
+			}
+			latestIssues[normalizedSourceKey] = marketProviderLatestIssue{
+				IssueCode: strings.ToUpper(strings.TrimSpace(issueCode.String)),
+				CreatedAt: createdAt,
+			}
+		}
+		if err := issueRows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	items := make([]model.MarketProviderQualityScore, 0, len(capabilities))
+	for _, item := range capabilities {
+		providerKey := strings.ToUpper(strings.TrimSpace(item.ProviderKey))
+		items = append(items, buildMarketProviderQualityScore(item, hours, aggregates[providerKey], latestIssues[providerKey]))
+	}
+	return items, nil
 }
 
 func defaultMarketProviderRegistries() []model.MarketProviderRegistry {
@@ -414,6 +531,169 @@ func findDefaultMarketProviderRoutingPolicy(assetClass string, dataKind string) 
 	return model.MarketProviderRoutingPolicy{}, false
 }
 
+func defaultMarketProviderCapabilitiesFiltered(providerKey string, assetClass string, dataKind string) []model.MarketProviderCapability {
+	normalizedProviderKey := normalizeMarketProviderFilter(providerKey)
+	normalizedAssetClass := normalizeMarketProviderFilter(assetClass)
+	normalizedDataKind := normalizeMarketProviderFilter(dataKind)
+	items := defaultMarketProviderCapabilities()
+	filtered := make([]model.MarketProviderCapability, 0, len(items))
+	for _, item := range items {
+		if normalizedProviderKey != "" && item.ProviderKey != normalizedProviderKey {
+			continue
+		}
+		if normalizedAssetClass != "" && item.AssetClass != normalizedAssetClass {
+			continue
+		}
+		if normalizedDataKind != "" && item.DataKind != normalizedDataKind {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
+func clampMarketProviderScore(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return roundTo(value, 4)
+}
+
+func calculateMarketProviderCoverageScore(item model.MarketProviderCapability) float64 {
+	score := 0.2
+	if item.SupportsSync {
+		score += 0.15
+	}
+	if item.SupportsTruthRebuild {
+		score += 0.15
+	}
+	if item.SupportsContextSeed {
+		score += 0.1
+	}
+	if item.SupportsResearchRun {
+		score += 0.1
+	}
+	if item.SupportsBackfill {
+		score += 0.1
+	}
+	if item.SupportsBatch {
+		score += 0.05
+	}
+	if item.SupportsHistory {
+		score += 0.1
+	}
+	if item.SupportsMetadataEnrichment {
+		score += 0.05
+	}
+	return clampMarketProviderScore(score)
+}
+
+func calculateMarketProviderFreshnessScore(now time.Time, hours int, aggregate marketProviderQualityAggregate) float64 {
+	if aggregate.TotalCount == 0 || aggregate.LatestObservedAt.IsZero() {
+		return 0.75
+	}
+	if hours <= 0 {
+		hours = 24
+	}
+	ageHours := now.Sub(aggregate.LatestObservedAt).Hours()
+	switch {
+	case ageHours <= 6:
+		return 0.95
+	case ageHours <= 24:
+		return 0.85
+	case ageHours <= float64(hours):
+		return 0.7
+	case ageHours <= float64(hours*2):
+		return 0.55
+	default:
+		return 0.35
+	}
+}
+
+func calculateMarketProviderStabilityScore(aggregate marketProviderQualityAggregate) float64 {
+	penalty := float64(aggregate.ErrorCount)*0.25 + float64(aggregate.WarnCount)*0.08
+	return clampMarketProviderScore(1 - penalty)
+}
+
+func calculateMarketProviderTrustScore(item model.MarketProviderCapability, aggregate marketProviderQualityAggregate, latestIssue marketProviderLatestIssue) float64 {
+	score := 0.65
+	if item.SupportsTruthRebuild {
+		score += 0.1
+	}
+	if item.RequiresAuth {
+		score += 0.05
+	}
+	if item.PriorityWeight >= 90 {
+		score += 0.05
+	}
+	if strings.Contains(latestIssue.IssueCode, "FAILED") {
+		score -= 0.15
+	}
+	score -= float64(aggregate.ErrorCount) * 0.08
+	score -= float64(aggregate.WarnCount) * 0.03
+	return clampMarketProviderScore(score)
+}
+
+func buildMarketProviderGovernanceSuggestion(overall float64, latestIssueCode string, aggregate marketProviderQualityAggregate) string {
+	switch {
+	case aggregate.ErrorCount >= 2 || overall < 0.55:
+		return "建议降级为备源并优先排查连续异常"
+	case strings.Contains(latestIssueCode, "FAILED"):
+		return "建议保留 fallback，并跟踪最近失败告警"
+	case aggregate.WarnCount >= 2 || overall < 0.75:
+		return "建议观察质量波动，暂不提升优先级"
+	default:
+		return "可保持当前优先级"
+	}
+}
+
+func buildMarketProviderScoreReasons(hours int, aggregate marketProviderQualityAggregate, latestIssueCode string, coverage float64) []string {
+	reasons := make([]string, 0, 4)
+	if aggregate.TotalCount == 0 {
+		reasons = append(reasons, "近窗口暂无质量日志，按中性新鲜度估算")
+	} else {
+		reasons = append(reasons, "近窗口统计 "+strconv.Itoa(aggregate.ErrorCount)+" 次 ERROR / "+strconv.Itoa(aggregate.WarnCount)+" 次 WARN")
+	}
+	if latestIssueCode != "" {
+		reasons = append(reasons, "最近问题码: "+latestIssueCode)
+	}
+	reasons = append(reasons, "能力覆盖评分 "+strconv.FormatFloat(coverage, 'f', 2, 64))
+	if hours > 0 {
+		reasons = append(reasons, "统计窗口 "+strconv.Itoa(hours)+" 小时")
+	}
+	return reasons
+}
+
+func buildMarketProviderQualityScore(item model.MarketProviderCapability, hours int, aggregate marketProviderQualityAggregate, latestIssue marketProviderLatestIssue) model.MarketProviderQualityScore {
+	now := time.Now()
+	coverageScore := calculateMarketProviderCoverageScore(item)
+	freshnessScore := calculateMarketProviderFreshnessScore(now, hours, aggregate)
+	stabilityScore := calculateMarketProviderStabilityScore(aggregate)
+	trustScore := calculateMarketProviderTrustScore(item, aggregate, latestIssue)
+	overallScore := clampMarketProviderScore(freshnessScore*0.25 + coverageScore*0.2 + stabilityScore*0.3 + trustScore*0.25)
+
+	result := model.MarketProviderQualityScore{
+		ProviderKey:          item.ProviderKey,
+		AssetClass:           item.AssetClass,
+		DataKind:             item.DataKind,
+		FreshnessScore:       freshnessScore,
+		CoverageScore:        coverageScore,
+		TrustScore:           trustScore,
+		StabilityScore:       stabilityScore,
+		OverallScore:         overallScore,
+		LatestIssueCode:      latestIssue.IssueCode,
+		GovernanceSuggestion: buildMarketProviderGovernanceSuggestion(overallScore, latestIssue.IssueCode, aggregate),
+		ScoreReasons:         buildMarketProviderScoreReasons(hours, aggregate, latestIssue.IssueCode, coverageScore),
+	}
+	if !aggregate.LatestObservedAt.IsZero() {
+		result.LatestObservedAt = aggregate.LatestObservedAt.Format(time.RFC3339)
+	}
+	return result
+}
+
 func (r *InMemoryGrowthRepo) AdminListMarketProviderRegistries(status string) ([]model.MarketProviderRegistry, error) {
 	normalizedStatus := normalizeMarketProviderFilter(status)
 	items := defaultMarketProviderRegistries()
@@ -465,4 +745,16 @@ func (r *InMemoryGrowthRepo) AdminListMarketProviderRoutingPolicies(assetClass s
 		filtered = append(filtered, item)
 	}
 	return filtered, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminListMarketProviderQualityScores(assetClass string, dataKind string, hours int) ([]model.MarketProviderQualityScore, error) {
+	if hours <= 0 {
+		hours = 24
+	}
+	capabilities := defaultMarketProviderCapabilitiesFiltered("", assetClass, dataKind)
+	items := make([]model.MarketProviderQualityScore, 0, len(capabilities))
+	for _, item := range capabilities {
+		items = append(items, buildMarketProviderQualityScore(item, hours, marketProviderQualityAggregate{}, marketProviderLatestIssue{}))
+	}
+	return items, nil
 }

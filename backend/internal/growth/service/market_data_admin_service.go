@@ -10,6 +10,14 @@ func (s *growthService) AdminGetMarketDataQualitySummary(assetClass string, hour
 	return s.repo.AdminGetMarketDataQualitySummary(assetClass, hours)
 }
 
+func (s *growthService) AdminListMarketProviderQualityScores(assetClass string, dataKind string, hours int) ([]model.MarketProviderQualityScore, error) {
+	return s.repo.AdminListMarketProviderQualityScores(assetClass, dataKind, hours)
+}
+
+func (s *growthService) AdminGetMarketProviderGovernanceOverview(assetClass string, dataKind string, hours int) (model.MarketProviderGovernanceOverview, error) {
+	return s.repo.AdminGetMarketProviderGovernanceOverview(assetClass, dataKind, hours)
+}
+
 func (s *growthService) AdminGetMarketDerivedTruthSummary(assetClass string) (*model.MarketDerivedTruthSummary, error) {
 	return s.repo.AdminGetMarketDerivedTruthSummary(assetClass)
 }
