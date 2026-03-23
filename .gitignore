@@ -17,6 +17,7 @@ client/dist/
 # Runtime artifacts
 .run/
 .mysql-local/
+.worktrees/
 
 # Local/dev misc
 .DS_Store
