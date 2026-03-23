@@ -270,6 +270,28 @@ export function getMarketDerivedTruthSummary(params) {
   });
 }
 
+export function getMarketProviderGovernanceOverview(params) {
+  return http.get("/admin/data-sources/governance/overview", {
+    params: buildParams(params)
+  });
+}
+
+export function listMarketProviderCapabilities(params) {
+  return http.get("/admin/data-sources/governance/capabilities", {
+    params: buildParams(params)
+  });
+}
+
+export function listMarketProviderRoutingPolicies(params) {
+  return http.get("/admin/data-sources/governance/routing-policies", {
+    params: buildParams(params)
+  });
+}
+
+export function updateMarketProviderRoutingPolicy(policyKey, payload) {
+  return http.put(`/admin/data-sources/governance/routing-policies/${encodeURIComponent(policyKey)}`, payload);
+}
+
 export function syncMarketDataMaster(payload) {
   return http.post("/admin/market-data/master/sync", payload);
 }

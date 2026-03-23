@@ -327,6 +327,52 @@ ORDER BY created_at DESC, id DESC`, normalizedAssetClass, normalizedDataKind, lo
 	return items, nil
 }
 
+func (r *MySQLGrowthRepo) AdminUpsertMarketProviderRoutingPolicy(policyKey string, item model.MarketProviderRoutingPolicy) (model.MarketProviderRoutingPolicy, error) {
+	normalizedPolicyKey := normalizeMarketProviderFilter(policyKey)
+	if normalizedPolicyKey == "" {
+		return model.MarketProviderRoutingPolicy{}, sql.ErrNoRows
+	}
+	normalizedItem := model.MarketProviderRoutingPolicy{
+		PolicyKey:            normalizedPolicyKey,
+		AssetClass:           normalizeMarketProviderFilter(item.AssetClass),
+		DataKind:             normalizeMarketProviderFilter(item.DataKind),
+		PrimaryProviderKey:   normalizeMarketProviderFilter(item.PrimaryProviderKey),
+		FallbackProviderKeys: appendRemainingSourceKeys(normalizeMarketProviderFilter(item.PrimaryProviderKey), item.FallbackProviderKeys),
+		FallbackAllowed:      item.FallbackAllowed,
+		MockAllowed:          item.MockAllowed,
+		QualityThreshold:     roundTo(item.QualityThreshold, 4),
+		UpdatedAt:            time.Now().Format(time.RFC3339),
+	}
+	if normalizedItem.DataKind == "" || normalizedItem.PrimaryProviderKey == "" {
+		return model.MarketProviderRoutingPolicy{}, sql.ErrNoRows
+	}
+	_, err := r.db.Exec(`
+INSERT INTO market_provider_routing_policies
+  (policy_key, asset_class, data_kind, primary_provider_key, fallback_provider_keys_json, fallback_allowed, mock_allowed, quality_threshold)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+  asset_class = VALUES(asset_class),
+  data_kind = VALUES(data_kind),
+  primary_provider_key = VALUES(primary_provider_key),
+  fallback_provider_keys_json = VALUES(fallback_provider_keys_json),
+  fallback_allowed = VALUES(fallback_allowed),
+  mock_allowed = VALUES(mock_allowed),
+  quality_threshold = VALUES(quality_threshold)`,
+		normalizedItem.PolicyKey,
+		normalizedItem.AssetClass,
+		normalizedItem.DataKind,
+		normalizedItem.PrimaryProviderKey,
+		marshalJSONSilently(normalizedItem.FallbackProviderKeys),
+		normalizedItem.FallbackAllowed,
+		normalizedItem.MockAllowed,
+		normalizedItem.QualityThreshold,
+	)
+	if err != nil {
+		return model.MarketProviderRoutingPolicy{}, err
+	}
+	return normalizedItem, nil
+}
+
 func defaultMarketProviderRegistries() []model.MarketProviderRegistry {
 	return []model.MarketProviderRegistry{
 		{
@@ -757,4 +803,23 @@ func (r *InMemoryGrowthRepo) AdminListMarketProviderQualityScores(assetClass str
 		items = append(items, buildMarketProviderQualityScore(item, hours, marketProviderQualityAggregate{}, marketProviderLatestIssue{}))
 	}
 	return items, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminUpsertMarketProviderRoutingPolicy(policyKey string, item model.MarketProviderRoutingPolicy) (model.MarketProviderRoutingPolicy, error) {
+	normalizedPolicyKey := normalizeMarketProviderFilter(policyKey)
+	normalizedItem := model.MarketProviderRoutingPolicy{
+		PolicyKey:            normalizedPolicyKey,
+		AssetClass:           normalizeMarketProviderFilter(item.AssetClass),
+		DataKind:             normalizeMarketProviderFilter(item.DataKind),
+		PrimaryProviderKey:   normalizeMarketProviderFilter(item.PrimaryProviderKey),
+		FallbackProviderKeys: appendRemainingSourceKeys(normalizeMarketProviderFilter(item.PrimaryProviderKey), item.FallbackProviderKeys),
+		FallbackAllowed:      item.FallbackAllowed,
+		MockAllowed:          item.MockAllowed,
+		QualityThreshold:     roundTo(item.QualityThreshold, 4),
+		UpdatedAt:            time.Now().Format(time.RFC3339),
+	}
+	if normalizedItem.PolicyKey == "" || normalizedItem.DataKind == "" || normalizedItem.PrimaryProviderKey == "" {
+		return model.MarketProviderRoutingPolicy{}, sql.ErrNoRows
+	}
+	return normalizedItem, nil
 }

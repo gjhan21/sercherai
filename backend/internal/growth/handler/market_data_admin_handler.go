@@ -60,6 +60,69 @@ func (h *AdminGrowthHandler) GetMarketDataQualitySummary(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
+func (h *AdminGrowthHandler) GetMarketProviderGovernanceOverview(c *gin.Context) {
+	hours := 24
+	if raw := strings.TrimSpace(c.Query("hours")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "hours must be a positive integer", Data: struct{}{}})
+			return
+		}
+		hours = parsed
+	}
+	item, err := h.service.AdminGetMarketProviderGovernanceOverview(c.Query("asset_class"), c.Query("data_kind"), hours)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminGrowthHandler) ListMarketProviderCapabilities(c *gin.Context) {
+	items, err := h.service.AdminListMarketProviderCapabilities(
+		c.Query("provider_key"),
+		c.Query("asset_class"),
+		c.Query("data_kind"),
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
+}
+
+func (h *AdminGrowthHandler) ListMarketProviderRoutingPolicies(c *gin.Context) {
+	items, err := h.service.AdminListMarketProviderRoutingPolicies(c.Query("asset_class"), c.Query("data_kind"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
+}
+
+func (h *AdminGrowthHandler) UpdateMarketProviderRoutingPolicy(c *gin.Context) {
+	policyKey := strings.TrimSpace(c.Param("policy_key"))
+	if policyKey == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "policy_key is required", Data: struct{}{}})
+		return
+	}
+	var req model.MarketProviderRoutingPolicy
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if strings.TrimSpace(req.DataKind) == "" || strings.TrimSpace(req.PrimaryProviderKey) == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "data_kind and primary_provider_key are required", Data: struct{}{}})
+		return
+	}
+	item, err := h.service.AdminUpsertMarketProviderRoutingPolicy(policyKey, req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
 func (h *AdminGrowthHandler) CreateMarketDataBackfillRun(c *gin.Context) {
 	var req dto.MarketDataBackfillRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

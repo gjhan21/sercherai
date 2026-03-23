@@ -26,3 +26,23 @@ test("DataSourcesView keeps futures inventory sync in the unified sync console",
   assert.match(text, /同步期货仓单/);
   assert.match(text, /futuresInventorySyncOptions/);
 });
+
+test("DataSourcesView exposes provider governance sections and routing policy editing", () => {
+  const text = readView();
+  assert.match(text, /getMarketProviderGovernanceOverview/);
+  assert.match(text, /listMarketProviderCapabilities/);
+  assert.match(text, /listMarketProviderRoutingPolicies/);
+  assert.match(text, /updateMarketProviderRoutingPolicy/);
+  assert.match(text, /const governanceOverviewStock = ref\(null\);/);
+  assert.match(text, /const governanceOverviewFutures = ref\(null\);/);
+  assert.match(text, /const providerCapabilities = ref\(\[\]\);/);
+  assert.match(text, /const routingPolicies = ref\(\[\]\);/);
+  assert.match(text, /const routingPolicyDialogVisible = ref\(false\);/);
+  assert.match(text, /async function fetchGovernanceDashboard/);
+  assert.match(text, /async function handleEditRoutingPolicy/);
+  assert.match(text, /async function handleSaveRoutingPolicy/);
+  assert.match(text, /供应商治理总览/);
+  assert.match(text, /能力矩阵/);
+  assert.match(text, /路由与真相源治理/);
+  assert.match(text, /治理建议/);
+});

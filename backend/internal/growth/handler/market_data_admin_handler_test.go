@@ -130,6 +130,100 @@ func TestGetMarketDataQualitySummary(t *testing.T) {
 	}
 }
 
+func TestGetMarketProviderGovernanceOverview(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/governance/overview?asset_class=stock&data_kind=daily_bars&hours=24", nil)
+
+	handler.GetMarketProviderGovernanceOverview(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+}
+
+func TestListMarketProviderCapabilities(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/governance/capabilities?asset_class=stock&data_kind=daily_bars", nil)
+
+	handler.ListMarketProviderCapabilities(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+}
+
+func TestListMarketProviderRoutingPolicies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/governance/routing-policies?asset_class=stock&data_kind=daily_bars", nil)
+
+	handler.ListMarketProviderRoutingPolicies(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+}
+
+func TestUpdateMarketProviderRoutingPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "policy_key", Value: "market.stock.daily"}}
+	ctx.Request = httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/admin/data-sources/governance/routing-policies/market.stock.daily",
+		strings.NewReader(`{"asset_class":"stock","data_kind":"daily_bars","primary_provider_key":"AKSHARE","fallback_provider_keys":["TUSHARE"],"fallback_allowed":true,"mock_allowed":false,"quality_threshold":0.75}`),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handler.UpdateMarketProviderRoutingPolicy(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+}
+
 func TestRebuildStockDerivedTruth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := newStockSelectionTestHandler()

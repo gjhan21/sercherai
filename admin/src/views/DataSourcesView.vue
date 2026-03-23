@@ -10,11 +10,14 @@ import {
   getMarketCoverageSummary,
   getMarketDataQualitySummary,
   getMarketDerivedTruthSummary,
+  getMarketProviderGovernanceOverview,
   listMarketDataBackfillRuns,
   listMarketUniverseSnapshots,
   listDataSourceHealthLogs,
   listDataSources,
   listMarketDataQualityLogs,
+  listMarketProviderCapabilities,
+  listMarketProviderRoutingPolicies,
   rebuildFuturesDerivedTruth,
   rebuildStockDerivedTruth,
   listSystemConfigs,
@@ -23,6 +26,7 @@ import {
   syncMarketNewsSource,
   syncStockQuotes,
   upsertSystemConfig,
+  updateMarketProviderRoutingPolicy,
   updateDataSource
 } from "../api/admin";
 import {
@@ -78,6 +82,13 @@ const selectedQualityLog = ref(null);
 const qualitySummaryAll = ref(null);
 const qualitySummaryStock = ref(null);
 const qualitySummaryFutures = ref(null);
+const governanceOverviewStock = ref(null);
+const governanceOverviewFutures = ref(null);
+const providerCapabilities = ref([]);
+const routingPolicies = ref([]);
+const governanceLoading = ref(false);
+const routingPolicyDialogVisible = ref(false);
+const routingPolicySubmitting = ref(false);
 const rebuildingStockTruth = ref(false);
 const rebuildingFuturesTruth = ref(false);
 const stockRebuildSummary = ref(null);
@@ -97,6 +108,8 @@ const marketUniverseSnapshotsLoading = ref(false);
 const marketUniverseSnapshots = ref([]);
 const marketBackfillRunsLoading = ref(false);
 const marketBackfillRuns = ref([]);
+const editingRoutingPolicyKey = ref("");
+const editingRoutingPolicyKey = ref("");
 
 const formVisible = ref(false);
 const formMode = ref("create");
@@ -155,6 +168,17 @@ const rebuildForm = reactive({
   days: 3
 });
 
+const routingPolicyForm = reactive({
+  policy_key: "",
+  asset_class: "",
+  data_kind: "",
+  primary_provider_key: "",
+  fallback_provider_keys: [],
+  fallback_allowed: true,
+  mock_allowed: false,
+  quality_threshold: 0.8
+});
+
 const assetClassOptions = [
   { label: "全部资产", value: "" },
   { label: "股票", value: "STOCK" },
@@ -195,6 +219,44 @@ const marketCoverageOverviewCards = computed(() =>
 const selectedQualityPayloadText = computed(() =>
   formatMarketQualityPayload(selectedQualityLog.value?.payload || "")
 );
+
+const governanceOverviewCards = computed(() =>
+  [governanceOverviewStock.value, governanceOverviewFutures.value].filter(Boolean)
+);
+
+const governanceProviderScoreRows = computed(() =>
+  governanceOverviewCards.value.flatMap((overview) =>
+    (overview?.provider_scores || []).map((item) => ({
+      ...item,
+      asset_class: item.asset_class || overview.asset_class || ""
+    }))
+  )
+);
+
+const routingPolicyProviderOptions = computed(() => {
+  const normalizedAssetClass = normalizeSourceKey(routingPolicyForm.asset_class);
+  const normalizedDataKind = normalizeSourceKey(routingPolicyForm.data_kind);
+  const values = new Set();
+  providerCapabilities.value.forEach((item) => {
+    if (
+      normalizedAssetClass &&
+      normalizeSourceKey(item?.asset_class) !== normalizedAssetClass
+    ) {
+      return;
+    }
+    if (normalizedDataKind && normalizeSourceKey(item?.data_kind) !== normalizedDataKind) {
+      return;
+    }
+    const providerKey = normalizeSourceKey(item?.provider_key);
+    if (providerKey) {
+      values.add(providerKey);
+    }
+  });
+  return Array.from(values).map((value) => ({
+    value,
+    label: value
+  }));
+});
 
 function defaultForm() {
   return {
@@ -239,6 +301,16 @@ function resolveDataSourceProvider(item) {
   return String(item?.config?.provider || item?.config?.vendor || "")
     .trim()
     .toUpperCase();
+}
+
+function normalizeProviderKeyList(items) {
+  return Array.from(
+    new Set(
+      (Array.isArray(items) ? items : [])
+        .map((item) => normalizeSourceKey(item))
+        .filter(Boolean)
+    )
+  );
 }
 
 function supportsDefaultStockSource(item) {
@@ -732,6 +804,147 @@ function getQualitySummaryRef(assetClass) {
   return qualitySummaryAll;
 }
 
+function getGovernanceOverviewRef(assetClass) {
+  if (assetClass === "FUTURES") return governanceOverviewFutures;
+  return governanceOverviewStock;
+}
+
+function resetRoutingPolicyForm() {
+  Object.assign(routingPolicyForm, {
+    policy_key: "",
+    asset_class: "",
+    data_kind: "",
+    primary_provider_key: "",
+    fallback_provider_keys: [],
+    fallback_allowed: true,
+    mock_allowed: false,
+    quality_threshold: 0.8
+  });
+  editingRoutingPolicyKey.value = "";
+}
+
+function formatGovernanceSuggestion(item) {
+  return String(item?.governance_suggestion || "").trim() || "暂无治理建议";
+}
+
+function formatRoutingFallbackProviders(item) {
+  return Array.isArray(item?.fallback_provider_keys) && item.fallback_provider_keys.length
+    ? item.fallback_provider_keys.join(" / ")
+    : "-";
+}
+
+async function fetchGovernanceOverview(assetClass, options = {}) {
+  const { preserveFeedback = false } = options;
+  const normalizedAssetClass = normalizeSourceKey(assetClass);
+  const overviewRef = getGovernanceOverviewRef(normalizedAssetClass);
+  if (!preserveFeedback) {
+    errorMessage.value = "";
+  }
+  try {
+    const data = await getMarketProviderGovernanceOverview({
+      asset_class: normalizedAssetClass,
+      data_kind: "DAILY_BARS",
+      hours: resolveQualityLookbackHours(qualityFilters.hours)
+    });
+    overviewRef.value = data || null;
+  } catch (error) {
+    overviewRef.value = null;
+    if (!preserveFeedback) {
+      errorMessage.value = error.message || "加载供应商治理总览失败";
+    }
+  }
+}
+
+async function fetchGovernanceDashboard(options = {}) {
+  const { preserveFeedback = false } = options;
+  governanceLoading.value = true;
+  if (!preserveFeedback) {
+    errorMessage.value = "";
+  }
+  try {
+    const [stockOverview, futuresOverview, capabilityResult, policyResult] = await Promise.all([
+      getMarketProviderGovernanceOverview({
+        asset_class: "STOCK",
+        data_kind: "DAILY_BARS",
+        hours: resolveQualityLookbackHours(qualityFilters.hours)
+      }),
+      getMarketProviderGovernanceOverview({
+        asset_class: "FUTURES",
+        data_kind: "DAILY_BARS",
+        hours: resolveQualityLookbackHours(qualityFilters.hours)
+      }),
+      listMarketProviderCapabilities({
+        data_kind: "DAILY_BARS"
+      }),
+      listMarketProviderRoutingPolicies({})
+    ]);
+    governanceOverviewStock.value = stockOverview || null;
+    governanceOverviewFutures.value = futuresOverview || null;
+    providerCapabilities.value = capabilityResult.items || [];
+    routingPolicies.value = policyResult.items || [];
+  } catch (error) {
+    governanceOverviewStock.value = null;
+    governanceOverviewFutures.value = null;
+    providerCapabilities.value = [];
+    routingPolicies.value = [];
+    if (!preserveFeedback) {
+      errorMessage.value = error.message || "加载供应商治理信息失败";
+    }
+  } finally {
+    governanceLoading.value = false;
+  }
+}
+
+async function handleEditRoutingPolicy(item) {
+  if (!ensureCanEditDataSources()) {
+    return;
+  }
+  Object.assign(routingPolicyForm, {
+    policy_key: item?.policy_key || "",
+    asset_class: normalizeSourceKey(item?.asset_class),
+    data_kind: normalizeSourceKey(item?.data_kind),
+    primary_provider_key: normalizeSourceKey(item?.primary_provider_key),
+    fallback_provider_keys: normalizeProviderKeyList(item?.fallback_provider_keys),
+    fallback_allowed: item?.fallback_allowed !== false,
+    mock_allowed: item?.mock_allowed === true,
+    quality_threshold: Number(item?.quality_threshold) || 0
+  });
+  editingRoutingPolicyKey.value = routingPolicyForm.policy_key;
+  routingPolicyDialogVisible.value = true;
+}
+
+async function handleSaveRoutingPolicy() {
+  if (!ensureCanEditDataSources()) {
+    return;
+  }
+  if (!routingPolicyForm.policy_key || !routingPolicyForm.data_kind || !routingPolicyForm.primary_provider_key) {
+    errorMessage.value = "请先完整填写策略 key、数据域和主源";
+    return;
+  }
+  routingPolicySubmitting.value = true;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    await updateMarketProviderRoutingPolicy(routingPolicyForm.policy_key, {
+      asset_class: routingPolicyForm.asset_class,
+      data_kind: routingPolicyForm.data_kind,
+      primary_provider_key: routingPolicyForm.primary_provider_key,
+      fallback_provider_keys: normalizeProviderKeyList(routingPolicyForm.fallback_provider_keys),
+      fallback_allowed: routingPolicyForm.fallback_allowed,
+      mock_allowed: routingPolicyForm.mock_allowed,
+      quality_threshold: Number(routingPolicyForm.quality_threshold) || 0
+    });
+    routingPolicyDialogVisible.value = false;
+    message.value = `路由策略 ${routingPolicyForm.policy_key} 已更新`;
+    resetRoutingPolicyForm();
+    await fetchGovernanceDashboard({ preserveFeedback: true });
+  } catch (error) {
+    errorMessage.value = error.message || "保存路由策略失败";
+  } finally {
+    routingPolicySubmitting.value = false;
+  }
+}
+
 function formatSummaryWarnings(summary) {
   return Array.isArray(summary?.warnings) && summary.warnings.length ? summary.warnings.join("；") : "-";
 }
@@ -1015,6 +1228,9 @@ function handlePageChange(nextPage) {
 
 onMounted(fetchDataSources);
 onMounted(() => {
+  fetchGovernanceDashboard({ preserveFeedback: true });
+});
+onMounted(() => {
   fetchDerivedTruthSummaries({ preserveFeedback: true });
   fetchMarketCoverageGovernance({ preserveFeedback: true });
 });
@@ -1029,6 +1245,7 @@ watch(
     Object.assign(qualityFilters, nextFilters);
     qualityRouteInitialized.value = true;
     fetchQualityDashboard({ preserveFeedback: true });
+    fetchGovernanceDashboard({ preserveFeedback: true });
   },
   { immediate: true }
 );
@@ -1073,6 +1290,164 @@ watch(
       show-icon
       style="margin-bottom: 12px"
     />
+
+    <div class="card" style="margin-bottom: 12px">
+      <div class="section-header">
+        <div>
+          <h3 style="margin: 0">供应商治理总览</h3>
+          <p class="muted" style="margin: 6px 0 0">
+            把 provider 质量画像、治理建议和 truth 依赖摘要集中到这里，先看股票与期货日行情治理态势，再决定是否调整主源与回退链。
+          </p>
+        </div>
+        <div class="inline-actions inline-actions--left">
+          <el-button :loading="governanceLoading" @click="fetchGovernanceDashboard({ preserveFeedback: true })">
+            刷新治理台
+          </el-button>
+        </div>
+      </div>
+
+      <div class="truth-summary-grid" style="margin-top: 12px">
+        <div class="truth-summary-card">
+          <div class="truth-summary-card__header">
+            <div class="truth-summary-card__title">股票日行情治理</div>
+            <el-tag type="info" effect="plain">DAILY_BARS</el-tag>
+          </div>
+          <ul v-if="governanceOverviewStock" class="truth-summary-list">
+            <li>质量事件：{{ governanceOverviewStock.quality_summary?.total_count || 0 }}</li>
+            <li>最近问题：{{ governanceOverviewStock.quality_summary?.latest_issue_code || "-" }}</li>
+            <li>治理画像：{{ governanceOverviewStock.provider_scores?.length || 0 }} 个 provider</li>
+            <li>truth 摘要：{{ governanceOverviewStock.latest_derived_truth?.issue_code || "-" }}</li>
+          </ul>
+          <p v-else class="muted">暂无股票治理总览</p>
+        </div>
+
+        <div class="truth-summary-card">
+          <div class="truth-summary-card__header">
+            <div class="truth-summary-card__title">期货日行情治理</div>
+            <el-tag type="info" effect="plain">DAILY_BARS</el-tag>
+          </div>
+          <ul v-if="governanceOverviewFutures" class="truth-summary-list">
+            <li>质量事件：{{ governanceOverviewFutures.quality_summary?.total_count || 0 }}</li>
+            <li>最近问题：{{ governanceOverviewFutures.quality_summary?.latest_issue_code || "-" }}</li>
+            <li>治理画像：{{ governanceOverviewFutures.provider_scores?.length || 0 }} 个 provider</li>
+            <li>truth 摘要：{{ governanceOverviewFutures.latest_derived_truth?.issue_code || "-" }}</li>
+          </ul>
+          <p v-else class="muted">暂无期货治理总览</p>
+        </div>
+      </div>
+
+      <el-table
+        :data="governanceProviderScoreRows"
+        border
+        stripe
+        size="small"
+        style="margin-top: 12px"
+        v-loading="governanceLoading"
+        empty-text="暂无 provider 质量画像"
+      >
+        <el-table-column prop="asset_class" label="资产" width="90" />
+        <el-table-column prop="provider_key" label="Provider" min-width="120" />
+        <el-table-column prop="freshness_score" label="新鲜度" width="100" />
+        <el-table-column prop="stability_score" label="稳定性" width="100" />
+        <el-table-column prop="trust_score" label="可信度" width="100" />
+        <el-table-column prop="overall_score" label="综合分" width="100" />
+        <el-table-column label="治理建议" min-width="220">
+          <template #default="{ row }">
+            <div>{{ formatGovernanceSuggestion(row) }}</div>
+            <el-text v-if="row.latest_issue_code" type="info" size="small">
+              最近问题：{{ row.latest_issue_code }}
+            </el-text>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <div class="card" style="margin-bottom: 12px">
+      <div class="section-header">
+        <div>
+          <h3 style="margin: 0">能力矩阵</h3>
+          <p class="muted" style="margin: 6px 0 0">
+            当前能力矩阵来自 provider capability schema，帮助判断哪些供应商可参与同步、truth 重建和研究上下文。
+          </p>
+        </div>
+      </div>
+      <el-table
+        :data="providerCapabilities"
+        border
+        stripe
+        size="small"
+        empty-text="暂无能力矩阵数据"
+      >
+        <el-table-column prop="provider_key" label="Provider" min-width="120" />
+        <el-table-column prop="asset_class" label="资产" width="90" />
+        <el-table-column prop="data_kind" label="数据域" min-width="140" />
+        <el-table-column prop="priority_weight" label="优先级" width="90" />
+        <el-table-column label="能力" min-width="320">
+          <template #default="{ row }">
+            <div class="sync-result-tags">
+              <el-tag v-if="row.supports_sync" type="success">同步</el-tag>
+              <el-tag v-if="row.supports_truth_rebuild" type="warning">truth</el-tag>
+              <el-tag v-if="row.supports_context_seed" type="info">context</el-tag>
+              <el-tag v-if="row.supports_research_run" type="success">research</el-tag>
+              <el-tag v-if="row.supports_metadata_enrichment" type="warning">meta</el-tag>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <div class="card" style="margin-bottom: 12px">
+      <div class="section-header">
+        <div>
+          <h3 style="margin: 0">路由与真相源治理</h3>
+          <p class="muted" style="margin: 6px 0 0">
+            在这里直接维护主源、备源、MOCK 开关和质量阈值；同步链、truth 链、context 链都会共用这套策略。
+          </p>
+        </div>
+      </div>
+      <el-table
+        :data="routingPolicies"
+        border
+        stripe
+        size="small"
+        empty-text="暂无路由策略"
+      >
+        <el-table-column prop="policy_key" label="策略 Key" min-width="180" />
+        <el-table-column prop="asset_class" label="资产" width="90" />
+        <el-table-column prop="data_kind" label="数据域" min-width="140" />
+        <el-table-column prop="primary_provider_key" label="主源" width="120" />
+        <el-table-column label="备源" min-width="180">
+          <template #default="{ row }">
+            {{ formatRoutingFallbackProviders(row) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="策略" min-width="180">
+          <template #default="{ row }">
+            <div class="sync-result-tags">
+              <el-tag :type="row.fallback_allowed ? 'success' : 'info'">
+                {{ row.fallback_allowed ? "允许回退" : "禁止回退" }}
+              </el-tag>
+              <el-tag :type="row.mock_allowed ? 'warning' : 'info'">
+                {{ row.mock_allowed ? "允许 MOCK" : "禁止 MOCK" }}
+              </el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              :disabled="!canEditDataSources"
+              @click="handleEditRoutingPolicy(row)"
+            >
+              编辑
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
 
     <div class="card" style="margin-bottom: 12px">
       <div class="section-header">
@@ -1869,10 +2244,82 @@ watch(
         </el-table-column>
       </el-table>
 
-      <div class="pagination">
-        <el-text type="info">共 {{ qualityLogTotal }} 条日志，当前展示最近 20 条</el-text>
-      </div>
+    <div class="pagination">
+      <el-text type="info">共 {{ qualityLogTotal }} 条日志，当前展示最近 20 条</el-text>
     </div>
+  </div>
+
+    <el-dialog
+      v-model="routingPolicyDialogVisible"
+      :title="editingRoutingPolicyKey ? `编辑路由策略：${editingRoutingPolicyKey}` : '编辑路由策略'"
+      width="720px"
+      destroy-on-close
+    >
+      <el-form label-width="120px">
+        <el-form-item label="策略 Key">
+          <el-input v-model="routingPolicyForm.policy_key" disabled />
+        </el-form-item>
+        <el-form-item label="资产">
+          <el-input v-model="routingPolicyForm.asset_class" disabled />
+        </el-form-item>
+        <el-form-item label="数据域">
+          <el-input v-model="routingPolicyForm.data_kind" disabled />
+        </el-form-item>
+        <el-form-item label="主源">
+          <el-select v-model="routingPolicyForm.primary_provider_key" placeholder="选择主源">
+            <el-option
+              v-for="item in routingPolicyProviderOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备源链">
+          <el-select
+            v-model="routingPolicyForm.fallback_provider_keys"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="选择备源链"
+          >
+            <el-option
+              v-for="item in routingPolicyProviderOptions"
+              :key="`fallback-${item.value}`"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="质量阈值">
+          <el-input-number
+            v-model="routingPolicyForm.quality_threshold"
+            :min="0"
+            :max="1"
+            :step="0.05"
+            controls-position="right"
+          />
+        </el-form-item>
+        <el-form-item label="允许回退">
+          <el-switch v-model="routingPolicyForm.fallback_allowed" />
+        </el-form-item>
+        <el-form-item label="允许 MOCK">
+          <el-switch v-model="routingPolicyForm.mock_allowed" />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="routingPolicyDialogVisible = false">取消</el-button>
+        <el-button
+          v-if="canEditDataSources"
+          type="primary"
+          :loading="routingPolicySubmitting"
+          @click="handleSaveRoutingPolicy"
+        >
+          保存策略
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog
       v-model="formVisible"
