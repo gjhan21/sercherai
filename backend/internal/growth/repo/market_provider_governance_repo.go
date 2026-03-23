@@ -12,6 +12,17 @@ func normalizeMarketProviderFilter(value string) string {
 	return strings.ToUpper(strings.TrimSpace(value))
 }
 
+func isMarketProviderGovernanceSchemaCompatError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if isTableNotFoundError(err) {
+		return true
+	}
+	text := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(text, "unknown column") || strings.Contains(text, "error 1054")
+}
+
 func (r *MySQLGrowthRepo) AdminListMarketProviderRegistries(status string) ([]model.MarketProviderRegistry, error) {
 	filters := make([]string, 0, 1)
 	args := make([]any, 0, 1)

@@ -1,8 +1,11 @@
 package repo
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestSplitSourcePriorityList(t *testing.T) {
@@ -224,5 +227,69 @@ var _TEST=([{"d":"2026-03-17","o":"4600.000","h":"4648.600","l":"4556.600","c":"
 	}
 	if items[1].OpenInterest != 125306 || items[1].SettlePrice != 4569.6 {
 		t.Fatalf("unexpected futures bar fields: %+v", items[1])
+	}
+}
+
+const marketProviderRoutingPriorityQueryPattern = `(?s)SELECT primary_provider_key,\s*COALESCE\(CAST\(fallback_provider_keys_json AS CHAR\), ''\),\s*fallback_allowed,\s*mock_allowed\s+FROM market_provider_routing_policies`
+
+func assertTableMissingSQLError() error {
+	return errors.New("Error 1146 (42S02): Table 'sercherai.market_provider_routing_policies' doesn't exist")
+}
+
+func TestResolveRequestedMarketSourceKeysWithGovernanceUsesRoutingPolicyForAuto(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+	mock.ExpectQuery(marketProviderRoutingPriorityQueryPattern).
+		WithArgs("STOCK", "DAILY_BARS").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"primary_provider_key",
+			"fallback_provider_keys_json",
+			"fallback_allowed",
+			"mock_allowed",
+		}).AddRow("TUSHARE", `["AKSHARE","TICKERMD"]`, true, false))
+
+	items := repo.resolveRequestedMarketSourceKeysWithGovernance("AUTO", "STOCK", "DAILY_BARS", marketStockPriorityConfigKey, []string{"TUSHARE", "AKSHARE"})
+
+	if len(items) != 3 {
+		t.Fatalf("expected 3 routed items, got %d", len(items))
+	}
+	if items[0] != "TUSHARE" || items[1] != "AKSHARE" || items[2] != "TICKERMD" {
+		t.Fatalf("unexpected routed items: %#v", items)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestResolveRequestedMarketSourceKeysWithGovernanceFallsBackToLegacyPriorityWhenPolicyMissing(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+	mock.ExpectQuery(marketProviderRoutingPriorityQueryPattern).
+		WithArgs("FUTURES", "DAILY_BARS").
+		WillReturnError(assertTableMissingSQLError())
+	mock.ExpectQuery(`(?s)SELECT config_value\s+FROM system_configs`).
+		WithArgs(marketFuturesPriorityConfigKey).
+		WillReturnRows(sqlmock.NewRows([]string{"config_value"}).AddRow("TUSHARE,MYSELF,MOCK"))
+
+	items := repo.resolveRequestedMarketSourceKeysWithGovernance("AUTO", "FUTURES", "DAILY_BARS", marketFuturesPriorityConfigKey, []string{"TUSHARE", "TICKERMD"})
+
+	if len(items) != 3 {
+		t.Fatalf("expected legacy fallback items, got %d", len(items))
+	}
+	if items[0] != "TUSHARE" || items[1] != "MYSELF" || items[2] != "MOCK" {
+		t.Fatalf("unexpected legacy fallback items: %#v", items)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }

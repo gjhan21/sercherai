@@ -125,8 +125,10 @@ func (r *MySQLGrowthRepo) syncMarketInstrumentMasterData(assetClass string, requ
 		return err
 	}
 
-	sourceKeys := r.resolveRequestedMarketSourceKeys(
+	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(
 		requestedSourceKey,
+		assetClass,
+		"INSTRUMENT_MASTER",
 		marketInstrumentPriorityConfigKey(assetClass),
 		defaultMarketInstrumentSourcePriority(assetClass),
 	)

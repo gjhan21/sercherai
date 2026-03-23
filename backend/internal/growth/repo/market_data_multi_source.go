@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -141,7 +142,7 @@ func (r *MySQLGrowthRepo) AdminSyncFuturesInventory(sourceKey string, symbols []
 	if days > 365 {
 		days = 365
 	}
-	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.futures.inventory.source_priority", []string{"TUSHARE", "MOCK"})
+	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(sourceKey, marketAssetClassFutures, marketDataKindFuturesInventory, "market.futures.inventory.source_priority", []string{"TUSHARE", "MOCK"})
 	result := model.MarketSyncResult{
 		AssetClass:         marketAssetClassFutures,
 		DataKind:           marketDataKindFuturesInventory,
@@ -237,7 +238,7 @@ func (r *MySQLGrowthRepo) AdminSyncMarketNews(sourceKey string, symbols []string
 	if limit <= 0 {
 		limit = 50
 	}
-	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, marketNewsPriorityConfigKey, []string{"AKSHARE", "TUSHARE"})
+	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(sourceKey, "", marketDataKindNewsItems, marketNewsPriorityConfigKey, []string{"AKSHARE", "TUSHARE"})
 	result := model.MarketSyncResult{
 		DataKind:           marketDataKindNewsItems,
 		RequestedSourceKey: strings.ToUpper(strings.TrimSpace(sourceKey)),
@@ -323,7 +324,7 @@ func (r *MySQLGrowthRepo) AdminSyncMarketNews(sourceKey string, symbols []string
 }
 
 func (r *MySQLGrowthRepo) syncMarketDailyBars(assetClass string, sourceKey string, instrumentKeys []string, days int, routeConfigKey string, defaultPriority []string) (model.MarketSyncResult, error) {
-	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, routeConfigKey, defaultPriority)
+	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(sourceKey, assetClass, marketDataKindDailyBars, routeConfigKey, defaultPriority)
 	result := model.MarketSyncResult{
 		AssetClass:         assetClass,
 		DataKind:           marketDataKindDailyBars,
@@ -436,7 +437,7 @@ func (r *MySQLGrowthRepo) syncMarketDailyBars(assetClass string, sourceKey strin
 	result.SnapshotCount = totalSnapshots
 
 	if len(touched) > 0 {
-		truthBars, err := r.rebuildMarketDailyBarTruth(assetClass, touched, r.loadMarketSourcePriority(routeConfigKey, defaultPriority))
+		truthBars, err := r.rebuildMarketDailyBarTruth(assetClass, touched, r.loadGovernedMarketSourcePriority(assetClass, marketDataKindDailyBars, routeConfigKey, defaultPriority))
 		if err != nil {
 			return result, err
 		}
@@ -524,15 +525,20 @@ func defaultFuturesInventorySymbols() []string {
 }
 
 func (r *MySQLGrowthRepo) resolveRequestedMarketSourceKeys(raw string, routeConfigKey string, defaultPriority []string) []string {
+	return r.resolveRequestedMarketSourceKeysWithGovernance(raw, "", "", routeConfigKey, defaultPriority)
+}
+
+func (r *MySQLGrowthRepo) resolveRequestedMarketSourceKeysWithGovernance(raw string, assetClass string, dataKind string, routeConfigKey string, defaultPriority []string) []string {
 	normalized := strings.ToUpper(strings.TrimSpace(raw))
 	if normalized == "" {
-		if len(defaultPriority) > 0 {
-			return []string{defaultPriority[0]}
+		priority := r.loadGovernedMarketSourcePriority(assetClass, dataKind, routeConfigKey, defaultPriority)
+		if len(priority) > 0 {
+			return []string{priority[0]}
 		}
 		return []string{"TUSHARE"}
 	}
 	if normalized == "AUTO" {
-		return r.loadMarketSourcePriority(routeConfigKey, defaultPriority)
+		return r.loadGovernedMarketSourcePriority(assetClass, dataKind, routeConfigKey, defaultPriority)
 	}
 	parts := strings.FieldsFunc(normalized, func(ch rune) bool {
 		return ch == ',' || ch == ';' || ch == '|' || ch == ' '
@@ -553,7 +559,64 @@ func (r *MySQLGrowthRepo) resolveRequestedMarketSourceKeys(raw string, routeConf
 	if len(items) > 0 {
 		return items
 	}
-	return r.loadMarketSourcePriority(routeConfigKey, defaultPriority)
+	return r.loadGovernedMarketSourcePriority(assetClass, dataKind, routeConfigKey, defaultPriority)
+}
+
+func (r *MySQLGrowthRepo) loadGovernedMarketSourcePriority(assetClass string, dataKind string, routeConfigKey string, fallback []string) []string {
+	normalizedAssetClass := normalizeMarketProviderFilter(assetClass)
+	normalizedDataKind := normalizeMarketProviderFilter(dataKind)
+	if normalizedDataKind != "" {
+		query := `
+SELECT primary_provider_key,
+       COALESCE(CAST(fallback_provider_keys_json AS CHAR), ''),
+       fallback_allowed,
+       mock_allowed
+FROM market_provider_routing_policies
+WHERE asset_class = ? AND data_kind = ?
+LIMIT 1`
+		var (
+			primaryProviderKey    sql.NullString
+			fallbackProvidersJSON sql.NullString
+			fallbackAllowed       bool
+			mockAllowed           bool
+		)
+		err := r.db.QueryRow(query, normalizedAssetClass, normalizedDataKind).Scan(
+			&primaryProviderKey,
+			&fallbackProvidersJSON,
+			&fallbackAllowed,
+			&mockAllowed,
+		)
+		if err == nil {
+			items := make([]string, 0, 4)
+			seen := make(map[string]struct{}, 4)
+			appendItem := func(value string) {
+				value = strings.ToUpper(strings.TrimSpace(value))
+				if value == "" {
+					return
+				}
+				if value == "MOCK" && !mockAllowed {
+					return
+				}
+				if _, ok := seen[value]; ok {
+					return
+				}
+				seen[value] = struct{}{}
+				items = append(items, value)
+			}
+			appendItem(primaryProviderKey.String)
+			if fallbackAllowed {
+				for _, item := range parseJSONStringList(fallbackProvidersJSON.String) {
+					appendItem(item)
+				}
+			}
+			if len(items) > 0 {
+				return items
+			}
+		} else if err != sql.ErrNoRows && !isMarketProviderGovernanceSchemaCompatError(err) {
+			return r.loadMarketSourcePriority(routeConfigKey, fallback)
+		}
+	}
+	return r.loadMarketSourcePriority(routeConfigKey, fallback)
 }
 
 func (r *MySQLGrowthRepo) loadMarketSourcePriority(configKey string, fallback []string) []string {
