@@ -214,6 +214,7 @@ type GrowthService interface {
 	AdminGetMarketDataQualitySummary(assetClass string, hours int) (model.MarketDataQualitySummary, error)
 	AdminGetMarketDerivedTruthSummary(assetClass string) (*model.MarketDerivedTruthSummary, error)
 	AdminRebuildMarketDerivedTruth(assetClass string, tradeDate string, days int) (model.MarketDerivedTruthRebuildResult, error)
+	AdminBuildMarketUniverseSnapshot(sourceKey string, assetScope []string, operator string) (model.MarketUniverseSnapshot, []model.MarketUniverseSnapshotItem, error)
 	AdminCreateMarketDataBackfillRun(input model.MarketBackfillCreateInput, operator string) (model.MarketBackfillRun, error)
 	AdminListMarketDataBackfillRuns(status string, runType string, assetType string, sourceKey string, page int, pageSize int) ([]model.MarketBackfillRun, int, error)
 	AdminGetMarketDataBackfillRun(id string) (model.MarketBackfillRun, error)

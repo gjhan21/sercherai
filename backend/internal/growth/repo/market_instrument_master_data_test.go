@@ -187,3 +187,37 @@ func TestResolveMarketInstrumentTruthFallsBackToPlaceholder(t *testing.T) {
 		t.Fatalf("expected ACTIVE fallback status, got %s", truth.Status)
 	}
 }
+
+func TestBuildMarketInstrumentSourceFactsFromUniverseItems(t *testing.T) {
+	fetchedAt := time.Date(2026, 3, 24, 9, 30, 0, 0, time.Local)
+	facts := buildMarketInstrumentSourceFactsFromUniverseItems("TUSHARE", "INDEX", []marketUniverseSourceItem{
+		{
+			AssetType:      "INDEX",
+			InstrumentKey:  "000300.SH",
+			ExternalSymbol: "000300.SH",
+			DisplayName:    "沪深300",
+			ExchangeCode:   "SH",
+			Status:         "ACTIVE",
+			ListDate:       "2005-04-08",
+			MetadataJSON:   `{"category":"broad_index"}`,
+		},
+	}, fetchedAt)
+	if len(facts) != 1 {
+		t.Fatalf("expected 1 fact, got %+v", facts)
+	}
+	if facts[0].AssetClass != "INDEX" {
+		t.Fatalf("expected asset class INDEX, got %s", facts[0].AssetClass)
+	}
+	if facts[0].InstrumentKey != "000300.SH" {
+		t.Fatalf("expected instrument key 000300.SH, got %s", facts[0].InstrumentKey)
+	}
+	if facts[0].SourceKey != "TUSHARE" {
+		t.Fatalf("expected source key TUSHARE, got %s", facts[0].SourceKey)
+	}
+	if facts[0].ProductKey != "000300" {
+		t.Fatalf("expected product key 000300, got %s", facts[0].ProductKey)
+	}
+	if facts[0].SourceUpdatedAt.IsZero() || !facts[0].SourceUpdatedAt.Equal(fetchedAt) {
+		t.Fatalf("expected fetched at %s, got %s", fetchedAt, facts[0].SourceUpdatedAt)
+	}
+}

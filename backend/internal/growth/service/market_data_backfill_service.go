@@ -2,6 +2,10 @@ package service
 
 import "sercherai/backend/internal/growth/model"
 
+func (s *growthService) AdminBuildMarketUniverseSnapshot(sourceKey string, assetScope []string, operator string) (model.MarketUniverseSnapshot, []model.MarketUniverseSnapshotItem, error) {
+	return s.repo.AdminBuildMarketUniverseSnapshot(sourceKey, assetScope, operator)
+}
+
 func (s *growthService) AdminCreateMarketDataBackfillRun(input model.MarketBackfillCreateInput, operator string) (model.MarketBackfillRun, error) {
 	return s.repo.AdminCreateMarketDataBackfillRun(input, operator)
 }

@@ -180,6 +180,14 @@ func (r *MySQLGrowthRepo) fetchMarketInstrumentFactsForSource(item model.DataSou
 		if assetClass == marketAssetClassFutures {
 			return fetchFuturesInstrumentFactsFromTushare(token, sourceKey, instrumentKeys, parseDataSourceTimeoutMS(item.Config))
 		}
+		if universeAssetType := normalizeUniverseAssetType(assetClass); universeAssetType != "" && universeAssetType != marketAssetClassStock {
+			universeItems, err := r.fetchMarketUniverseItemsForSource(sourceKey, universeAssetType)
+			if err != nil {
+				return nil, err
+			}
+			filteredItems := filterMarketUniverseItemsByInstrumentKeys(universeItems, instrumentKeys)
+			return buildMarketInstrumentSourceFactsFromUniverseItems(sourceKey, universeAssetType, filteredItems, time.Now()), nil
+		}
 		return fetchStockInstrumentFactsFromTushare(token, sourceKey, instrumentKeys, parseDataSourceTimeoutMS(item.Config))
 	default:
 		return buildFallbackMarketInstrumentSourceFacts(sourceKey, assetClass, instrumentKeys), nil
@@ -488,6 +496,57 @@ func buildFallbackMarketInstrumentSourceFacts(sourceKey string, assetClass strin
 		facts = append(facts, fact)
 	}
 	return facts
+}
+
+func buildMarketInstrumentSourceFactsFromUniverseItems(sourceKey string, assetClass string, items []marketUniverseSourceItem, fetchedAt time.Time) []marketInstrumentSourceFact {
+	facts := make([]marketInstrumentSourceFact, 0, len(items))
+	for _, item := range items {
+		instrumentKey := strings.ToUpper(strings.TrimSpace(item.InstrumentKey))
+		if instrumentKey == "" {
+			continue
+		}
+		fact := marketInstrumentSourceFact{
+			AssetClass:      strings.ToUpper(strings.TrimSpace(assetClass)),
+			InstrumentKey:   instrumentKey,
+			SourceKey:       strings.ToUpper(strings.TrimSpace(sourceKey)),
+			ExternalSymbol:  defaultString(strings.TrimSpace(item.ExternalSymbol), instrumentKey),
+			DisplayName:     defaultString(strings.TrimSpace(item.DisplayName), instrumentKey),
+			ExchangeCode:    normalizeMarketExchangeCode(item.ExchangeCode, detectInstrumentExchangeCode(instrumentKey)),
+			ProductKey:      deriveMarketProductKey(assetClass, instrumentKey, ""),
+			ListDate:        normalizeMarketDate(item.ListDate),
+			DelistDate:      normalizeMarketDate(item.DelistDate),
+			Status:          normalizeMarketUniverseStatus(item.Status, item.DelistDate, fetchedAt),
+			MetadataJSON:    strings.TrimSpace(item.MetadataJSON),
+			SourceUpdatedAt: fetchedAt,
+		}
+		fact.QualityScore = deriveMarketInstrumentQualityScore(fact)
+		facts = append(facts, fact)
+	}
+	return facts
+}
+
+func filterMarketUniverseItemsByInstrumentKeys(items []marketUniverseSourceItem, instrumentKeys []string) []marketUniverseSourceItem {
+	if len(instrumentKeys) == 0 {
+		return items
+	}
+	allowed := make(map[string]struct{}, len(instrumentKeys))
+	for _, instrumentKey := range instrumentKeys {
+		normalized := strings.ToUpper(strings.TrimSpace(instrumentKey))
+		if normalized == "" {
+			continue
+		}
+		allowed[normalized] = struct{}{}
+	}
+	if len(allowed) == 0 {
+		return items
+	}
+	filtered := make([]marketUniverseSourceItem, 0, len(items))
+	for _, item := range items {
+		if _, ok := allowed[strings.ToUpper(strings.TrimSpace(item.InstrumentKey))]; ok {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 func (r *MySQLGrowthRepo) upsertMarketInstrumentSourceFacts(facts []marketInstrumentSourceFact) error {

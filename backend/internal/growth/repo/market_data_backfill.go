@@ -191,6 +191,57 @@ func defaultMarketBackfillStageProgress() []model.MarketBackfillStageProgress {
 	}
 }
 
+func buildMarketBackfillStageProgressAfterUniverse(assetScope []string) []model.MarketBackfillStageProgress {
+	progress := defaultMarketBackfillStageProgress()
+	if len(progress) == 0 {
+		return progress
+	}
+	totalBatches := len(normalizeMarketBackfillAssetScope(assetScope))
+	if totalBatches <= 0 {
+		totalBatches = 1
+	}
+	progress[0].Status = "SUCCESS"
+	progress[0].TotalBatches = totalBatches
+	progress[0].CompletedBatches = totalBatches
+	return progress
+}
+
+func buildMarketUniverseRunDetails(runID string, schedulerRunID string, sourceKey string, items []model.MarketUniverseSnapshotItem, assetScope []string, now time.Time) []model.MarketBackfillRunDetail {
+	orderedScope := normalizeMarketBackfillAssetScope(assetScope)
+	byAsset := make(map[string][]model.MarketUniverseSnapshotItem, len(orderedScope))
+	for _, item := range items {
+		byAsset[item.AssetType] = append(byAsset[item.AssetType], item)
+	}
+	details := make([]model.MarketBackfillRunDetail, 0, len(orderedScope))
+	startedAt := now.Format(time.RFC3339)
+	for _, assetType := range orderedScope {
+		assetItems := byAsset[assetType]
+		sample := make([]string, 0, minInt(len(assetItems), 3))
+		for idx := 0; idx < len(assetItems) && idx < 3; idx++ {
+			sample = append(sample, assetItems[idx].InstrumentKey)
+		}
+		details = append(details, model.MarketBackfillRunDetail{
+			ID:             newID("mbd"),
+			RunID:          runID,
+			SchedulerRunID: schedulerRunID,
+			Stage:          "UNIVERSE",
+			AssetType:      assetType,
+			BatchKey:       fmt.Sprintf("UNIVERSE-%s-001", assetType),
+			SourceKey:      strings.ToUpper(strings.TrimSpace(sourceKey)),
+			SymbolCount:    len(assetItems),
+			SymbolSample:   sample,
+			Status:         "SUCCESS",
+			FetchedCount:   len(assetItems),
+			UpsertedCount:  len(assetItems),
+			StartedAt:      startedAt,
+			FinishedAt:     startedAt,
+			CreatedAt:      startedAt,
+			UpdatedAt:      startedAt,
+		})
+	}
+	return details
+}
+
 func (r *MySQLGrowthRepo) AdminCreateMarketDataBackfillRun(input model.MarketBackfillCreateInput, operator string) (model.MarketBackfillRun, error) {
 	assetScope := normalizeMarketBackfillAssetScope(input.AssetScope)
 	if len(assetScope) == 0 {
@@ -202,35 +253,21 @@ func (r *MySQLGrowthRepo) AdminCreateMarketDataBackfillRun(input model.MarketBac
 		batchSize = 200
 	}
 	now := time.Now()
+	snapshot, snapshotItems, err := r.AdminBuildMarketUniverseSnapshot(input.SourceKey, assetScope, operator)
+	if err != nil {
+		return model.MarketBackfillRun{}, err
+	}
 	schedulerRunID, err := r.AdminCreateSchedulerJobRun("market_data_full_backfill", "MANUAL", "RUNNING", "market data backfill created", "", operator)
 	if err != nil {
 		return model.MarketBackfillRun{}, err
 	}
 
-	snapshotID := newID("mus")
-	snapshotSummary := map[string]any{
-		"asset_scope": assetScope,
-		"status":      "PENDING",
-	}
-	if _, err := r.db.Exec(`
-INSERT INTO market_universe_snapshots (id, scope, source_key, snapshot_date, summary_json, created_by, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		snapshotID,
-		marshalJSONText(assetScope),
-		strings.ToUpper(strings.TrimSpace(input.SourceKey)),
-		now.Format("2006-01-02"),
-		marshalJSONText(snapshotSummary),
-		truncateByRunes(normalizeUTF8Text(operator), 64),
-		now,
-	); err != nil {
-		return model.MarketBackfillRun{}, err
-	}
-
 	runID := newID("mbr")
-	stageProgress := defaultMarketBackfillStageProgress()
+	stageProgress := buildMarketBackfillStageProgressAfterUniverse(assetScope)
 	summary := map[string]any{
-		"requested_stages": input.Stages,
-		"asset_scope":      assetScope,
+		"requested_stages":    input.Stages,
+		"asset_scope":         assetScope,
+		"universe_item_count": len(snapshotItems),
 	}
 	if _, err := r.db.Exec(`
 INSERT INTO market_backfill_runs (
@@ -244,11 +281,11 @@ INSERT INTO market_backfill_runs (
 		marshalJSONText(assetScope),
 		nullableString(strings.TrimSpace(input.TradeDateFrom)),
 		nullableString(strings.TrimSpace(input.TradeDateTo)),
-		truncateByRunes(strings.ToUpper(strings.TrimSpace(input.SourceKey)), 64),
+		truncateByRunes(snapshot.SourceKey, 64),
 		batchSize,
-		snapshotID,
+		snapshot.ID,
 		"RUNNING",
-		"UNIVERSE",
+		"MASTER",
 		marshalJSONText(stageProgress),
 		marshalJSONText(summary),
 		nil,
@@ -260,6 +297,40 @@ INSERT INTO market_backfill_runs (
 		return model.MarketBackfillRun{}, err
 	}
 
+	details := buildMarketUniverseRunDetails(runID, schedulerRunID, snapshot.SourceKey, snapshotItems, assetScope, now)
+	for _, detail := range details {
+		if _, err := r.db.Exec(`
+INSERT INTO market_backfill_run_details (
+	id, run_id, scheduler_run_id, stage, asset_type, batch_key, source_key, symbol_count, symbol_sample,
+	trade_date_from, trade_date_to, status, fetched_count, upserted_count, truth_count, warning_text,
+	error_text, started_at, finished_at, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			detail.ID,
+			detail.RunID,
+			nullableString(detail.SchedulerRunID),
+			detail.Stage,
+			nullableString(detail.AssetType),
+			nullableString(detail.BatchKey),
+			nullableString(detail.SourceKey),
+			detail.SymbolCount,
+			nullableString(marshalJSONText(detail.SymbolSample)),
+			nullableString(strings.TrimSpace(detail.TradeDateFrom)),
+			nullableString(strings.TrimSpace(detail.TradeDateTo)),
+			detail.Status,
+			detail.FetchedCount,
+			detail.UpsertedCount,
+			detail.TruthCount,
+			nullableString(detail.WarningText),
+			nullableString(detail.ErrorText),
+			now,
+			now,
+			now,
+			now,
+		); err != nil {
+			return model.MarketBackfillRun{}, err
+		}
+	}
+
 	return model.MarketBackfillRun{
 		ID:                 runID,
 		SchedulerRunID:     schedulerRunID,
@@ -267,11 +338,11 @@ INSERT INTO market_backfill_runs (
 		AssetScope:         assetScope,
 		TradeDateFrom:      strings.TrimSpace(input.TradeDateFrom),
 		TradeDateTo:        strings.TrimSpace(input.TradeDateTo),
-		SourceKey:          strings.ToUpper(strings.TrimSpace(input.SourceKey)),
+		SourceKey:          snapshot.SourceKey,
 		BatchSize:          batchSize,
-		UniverseSnapshotID: snapshotID,
+		UniverseSnapshotID: snapshot.ID,
 		Status:             "RUNNING",
-		CurrentStage:       "UNIVERSE",
+		CurrentStage:       "MASTER",
 		StageProgress:      stageProgress,
 		Summary:            summary,
 		CreatedBy:          operator,
@@ -695,38 +766,12 @@ func (r *InMemoryGrowthRepo) AdminCreateMarketDataBackfillRun(input model.Market
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	now := time.Now().Format(time.RFC3339)
-	snapshotID := "mus_" + strings.ToLower(strings.ReplaceAll(newID("snap"), "_", ""))
-	snapshot := model.MarketUniverseSnapshot{
-		ID:           snapshotID,
-		Scope:        assetScope,
-		SourceKey:    strings.ToUpper(strings.TrimSpace(input.SourceKey)),
-		SnapshotDate: time.Now().Format("2006-01-02"),
-		CreatedBy:    operator,
-		CreatedAt:    now,
+	now := time.Now()
+	nowText := now.Format(time.RFC3339)
+	snapshot, snapshotItems, err := r.buildMarketUniverseSnapshotLocked(input.SourceKey, assetScope, operator)
+	if err != nil {
+		return model.MarketBackfillRun{}, err
 	}
-	snapshot.AssetSummaries = make([]model.MarketUniverseSnapshotAssetItem, 0, len(assetScope))
-	snapshotItems := make([]model.MarketUniverseSnapshotItem, 0, len(assetScope))
-	for index, assetType := range assetScope {
-		snapshot.AssetSummaries = append(snapshot.AssetSummaries, model.MarketUniverseSnapshotAssetItem{
-			AssetType:     assetType,
-			ItemCount:     1,
-			ActiveCount:   1,
-			InactiveCount: 0,
-		})
-		snapshotItems = append(snapshotItems, model.MarketUniverseSnapshotItem{
-			ID:             fmt.Sprintf("musi_mem_%03d", index+1),
-			SnapshotID:     snapshot.ID,
-			AssetType:      assetType,
-			InstrumentKey:  fmt.Sprintf("%s_DEMO_%03d", assetType, index+1),
-			ExternalSymbol: fmt.Sprintf("%s_DEMO_%03d", assetType, index+1),
-			DisplayName:    fmt.Sprintf("%s 样本 %d", assetType, index+1),
-			Status:         "PENDING",
-			CreatedAt:      now,
-		})
-	}
-	r.marketUniverseSnapshots[snapshot.ID] = snapshot
-	r.marketUniverseItems[snapshot.ID] = snapshotItems
 
 	run := model.MarketBackfillRun{
 		ID:                 "mbr_" + strings.ToLower(strings.ReplaceAll(newID("run"), "_", "")),
@@ -735,41 +780,27 @@ func (r *InMemoryGrowthRepo) AdminCreateMarketDataBackfillRun(input model.Market
 		AssetScope:         assetScope,
 		TradeDateFrom:      strings.TrimSpace(input.TradeDateFrom),
 		TradeDateTo:        strings.TrimSpace(input.TradeDateTo),
-		SourceKey:          strings.ToUpper(strings.TrimSpace(input.SourceKey)),
+		SourceKey:          snapshot.SourceKey,
 		BatchSize:          input.BatchSize,
 		UniverseSnapshotID: snapshot.ID,
 		Status:             "RUNNING",
-		CurrentStage:       "UNIVERSE",
-		StageProgress:      defaultMarketBackfillStageProgress(),
+		CurrentStage:       "MASTER",
+		StageProgress:      buildMarketBackfillStageProgressAfterUniverse(assetScope),
 		Summary: map[string]any{
-			"requested_stages": input.Stages,
-			"asset_scope":      assetScope,
+			"requested_stages":    input.Stages,
+			"asset_scope":         assetScope,
+			"universe_item_count": len(snapshotItems),
 		},
 		CreatedBy:  operator,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		CreatedAt:  nowText,
+		UpdatedAt:  nowText,
 		FinishedAt: "",
 	}
 	if run.BatchSize <= 0 {
 		run.BatchSize = 200
 	}
 	r.marketBackfillRuns[run.ID] = run
-	r.marketBackfillRunDetails[run.ID] = []model.MarketBackfillRunDetail{
-		{
-			ID:             "mbd_" + strings.ToLower(strings.ReplaceAll(newID("detail"), "_", "")),
-			RunID:          run.ID,
-			SchedulerRunID: run.SchedulerRunID,
-			Stage:          "UNIVERSE",
-			AssetType:      assetScope[0],
-			BatchKey:       "UNIVERSE-001",
-			Status:         "RUNNING",
-			SymbolCount:    len(snapshotItems),
-			SymbolSample:   []string{snapshotItems[0].InstrumentKey},
-			StartedAt:      now,
-			CreatedAt:      now,
-			UpdatedAt:      now,
-		},
-	}
+	r.marketBackfillRunDetails[run.ID] = buildMarketUniverseRunDetails(run.ID, run.SchedulerRunID, run.SourceKey, snapshotItems, assetScope, now)
 	return run, nil
 }
 
