@@ -1,16 +1,23 @@
 <template>
   <section class="watchlist-page fade-up">
     <header class="watchlist-hero card">
-      <div>
-        <p class="watchlist-kicker">我的关注</p>
-        <h1>查看关注标的的最新变化</h1>
-        <p class="watchlist-desc">
-          保存推荐股票后，可在这里查看状态、资讯和风险边界变化。
-        </p>
-        <div class="watchlist-tags">
-          <span class="finance-pill finance-pill-compact finance-pill-neutral">本地轻量存储</span>
-          <span class="finance-pill finance-pill-compact finance-pill-neutral">状态变化优先</span>
-          <span class="finance-pill finance-pill-compact finance-pill-neutral">支持快速移除</span>
+      <div class="watchlist-hero-copy finance-copy-stack">
+        <div class="finance-pill-row">
+          <span class="finance-pill finance-pill-compact finance-pill-neutral">关注页</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">本地轻量关注</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">变化工作台</span>
+        </div>
+        <div>
+          <p class="watchlist-kicker">我的关注</p>
+          <h1>查看关注标的的最新变化</h1>
+          <p class="watchlist-desc">
+            保存推荐股票后，可在这里查看状态、资讯和风险边界变化。
+          </p>
+          <div class="watchlist-tags">
+            <span class="finance-pill finance-pill-compact finance-pill-neutral">本地轻量存储</span>
+            <span class="finance-pill finance-pill-compact finance-pill-neutral">状态变化优先</span>
+            <span class="finance-pill finance-pill-compact finance-pill-neutral">支持快速移除</span>
+          </div>
         </div>
       </div>
       <div class="watchlist-actions">
@@ -19,26 +26,29 @@
         </button>
         <button class="ghost-btn finance-ghost-btn" type="button" @click="goStrategies">去策略中心</button>
       </div>
+      <div class="watchlist-hero-stats finance-hero-stat-grid">
+        <article class="finance-hero-stat-card">
+          <span>关注股票</span>
+          <strong>{{ watchedRows.length }} 只</strong>
+          <p>本地关注逻辑保持不变，先把想持续跟踪的标的保存在这里。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>可同步状态</span>
+          <strong>{{ trackedCount }} 只</strong>
+          <p>会优先展示已经能结合变化信息继续回访的样本。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>资讯变化</span>
+          <strong>{{ totalNewsCount }} 条</strong>
+          <p>新增资讯会和风险边界、结论变化一起决定今天先看什么。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>下一动作</span>
+          <strong>{{ priorityWatchItem?.nextAction || "先去首页或策略页加入关注" }}</strong>
+          <p>{{ priorityWatchItem?.name || "还没有优先回访样本时，会先引导你回到首页或策略页。" }}</p>
+        </article>
+      </div>
     </header>
-
-    <section class="watchlist-summary card">
-      <article>
-        <p>关注股票</p>
-        <strong>{{ watchedRows.length }} 只</strong>
-      </article>
-      <article>
-        <p>可同步状态</p>
-        <strong>{{ trackedCount }} 只</strong>
-      </article>
-      <article>
-        <p>资讯更新</p>
-        <strong>{{ totalNewsCount }} 条</strong>
-      </article>
-      <article>
-        <p>最近刷新</p>
-        <strong>{{ lastUpdatedAt || "-" }}</strong>
-      </article>
-    </section>
 
     <StatePanel
       :tone="watchlistAccessState.tone"
@@ -1561,6 +1571,14 @@ onBeforeUnmount(() => {
     radial-gradient(circle at 0% 0%, var(--color-focus-glow) 0%, transparent 34%),
     radial-gradient(circle at 100% 100%, var(--color-line-gold) 0%, transparent 36%),
     rgba(255, 255, 255, 0.94);
+}
+
+.watchlist-hero-copy {
+  min-width: 0;
+}
+
+.watchlist-hero-stats {
+  grid-column: 1 / -1;
 }
 
 .watchlist-kicker {

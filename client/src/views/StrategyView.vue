@@ -1,18 +1,25 @@
 <template>
   <section class="strategy-page fade-up">
     <header class="strategy-hero card">
-      <div>
-        <p class="hero-kicker">策略中心</p>
-        <h1 class="section-title">查看今日股票与期货策略</h1>
-        <p class="section-subtitle">
-          优先展示今日主推荐、风险边界和执行参数。
-        </p>
-        <div class="tag-row">
-          <span v-for="tag in tags" :key="tag" class="finance-pill finance-pill-compact finance-pill-neutral">{{ tag }}</span>
+      <div class="strategy-hero-copy finance-copy-stack">
+        <div class="finance-pill-row">
+          <span class="finance-pill finance-pill-compact finance-pill-neutral">策略页</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">主推荐优先</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">风险边界前置</span>
         </div>
-        <p v-if="loading" class="api-state">正在同步策略数据...</p>
-        <p v-else-if="errorMessage" class="api-state warning">{{ errorMessage }}</p>
-        <p v-else class="api-state">更新时间：{{ lastUpdatedAt || "-" }}</p>
+        <div>
+          <p class="hero-kicker">策略中心</p>
+          <h1 class="section-title">查看今日股票与期货策略</h1>
+          <p class="section-subtitle">
+            优先展示今日主推荐、风险边界和执行参数。
+          </p>
+          <div class="tag-row">
+            <span v-for="tag in tags" :key="tag" class="finance-pill finance-pill-compact finance-pill-neutral">{{ tag }}</span>
+          </div>
+          <p v-if="loading" class="api-state">正在同步策略数据...</p>
+          <p v-else-if="errorMessage" class="api-state warning">{{ errorMessage }}</p>
+          <p v-else class="api-state">更新时间：{{ lastUpdatedAt || "-" }}</p>
+        </div>
       </div>
       <div class="hero-actions">
         <button class="primary-btn finance-primary-btn" type="button" :disabled="loading" @click="loadStrategies">
@@ -20,6 +27,28 @@
         </button>
         <button class="ghost-btn finance-ghost-btn" type="button" @click="goStrategyArchive">看历史档案</button>
         <button class="ghost-btn finance-ghost-btn" type="button" @click="goStrategyWatchlist">去我的关注</button>
+      </div>
+      <div class="strategy-hero-stats finance-hero-stat-grid">
+        <article class="finance-hero-stat-card">
+          <span>今日主推荐</span>
+          <strong>{{ activeStockView?.name || "待选择股票推荐" }}</strong>
+          <p>先看股票主推荐，再继续看理由、风险边界和版本变化。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>股票策略</span>
+          <strong>{{ stockRows.length }} 条</strong>
+          <p>保留主推荐、观察样本和执行区间，不改现有策略数据行为。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>期货策略</span>
+          <strong>{{ futuresRows.length }} 条</strong>
+          <p>事件驱动与期货方案继续并列展示，方便从股票切到期货视角。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>阅读顺序</span>
+          <strong>{{ activeStockTrackingState.nextAction || "先看主推荐" }}</strong>
+          <p>主推荐 -> 风险边界 -> 版本变化 -> 历史档案，保持 demo 的工作台节奏。</p>
+        </article>
       </div>
     </header>
 
@@ -3916,6 +3945,14 @@ onBeforeUnmount(() => {
     rgba(255, 255, 255, 0.93);
 }
 
+.strategy-hero-copy {
+  min-width: 0;
+}
+
+.strategy-hero-stats {
+  grid-column: 1 / -1;
+}
+
 .hero-kicker {
   margin: 0;
   color: var(--color-pine-600);
@@ -4962,6 +4999,10 @@ onBeforeUnmount(() => {
   .focus-detail-head,
   .focus-summary-head {
     display: grid;
+  }
+
+  .strategy-hero {
+    align-items: start;
   }
 
   .focus-detail-actions {

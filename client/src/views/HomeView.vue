@@ -2,6 +2,11 @@
   <div class="home-page fade-up">
     <section class="hero-stage card">
       <div class="hero-copy">
+        <div class="finance-pill-row">
+          <span class="finance-pill finance-pill-compact finance-pill-neutral">首页</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">今日决策</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">研报与策略协同</span>
+        </div>
         <p class="hero-kicker">今日决策首页 · {{ todayDateText }}</p>
         <h1>
           {{ primaryStock ? `今天先看 ${primaryStock.symbol} ${primaryStock.name}` : "先看今日主推荐，再决定怎么做" }}
@@ -35,6 +40,28 @@
           :description="homeStatus.desc"
           compact
         />
+        <div class="home-hero-stats finance-hero-stat-grid">
+          <article class="finance-hero-stat-card">
+            <span>主推荐评分</span>
+            <strong>{{ primaryStock?.score || "-" }}</strong>
+            <p>先看主推荐强度，再决定是否进入策略详情页。</p>
+          </article>
+          <article class="finance-hero-stat-card">
+            <span>观察股票</span>
+            <strong>{{ decisionWatchlist.length }} 只</strong>
+            <p>今天值得继续跟踪的对象会优先汇总在首页第一屏。</p>
+          </article>
+          <article class="finance-hero-stat-card">
+            <span>资讯线索</span>
+            <strong>{{ decisionNewsLinks.length }} 条</strong>
+            <p>焦点研报和市场资讯会解释为什么今天先看这些标的。</p>
+          </article>
+          <article class="finance-hero-stat-card">
+            <span>历史样本</span>
+            <strong>{{ historyStocks.length }} 条</strong>
+            <p>保留历史样本预览，方便把复盘重新接回今天的阅读链。</p>
+          </article>
+        </div>
       </div>
 
       <aside class="hero-panel">
@@ -70,12 +97,6 @@
             </span>
           </div>
           <p v-if="primaryStockMetaText" class="lead-stock-meta">{{ primaryStockMetaText }}</p>
-        </div>
-        <div class="panel-stats">
-          <article v-for="item in panelStats" :key="item.label">
-            <p>{{ item.label }}</p>
-            <strong>{{ item.value }}</strong>
-          </article>
         </div>
         <ul class="task-list">
           <li v-for="task in tasks" :key="task.title">
@@ -1006,12 +1027,6 @@ const heroTags = computed(() => [
   `主推荐 ${primaryStock.value?.risk || "待确认"}`,
   `历史命中 ${calcHitRate(historyStocks.value)}`,
   `相关资讯 ${decisionNewsLinks.value.length} 条`
-]);
-
-const panelStats = computed(() => [
-  { label: "主推荐评分", value: primaryStock.value?.score || "-" },
-  { label: "观察股票", value: `${decisionWatchlist.value.length} 只` },
-  { label: "资讯线索", value: `${decisionNewsLinks.value.length} 条` }
 ]);
 
 const mobileQuickActions = computed(() => [
@@ -2036,6 +2051,12 @@ onBeforeUnmount(() => {
   color: var(--color-pine-600);
 }
 
+.hero-copy {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+}
+
 .hero-copy h1 {
   margin: 8px 0 10px;
   font-family: var(--font-serif);
@@ -2062,6 +2083,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.home-hero-stats {
+  margin-top: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .hero-panel {
@@ -2155,31 +2181,6 @@ onBeforeUnmount(() => {
   margin: 8px 0 0;
   font-size: 11px;
   color: rgba(246, 251, 248, 0.7);
-}
-
-.panel-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.panel-stats article {
-  border-radius: 11px;
-  border: 1px solid rgba(245, 251, 248, 0.2);
-  background: rgba(255, 255, 255, 0.08);
-  padding: 8px;
-}
-
-.panel-stats p {
-  margin: 0;
-  font-size: 11px;
-  color: rgba(246, 251, 248, 0.72);
-}
-
-.panel-stats strong {
-  display: block;
-  margin-top: 4px;
-  font-size: 16px;
 }
 
 .task-list {
@@ -3106,10 +3107,6 @@ onBeforeUnmount(() => {
     margin-top: 10px;
     display: grid;
     gap: 8px;
-  }
-
-  .panel-stats {
-    grid-template-columns: 1fr;
   }
 
   .plan-grid {
