@@ -109,7 +109,6 @@ const marketUniverseSnapshots = ref([]);
 const marketBackfillRunsLoading = ref(false);
 const marketBackfillRuns = ref([]);
 const editingRoutingPolicyKey = ref("");
-const editingRoutingPolicyKey = ref("");
 
 const formVisible = ref(false);
 const formMode = ref("create");
