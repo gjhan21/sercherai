@@ -1,15 +1,44 @@
 <template>
   <section class="membership-page fade-up">
     <header class="member-hero card">
-      <div>
-        <p class="hero-kicker">会员中心</p>
-        <h1 class="section-title">查看会员权益、状态和订单</h1>
-        <p class="section-subtitle">{{ heroSubtitle }}</p>
+      <div class="member-hero-copy finance-copy-stack">
+        <div class="finance-pill-row">
+          <span class="finance-pill finance-pill-compact finance-pill-neutral">会员页</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">升级价值解释</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">实名激活前置</span>
+        </div>
+        <div>
+          <p class="hero-kicker">会员中心</p>
+          <h1 class="section-title">查看会员权益、状态和订单</h1>
+          <p class="section-subtitle">{{ heroSubtitle }}</p>
+        </div>
       </div>
       <div class="hero-pill finance-summary-pill">
         <p>当前套餐</p>
         <strong>{{ currentPlanName }}</strong>
         <small>{{ currentLevelLabel }} · {{ activationStateLabel }}</small>
+      </div>
+      <div class="member-hero-stats finance-hero-stat-grid">
+        <article class="finance-hero-stat-card">
+          <span>当前套餐</span>
+          <strong>{{ currentPlanName }}</strong>
+          <p>套餐和权益仍按真实账户状态展示。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>当前状态</span>
+          <strong>{{ currentLevelLabel }} · {{ activationStateLabel }}</strong>
+          <p>先确认是否待实名激活、待续费或已正常开通。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>深读价值</span>
+          <strong>{{ latestStrategySnapshot?.name ? `继续深读 ${latestStrategySnapshot.name}` : "全文 / 附件 / 连续跟踪" }}</strong>
+          <p>会员页优先解释为什么现在需要升级，而不是先推价格。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>下一动作</span>
+          <strong>{{ membershipJourney.primaryAction.label }}</strong>
+          <p>{{ membershipJourney.summaryNote }}</p>
+        </article>
       </div>
     </header>
 
@@ -1805,6 +1834,14 @@ onBeforeUnmount(() => {
   grid-template-columns: 1fr auto;
   gap: 12px;
   align-items: end;
+}
+
+.member-hero-copy {
+  min-width: 0;
+}
+
+.member-hero-stats {
+  grid-column: 1 / -1;
 }
 
 .hero-kicker {

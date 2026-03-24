@@ -1,19 +1,48 @@
 <template>
   <section class="profile-page fade-up">
     <header class="account-card card">
-      <div class="identity">
-        <div class="avatar">U</div>
-        <div>
-          <h1>{{ displayProfile.name }}</h1>
-          <p>
-            {{ vipInfo.level }} · {{ activationStateLabel }} · KYC {{ displayProfile.kycStatus }} · 最近更新
-            {{ lastUpdatedAt || "-" }}
-          </p>
+      <div class="profile-hero-copy">
+        <div class="finance-pill-row">
+          <span class="finance-pill finance-pill-compact finance-pill-neutral">我的</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">账户管理台</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">待办优先</span>
+        </div>
+        <div class="identity">
+          <div class="avatar">U</div>
+          <div>
+            <h1>{{ displayProfile.name }}</h1>
+            <p>
+              {{ vipInfo.level }} · {{ activationStateLabel }} · KYC {{ displayProfile.kycStatus }} · 最近更新
+              {{ lastUpdatedAt || "-" }}
+            </p>
+          </div>
         </div>
       </div>
       <div class="actions">
         <button class="primary finance-primary-btn" type="button" @click="loadUserCenterData">刷新数据</button>
         <button class="ghost finance-ghost-btn" type="button" @click="openSecurityPanel">账户安全</button>
+      </div>
+      <div class="profile-hero-stats finance-hero-stat-grid">
+        <article class="finance-hero-stat-card">
+          <span>账户身份</span>
+          <strong>{{ displayProfile.name }}</strong>
+          <p>个人中心先看身份、会员与实名状态，再进入查询中心。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>会员状态</span>
+          <strong>{{ vipInfo.level }} · {{ activationStateLabel }}</strong>
+          <p>KYC {{ displayProfile.kycStatus }} · 当前阅读和支付链会按此状态承接。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>未读消息</span>
+          <strong>{{ unreadMessageCount }} 条</strong>
+          <p>高频账户确认和支付提醒优先在今日行动板处理。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>今日优先</span>
+          <strong>{{ todos[0]?.title || "查看账户待办" }}</strong>
+          <p>{{ todos[0]?.note || "先看待办中心，再进入订单、订阅和邀请管理。" }}</p>
+        </article>
       </div>
     </header>
 
@@ -1938,11 +1967,21 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 10px;
-  align-items: center;
+  align-items: start;
   background:
     radial-gradient(circle at 100% 0%, var(--color-focus-glow) 0%, transparent 36%),
     radial-gradient(circle at 0% 100%, var(--color-line-gold-soft) 0%, transparent 34%),
     rgba(255, 255, 255, 0.93);
+}
+
+.profile-hero-copy {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.profile-hero-stats {
+  grid-column: 1 / -1;
 }
 
 .section-kicker {

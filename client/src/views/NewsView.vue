@@ -1,14 +1,43 @@
 <template>
   <section class="news-page fade-up">
     <header class="news-hero card">
-      <div>
-        <p class="hero-kicker">资讯中心</p>
-        <h1 class="section-title">新闻、研报与期刊</h1>
-        <p class="section-subtitle">按栏目查看文章详情和附件。</p>
+      <div class="news-hero-copy finance-copy-stack">
+        <div class="finance-pill-row">
+          <span class="finance-pill finance-pill-compact finance-pill-neutral">资讯页</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">资讯域内搜索</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">导读进入深读</span>
+        </div>
+        <div>
+          <p class="hero-kicker">资讯中心</p>
+          <h1 class="section-title">新闻、研报与期刊</h1>
+          <p class="section-subtitle">按栏目查看文章详情和附件。</p>
+        </div>
       </div>
       <div class="hero-status finance-summary-pill">
         <p>更新状态</p>
         <strong>{{ loading ? "同步中" : "已同步" }}</strong>
+      </div>
+      <div class="news-hero-stats finance-hero-stat-grid">
+        <article class="finance-hero-stat-card">
+          <span>焦点研报</span>
+          <strong>{{ featuredArticle?.title || "待同步焦点内容" }}</strong>
+          <p>优先承接首页和策略页导入的深读动作。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>当前栏目</span>
+          <strong>{{ currentCategory.label }}</strong>
+          <p>研报、新闻、期刊分层阅读，不做内容瀑布流。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>阅读位置</span>
+          <strong>{{ canReadActiveArticle ? "摘要 -> 正文 -> 附件" : "摘要 -> 登录 / VIP -> 继续阅读" }}</strong>
+          <p>先看导读，再继续正文和附件，不打断阅读链。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>权限承接</span>
+          <strong>{{ featuredArticle?.visibilityLabel || "游客 / 登录 / VIP" }}</strong>
+          <p>游客先看摘要，登录后保留位置，VIP 解锁全文与附件。</p>
+        </article>
       </div>
     </header>
 
@@ -1449,6 +1478,14 @@ onBeforeUnmount(() => {
   grid-template-columns: 1fr auto;
   align-items: end;
   gap: 10px;
+}
+
+.news-hero-copy {
+  min-width: 0;
+}
+
+.news-hero-stats {
+  grid-column: 1 / -1;
 }
 
 .hero-kicker {

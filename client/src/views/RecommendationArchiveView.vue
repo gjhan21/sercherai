@@ -19,6 +19,31 @@
         </button>
         <button class="ghost-btn finance-ghost-btn" type="button" @click="goStrategies">去策略中心</button>
       </div>
+      <div class="archive-hero-stats finance-hero-stat-grid">
+        <article class="finance-hero-stat-card">
+          <span>历史样本</span>
+          <strong>{{ archiveRows.length }} 条</strong>
+          <p>成功、失效、止盈与止损样本都应长期保留。</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>当前展示</span>
+          <strong>{{ visibleArchiveRows.length }} 条</strong>
+          <p>
+            <template v-if="archiveHiddenCount > 0">还有 {{ archiveHiddenCount }} 条等待更高权限展开。</template>
+            <template v-else>当前筛选结果已全部展示。</template>
+          </p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>当前筛选</span>
+          <strong>{{ statusOptions.find((item) => item.value === selectedStatus)?.label || "全部样本" }}</strong>
+          <p>{{ sourceOptions.find((item) => item.value === selectedSource)?.label || "全部来源" }} · {{ sourceGuide.length }} 类来源标签</p>
+        </article>
+        <article class="finance-hero-stat-card">
+          <span>阅读重点</span>
+          <strong>理由 -> 结果 -> 后续处理</strong>
+          <p>先看当时为什么选，再看结果和后续处理，不把档案页做成收益榜。</p>
+        </article>
+      </div>
     </header>
 
     <section class="archive-toolbar card">
@@ -1209,6 +1234,10 @@ watch(
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.archive-hero-stats {
+  grid-column: 1 / -1;
 }
 
 .section-badge,

@@ -2,6 +2,11 @@
   <section class="auth-page fade-up">
     <article class="auth-focus card finance-dual-rail finance-section-card">
       <div class="auth-focus-copy">
+        <div class="finance-pill-row">
+          <span class="finance-pill finance-pill-compact finance-pill-neutral">身份入口</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">登录 / 注册双栏</span>
+          <span class="finance-pill finance-pill-compact finance-pill-info">来源回跳可见</span>
+        </div>
         <p class="auth-kicker">身份验证</p>
         <h1 class="section-title">登录或注册后继续当前操作</h1>
         <p class="section-subtitle">
@@ -13,6 +18,28 @@
           <span class="finance-pill finance-pill-compact finance-pill-neutral">邀请码注册</span>
           <span class="finance-pill finance-pill-compact finance-pill-neutral">仅限未登录访问</span>
           <span class="finance-pill finance-pill-compact finance-pill-neutral">登录后返回原页面</span>
+        </div>
+        <div class="auth-hero-stats finance-hero-stat-grid">
+          <article class="finance-hero-stat-card">
+            <span>当前来源</span>
+            <strong>{{ redirectDestinationLabel }}</strong>
+            <p>说明当前动作和阅读链或会员动作直接相关，不是随机跳转。</p>
+          </article>
+          <article class="finance-hero-stat-card">
+            <span>登录后回跳</span>
+            <strong>{{ redirectPath }}</strong>
+            <p>完成身份进入后优先回原页面，而不是强制送回首页。</p>
+          </article>
+          <article class="finance-hero-stat-card">
+            <span>邀请码</span>
+            <strong>{{ inviteCode || "未携带邀请码" }}</strong>
+            <p>注册时继续保留 invite_code，可直接完成邀请绑定。</p>
+          </article>
+          <article class="finance-hero-stat-card">
+            <span>当前支持</span>
+            <strong>账号密码 / 邀请注册</strong>
+            <p>保持现有账户体系，不扩短信和第三方登录入口。</p>
+          </article>
         </div>
       </div>
 
@@ -469,6 +496,10 @@ async function handleSubmit(mode) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.auth-hero-stats {
+  margin-top: 12px;
 }
 
 .auth-badge.accent {
