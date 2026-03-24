@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SercherAI 资讯 Demo - PC</title>
+    <link rel="stylesheet" href="./demo-finance.css" />
+    <style>
+      .news-layout {
+        display: grid;
+        grid-template-columns: minmax(260px, 0.72fr) minmax(0, 1.2fr);
+        gap: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="pc-shell">
+      <header class="site-header">
+        <div class="site-header-inner">
+          <div class="brand">
+            <span class="brand-mark">S</span>
+            <div class="brand-copy">
+              <strong>SercherAI 研究终端</strong>
+              <span>资讯页 / 导读进入深读</span>
+            </div>
+          </div>
+
+          <nav class="nav" aria-label="主导航">
+            <a href="./home-pc-demo.html">首页</a>
+            <a href="./strategies-pc-demo.html">策略</a>
+            <a href="./watchlist-pc-demo.html">关注</a>
+            <a class="active" href="./news-pc-demo.html">资讯</a>
+            <a href="./archive-pc-demo.html">档案</a>
+            <a href="./membership-pc-demo.html">会员</a>
+            <a href="./profile-pc-demo.html">我的</a>
+          </nav>
+
+          <div class="header-actions">
+            <span class="header-chip">搜索：新能源</span>
+            <span class="header-chip primary">焦点研报</span>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="page-hero">
+          <div class="pill-row">
+            <span class="pill">资讯页</span>
+            <span class="pill blue">资讯域内搜索</span>
+            <span class="pill blue">导读进入深读</span>
+          </div>
+          <h1>先看今日焦点研报和栏目导读，再进入正文详情与附件权限承接</h1>
+          <p>
+            资讯页不是内容瀑布流，而是深读页。研报、新闻、期刊三类内容需要明确分层，
+            左侧负责筛选与阅读，右侧负责解释栏目、权限和下一步阅读链。
+          </p>
+
+          <div class="hero-stat-grid">
+            <article class="hero-stat">
+              <span>焦点研报</span>
+              <strong>动力电池链盈利修复节奏</strong>
+            </article>
+            <article class="hero-stat">
+              <span>当前栏目</span>
+              <strong>研报 / 新闻 / 期刊</strong>
+            </article>
+            <article class="hero-stat">
+              <span>阅读位置</span>
+              <strong>摘要 -> 正文 -> 附件</strong>
+            </article>
+            <article class="hero-stat">
+              <span>权限承接</span>
+              <strong>游客 / 登录 / VIP</strong>
+            </article>
+          </div>
+        </section>
+
+        <section class="content-layout">
+          <div class="main-column">
+            <section class="finance-card">
+              <div class="section-head">
+                <div>
+                  <h2>资讯页定位与焦点研报</h2>
+                  <p>焦点研报是这页的第一主位，语气和权重都不能被普通新闻稀释。</p>
+                </div>
+                <span class="head-tag">焦点研报</span>
+              </div>
+
+              <article class="detail-card">
+                <div class="item-row">
+                  <span class="status-pill gold">研报</span>
+                  <span class="list-kicker">今日重点</span>
+                </div>
+                <strong>动力电池链盈利修复节奏：谁先受益，哪些环节仍需等待验证</strong>
+                <p>
+                  这篇焦点研报承接首页主推荐的深读动作。当前页先给标题、摘要与一句话解读，
+                  正文详情区继续承接全文逻辑，附件区再承接图表与原始材料。
+                </p>
+              </article>
+            </section>
+
+            <section class="finance-card soft">
+              <div class="section-head">
+                <div>
+                  <h2>分类主列表与正文详情</h2>
+                  <p>左侧先做栏目导读，右侧再承接正文深读；不用瀑布流抢走正文注意力。</p>
+                </div>
+                <span class="head-tag">主阅读区</span>
+              </div>
+
+              <div class="filter-row">
+                <span class="segment active">研报</span>
+                <span class="segment">新闻</span>
+                <span class="segment">期刊</span>
+                <span class="segment">公开</span>
+                <span class="segment">VIP</span>
+              </div>
+
+              <div class="news-layout" style="margin-top: 16px;">
+                <div class="article-list">
+                  <article class="article-item">
+                    <div class="article-head">
+                      <span class="status-pill gold">研报</span>
+                      <span class="list-kicker">公开摘要</span>
+                    </div>
+                    <strong>焦点研报：动力电池链盈利修复节奏</strong>
+                    <p>先读结论，再决定是否进入正文和附件。</p>
+                  </article>
+                  <article class="article-item">
+                    <div class="article-head">
+                      <span class="status-pill">新闻</span>
+                      <span class="list-kicker">公开</span>
+                    </div>
+                    <strong>行业政策窗口期临近，新能源链条关注度抬升</strong>
+                    <p>这类新闻更多承担背景补充，不抢研报主位。</p>
+                  </article>
+                  <article class="article-item">
+                    <div class="article-head">
+                      <span class="status-pill warning">期刊</span>
+                      <span class="list-kicker">VIP</span>
+                    </div>
+                    <strong>周度行业期刊：产销与价格链条追踪</strong>
+                    <p>期刊内容保持工具型补充，不与焦点研报同层争主位。</p>
+                  </article>
+                </div>
+
+                <article class="detail-card">
+                  <div class="detail-head">
+                    <span class="status-pill gold">正文详情</span>
+                    <span class="list-kicker">继续原阅读位置</span>
+                  </div>
+                  <strong>焦点研报解读：当前最值得看的不是结论本身，而是盈利修复的先后顺序</strong>
+                  <p>
+                    正文区负责讲清楚“推荐逻辑为什么成立”。这里不做长列表，而是聚焦当前选中的文章，
+                    把核心判断、证据来源、后续要看的图表和附件串成一条完整阅读链。
+                  </p>
+                  <div class="info-grid" style="margin-top: 14px;">
+                    <article class="info-card">
+                      <span class="status-pill">核心判断</span>
+                      <strong>中游盈利修复先于终端需求全面回暖</strong>
+                      <p>这决定了今天主推荐的排序和阅读顺序。</p>
+                    </article>
+                    <article class="info-card">
+                      <span class="status-pill gold">证据来源</span>
+                      <strong>排产、库存、价格带和公司公告交叉验证</strong>
+                      <p>正文深读比资讯摘要更重，所以这里必须独立承载。</p>
+                    </article>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="finance-card">
+              <div class="section-head">
+                <div>
+                  <h2>附件与权限承接区</h2>
+                  <p>权限链沿用当前真实逻辑：游客看公开摘要，登录后继续原阅读位置，VIP 解锁全文与附件。</p>
+                </div>
+                <span class="head-tag">附件 / 权限</span>
+              </div>
+
+              <div class="detail-grid">
+                <article class="detail-card">
+                  <span class="status-pill">游客可见</span>
+                  <strong>公开摘要、标题、部分正文导读</strong>
+                  <p>保证未登录用户仍然能理解为什么这篇文章值得继续读。</p>
+                </article>
+                <article class="detail-card">
+                  <span class="status-pill gold">登录后继续阅读</span>
+                  <strong>返回当前文章当前位置，不强制回首页</strong>
+                  <p>减少打断感，维持“导读进入深读”的链条连续性。</p>
+                </article>
+                <article class="detail-card">
+                  <span class="status-pill warning">VIP 解锁</span>
+                  <strong>正文全文、附件目录、图表下载</strong>
+                  <p>附件承接保持克制，尽量不打断当前阅读节奏。</p>
+                </article>
+              </div>
+            </section>
+          </div>
+
+          <aside class="side-column">
+            <section class="side-card">
+              <div class="section-head">
+                <div>
+                  <h3>栏目说明</h3>
+                  <p>告诉用户不同栏目为什么存在，以及应该怎么读。</p>
+                </div>
+                <span class="head-tag">栏目</span>
+              </div>
+              <div class="list-stack">
+                <article class="list-item">
+                  <strong>研报：主深读内容</strong>
+                  <p>负责承接首页焦点研报与策略页的深读需求，是本页第一主位。</p>
+                </article>
+                <article class="list-item">
+                  <strong>新闻：背景与事件补充</strong>
+                  <p>负责解释为什么今天主推荐排序会变化，但不抢正文主位。</p>
+                </article>
+                <article class="list-item">
+                  <strong>期刊：周期性资料更新</strong>
+                  <p>提供长期跟踪材料，适合在正文之后继续补读。</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="side-card">
+              <div class="section-head">
+                <div>
+                  <h3>权限承接</h3>
+                  <p>权限提示必须和当前阅读动作直接关联，减少无关打断。</p>
+                </div>
+                <span class="head-tag">权限</span>
+              </div>
+              <div class="list-stack">
+                <article class="list-item">
+                  <strong>游客先读公开摘要</strong>
+                  <p>先理解价值，再决定登录或升级。</p>
+                </article>
+                <article class="list-item">
+                  <strong>登录后回原阅读位置</strong>
+                  <p>不打断正文阅读链。</p>
+                </article>
+                <article class="list-item">
+                  <strong>VIP 才解锁全文与附件</strong>
+                  <p>升级价值聚焦在“继续深读”，不是泛化的价格刺激。</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="side-card">
+              <div class="section-head">
+                <div>
+                  <h3>页面关系</h3>
+                  <p>资讯页需要自然承接前后页面，不做信息孤岛。</p>
+                </div>
+                <span class="head-tag">承接</span>
+              </div>
+              <div class="path-grid">
+                <article class="path-card">
+                  <span class="status-pill">去策略页</span>
+                  <strong>看推荐观点与执行边界</strong>
+                  <p>资讯负责深读，策略负责行动解释。</p>
+                </article>
+                <article class="path-card">
+                  <span class="status-pill warning">去会员页</span>
+                  <strong>解锁全文、附件与更多深读</strong>
+                  <p>权限动作集中承接到会员页。</p>
+                </article>
+                <article class="path-card">
+                  <span class="status-pill gold">去登录页</span>
+                  <strong>登录后继续当前阅读位置</strong>
+                  <p>适合游客进入更完整的阅读链。</p>
+                </article>
+              </div>
+            </section>
+          </aside>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div class="footer-grid">
+          <div class="footer-column">
+            <strong>SercherAI 资讯中心</strong>
+            <p>资讯页负责把导读、正文、附件和权限链连接起来，让研报真正成为值得深读的内容主线。</p>
+          </div>
+          <div class="footer-column">
+            <strong>栏目导航</strong>
+            <div class="footer-links">
+              <a href="#">研报</a>
+              <a href="#">新闻</a>
+              <a href="#">期刊</a>
+            </div>
+          </div>
+          <div class="footer-column">
+            <strong>阅读服务</strong>
+            <div class="footer-links">
+              <a href="#">正文阅读</a>
+              <a href="#">附件下载</a>
+              <a href="#">权限说明</a>
+            </div>
+          </div>
+          <div class="footer-column">
+            <strong>账户承接</strong>
+            <div class="footer-links">
+              <a href="#">登录</a>
+              <a href="#">会员</a>
+              <a href="#">我的账户</a>
+            </div>
+          </div>
+        </div>
+        <div class="footer-meta">
+          <span>资讯页主任务：导读进入深读</span>
+          <span>关键词：焦点研报 / 正文详情 / 权限承接</span>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

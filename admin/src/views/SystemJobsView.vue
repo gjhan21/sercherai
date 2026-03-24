@@ -19,6 +19,10 @@ import {
   updateSchedulerJobDefinitionStatus
 } from "../api/admin";
 import {
+  buildSystemJobsActionCards,
+  buildSystemJobsGuideCards,
+  buildSystemJobsOverviewCards,
+  buildSystemJobsTabOptions,
   buildSchedulerDefinitionCreateOptions,
   buildSchedulerDefinitionOptions,
   validateSchedulerDefinitionJobName
@@ -148,6 +152,7 @@ const newsSyncDetailFilters = reactive({
 const retrySimMap = ref({});
 const retrySummaryMap = ref({});
 const retryErrorMap = ref({});
+const activeTab = ref("overview");
 
 const triggerForm = reactive({
   job_name: "",
@@ -332,6 +337,24 @@ const definitionCreateJobOptions = computed(() =>
 );
 
 const definitionCronPreview = computed(() => buildDefinitionCronExpression());
+const failedRunCount = computed(() =>
+  (runs.value || []).filter((item) => String(item?.status || "").trim().toUpperCase() === "FAILED").length
+);
+const overviewCards = computed(() =>
+  buildSystemJobsOverviewCards({
+    metrics: metrics.value,
+    autoRetrySummary: autoRetrySummary.value,
+    definitionTotal: definitionTotal.value
+  })
+);
+const guideCards = computed(() => buildSystemJobsGuideCards({ canEditSystemJobs }));
+const actionCards = computed(() =>
+  buildSystemJobsActionCards({
+    canEditSystemJobs,
+    failedRunCount: failedRunCount.value
+  })
+);
+const systemJobTabs = computed(() => buildSystemJobsTabOptions({ canEditSystemJobs }));
 
 function clampInteger(value, minValue, maxValue, fallback) {
   const parsed = Number.parseInt(String(value), 10);
@@ -525,6 +548,40 @@ function parseTextList(raw) {
 
 function normalizeErrorMessage(error, fallback) {
   return error?.message || fallback || "操作失败";
+}
+
+function actionButtonType(tone) {
+  if (tone === "danger") {
+    return "danger";
+  }
+  if (tone === "success") {
+    return "success";
+  }
+  return "primary";
+}
+
+function handleActionCard(actionKey) {
+  if (actionKey === "view-failed-runs") {
+    activeTab.value = "runs";
+    applyFailedRunFilter();
+    return;
+  }
+  if (actionKey === "refresh-all") {
+    refreshAll();
+    return;
+  }
+  if (actionKey === "open-create-definition") {
+    activeTab.value = "config";
+    openCreateDefinition();
+    return;
+  }
+  if (actionKey === "scroll-trigger") {
+    activeTab.value = "trigger";
+    return;
+  }
+  if (actionKey === "scroll-definitions") {
+    activeTab.value = "config";
+  }
 }
 
 function csvEscape(value) {
@@ -1583,12 +1640,43 @@ onMounted(refreshAll);
 
 <template>
   <div class="page">
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">系统任务中心</h1>
-        <p class="muted">管理定时任务定义、运行记录、触发与重跑</p>
+    <div class="jobs-hero card">
+      <div class="jobs-hero__top">
+        <div>
+          <div class="page-eyebrow">调度工作台</div>
+          <h1 class="page-title">系统任务中心</h1>
+          <p class="jobs-hero__desc">
+            这里统一管理任务总览、自动重试、手动触发、任务定义和运行记录。先看异常，再做处理，操作路径会更顺。
+          </p>
+        </div>
+        <div class="jobs-hero__top-actions">
+          <el-tag :type="canEditSystemJobs ? 'success' : 'info'" effect="plain">
+            {{ canEditSystemJobs ? "当前账号可配置、触发与重跑" : "当前账号仅支持查看" }}
+          </el-tag>
+          <el-tag type="warning" effect="plain">已配置 {{ definitionTotal }} 个任务定义</el-tag>
+          <el-button :loading="defsLoading || runsLoading || metricsLoading" @click="refreshAll">刷新全部</el-button>
+        </div>
       </div>
-      <el-button :loading="defsLoading || runsLoading || metricsLoading" @click="refreshAll">刷新全部</el-button>
+
+      <div class="jobs-action-grid">
+        <div
+          v-for="item in actionCards"
+          :key="item.key"
+          class="jobs-action-card"
+          :class="`is-${item.tone}`"
+        >
+          <div class="jobs-action-card__title">{{ item.title }}</div>
+          <div class="jobs-action-card__desc">{{ item.description }}</div>
+          <el-button
+            size="small"
+            :type="actionButtonType(item.tone)"
+            :plain="item.tone !== 'primary'"
+            @click="handleActionCard(item.key)"
+          >
+            {{ item.actionText }}
+          </el-button>
+        </div>
+      </div>
     </div>
 
     <el-alert
@@ -1606,158 +1694,199 @@ onMounted(refreshAll);
       style="margin-bottom: 12px"
     />
 
-    <div class="card" style="margin-bottom: 12px">
-      <div class="toolbar">
-        <el-input v-model="metricFilter.job_name" clearable placeholder="按任务编码过滤指标（可选）" style="width: 260px" />
-        <el-button :loading="metricsLoading" @click="fetchMetrics">刷新指标</el-button>
-      </div>
-      <div class="grid grid-4" v-loading="metricsLoading">
-        <div class="metric-item">
-          <div class="metric-label">今日总运行</div>
-          <div class="metric-value">{{ metrics.today_total || 0 }}</div>
+    <div class="card jobs-tabs-shell">
+      <el-tabs v-model="activeTab" type="border-card" class="jobs-tabs">
+        <el-tab-pane
+          v-for="tab in systemJobTabs"
+          :key="tab.key"
+          :label="tab.label"
+          :name="tab.key"
+        />
+      </el-tabs>
+      <div class="jobs-tab-summary">
+        <div class="jobs-tab-summary__title">
+          {{ systemJobTabs.find((item) => item.key === activeTab)?.label || "总览" }}
         </div>
-        <div class="metric-item">
-          <div class="metric-label">今日成功</div>
-          <div class="metric-value">{{ metrics.today_success || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">今日失败</div>
-          <div class="metric-value">{{ metrics.today_failed || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">今日运行中</div>
-          <div class="metric-value">{{ metrics.today_running || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">今日重试总数</div>
-          <div class="metric-value">{{ metrics.retry_total || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">重试成功率</div>
-          <div class="metric-value">{{ formatPercent(metrics.retry_hit_rate) }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">自动重试触发次数</div>
-          <div class="metric-value">{{ metrics.auto_retry_total || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">恢复成功率（失败后重试）</div>
-          <div class="metric-value">{{ formatPercent(metrics.recovery_hit_rate) }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">恢复成功/触发</div>
-          <div class="metric-value">{{ metrics.recovery_success || 0 }}/{{ metrics.recovery_total || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">重试成功/失败</div>
-          <div class="metric-value">{{ metrics.retry_success || 0 }}/{{ metrics.retry_failed || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">平均重试次数</div>
-          <div class="metric-value">{{ Number(metrics.avg_retry_count || 0).toFixed(2) }}</div>
+        <div class="jobs-tab-summary__desc">
+          {{ systemJobTabs.find((item) => item.key === activeTab)?.description || "看今日运行、失败原因和使用说明" }}
         </div>
       </div>
-
-      <div class="toolbar" style="margin-top: 10px; margin-bottom: 6px">
-        <el-text type="primary">按任务维度的重试恢复统计</el-text>
-      </div>
-      <el-table
-        :data="metrics.job_retry_stats || []"
-        border
-        stripe
-        size="small"
-        empty-text="暂无按任务统计"
-        v-loading="metricsLoading"
-      >
-        <el-table-column label="任务" min-width="220">
-          <template #default="{ row }">
-            {{ formatJobName(row.job_name) }} ({{ row.job_name || "-" }})
-          </template>
-        </el-table-column>
-        <el-table-column prop="today_total" label="今日总运行" min-width="100" />
-        <el-table-column prop="today_failed" label="今日失败" min-width="90" />
-        <el-table-column prop="retry_total" label="重试数" min-width="80" />
-        <el-table-column label="重试成功率" min-width="120">
-          <template #default="{ row }">
-            {{ formatPercent(row.retry_hit_rate) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="auto_retry_total" label="自动重试触发" min-width="120" />
-        <el-table-column label="恢复成功/触发" min-width="130">
-          <template #default="{ row }">
-            {{ row.recovery_success || 0 }}/{{ row.recovery_total || 0 }}
-          </template>
-        </el-table-column>
-        <el-table-column label="恢复成功率" min-width="110">
-          <template #default="{ row }">
-            {{ formatPercent(row.recovery_hit_rate) }}
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="toolbar" style="margin-top: 10px; margin-bottom: 6px">
-        <el-text type="primary">失败原因聚合</el-text>
-        <el-tag type="info" effect="plain">{{ formatFailureReasonScope(metrics.failure_reason_scope || "LAST_7_DAYS") }}</el-tag>
-      </div>
-      <el-table
-        :data="metrics.failure_reasons || []"
-        border
-        stripe
-        size="small"
-        empty-text="暂无失败原因数据"
-        v-loading="metricsLoading"
-      >
-        <el-table-column prop="reason" label="原因分类" min-width="280" />
-        <el-table-column prop="count" label="次数" min-width="90" />
-        <el-table-column prop="last_occurred_at" label="最近发生时间" min-width="190">
-          <template #default="{ row }">
-            {{ row.last_occurred_at || "-" }}
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="toolbar" style="margin-top: 10px; margin-bottom: 6px">
-        <el-text type="primary">按任务失败原因</el-text>
-        <el-select
-          v-model="failureReasonJobFilter"
-          clearable
-          placeholder="按任务过滤失败原因"
-          style="width: 260px"
-        >
-          <el-option
-            v-for="name in failureReasonJobOptions"
-            :key="name"
-            :label="`${formatJobName(name)} (${name})`"
-            :value="name"
-          />
-        </el-select>
-      </div>
-      <el-table
-        :data="filteredJobFailureReasons"
-        border
-        stripe
-        size="small"
-        empty-text="暂无按任务失败原因"
-        v-loading="metricsLoading"
-      >
-        <el-table-column label="任务" min-width="220">
-          <template #default="{ row }">
-            {{ formatJobName(row.job_name) }} ({{ row.job_name || "-" }})
-          </template>
-        </el-table-column>
-        <el-table-column prop="reason" label="原因分类" min-width="280" />
-        <el-table-column prop="count" label="次数" min-width="90" />
-        <el-table-column prop="last_occurred_at" label="最近发生时间" min-width="190">
-          <template #default="{ row }">
-            {{ row.last_occurred_at || "-" }}
-          </template>
-        </el-table-column>
-      </el-table>
     </div>
 
-    <div class="card" style="margin-bottom: 12px">
+    <div v-show="activeTab === 'overview'" class="jobs-main-grid">
+      <div class="card jobs-panel-card" style="margin-bottom: 12px">
+        <div class="section-header section-header--stack">
+          <div>
+            <h3 style="margin: 0">运行总览</h3>
+            <p class="section-copy">先看核心卡片，再往下看任务维度统计和失败原因，能更快判断今天该处理哪里。</p>
+          </div>
+          <div class="inline-actions inline-actions--left">
+            <el-input
+              v-model="metricFilter.job_name"
+              clearable
+              placeholder="按任务编码过滤指标（可选）"
+              style="width: 260px"
+            />
+            <el-button :loading="metricsLoading" @click="fetchMetrics">刷新指标</el-button>
+          </div>
+        </div>
+
+        <div class="jobs-overview-grid" v-loading="metricsLoading">
+          <div
+            v-for="item in overviewCards"
+            :key="item.key"
+            class="jobs-overview-card"
+            :class="`is-${item.tone}`"
+          >
+            <div class="jobs-overview-card__title">{{ item.title }}</div>
+            <div class="jobs-overview-card__value">{{ item.value }}</div>
+            <div class="jobs-overview-card__helper">{{ item.helper }}</div>
+          </div>
+          <div class="jobs-overview-card is-info">
+            <div class="jobs-overview-card__title">今日成功</div>
+            <div class="jobs-overview-card__value">{{ metrics.today_success || 0 }}</div>
+            <div class="jobs-overview-card__helper">结合失败数一起看，便于判断成功面是否稳定</div>
+          </div>
+          <div class="jobs-overview-card is-gold">
+            <div class="jobs-overview-card__title">平均重试次数</div>
+            <div class="jobs-overview-card__value">{{ Number(metrics.avg_retry_count || 0).toFixed(2) }}</div>
+            <div class="jobs-overview-card__helper">重试次数持续升高时，建议复核任务配置或外部依赖</div>
+          </div>
+        </div>
+
+        <div class="jobs-table-block">
+          <div class="toolbar jobs-table-toolbar">
+            <el-text type="primary">按任务维度的重试恢复统计</el-text>
+            <span class="muted">用来判断问题集中在哪些任务，不要只盯总失败数。</span>
+          </div>
+          <el-table
+            :data="metrics.job_retry_stats || []"
+            border
+            stripe
+            size="small"
+            empty-text="暂无按任务统计"
+            v-loading="metricsLoading"
+          >
+            <el-table-column label="任务" min-width="220">
+              <template #default="{ row }">
+                {{ formatJobName(row.job_name) }} ({{ row.job_name || "-" }})
+              </template>
+            </el-table-column>
+            <el-table-column prop="today_total" label="今日总运行" min-width="100" />
+            <el-table-column prop="today_failed" label="今日失败" min-width="90" />
+            <el-table-column prop="retry_total" label="重试数" min-width="80" />
+            <el-table-column label="重试成功率" min-width="120">
+              <template #default="{ row }">
+                {{ formatPercent(row.retry_hit_rate) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="auto_retry_total" label="自动重试触发" min-width="120" />
+            <el-table-column label="恢复成功/触发" min-width="130">
+              <template #default="{ row }">
+                {{ row.recovery_success || 0 }}/{{ row.recovery_total || 0 }}
+              </template>
+            </el-table-column>
+            <el-table-column label="恢复成功率" min-width="110">
+              <template #default="{ row }">
+                {{ formatPercent(row.recovery_hit_rate) }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div class="jobs-table-block">
+          <div class="toolbar jobs-table-toolbar">
+            <el-text type="primary">失败原因聚合</el-text>
+            <el-tag type="info" effect="plain">{{ formatFailureReasonScope(metrics.failure_reason_scope || "LAST_7_DAYS") }}</el-tag>
+            <span class="muted">先看共性原因，再决定是调配置、重跑，还是排查外部源。</span>
+          </div>
+          <el-table
+            :data="metrics.failure_reasons || []"
+            border
+            stripe
+            size="small"
+            empty-text="暂无失败原因数据"
+            v-loading="metricsLoading"
+          >
+            <el-table-column prop="reason" label="原因分类" min-width="280" />
+            <el-table-column prop="count" label="次数" min-width="90" />
+            <el-table-column prop="last_occurred_at" label="最近发生时间" min-width="190">
+              <template #default="{ row }">
+                {{ row.last_occurred_at || "-" }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div class="jobs-table-block">
+          <div class="toolbar jobs-table-toolbar">
+            <el-text type="primary">按任务失败原因</el-text>
+            <el-select
+              v-model="failureReasonJobFilter"
+              clearable
+              placeholder="按任务过滤失败原因"
+              style="width: 260px"
+            >
+              <el-option
+                v-for="name in failureReasonJobOptions"
+                :key="name"
+                :label="`${formatJobName(name)} (${name})`"
+                :value="name"
+              />
+            </el-select>
+            <span class="muted">适合定位某个任务的重复性故障。</span>
+          </div>
+          <el-table
+            :data="filteredJobFailureReasons"
+            border
+            stripe
+            size="small"
+            empty-text="暂无按任务失败原因"
+            v-loading="metricsLoading"
+          >
+            <el-table-column label="任务" min-width="220">
+              <template #default="{ row }">
+                {{ formatJobName(row.job_name) }} ({{ row.job_name || "-" }})
+              </template>
+            </el-table-column>
+            <el-table-column prop="reason" label="原因分类" min-width="280" />
+            <el-table-column prop="count" label="次数" min-width="90" />
+            <el-table-column prop="last_occurred_at" label="最近发生时间" min-width="190">
+              <template #default="{ row }">
+                {{ row.last_occurred_at || "-" }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </div>
+
+      <div class="jobs-side-column">
+        <div class="card jobs-panel-card jobs-guide-panel">
+          <div class="section-header section-header--stack">
+            <div>
+              <h3 style="margin: 0">使用说明</h3>
+              <p class="section-copy">把常用处理顺序和权限边界放在右边，避免每次都去翻说明。</p>
+            </div>
+          </div>
+          <div class="jobs-guide-list">
+            <div v-for="card in guideCards" :key="card.key" class="jobs-guide-card">
+              <div class="jobs-guide-card__title">{{ card.title }}</div>
+              <ul class="jobs-guide-card__list">
+                <li v-for="item in card.items" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-show="activeTab === 'config' || activeTab === 'trigger'" class="jobs-workbench-grid">
+    <div v-show="activeTab === 'config'" class="card jobs-panel-card" style="margin-bottom: 12px">
       <div class="section-header">
-        <h3 style="margin: 0">自动重试配置</h3>
+        <div>
+          <h3 style="margin: 0">自动重试配置</h3>
+          <p class="section-copy">先看当前生效状态，再决定要不要调整次数、退避和任务范围。</p>
+        </div>
         <div class="inline-actions inline-actions--left">
           <el-button :loading="autoRetryLoading" @click="fetchAutoRetryConfigs">刷新配置</el-button>
           <el-button v-if="canEditSystemJobs" @click="resetAutoRetryForm">重置编辑</el-button>
@@ -1844,7 +1973,7 @@ onMounted(refreshAll);
         </div>
       </el-form>
       <el-alert
-        title="说明：自动重试仅对首次执行失败的任务生效；任务列表留空表示不限制任务名。"
+        title="自动重试只对首次执行失败的任务生效；任务列表留空表示不限制任务名。"
         type="info"
         :closable="false"
         show-icon
@@ -1904,9 +2033,12 @@ onMounted(refreshAll);
       </el-table>
     </div>
 
-    <div v-if="canEditSystemJobs" class="card" style="margin-bottom: 12px">
+    <div v-if="canEditSystemJobs" v-show="activeTab === 'trigger'" class="card jobs-panel-card" style="margin-bottom: 12px">
       <div class="section-header">
-        <h3 style="margin: 0">手动触发任务</h3>
+        <div>
+          <h3 style="margin: 0">手动触发任务</h3>
+          <p class="section-copy">用于临时补跑、联调验证或主动触发一次指定任务，不影响已有任务定义。</p>
+        </div>
       </div>
       <div class="toolbar" style="margin-bottom: 8px">
         <el-text type="info">快捷选择：</el-text>
@@ -2006,10 +2138,14 @@ onMounted(refreshAll);
         show-icon
       />
     </div>
+    </div>
 
-    <div class="card" style="margin-bottom: 12px">
+    <div v-show="activeTab === 'config'" class="card jobs-panel-card" style="margin-bottom: 12px">
       <div class="section-header">
-        <h3 style="margin: 0">任务定义</h3>
+        <div>
+          <h3 style="margin: 0">任务定义</h3>
+          <p class="section-copy">维护任务编码、调度表达式、所属模块和启停状态。这里是任务中心的“配置台账”。</p>
+        </div>
         <el-button v-if="canEditSystemJobs" type="primary" @click="openCreateDefinition">新增任务定义</el-button>
       </div>
 
@@ -2103,9 +2239,12 @@ onMounted(refreshAll);
       </div>
     </div>
 
-    <div class="card">
+    <div v-show="activeTab === 'runs'" class="card jobs-panel-card">
       <div class="section-header">
-        <h3 style="margin: 0">运行记录</h3>
+        <div>
+          <h3 style="margin: 0">运行记录</h3>
+          <p class="section-copy">这里承接详情、失败重跑、批量重跑和导出，是日常排障和复核的主工作区。</p>
+        </div>
       </div>
 
       <div class="toolbar">
@@ -2598,6 +2737,274 @@ onMounted(refreshAll);
 </template>
 
 <style scoped>
+.jobs-hero {
+  margin-bottom: 12px;
+  border: 1px solid #dbeafe;
+  background:
+    radial-gradient(circle at top right, rgba(191, 219, 254, 0.9), transparent 32%),
+    linear-gradient(135deg, #f8fbff 0%, #eef5ff 58%, #ffffff 100%);
+}
+
+.jobs-hero__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.page-eyebrow {
+  margin-bottom: 8px;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.jobs-hero__desc {
+  margin: 8px 0 0;
+  max-width: 760px;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.jobs-hero__top-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.jobs-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.jobs-action-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 156px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid #dbe5f3;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
+}
+
+.jobs-action-card.is-primary {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
+}
+
+.jobs-action-card.is-danger {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fff4f4 0%, #ffffff 100%);
+}
+
+.jobs-action-card.is-gold {
+  border-color: #fcd34d;
+  background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
+}
+
+.jobs-action-card.is-info {
+  border-color: #cbd5e1;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+}
+
+.jobs-action-card__title {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.jobs-action-card__desc {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.jobs-tabs-shell {
+  margin-bottom: 12px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.jobs-tab-summary {
+  padding: 0 18px 18px;
+}
+
+.jobs-tab-summary__title {
+  color: #0f172a;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.jobs-tab-summary__desc {
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.jobs-tab-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jobs-tabs :deep(.el-tabs__header) {
+  margin: 0;
+}
+
+.jobs-tabs :deep(.el-tabs__content) {
+  display: none;
+}
+
+.jobs-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(280px, 0.95fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.jobs-side-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jobs-panel-card {
+  padding: 18px;
+}
+
+.section-header--stack {
+  align-items: flex-start;
+}
+
+.section-copy {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.jobs-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.jobs-overview-card {
+  min-height: 132px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #dbe5f3;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.jobs-overview-card.is-primary {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
+}
+
+.jobs-overview-card.is-danger {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fff5f5 0%, #ffffff 100%);
+}
+
+.jobs-overview-card.is-warning {
+  border-color: #fde68a;
+  background: linear-gradient(180deg, #fff8e6 0%, #ffffff 100%);
+}
+
+.jobs-overview-card.is-success {
+  border-color: #bbf7d0;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+}
+
+.jobs-overview-card.is-info {
+  border-color: #cbd5e1;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+}
+
+.jobs-overview-card.is-gold {
+  border-color: #fcd34d;
+  background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
+}
+
+.jobs-overview-card__title {
+  color: #475569;
+  font-size: 12px;
+}
+
+.jobs-overview-card__value {
+  margin-top: 8px;
+  color: #0f172a;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.jobs-overview-card__helper {
+  margin-top: 10px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.jobs-table-block + .jobs-table-block {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #eef2f7;
+}
+
+.jobs-table-toolbar {
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.jobs-guide-panel {
+  position: sticky;
+  top: 20px;
+}
+
+.jobs-guide-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jobs-guide-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.jobs-guide-card__title {
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.jobs-guide-card__list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.jobs-workbench-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
 .metric-item {
   border: 1px solid #e5e7eb;
   border-radius: 12px;
@@ -2629,6 +3036,7 @@ onMounted(refreshAll);
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 
 .inline-actions {
@@ -2712,5 +3120,29 @@ onMounted(refreshAll);
 
 :deep(.dialog-grid .el-select) {
   width: 100%;
+}
+
+@media (max-width: 1280px) {
+  .jobs-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .jobs-guide-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 900px) {
+  .jobs-hero__top {
+    flex-direction: column;
+  }
+
+  .jobs-hero__top-actions {
+    justify-content: flex-start;
+  }
+
+  .jobs-workbench-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

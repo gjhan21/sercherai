@@ -1,4 +1,4 @@
-import { rangeDayMap } from "./constants";
+import { rangeDayMap } from "./constants.js";
 
 export function nextSubscriptionFrequency(current) {
   const order = ["INSTANT", "DAILY", "WEEKLY"];

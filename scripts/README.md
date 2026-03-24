@@ -10,13 +10,14 @@
 ## 支持命令
 
 ```bash
-./scripts/devctl.sh start [strategy-engine|backend|admin|client|all]
-./scripts/devctl.sh stop [strategy-engine|backend|admin|client|all]
-./scripts/devctl.sh restart [strategy-engine|backend|admin|client|all]
-./scripts/devctl.sh status [strategy-engine|backend|admin|client|all]
+./scripts/devctl.sh start [strategy-engine|backend|admin|client|client-h5|client-pc|all]
+./scripts/devctl.sh stop [strategy-engine|backend|admin|client|client-h5|client-pc|all]
+./scripts/devctl.sh restart [strategy-engine|backend|admin|client|client-h5|client-pc|all]
+./scripts/devctl.sh status [strategy-engine|backend|admin|client|client-h5|client-pc|all]
 ```
 
 - 不传第二个参数时默认 `all`。
+- `client-h5` / `client-pc` 是 `client` 的快捷别名，共享同一份 PID 和日志。
 - `start` 会先清理目标服务端口占用，再启动服务。
 - `start` 会在端口监听后继续做健康检查；`strategy-engine` 会校验 `/internal/v1/health`，backend 会校验 `/healthz`。
 - `start` 使用真正 detached 的子进程启动服务，脚本返回后服务不会因为当前终端关闭而被一并回收。
@@ -96,6 +97,8 @@ VITE_PROXY_TARGET=http://127.0.0.1:19081
 ```bash
 CLIENT_HOST=127.0.0.1
 CLIENT_PORT=5177
+# 可选: h5 / pc，默认 h5
+CLIENT_MODE=h5
 ```
 
 写完后重启对应服务：
@@ -105,6 +108,12 @@ CLIENT_PORT=5177
 ./scripts/devctl.sh restart admin
 ./scripts/devctl.sh restart client
 ```
+
+说明：
+
+- `CLIENT_MODE=h5` 时，`devctl` 会执行 `npm run dev:h5`，访问地址为 `http://127.0.0.1:<port>/m/`
+- `CLIENT_MODE=pc` 时，`devctl` 会执行 `npm run dev:pc`，访问地址为 `http://127.0.0.1:<port>/`
+- 也可以直接使用 `./scripts/devctl.sh start client-h5` 或 `./scripts/devctl.sh start client-pc` 临时指定模式，无需改 `.run/client.env`
 
 ## 常用示例
 
@@ -120,6 +129,12 @@ CLIENT_PORT=5177
 
 # 重启 admin
 ./scripts/devctl.sh restart admin
+
+# 直接启动 H5 client
+./scripts/devctl.sh start client-h5
+
+# 直接启动 PC client
+./scripts/devctl.sh start client-pc
 
 # 停止全部服务
 ./scripts/devctl.sh stop all

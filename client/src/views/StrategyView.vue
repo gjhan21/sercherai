@@ -23,18 +23,6 @@
       </div>
     </header>
 
-    <StatePanel
-      :tone="strategyAccessState.tone"
-      :eyebrow="strategyAccessState.label"
-      :title="strategyAccessState.title"
-      :description="strategyAccessState.desc"
-    >
-      <template #actions>
-        <button type="button" class="finance-primary-btn" @click="handleStrategyPrimaryAction">{{ strategyPrimaryActionText }}</button>
-        <button type="button" class="ghost finance-ghost-btn" @click="handleStrategySecondaryAction">{{ strategySecondaryActionText }}</button>
-      </template>
-    </StatePanel>
-
     <section class="strategy-focus-layout">
       <article class="card focus-detail-card">
         <header class="focus-detail-head">
@@ -384,34 +372,6 @@
       </article>
 
       <aside class="focus-side-stack">
-        <article class="card focus-side-card">
-          <header class="section-head compact">
-            <div>
-              <h2 class="section-title">查看顺序</h2>
-              <p class="section-subtitle">先看推荐详情，再查看期货和后续页面。</p>
-            </div>
-          </header>
-          <div class="focus-side-list">
-            <article class="finance-list-card finance-list-card-panel">
-              <strong>查看推荐详情</strong>
-              <p>先确认推荐理由、止盈止损和版本变化。</p>
-            </article>
-            <article class="finance-list-card finance-list-card-panel">
-              <strong>查看期货与事件</strong>
-              <p>结合期货参数和市场事件确认风险与机会。</p>
-            </article>
-            <article class="finance-list-card finance-list-card-panel">
-              <strong>继续查看相关页面</strong>
-              <p>可前往档案页、关注页或资讯页继续查看。</p>
-            </article>
-          </div>
-          <div class="focus-link-row">
-            <button type="button" class="ghost-btn finance-ghost-btn" @click="goStrategyArchive">去档案页</button>
-            <button type="button" class="ghost-btn finance-ghost-btn" @click="goStrategyWatchlist">去关注页</button>
-            <button type="button" class="ghost-btn finance-ghost-btn" @click="goStrategyNews">去资讯页</button>
-          </div>
-        </article>
-
         <article class="card focus-side-card">
           <header class="section-head compact">
             <div>
@@ -2466,77 +2426,6 @@ const strategyAccessStage = computed(() => {
   return "VISITOR";
 });
 
-const strategyAccessState = computed(() => {
-  if (memberStageLoading.value) {
-    return {
-      tone: "info",
-      label: "识别中",
-      title: "正在确认你的会员阶段",
-      desc: "确认完成后，会把策略页 CTA 调整为最适合当前阶段的动作。"
-    };
-  }
-  if (strategyAccessStage.value === "VIP") {
-    return {
-      tone: "success",
-      label: "会员阶段",
-      title:
-        strategyExperimentVariant === "proof"
-          ? "你已可查看完整策略与历史复盘。"
-          : "你已可查看完整策略内容和盘中变化。",
-      desc:
-        strategyExperimentVariant === "proof"
-          ? "建议先看历史兑现与跟踪结果，再回今日策略确认持仓。"
-          : "建议按 08:30 看推荐、11:30 看事件变化、15:30 回到会员中心复盘。"
-    };
-  }
-  if (strategyAccessStage.value === "REGISTERED") {
-    return {
-      tone: "warning",
-      label: "注册阶段",
-      title:
-        strategyExperimentVariant === "proof"
-          ? "你已可查看策略逻辑，可先判断公开样本是否值得继续查看。"
-          : "你已可查看策略逻辑，下一步可保存关注或升级会员。",
-      desc:
-        strategyExperimentVariant === "proof"
-          ? "先看历史档案和已跟踪案例，再决定是否开会员解锁盘中提醒和复盘。"
-          : "先把关键标的加入关注，再判断是否需要盘中变化提醒和复盘能力。"
-    };
-  }
-  return {
-    tone: "info",
-    label: "游客阶段",
-    title:
-      strategyExperimentVariant === "proof"
-        ? "可先查看策略价值和历史兑现，再决定是否注册。"
-        : "可先查看策略价值，注册后再保存关注持续跟踪。",
-    desc:
-      strategyExperimentVariant === "proof"
-        ? "建议先看历史档案，确认推荐逻辑有闭环，再登录保存关注。"
-        : "建议先登录保存关注，这样下次回来可以直接看到自己的跟踪池。"
-  };
-});
-
-const strategyPrimaryActionText = computed(() => {
-  if (strategyAccessStage.value === "VIP") {
-    return strategyExperimentVariant === "proof" ? "看历史档案" : "去会员中心";
-  }
-  if (strategyAccessStage.value === "REGISTERED") {
-    return strategyExperimentVariant === "proof" ? "先看历史档案" : "开通会员";
-  }
-  return strategyExperimentVariant === "proof" ? "先看历史档案" : "先登录保存关注";
-});
-
-const strategySecondaryActionText = computed(() => {
-  if (strategyAccessStage.value === "VIP") {
-    return "看我的关注";
-  }
-  if (strategyAccessStage.value === "REGISTERED") {
-    return "看我的关注";
-  }
-  return "看历史档案";
-});
-
 function resolveStrategyStage() {
   return strategyAccessStage.value;
 }
@@ -3599,50 +3488,6 @@ function resolveVIPStage(quota) {
   return true;
 }
 
-function handleStrategyPrimaryAction() {
-  if (strategyExperimentVariant === "proof") {
-    navigateWithStrategyTracking("/archive", "access_primary", {
-      ctaLabel: strategyPrimaryActionText.value
-    });
-    return;
-  }
-  if (strategyAccessStage.value === "VIP") {
-    navigateWithStrategyTracking("/membership", "access_primary", {
-      ctaLabel: strategyPrimaryActionText.value
-    });
-    return;
-  }
-  if (strategyAccessStage.value === "REGISTERED") {
-    navigateWithStrategyTracking("/membership", "access_primary", {
-      ctaLabel: strategyPrimaryActionText.value,
-      upgradeIntent: true,
-      rememberAttribution: true
-    });
-    return;
-  }
-  navigateWithStrategyTracking(
-    { path: "/auth", query: { redirect: "/strategies" } },
-    "access_primary",
-    {
-      ctaLabel: strategyPrimaryActionText.value,
-      rememberPendingAttribution: true,
-      redirectPath: "/strategies"
-    }
-  );
-}
-
-function handleStrategySecondaryAction() {
-  if (strategyAccessStage.value === "VISITOR") {
-    navigateWithStrategyTracking("/archive", "access_secondary", {
-      ctaLabel: strategySecondaryActionText.value
-    });
-    return;
-  }
-  navigateWithStrategyTracking("/watchlist", "access_secondary", {
-    ctaLabel: strategySecondaryActionText.value
-  });
-}
-
 function goStrategyArchive() {
   navigateWithStrategyTracking("/archive", "focus_archive", {
     ctaLabel: "看历史档案"
@@ -4016,23 +3861,20 @@ onBeforeUnmount(() => {
 }
 
 .focus-kpi-grid article,
-.side-mini-grid article,
-.focus-side-list article {
+.side-mini-grid article {
   display: grid;
   gap: 4px;
 }
 
 .focus-kpi-grid p,
-.side-mini-grid p,
-.focus-side-list p {
+.side-mini-grid p {
   margin: 0;
   font-size: 12px;
   color: var(--color-text-sub);
 }
 
 .focus-kpi-grid strong,
-.side-mini-grid strong,
-.focus-side-list strong {
+.side-mini-grid strong {
   font-size: 14px;
   color: var(--color-text-main);
 }
@@ -4043,7 +3885,6 @@ onBeforeUnmount(() => {
   align-content: start;
 }
 
-.focus-side-list,
 .side-highlight-box {
   display: grid;
   gap: 10px;

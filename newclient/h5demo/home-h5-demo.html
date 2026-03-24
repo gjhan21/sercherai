@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SercherAI 首页 Demo - H5</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap");
+
+      :root {
+        --bg-base: #ebf2fb;
+        --bg-deep: #102e63;
+        --bg-hero: #14386f;
+        --bg-hero-2: #1d4e93;
+        --panel: rgba(255, 255, 255, 0.94);
+        --panel-soft: #f7faff;
+        --line: rgba(24, 56, 108, 0.1);
+        --text-main: #16386c;
+        --text-sub: #577098;
+        --text-soft: #778cb0;
+        --gold: #c9a149;
+        --gold-strong: #b78422;
+        --gold-soft: rgba(201, 161, 73, 0.14);
+        --success: #1f9d66;
+        --danger: #c74f46;
+        --radius-xl: 22px;
+        --radius-lg: 16px;
+        --radius-md: 14px;
+        --shadow: 0 22px 52px rgba(12, 31, 64, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        font-family: "Noto Sans SC", "IBM Plex Sans", sans-serif;
+        color: var(--text-main);
+        background:
+          radial-gradient(circle at top right, rgba(201, 161, 73, 0.14), transparent 20%),
+          linear-gradient(180deg, #f4f8fe 0%, #edf3fb 42%, #e7eef9 100%);
+      }
+
+      .device-stage {
+        min-height: 100vh;
+        padding: 24px 16px 120px;
+      }
+
+      .device-shell {
+        width: min(100%, 468px);
+        margin: 0 auto;
+        padding: 13px;
+        border-radius: 34px;
+        background: linear-gradient(180deg, #0f2d61 0%, #163a72 13%, #eaf1fa 13%, #eaf1fa 100%);
+        box-shadow: 0 30px 66px rgba(14, 36, 74, 0.18);
+      }
+
+      .device-screen {
+        overflow: hidden;
+        border-radius: 28px;
+        background: linear-gradient(180deg, #15376f 0%, #1c4a8b 14%, #eef3fb 14%, #eef3fb 100%);
+      }
+
+      .status-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 16px 0;
+        color: rgba(245, 249, 255, 0.92);
+        font-size: 12px;
+      }
+
+      .app-header {
+        padding: 12px 18px 18px;
+        color: #f5f9ff;
+      }
+
+      .app-header-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .brand-mark {
+        width: 30px;
+        height: 30px;
+        border-radius: 11px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #d7b267, #b78523);
+        color: #17335f;
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .brand-copy strong {
+        display: block;
+        font-size: 15px;
+        line-height: 1.2;
+      }
+
+      .brand-copy span,
+      .icon-button,
+      .section-head span,
+      .quick-entry span,
+      .sample-card span,
+      .news-card span,
+      .service-note small,
+      .tab-item small {
+        color: rgba(225, 233, 246, 0.78);
+        font-size: 11px;
+      }
+
+      .header-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .icon-button {
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .hero-card {
+        margin-top: 15px;
+        padding: 16px;
+        border-radius: 20px;
+        background:
+          radial-gradient(circle at top right, rgba(216, 182, 100, 0.24), transparent 30%),
+          linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(17, 47, 95, 0.16));
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .hero-tags,
+      .cta-row,
+      .mini-tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .hero-tag,
+      .mini-tag {
+        padding: 5px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .hero-tag {
+        color: #fff4d8;
+        background: rgba(216, 182, 100, 0.18);
+        border: 1px solid rgba(216, 182, 100, 0.24);
+      }
+
+      .hero-card h1 {
+        margin: 12px 0 8px;
+        font-size: 25px;
+        line-height: 1.38;
+      }
+
+      .hero-card p {
+        margin: 0;
+        color: rgba(236, 242, 252, 0.9);
+        font-size: 13px;
+        line-height: 1.75;
+      }
+
+      .cta-row {
+        margin-top: 14px;
+      }
+
+      .hero-button {
+        padding: 10px 14px;
+        border-radius: 13px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .hero-button.primary {
+        color: #17325f;
+        background: linear-gradient(135deg, #d7b267, #b88626);
+      }
+
+      .hero-button.ghost {
+        color: #f4f8ff;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .page-content {
+        padding: 16px 16px 20px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .section {
+        padding: 14px;
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .section-head strong {
+        color: var(--text-main);
+        font-size: 15px;
+      }
+
+      .metric-strip {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .metric-card {
+        padding: 11px;
+        border-radius: 14px;
+        background: linear-gradient(180deg, #f9fbff 0%, #eff4fb 100%);
+        border: 1px solid rgba(24, 56, 108, 0.08);
+      }
+
+      .metric-card span,
+      .recommend-item span,
+      .reason-card span,
+      .report-point span {
+        display: block;
+        color: var(--text-soft);
+        font-size: 11px;
+      }
+
+      .metric-card strong,
+      .quick-entry strong,
+      .recommend-item strong,
+      .reason-card strong,
+      .report-card h2,
+      .report-point strong,
+      .sample-card strong,
+      .news-card strong,
+      .tab-item strong {
+        display: block;
+        color: var(--text-main);
+      }
+
+      .metric-card strong {
+        margin-top: 4px;
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .quick-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .quick-entry {
+        text-align: center;
+      }
+
+      .quick-icon {
+        width: 46px;
+        height: 46px;
+        margin: 0 auto 8px;
+        border-radius: 14px;
+        background: linear-gradient(180deg, rgba(24, 61, 122, 0.14), rgba(214, 181, 100, 0.1));
+        border: 1px solid rgba(25, 56, 108, 0.08);
+      }
+
+      .quick-entry strong {
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .quick-entry span {
+        display: block;
+        margin-top: 3px;
+        color: var(--text-soft);
+      }
+
+      .recommend-card {
+        padding: 16px;
+        border-radius: 18px;
+        color: #f6f9ff;
+        background:
+          radial-gradient(circle at top right, rgba(216, 182, 100, 0.24), transparent 30%),
+          linear-gradient(135deg, var(--bg-hero) 0%, var(--bg-hero-2) 62%, #2259a1 100%);
+      }
+
+      .recommend-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .recommend-card h2 {
+        margin: 10px 0 8px;
+        font-size: 19px;
+        line-height: 1.45;
+      }
+
+      .recommend-card p {
+        margin: 0;
+        color: rgba(235, 242, 252, 0.9);
+        font-size: 12px;
+        line-height: 1.74;
+      }
+
+      .badge {
+        padding: 6px 10px;
+        border-radius: 999px;
+        color: #fff4d8;
+        background: rgba(216, 182, 100, 0.16);
+        border: 1px solid rgba(216, 182, 100, 0.2);
+        font-size: 11px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .recommend-grid,
+      .reason-grid,
+      .sample-list,
+      .news-list,
+      .report-points {
+        display: grid;
+        gap: 10px;
+      }
+
+      .recommend-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-top: 14px;
+        gap: 12px;
+      }
+
+      .recommend-item {
+        padding: 11px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .recommend-item strong {
+        margin-top: 4px;
+        color: #f7fbff;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .reason-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .reason-card {
+        padding: 12px;
+        border-radius: 14px;
+        background: linear-gradient(180deg, #f9fbff 0%, #eff4fb 100%);
+        border: 1px solid rgba(24, 56, 108, 0.08);
+      }
+
+      .reason-card strong {
+        margin-top: 5px;
+        font-size: 13px;
+        line-height: 1.48;
+      }
+
+      .reason-card p,
+      .report-card p,
+      .report-point p,
+      .sample-card p,
+      .news-card p,
+      .service-note p {
+        margin: 6px 0 0;
+        color: var(--text-sub);
+        font-size: 12px;
+        line-height: 1.72;
+      }
+
+      .mini-tag {
+        color: #6f84a8;
+        background: rgba(17, 53, 106, 0.06);
+      }
+
+      .report-card {
+        padding: 16px;
+        border-radius: 18px;
+        border-left: 4px solid var(--gold);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 255, 0.96));
+      }
+
+      .report-card h2 {
+        margin-top: 8px;
+        font-size: 18px;
+        line-height: 1.45;
+      }
+
+      .report-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: #81641a;
+        background: var(--gold-soft);
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .report-points {
+        margin-top: 12px;
+      }
+
+      .report-point {
+        padding: 12px 0 0;
+        border-top: 1px dashed rgba(24, 56, 108, 0.12);
+      }
+
+      .report-point strong,
+      .sample-card strong,
+      .news-card strong {
+        margin-top: 4px;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .sample-card,
+      .news-card {
+        padding: 12px;
+        border-radius: 14px;
+        background: rgba(248, 251, 255, 0.96);
+        border: 1px solid rgba(24, 56, 108, 0.08);
+      }
+
+      .sample-top,
+      .news-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .impact {
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .impact.up {
+        color: var(--success);
+        background: rgba(31, 157, 102, 0.1);
+      }
+
+      .impact.down {
+        color: var(--danger);
+        background: rgba(199, 79, 70, 0.1);
+      }
+
+      .service-note {
+        padding: 12px;
+        border-radius: 16px;
+        background: linear-gradient(180deg, rgba(247, 250, 255, 0.96), rgba(240, 245, 252, 0.98));
+        border: 1px solid rgba(24, 56, 108, 0.08);
+      }
+
+      .service-note small {
+        display: block;
+        color: var(--text-soft);
+      }
+
+      .tabbar {
+        position: sticky;
+        bottom: 14px;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        padding: 10px 12px;
+        border-radius: 18px;
+        border: 1px solid rgba(24, 56, 108, 0.08);
+        background: rgba(255, 255, 255, 0.96);
+        backdrop-filter: blur(10px);
+        box-shadow: 0 18px 38px rgba(15, 35, 73, 0.1);
+      }
+
+      .tab-item {
+        text-align: center;
+        padding: 6px 0;
+        border-radius: 12px;
+      }
+
+      .tab-item.active {
+        background: linear-gradient(180deg, rgba(24, 56, 108, 0.1), rgba(201, 161, 73, 0.08));
+      }
+
+      .tab-icon {
+        width: 18px;
+        height: 18px;
+        margin: 0 auto 4px;
+        border-radius: 6px;
+        background: linear-gradient(180deg, rgba(24, 56, 108, 0.18), rgba(201, 161, 73, 0.14));
+      }
+
+      .tab-item strong {
+        font-size: 11px;
+        line-height: 1.2;
+      }
+
+      .tab-item small {
+        display: block;
+        margin-top: 2px;
+        color: var(--text-soft);
+      }
+
+      @media (max-width: 420px) {
+        .metric-strip,
+        .quick-grid,
+        .reason-grid,
+        .recommend-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .metric-strip {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="device-stage">
+      <div class="device-shell">
+        <div class="device-screen">
+          <div class="status-bar">
+            <span>09:41</span>
+            <span>5G</span>
+          </div>
+
+          <header class="app-header">
+            <div class="app-header-top">
+              <div class="brand">
+                <span class="brand-mark">S</span>
+                <div class="brand-copy">
+                  <strong>SercherAI</strong>
+                  <span>首页 Demo / H5 版</span>
+                </div>
+              </div>
+
+              <div class="header-actions">
+                <span class="icon-button">搜</span>
+                <span class="icon-button">信</span>
+              </div>
+            </div>
+
+            <section class="hero-card">
+              <div class="hero-tags">
+                <span class="hero-tag">今日主线</span>
+                <span class="hero-tag">推荐优先</span>
+                <span class="hero-tag">研报并列</span>
+              </div>
+              <h1>先看主推荐，再顺着焦点研报与资讯继续往下读</h1>
+              <p>
+                H5 首页不再是简化网页，而是按国内金融 App 的方式组织现有内容：
+                顶部信息头、快捷入口、推荐主卡、研报大卡、历史样本与资讯列表都在一条阅读链里。
+              </p>
+              <div class="cta-row">
+                <span class="hero-button primary">看完整观点</span>
+                <span class="hero-button ghost">去资讯页</span>
+              </div>
+            </section>
+          </header>
+
+          <main class="page-content">
+            <section class="section">
+              <div class="section-head">
+                <strong>快捷入口</strong>
+                <span>像国内 App 一样前置高频动作</span>
+              </div>
+              <div class="quick-grid">
+                <div class="quick-entry">
+                  <div class="quick-icon"></div>
+                  <strong>今日推荐</strong>
+                  <span>主位观点</span>
+                </div>
+                <div class="quick-entry">
+                  <div class="quick-icon"></div>
+                  <strong>研报解读</strong>
+                  <span>深读入口</span>
+                </div>
+                <div class="quick-entry">
+                  <div class="quick-icon"></div>
+                  <strong>历史样本</strong>
+                  <span>复盘预览</span>
+                </div>
+                <div class="quick-entry">
+                  <div class="quick-icon"></div>
+                  <strong>会员权益</strong>
+                  <span>权限承接</span>
+                </div>
+              </div>
+            </section>
+
+            <section class="section">
+              <div class="metric-strip">
+                <article class="metric-card">
+                  <span>主推荐</span>
+                  <strong>1 个主位</strong>
+                </article>
+                <article class="metric-card">
+                  <span>焦点研报</span>
+                  <strong>1 篇必读</strong>
+                </article>
+                <article class="metric-card">
+                  <span>待办入口</span>
+                  <strong>4 个快捷项</strong>
+                </article>
+              </div>
+            </section>
+
+            <section class="recommend-card">
+              <div class="recommend-top">
+                <div class="mini-tag-row">
+                  <span class="hero-tag">股票主位</span>
+                  <span class="hero-tag">期货承接</span>
+                </div>
+                <span class="badge">今日推荐</span>
+              </div>
+              <h2>主推荐卡直接给结论、理由和风控边界，而不是只放一张封面图</h2>
+              <p>
+                这是 H5 首页第一主视觉。用户打开应用后先看到“今天该看什么”，再进入理由、研报和资讯，
+                更符合国内金融 App 的使用习惯。
+              </p>
+
+              <div class="recommend-grid">
+                <article class="recommend-item">
+                  <span>推荐标的</span>
+                  <strong>宁德时代 300750</strong>
+                </article>
+                <article class="recommend-item">
+                  <span>为什么看</span>
+                  <strong>景气修复 + 订单验证</strong>
+                </article>
+                <article class="recommend-item">
+                  <span>止盈止损</span>
+                  <strong>目标区间 / 风控线</strong>
+                </article>
+                <article class="recommend-item">
+                  <span>期货机会</span>
+                  <strong>工业硅方向轻承接</strong>
+                </article>
+              </div>
+            </section>
+
+            <section class="section">
+              <div class="section-head">
+                <strong>为什么今天先看它</strong>
+                <span>解释压成两块，快速读完</span>
+              </div>
+              <div class="reason-grid">
+                <article class="reason-card">
+                  <span>核心结论</span>
+                  <strong>更偏中线配置，不追短线噪音</strong>
+                  <p>首页保留 insight 摘要，但不把长解释一次性全部堆出。</p>
+                  <div class="mini-tag-row" style="margin-top: 10px;">
+                    <span class="mini-tag">推荐理由</span>
+                    <span class="mini-tag">版本变化</span>
+                  </div>
+                </article>
+
+                <article class="reason-card">
+                  <span>风险边界</span>
+                  <strong>止盈区间、止损线和失效条件同步前置</strong>
+                  <p>这部分保留中文金融站的表达习惯，先说边界，再说机会。</p>
+                  <div class="mini-tag-row" style="margin-top: 10px;">
+                    <span class="mini-tag">止损原因</span>
+                    <span class="mini-tag">风险说明</span>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="report-card">
+              <span class="report-kicker">今日焦点研报 / 会员深读</span>
+              <h2>研报作为首页第二主线，必须像重点内容卡，而不是一条普通资讯</h2>
+              <p>
+                焦点研报继续承接资讯页真实能力。首页先给标题、摘要和三条解读，
+                真正正文与附件下载动作仍然进入资讯页完成。
+              </p>
+
+              <div class="report-points">
+                <article class="report-point">
+                  <span>一句话解读</span>
+                  <strong>用一段话讲清研报现在最值得看的核心判断</strong>
+                  <p>保证首页层面就能看懂“为什么今天要读这篇”。</p>
+                </article>
+
+                <article class="report-point">
+                  <span>与推荐关系</span>
+                  <strong>把研报结论和今日主推荐建立连接</strong>
+                  <p>避免研报像独立信息孤岛，增强首页整体主线感。</p>
+                </article>
+
+                <article class="report-point">
+                  <span>继续阅读</span>
+                  <strong>进入资讯页看正文、附件和权限承接</strong>
+                  <p>保持游客、登录和 VIP 的现有阅读链条，不新增假能力。</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="section">
+              <div class="section-head">
+                <strong>历史样本预览</strong>
+                <span>首页复盘入口，不是完整档案页</span>
+              </div>
+              <div class="sample-list">
+                <article class="sample-card">
+                  <div class="sample-top">
+                    <div>
+                      <span>历史样本 01</span>
+                      <strong>比亚迪 002594 · 中线兑现</strong>
+                    </div>
+                    <span class="impact up">+18.4%</span>
+                  </div>
+                  <p>展示历史涨幅、当时推荐理由和后期止盈原因，让首页能快速表达复盘价值。</p>
+                </article>
+
+                <article class="sample-card">
+                  <div class="sample-top">
+                    <div>
+                      <span>历史样本 02</span>
+                      <strong>中国中免 601888 · 风险退出</strong>
+                    </div>
+                    <span class="impact down">-6.2%</span>
+                  </div>
+                  <p>允许出现止损与失效样本，避免页面只展示“成功案例”而变成营销页。</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="section">
+              <div class="section-head">
+                <strong>市场资讯</strong>
+                <span>像国内资讯 App 一样继续往下读</span>
+              </div>
+              <div class="news-list">
+                <article class="news-card">
+                  <div class="news-top">
+                    <span>资讯 01</span>
+                    <span class="impact up">公开</span>
+                  </div>
+                  <strong>政策与行业快讯：新能源链条关注度再抬升</strong>
+                  <p>资讯区保留国内 App 的列表阅读感，但不把首页做成全文瀑布流。</p>
+                </article>
+
+                <article class="news-card">
+                  <div class="news-top">
+                    <span>资讯 02</span>
+                    <span class="impact up">公开</span>
+                  </div>
+                  <strong>公司动态：重点公司订单与排产更新，影响今日推荐排序</strong>
+                  <p>首页更强调“资讯为什么影响推荐”，而不是只罗列标题。</p>
+                </article>
+
+                <article class="news-card">
+                  <div class="news-top">
+                    <span>资讯 03</span>
+                    <span class="impact down">VIP</span>
+                  </div>
+                  <strong>焦点文章：继续深读焦点研报与附件说明</strong>
+                  <p>继续进入资讯页承接正文、附件与权限，不在首页把结构做乱。</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="service-note">
+              <small>底部说明</small>
+              <p>
+                本页为 H5 首页 demo。底部保留精简服务说明，不让页面像半截 H5 活动页；
+                同时底部 Tab 只对应当前真实路由：首页、策略、资讯、会员、我的。
+              </p>
+            </section>
+
+            <nav class="tabbar" aria-label="底部标签栏">
+              <div class="tab-item active">
+                <div class="tab-icon"></div>
+                <strong>首页</strong>
+                <small>主线</small>
+              </div>
+              <div class="tab-item">
+                <div class="tab-icon"></div>
+                <strong>策略</strong>
+                <small>观点</small>
+              </div>
+              <div class="tab-item">
+                <div class="tab-icon"></div>
+                <strong>资讯</strong>
+                <small>研报</small>
+              </div>
+              <div class="tab-item">
+                <div class="tab-icon"></div>
+                <strong>会员</strong>
+                <small>权益</small>
+              </div>
+              <div class="tab-item">
+                <div class="tab-icon"></div>
+                <strong>我的</strong>
+                <small>账户</small>
+              </div>
+            </nav>
+          </main>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

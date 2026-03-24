@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SercherAI 档案 Demo - PC</title>
+    <link rel="stylesheet" href="./demo-finance.css" />
+  </head>
+  <body>
+    <div class="pc-shell">
+      <header class="site-header">
+        <div class="site-header-inner">
+          <div class="brand">
+            <span class="brand-mark">S</span>
+            <div class="brand-copy">
+              <strong>SercherAI 研究终端</strong>
+              <span>档案页 / 历史推荐复盘台</span>
+            </div>
+          </div>
+
+          <nav class="nav" aria-label="主导航">
+            <a href="./home-pc-demo.html">首页</a>
+            <a href="./strategies-pc-demo.html">策略</a>
+            <a href="./watchlist-pc-demo.html">关注</a>
+            <a href="./news-pc-demo.html">资讯</a>
+            <a class="active" href="./archive-pc-demo.html">档案</a>
+            <a href="./membership-pc-demo.html">会员</a>
+            <a href="./profile-pc-demo.html">我的</a>
+          </nav>
+
+          <div class="header-actions">
+            <span class="header-chip">历史样本 128 条</span>
+            <span class="header-chip primary">复盘优先</span>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="page-hero">
+          <div class="pill-row">
+            <span class="pill">档案页</span>
+            <span class="pill blue">历史推荐复盘台</span>
+            <span class="pill blue">正反样本并列</span>
+          </div>
+          <h1>先看筛选概览和时间线，再读单条样本的历史理由、涨跌结果与后期处理</h1>
+          <p>
+            档案页不是收益榜，而是复盘台。它需要同时展示成功与失败样本，
+            讲清楚当时为什么推荐、后来为什么止盈或止损、版本变化如何影响最后处理。
+          </p>
+
+          <div class="hero-stat-grid">
+            <article class="hero-stat">
+              <span>历史样本</span>
+              <strong>128 条</strong>
+            </article>
+            <article class="hero-stat">
+              <span>兑现样本</span>
+              <strong class="metric-up">67 条</strong>
+            </article>
+            <article class="hero-stat">
+              <span>风险退出</span>
+              <strong class="metric-down">28 条</strong>
+            </article>
+            <article class="hero-stat">
+              <span>重点阅读</span>
+              <strong>理由 -> 结果 -> 后续处理</strong>
+            </article>
+          </div>
+        </section>
+
+        <section class="content-layout">
+          <div class="main-column">
+            <section class="finance-card">
+              <div class="section-head">
+                <div>
+                  <h2>筛选与概览</h2>
+                  <p>先看样本所处阶段，再决定从哪一类复盘开始，不直接把用户丢进长列表。</p>
+                </div>
+                <span class="head-tag">概览</span>
+              </div>
+
+              <div class="filter-row">
+                <span class="segment active">全部样本</span>
+                <span class="segment">已兑现</span>
+                <span class="segment">风险退出</span>
+                <span class="segment">观察中</span>
+                <span class="segment">股票</span>
+                <span class="segment">期货</span>
+              </div>
+
+              <div class="info-grid" style="margin-top: 16px;">
+                <article class="info-card">
+                  <span class="status-pill success">本周复盘重点</span>
+                  <strong>看成功样本时同时对照失效样本</strong>
+                  <p>避免把档案页做成只讲胜率的成绩单。</p>
+                </article>
+                <article class="info-card">
+                  <span class="status-pill warning">版本变化重点</span>
+                  <strong>优先关注“边界被修改”的历史样本</strong>
+                  <p>这类样本最能解释策略是如何被更新和修正的。</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="finance-card soft">
+              <div class="section-head">
+                <div>
+                  <h2>历史推荐时间线</h2>
+                  <p>时间线负责把样本放回当时的上下文，而不是只看最后结果。</p>
+                </div>
+                <span class="head-tag">时间线</span>
+              </div>
+
+              <div class="timeline">
+                <article class="timeline-item">
+                  <div class="timeline-head">
+                    <span class="status-pill success">已兑现</span>
+                    <span class="list-kicker">2026-02-18</span>
+                  </div>
+                  <strong>比亚迪 002594：景气拐点确认后，中线兑现目标区间</strong>
+                  <p>从推荐、跟踪到止盈的时间线完整保留，强调“逻辑兑现”而不是只看涨幅。</p>
+                </article>
+                <article class="timeline-item">
+                  <div class="timeline-head">
+                    <span class="status-pill warning">风险退出</span>
+                    <span class="list-kicker">2026-01-30</span>
+                  </div>
+                  <strong>中国中免 601888：基本面验证慢于预期，触发风控线</strong>
+                  <p>失败样本仍然前置展示，帮助用户理解止损和边界管理。</p>
+                </article>
+                <article class="timeline-item">
+                  <div class="timeline-head">
+                    <span class="status-pill gold">仍可参考</span>
+                    <span class="list-kicker">2025-12-20</span>
+                  </div>
+                  <strong>工业硅策略样本：事件驱动阶段性成立，后续转入档案观察</strong>
+                  <p>这类样本说明期货与事件链路也需要进入档案复盘体系。</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="finance-card">
+              <div class="section-head">
+                <div>
+                  <h2>样本复盘卡与版本差异</h2>
+                  <p>每一条样本都要同时回答“为什么推荐、结果如何、后来为什么处理”。</p>
+                </div>
+                <span class="head-tag">复盘卡</span>
+              </div>
+
+              <div class="detail-grid">
+                <article class="detail-card">
+                  <span class="status-pill success">正向样本</span>
+                  <strong>比亚迪 002594 · 中线兑现 +18.4%</strong>
+                  <p>历史推荐理由：销量与出口预期同步改善，估值回落后具备再配置空间。</p>
+                  <p>后期止盈原因：达到目标区间，情绪与基本面预期已被市场充分计价。</p>
+                  <p>版本变化：中期曾上调跟踪优先级，但未更改风险边界。</p>
+                </article>
+                <article class="detail-card">
+                  <span class="status-pill warning">反向样本</span>
+                  <strong>中国中免 601888 · 风险退出 -6.2%</strong>
+                  <p>历史推荐理由：估值低位，等待政策与客流数据共同修复。</p>
+                  <p>后期止损原因：验证慢于预期，风控线触发后转入复盘，不再保留主推荐地位。</p>
+                  <p>版本变化：最后一次更新中，风险边界由“观察”调整为“退出”。</p>
+                </article>
+              </div>
+            </section>
+          </div>
+
+          <aside class="side-column">
+            <section class="side-card">
+              <div class="section-head">
+                <div>
+                  <h3>复盘方法</h3>
+                  <p>复盘的重点不是结果，而是过程和处理。</p>
+                </div>
+                <span class="head-tag">方法</span>
+              </div>
+              <div class="list-stack">
+                <article class="list-item">
+                  <strong>先看历史理由，再看涨跌结果</strong>
+                  <p>如果只看收益，档案页就会退化成排行榜。</p>
+                </article>
+                <article class="list-item">
+                  <strong>再看后期止盈 / 止损原因</strong>
+                  <p>处理原因决定这条样本能否真正用于后续借鉴。</p>
+                </article>
+                <article class="list-item">
+                  <strong>最后对照版本变化</strong>
+                  <p>这能解释结论为什么会被修正或失效。</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="side-card">
+              <div class="section-head">
+                <div>
+                  <h3>阅读顺序</h3>
+                  <p>看档案不是为了怀旧，而是为了反向校准现在的阅读链。</p>
+                </div>
+                <span class="head-tag">顺序</span>
+              </div>
+              <div class="path-grid">
+                <article class="path-card">
+                  <span class="status-pill">回首页</span>
+                  <strong>看今天的主推荐与焦点研报</strong>
+                  <p>让历史样本重新服务当下阅读。</p>
+                </article>
+                <article class="path-card">
+                  <span class="status-pill gold">回策略页</span>
+                  <strong>把复盘经验映射到当前推荐</strong>
+                  <p>理解为什么今天的结论会更谨慎或更积极。</p>
+                </article>
+              </div>
+            </section>
+          </aside>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div class="footer-grid">
+          <div class="footer-column">
+            <strong>SercherAI 档案中心</strong>
+            <p>档案页把历史推荐、结果、处理原因和版本变化组织成完整复盘链，而不是收益成绩单。</p>
+          </div>
+          <div class="footer-column">
+            <strong>复盘维度</strong>
+            <div class="footer-links">
+              <a href="#">历史理由</a>
+              <a href="#">涨跌结果</a>
+              <a href="#">后续处理</a>
+            </div>
+          </div>
+          <div class="footer-column">
+            <strong>关联页面</strong>
+            <div class="footer-links">
+              <a href="#">首页</a>
+              <a href="#">策略</a>
+              <a href="#">资讯</a>
+            </div>
+          </div>
+          <div class="footer-column">
+            <strong>风险提示</strong>
+            <div class="footer-links">
+              <a href="#">内容使用边界</a>
+              <a href="#">投资风险</a>
+              <a href="#">免责声明</a>
+            </div>
+          </div>
+        </div>
+        <div class="footer-meta">
+          <span>档案页主任务：用历史样本校准当前阅读链</span>
+          <span>关键词：历史理由 / 止盈止损 / 版本变化</span>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

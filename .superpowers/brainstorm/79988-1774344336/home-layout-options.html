@@ -1,0 +1,569 @@
+<style>
+  .top-note {
+    margin-bottom: 20px;
+    padding: 14px 16px;
+    border: 1px solid rgba(66, 103, 178, 0.18);
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(245, 249, 255, 0.95), rgba(236, 243, 255, 0.88));
+    color: #27406f;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .cards.layout-cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+  }
+
+  .layout-card {
+    overflow: hidden;
+    border-radius: 24px;
+    border: 1px solid rgba(29, 58, 112, 0.16);
+    box-shadow: 0 18px 44px rgba(20, 45, 90, 0.08);
+    background:
+      radial-gradient(circle at top right, rgba(200, 168, 92, 0.16), transparent 28%),
+      linear-gradient(180deg, #fdfefe 0%, #f5f8fc 100%);
+  }
+
+  .layout-card .card-body {
+    padding: 16px 16px 18px;
+  }
+
+  .layout-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .layout-title h3 {
+    margin: 0;
+    color: #142b58;
+    font-size: 18px;
+  }
+
+  .badge {
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: #8b6a18;
+    background: rgba(210, 176, 91, 0.18);
+    border: 1px solid rgba(210, 176, 91, 0.35);
+  }
+
+  .desc {
+    margin: 0 0 14px;
+    color: #4a628f;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  .preview-stack {
+    display: grid;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .preview-label {
+    margin-bottom: 8px;
+    color: #7b8fb6;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .mock-shell {
+    border-radius: 18px;
+    overflow: hidden;
+    border: 1px solid rgba(28, 53, 103, 0.14);
+    background: linear-gradient(180deg, #f8fbff 0%, #eef3fb 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
+
+  .pc-frame {
+    min-height: 240px;
+  }
+
+  .pc-topbar {
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    background: linear-gradient(90deg, #12336b 0%, #1e4c92 100%);
+    color: #eef4ff;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+
+  .pc-body {
+    display: grid;
+    grid-template-columns: 1.45fr 1fr;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .pc-column,
+  .pc-side,
+  .h5-body {
+    display: grid;
+    gap: 10px;
+  }
+
+  .block {
+    border-radius: 14px;
+    border: 1px solid rgba(40, 72, 128, 0.12);
+    background: rgba(255, 255, 255, 0.92);
+    padding: 10px;
+  }
+
+  .hero-heavy {
+    min-height: 108px;
+    background:
+      radial-gradient(circle at top right, rgba(208, 173, 95, 0.2), transparent 34%),
+      linear-gradient(135deg, rgba(21, 54, 110, 0.96), rgba(36, 88, 160, 0.92));
+    color: #f6f9ff;
+    border-color: rgba(24, 56, 108, 0.12);
+  }
+
+  .hero-heavy .line,
+  .hero-report .line,
+  .h5-hero .line {
+    background: rgba(255, 255, 255, 0.24);
+  }
+
+  .hero-report {
+    min-height: 86px;
+    background:
+      radial-gradient(circle at top right, rgba(208, 173, 95, 0.22), transparent 32%),
+      linear-gradient(135deg, rgba(246, 249, 255, 0.94), rgba(233, 241, 255, 0.98));
+  }
+
+  .line {
+    height: 8px;
+    border-radius: 999px;
+    background: #d7e1f2;
+    margin-bottom: 8px;
+  }
+
+  .line.short {
+    width: 42%;
+  }
+
+  .line.mid {
+    width: 62%;
+  }
+
+  .line.long {
+    width: 88%;
+  }
+
+  .grid-two {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .mini {
+    min-height: 54px;
+  }
+
+  .list-row {
+    min-height: 46px;
+  }
+
+  .report-em {
+    border-left: 4px solid rgba(192, 153, 62, 0.9);
+  }
+
+  .h5-frame {
+    max-width: 205px;
+    margin: 0 auto;
+    border-radius: 24px;
+    padding: 8px;
+    background: linear-gradient(180deg, #113268 0%, #1a4688 18%, #edf3fb 18%, #edf3fb 100%);
+  }
+
+  .h5-screen {
+    border-radius: 18px;
+    overflow: hidden;
+    background: linear-gradient(180deg, #f7faff 0%, #edf2fa 100%);
+    min-height: 254px;
+  }
+
+  .h5-header {
+    height: 38px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #f3f7ff;
+    font-size: 11px;
+  }
+
+  .h5-body {
+    padding: 10px;
+  }
+
+  .h5-hero {
+    min-height: 74px;
+    border-radius: 14px;
+    padding: 10px;
+    background:
+      radial-gradient(circle at top right, rgba(208, 173, 95, 0.22), transparent 32%),
+      linear-gradient(135deg, rgba(23, 57, 113, 0.96), rgba(37, 88, 161, 0.92));
+  }
+
+  .h5-report {
+    min-height: 64px;
+  }
+
+  .criteria {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .criteria-item {
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(243, 247, 254, 0.9);
+    border: 1px solid rgba(44, 74, 132, 0.1);
+    color: #415986;
+    font-size: 12px;
+    line-height: 1.65;
+  }
+
+  .criteria-item strong {
+    display: block;
+    color: #173770;
+    margin-bottom: 2px;
+    font-size: 12px;
+  }
+
+  @media (max-width: 1100px) {
+    .cards.layout-cards {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<h2>首页结构方向对比</h2>
+<p class="subtitle">目标已锁定为中文金融站、券商研究终端风、推荐与研报双主线并列，推荐略重。下面 3 个方案都只基于当前真实能力设计。</p>
+
+<div class="top-note">
+  当前首页真实内容边界：股票/期货推荐、推荐理由摘要、焦点研报或资讯、观察清单、会员承接、进入策略与资讯的操作入口。
+  这一轮先选首页骨架，不引入社区、直播、题材榜、短视频等新能力。
+</div>
+
+<div class="cards layout-cards">
+  <div class="card layout-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div class="layout-title">
+        <h3>A. 双塔首页</h3>
+        <span class="badge">推荐方案</span>
+      </div>
+      <p class="desc">左侧做推荐主工作区，右侧做焦点研报与市场导读。PC 专业感最强，H5 也能自然压成“推荐在上，研报在下”。</p>
+
+      <div class="preview-stack">
+        <div>
+          <div class="preview-label">PC</div>
+          <div class="mock-shell pc-frame">
+            <div class="pc-topbar">
+              <span>SercherAI · 首页</span>
+              <span>推荐 / 研报 / 资讯 / 会员</span>
+            </div>
+            <div class="pc-body">
+              <div class="pc-column">
+                <div class="block hero-heavy">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                  <div class="line mid"></div>
+                </div>
+                <div class="grid-two">
+                  <div class="block mini">
+                    <div class="line short"></div>
+                    <div class="line mid"></div>
+                  </div>
+                  <div class="block mini">
+                    <div class="line short"></div>
+                    <div class="line mid"></div>
+                  </div>
+                </div>
+                <div class="block">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                  <div class="line mid"></div>
+                </div>
+              </div>
+              <div class="pc-side">
+                <div class="block hero-report report-em">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                  <div class="line mid"></div>
+                </div>
+                <div class="block list-row">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                </div>
+                <div class="block list-row">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                </div>
+                <div class="block list-row">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="preview-label">H5</div>
+          <div class="h5-frame">
+            <div class="h5-screen">
+              <div class="h5-header">
+                <span>09:41</span>
+                <span>首页</span>
+              </div>
+              <div class="h5-body">
+                <div class="h5-hero">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                  <div class="line mid"></div>
+                </div>
+                <div class="block h5-report report-em">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                </div>
+                <div class="grid-two">
+                  <div class="block mini">
+                    <div class="line short"></div>
+                    <div class="line mid"></div>
+                  </div>
+                  <div class="block mini">
+                    <div class="line short"></div>
+                    <div class="line mid"></div>
+                  </div>
+                </div>
+                <div class="block list-row">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="criteria">
+        <div class="criteria-item">
+          <strong>适合原因</strong>
+          推荐和研报都能在首屏建立存在感，但不会互相抢位。
+        </div>
+        <div class="criteria-item">
+          <strong>风险</strong>
+          需要把右侧研报控制在“焦点导读”，不能又做成资讯列表堆满。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card layout-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div class="layout-title">
+        <h3>B. 主推荐头条 + 研报腰封</h3>
+        <span class="badge" style="color:#2c508c;background:rgba(72,111,187,0.12);border-color:rgba(72,111,187,0.25);">偏稳妥</span>
+      </div>
+      <p class="desc">先用一整块头条推荐打第一印象，再用一条横向研报带承接。信息顺序清楚，但研报会比方案 A 弱一点。</p>
+
+      <div class="preview-stack">
+        <div>
+          <div class="preview-label">PC</div>
+          <div class="mock-shell pc-frame">
+            <div class="pc-topbar">
+              <span>SercherAI · 首页</span>
+              <span>重点推荐 / 研报导读</span>
+            </div>
+            <div style="padding:12px;display:grid;gap:10px;">
+              <div class="block hero-heavy" style="min-height:122px;">
+                <div class="line short"></div>
+                <div class="line long"></div>
+                <div class="line long"></div>
+                <div class="line mid"></div>
+              </div>
+              <div class="block report-em" style="min-height:64px;">
+                <div class="line short"></div>
+                <div class="line long"></div>
+              </div>
+              <div class="grid-two">
+                <div class="block">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                  <div class="line mid"></div>
+                </div>
+                <div class="block">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                  <div class="line mid"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="preview-label">H5</div>
+          <div class="h5-frame">
+            <div class="h5-screen">
+              <div class="h5-header">
+                <span>09:41</span>
+                <span>首页</span>
+              </div>
+              <div class="h5-body">
+                <div class="h5-hero" style="min-height:96px;">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                  <div class="line mid"></div>
+                  <div class="line mid"></div>
+                </div>
+                <div class="block h5-report report-em">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                </div>
+                <div class="block">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                  <div class="line mid"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="criteria">
+        <div class="criteria-item">
+          <strong>适合原因</strong>
+          最容易做成“首页头条感”，对首屏视觉冲击强。
+        </div>
+        <div class="criteria-item">
+          <strong>风险</strong>
+          研报会更像配角，不够符合你刚才定的“双主线并列”。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card layout-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div class="layout-title">
+        <h3>C. 三栏研究终端</h3>
+        <span class="badge" style="color:#6f5a1a;background:rgba(214,190,122,0.16);border-color:rgba(214,190,122,0.3);">高密度</span>
+      </div>
+      <p class="desc">更像专业终端：左侧导航或筛选，中间推荐主区，右侧研报和资讯提醒。专业感强，但 H5 压缩后容易变重。</p>
+
+      <div class="preview-stack">
+        <div>
+          <div class="preview-label">PC</div>
+          <div class="mock-shell pc-frame">
+            <div class="pc-topbar">
+              <span>SercherAI · 研究终端</span>
+              <span>专业模式</span>
+            </div>
+            <div style="display:grid;grid-template-columns:0.62fr 1.25fr 0.88fr;gap:10px;padding:12px;">
+              <div class="pc-column">
+                <div class="block list-row">
+                  <div class="line short"></div>
+                  <div class="line mid"></div>
+                </div>
+                <div class="block list-row">
+                  <div class="line short"></div>
+                  <div class="line mid"></div>
+                </div>
+                <div class="block list-row">
+                  <div class="line short"></div>
+                  <div class="line mid"></div>
+                </div>
+              </div>
+              <div class="pc-column">
+                <div class="block hero-heavy" style="min-height:116px;">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                  <div class="line mid"></div>
+                </div>
+                <div class="block">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                  <div class="line mid"></div>
+                </div>
+              </div>
+              <div class="pc-side">
+                <div class="block hero-report report-em">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                </div>
+                <div class="block list-row">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                </div>
+                <div class="block list-row">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="preview-label">H5</div>
+          <div class="h5-frame">
+            <div class="h5-screen">
+              <div class="h5-header">
+                <span>09:41</span>
+                <span>首页</span>
+              </div>
+              <div class="h5-body">
+                <div class="block">
+                  <div class="line short"></div>
+                  <div class="line mid"></div>
+                </div>
+                <div class="h5-hero">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                  <div class="line mid"></div>
+                </div>
+                <div class="block h5-report report-em">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                </div>
+                <div class="block list-row">
+                  <div class="line short"></div>
+                  <div class="line long"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="criteria">
+        <div class="criteria-item">
+          <strong>适合原因</strong>
+          PC 看起来最像专业投研终端，信息组织非常强。
+        </div>
+        <div class="criteria-item">
+          <strong>风险</strong>
+          H5 压缩后层级容易变散，也更像内部系统，不够像面向用户的客户端首页。
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SercherAI 策略 Demo - H5</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap");
+
+      :root {
+        --bg-base: #ebf2fb;
+        --bg-deep: #102e63;
+        --bg-hero: #14386f;
+        --bg-hero-2: #1d4e93;
+        --panel: rgba(255, 255, 255, 0.94);
+        --panel-soft: #f7faff;
+        --line: rgba(24, 56, 108, 0.1);
+        --text-main: #16386c;
+        --text-sub: #577098;
+        --text-soft: #778cb0;
+        --gold: #c9a149;
+        --gold-soft: rgba(201, 161, 73, 0.14);
+        --success: #1f9d66;
+        --radius-lg: 16px;
+        --shadow: 0 22px 52px rgba(12, 31, 64, 0.12);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+
+      body {
+        font-family: "Noto Sans SC", "IBM Plex Sans", sans-serif;
+        color: var(--text-main);
+        background:
+          radial-gradient(circle at top right, rgba(201, 161, 73, 0.14), transparent 20%),
+          linear-gradient(180deg, #f4f8fe 0%, #edf3fb 42%, #e7eef9 100%);
+      }
+
+      .device-stage {
+        min-height: 100vh;
+        padding: 24px 16px 120px;
+      }
+
+      .device-shell {
+        width: min(100%, 468px);
+        margin: 0 auto;
+        padding: 13px;
+        border-radius: 34px;
+        background: linear-gradient(180deg, #0f2d61 0%, #163a72 13%, #eaf1fa 13%, #eaf1fa 100%);
+        box-shadow: 0 30px 66px rgba(14, 36, 74, 0.18);
+      }
+
+      .device-screen {
+        overflow: hidden;
+        border-radius: 28px;
+        background: linear-gradient(180deg, #15376f 0%, #1c4a8b 14%, #eef3fb 14%, #eef3fb 100%);
+      }
+
+      .status-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 16px 0;
+        color: rgba(245, 249, 255, 0.92);
+        font-size: 12px;
+      }
+
+      .app-header {
+        padding: 12px 18px 18px;
+        color: #f5f9ff;
+      }
+
+      .app-header-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .brand-mark {
+        width: 30px;
+        height: 30px;
+        border-radius: 11px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #d7b267, #b78523);
+        color: #17335f;
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      .brand-copy strong {
+        display: block;
+        font-size: 15px;
+        line-height: 1.2;
+      }
+
+      .brand-copy span,
+      .icon-button,
+      .section-head span,
+      .stream-card span,
+      .service-note small,
+      .tab-item small {
+        color: rgba(225, 233, 246, 0.78);
+        font-size: 11px;
+      }
+
+      .header-actions { display: flex; gap: 8px; }
+
+      .icon-button {
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .hero-card {
+        margin-top: 15px;
+        padding: 16px;
+        border-radius: 20px;
+        background:
+          radial-gradient(circle at top right, rgba(216, 182, 100, 0.24), transparent 30%),
+          linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(17, 47, 95, 0.16));
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .hero-tags,
+      .cta-row,
+      .mini-tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .hero-tag,
+      .mini-tag {
+        padding: 5px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .hero-tag {
+        color: #fff4d8;
+        background: rgba(216, 182, 100, 0.18);
+        border: 1px solid rgba(216, 182, 100, 0.24);
+      }
+
+      .hero-card h1 {
+        margin: 12px 0 8px;
+        font-size: 24px;
+        line-height: 1.38;
+      }
+
+      .hero-card p {
+        margin: 0;
+        color: rgba(236, 242, 252, 0.9);
+        font-size: 13px;
+        line-height: 1.75;
+      }
+
+      .cta-row { margin-top: 14px; }
+
+      .hero-button {
+        padding: 10px 14px;
+        border-radius: 13px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .hero-button.primary {
+        color: #17325f;
+        background: linear-gradient(135deg, #d7b267, #b88626);
+      }
+
+      .hero-button.ghost {
+        color: #f4f8ff;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .page-content {
+        padding: 16px 16px 20px;
+        display: grid;
+        gap: 12px;
+      }
+
+      .section,
+      .tabbar {
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .section { padding: 14px; }
+
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .section-head strong {
+        color: var(--text-main);
+        font-size: 15px;
+      }
+
+      .filter-strip {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .filter-pill {
+        padding: 10px 8px;
+        border-radius: 13px;
+        text-align: center;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text-main);
+        background: linear-gradient(180deg, #f9fbff 0%, #eff4fb 100%);
+        border: 1px solid rgba(24, 56, 108, 0.08);
+      }
+
+      .filter-pill.active {
+        color: #17325f;
+        background: linear-gradient(135deg, #d7b267, #efddb5);
+        border-color: rgba(201, 161, 73, 0.3);
+      }
+
+      .recommend-card {
+        padding: 16px;
+        border-radius: 18px;
+        color: #f6f9ff;
+        background:
+          radial-gradient(circle at top right, rgba(216, 182, 100, 0.24), transparent 30%),
+          linear-gradient(135deg, var(--bg-hero) 0%, var(--bg-hero-2) 62%, #2259a1 100%);
+      }
+
+      .recommend-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .recommend-card h2 {
+        margin: 10px 0 8px;
+        font-size: 19px;
+        line-height: 1.45;
+      }
+
+      .recommend-card p {
+        margin: 0;
+        color: rgba(235, 242, 252, 0.9);
+        font-size: 12px;
+        line-height: 1.74;
+      }
+
+      .badge {
+        padding: 6px 10px;
+        border-radius: 999px;
+        color: #fff4d8;
+        background: rgba(216, 182, 100, 0.16);
+        border: 1px solid rgba(216, 182, 100, 0.2);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .recommend-grid,
+      .reason-grid,
+      .stream-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .recommend-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-top: 14px;
+      }
+
+      .recommend-item {
+        padding: 11px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .recommend-item span,
+      .reason-card span,
+      .stream-metric span {
+        display: block;
+        color: var(--text-soft);
+        font-size: 11px;
+      }
+
+      .recommend-item strong,
+      .reason-card strong,
+      .stream-card strong,
+      .stream-metric strong,
+      .tab-item strong {
+        display: block;
+        margin-top: 4px;
+        color: var(--text-main);
+      }
+
+      .recommend-item strong {
+        color: #f7fbff;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .reason-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .reason-card {
+        padding: 12px;
+        border-radius: 14px;
+        background: linear-gradient(180deg, #f9fbff 0%, #eff4fb 100%);
+        border: 1px solid rgba(24, 56, 108, 0.08);
+      }
+
+      .reason-card strong {
+        font-size: 13px;
+        line-height: 1.48;
+      }
+
+      .reason-card p,
+      .stream-card p,
+      .service-note p {
+        margin: 6px 0 0;
+        color: var(--text-sub);
+        font-size: 12px;
+        line-height: 1.72;
+      }
+
+      .mini-tag {
+        color: #6f84a8;
+        background: rgba(17, 53, 106, 0.06);
+      }
+
+      .stream-card {
+        padding: 14px;
+        border-radius: 16px;
+        background: rgba(248, 251, 255, 0.96);
+        border: 1px solid rgba(24, 56, 108, 0.08);
+      }
+
+      .stream-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .stream-type {
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .stock { color: #805f17; background: rgba(202, 162, 74, 0.14); }
+      .future { color: #245d9a; background: rgba(62, 112, 190, 0.12); }
+      .event { color: #1f8a6f; background: rgba(31, 157, 102, 0.1); }
+
+      .stream-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .stream-metric {
+        padding: 10px;
+        border-radius: 12px;
+        background: #f2f6fd;
+      }
+
+      .stream-metric strong {
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .service-note {
+        padding: 12px;
+        border-radius: 16px;
+        background: linear-gradient(180deg, rgba(247, 250, 255, 0.96), rgba(240, 245, 252, 0.98));
+        border: 1px solid rgba(24, 56, 108, 0.08);
+      }
+
+      .service-note small {
+        display: block;
+        color: var(--text-soft);
+      }
+
+      .tabbar {
+        position: sticky;
+        bottom: 14px;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: var(--shadow);
+      }
+
+      .tab-item {
+        text-align: center;
+        padding: 6px 0;
+        border-radius: 12px;
+      }
+
+      .tab-item.active {
+        background: linear-gradient(180deg, rgba(24, 56, 108, 0.1), rgba(201, 161, 73, 0.08));
+      }
+
+      .tab-icon {
+        width: 18px;
+        height: 18px;
+        margin: 0 auto 4px;
+        border-radius: 6px;
+        background: linear-gradient(180deg, rgba(24, 56, 108, 0.18), rgba(201, 161, 73, 0.14));
+      }
+
+      .tab-item strong { font-size: 11px; line-height: 1.2; }
+      .tab-item small { display: block; margin-top: 2px; color: var(--text-soft); }
+
+      @media (max-width: 420px) {
+        .filter-strip,
+        .reason-grid,
+        .recommend-grid,
+        .stream-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="device-stage">
+      <div class="device-shell">
+        <div class="device-screen">
+          <div class="status-bar">
+            <span>09:41</span>
+            <span>5G</span>
+          </div>
+
+          <header class="app-header">
+            <div class="app-header-top">
+              <div class="brand">
+                <span class="brand-mark">S</span>
+                <div class="brand-copy">
+                  <strong>SercherAI</strong>
+                  <span>策略 Demo / H5 版</span>
+                </div>
+              </div>
+              <div class="header-actions">
+                <span class="icon-button">筛</span>
+                <span class="icon-button">搜</span>
+              </div>
+            </div>
+
+            <section class="hero-card">
+              <div class="hero-tags">
+                <span class="hero-tag">策略</span>
+                <span class="hero-tag">观点流</span>
+                <span class="hero-tag">推荐主卡</span>
+              </div>
+              <h1>先看推荐主卡，再顺着理由、风险边界和观点流往下读</h1>
+              <p>H5 策略页不是 PC 工作台缩略版，而是更像国内金融 App 的观点流入口，但核心任务仍然是讲清策略，而不是讲资讯。</p>
+              <div class="cta-row">
+                <span class="hero-button primary">看完整观点</span>
+                <span class="hero-button ghost">去关注页</span>
+              </div>
+            </section>
+          </header>
+
+          <main class="page-content">
+            <section class="section">
+              <div class="section-head">
+                <strong>栏目切换</strong>
+                <span>股票 / 期货 / 事件</span>
+              </div>
+              <div class="filter-strip">
+                <div class="filter-pill active">股票主线</div>
+                <div class="filter-pill">期货机会</div>
+                <div class="filter-pill">市场事件</div>
+              </div>
+            </section>
+
+            <section class="recommend-card">
+              <div class="recommend-top">
+                <div class="mini-tag-row">
+                  <span class="hero-tag">推荐主卡</span>
+                  <span class="hero-tag">主位优先</span>
+                </div>
+                <span class="badge">主推荐</span>
+              </div>
+              <h2>推荐主卡直接给结论、理由和当前动作，而不是只做一张封面</h2>
+              <p>这一块是 H5 策略页的第一主视觉，用户点进来就知道今天该看哪只、为什么看、接下来是继续跟踪还是等待确认。</p>
+              <div class="recommend-grid">
+                <article class="recommend-item">
+                  <span>标的</span>
+                  <strong>宁德时代 300750</strong>
+                </article>
+                <article class="recommend-item">
+                  <span>主理由</span>
+                  <strong>订单验证 + 景气修复</strong>
+                </article>
+                <article class="recommend-item">
+                  <span>当前动作</span>
+                  <strong>继续观察</strong>
+                </article>
+                <article class="recommend-item">
+                  <span>风险边界</span>
+                  <strong>风控线 198</strong>
+                </article>
+              </div>
+            </section>
+
+            <section class="section">
+              <div class="section-head">
+                <strong>为什么今天先看它</strong>
+                <span>理由与风控</span>
+              </div>
+              <div class="reason-grid">
+                <article class="reason-card">
+                  <span>核心结论</span>
+                  <strong>当前更适合中线跟踪，不追短线噪音</strong>
+                  <p>用一张卡说明策略判断，不把用户丢进长段分析里。</p>
+                  <div class="mini-tag-row" style="margin-top: 10px;">
+                    <span class="mini-tag">结论前置</span>
+                    <span class="mini-tag">推荐理由</span>
+                  </div>
+                </article>
+                <article class="reason-card">
+                  <span>风险边界</span>
+                  <strong>止损线、止盈规则和失效条件必须同屏出现</strong>
+                  <p>H5 也必须保留风险边界，不能只有“继续看好”。</p>
+                  <div class="mini-tag-row" style="margin-top: 10px;">
+                    <span class="mini-tag">风险边界</span>
+                    <span class="mini-tag">止盈止损</span>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="section">
+              <div class="section-head">
+                <strong>观点流</strong>
+                <span>继续往下刷</span>
+              </div>
+              <div class="stream-list">
+                <article class="stream-card">
+                  <div class="stream-head">
+                    <div>
+                      <span>股票主线</span>
+                      <strong>主推荐后的第二候选，作为补充关注对象出现</strong>
+                    </div>
+                    <span class="stream-type stock">股票</span>
+                  </div>
+                  <p>观点流里的每一条都先给一句结论，再给一句摘要，维持策略页节奏，不写成资讯列表语气。</p>
+                  <div class="stream-grid">
+                    <div class="stream-metric">
+                      <span>结论</span>
+                      <strong>继续观察</strong>
+                    </div>
+                    <div class="stream-metric">
+                      <span>理由</span>
+                      <strong>轮动补位</strong>
+                    </div>
+                    <div class="stream-metric">
+                      <span>动作</span>
+                      <strong>候选跟踪</strong>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="stream-card">
+                  <div class="stream-head">
+                    <div>
+                      <span>期货承接</span>
+                      <strong>期货仍然明显属于策略页，而不是变成行情页</strong>
+                    </div>
+                    <span class="stream-type future">期货</span>
+                  </div>
+                  <p>这块只做方向与 guidance 摘要，不伪造实时盘口。它是次主线，帮助用户理解策略覆盖面。</p>
+                  <div class="stream-grid">
+                    <div class="stream-metric">
+                      <span>方向</span>
+                      <strong>轻仓顺势</strong>
+                    </div>
+                    <div class="stream-metric">
+                      <span>执行</span>
+                      <strong>等待确认</strong>
+                    </div>
+                    <div class="stream-metric">
+                      <span>失效</span>
+                      <strong>跌破边界</strong>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="stream-card">
+                  <div class="stream-head">
+                    <div>
+                      <span>事件承接</span>
+                      <strong>事件解释“为什么今天的推荐顺序发生变化”</strong>
+                    </div>
+                    <span class="stream-type event">事件</span>
+                  </div>
+                  <p>市场事件不是资讯流，而是策略上下文，用于说明为什么今天先看这个方向而不是别的方向。</p>
+                  <div class="stream-grid">
+                    <div class="stream-metric">
+                      <span>类型</span>
+                      <strong>政策窗口</strong>
+                    </div>
+                    <div class="stream-metric">
+                      <span>影响</span>
+                      <strong>正向催化</strong>
+                    </div>
+                    <div class="stream-metric">
+                      <span>下一步</span>
+                      <strong>继续验证</strong>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="service-note">
+              <small>页面说明</small>
+              <p>策略页主任务是解释推荐，不是做资讯流或行情页。底部 Tab 保持全站统一：首页 / 策略 / 关注 / 资讯 / 我的。</p>
+            </section>
+
+            <nav class="tabbar" aria-label="底部 Tab">
+              <div class="tab-item">
+                <div class="tab-icon"></div>
+                <strong>首页</strong>
+                <small>主线</small>
+              </div>
+              <div class="tab-item active">
+                <div class="tab-icon"></div>
+                <strong>策略</strong>
+                <small>观点</small>
+              </div>
+              <div class="tab-item">
+                <div class="tab-icon"></div>
+                <strong>关注</strong>
+                <small>回访</small>
+              </div>
+              <div class="tab-item">
+                <div class="tab-icon"></div>
+                <strong>资讯</strong>
+                <small>研报</small>
+              </div>
+              <div class="tab-item">
+                <div class="tab-icon"></div>
+                <strong>我的</strong>
+                <small>账户</small>
+              </div>
+            </nav>
+          </main>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

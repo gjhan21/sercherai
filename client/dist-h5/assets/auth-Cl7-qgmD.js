@@ -1,0 +1,1 @@
+import{h as o}from"./http-yVn_aQk7.js";function n(t){return o.post("/auth/register",t)}function e(t){return o.post("/auth/login",t)}function u(t){return o.post("/auth/logout",{refresh_token:t})}export{e as a,u as l,n as r};

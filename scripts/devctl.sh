@@ -6,6 +6,7 @@ RUN_DIR="$ROOT_DIR/.run"
 LOG_DIR="$RUN_DIR/logs"
 
 ALL_SERVICES=("strategy-graph" "strategy-engine" "backend" "admin" "client")
+SERVICE_TARGETS=("strategy-graph" "strategy-engine" "backend" "admin" "client" "client-h5" "client-pc")
 
 resolve_go_bin() {
   if [[ -x "/opt/homebrew/bin/go" ]]; then
@@ -34,13 +35,14 @@ PYTHON_BIN="$(resolve_python_bin)"
 usage() {
   cat <<'EOF'
 用法:
-  ./scripts/devctl.sh start [strategy-graph|strategy-engine|backend|admin|client|all]
-  ./scripts/devctl.sh stop [strategy-graph|strategy-engine|backend|admin|client|all]
-  ./scripts/devctl.sh restart [strategy-graph|strategy-engine|backend|admin|client|all]
-  ./scripts/devctl.sh status [strategy-graph|strategy-engine|backend|admin|client|all]
+  ./scripts/devctl.sh start [strategy-graph|strategy-engine|backend|admin|client|client-h5|client-pc|all]
+  ./scripts/devctl.sh stop [strategy-graph|strategy-engine|backend|admin|client|client-h5|client-pc|all]
+  ./scripts/devctl.sh restart [strategy-graph|strategy-engine|backend|admin|client|client-h5|client-pc|all]
+  ./scripts/devctl.sh status [strategy-graph|strategy-engine|backend|admin|client|client-h5|client-pc|all]
 
 说明:
   - 默认目标为 all
+  - client-h5 / client-pc 为 client 的快捷别名，共享同一份 PID / 日志
   - start 前会清理目标端口占用进程
   - 日志目录: ./.run/logs
   - PID 文件: ./.run/<service>.pid
@@ -51,8 +53,67 @@ ensure_dirs() {
   mkdir -p "$RUN_DIR" "$LOG_DIR"
 }
 
-service_env_file() {
+canonical_service() {
   case "$1" in
+    client-h5|client-pc) echo "client" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+client_mode_state_file() {
+  echo "$RUN_DIR/client.mode"
+}
+
+configured_client_mode() {
+  local mode
+  mode="$(read_env_override "$(service_env_file client)" "CLIENT_MODE" "h5")"
+  mode="$(echo "$mode" | tr '[:upper:]' '[:lower:]')"
+  case "$mode" in
+    h5|pc) echo "$mode" ;;
+    *) echo "h5" ;;
+  esac
+}
+
+target_client_mode() {
+  case "$1" in
+    client-h5) echo "h5" ;;
+    client-pc) echo "pc" ;;
+    client) configured_client_mode ;;
+    *) echo "" ;;
+  esac
+}
+
+runtime_client_mode() {
+  local state_file mode
+  state_file="$(client_mode_state_file)"
+
+  if [[ -f "$state_file" ]]; then
+    mode="$(tr -d '[:space:]' < "$state_file" | tr '[:upper:]' '[:lower:]')"
+    case "$mode" in
+      h5|pc)
+        echo "$mode"
+        return 0
+        ;;
+    esac
+  fi
+
+  configured_client_mode
+}
+
+persist_client_mode() {
+  local mode="$1"
+  local state_file
+  state_file="$(client_mode_state_file)"
+  mkdir -p "$(dirname "$state_file")"
+  printf '%s\n' "$mode" > "$state_file"
+}
+
+clear_client_mode_state() {
+  rm -f "$(client_mode_state_file)"
+}
+
+service_env_file() {
+  case "$(canonical_service "$1")" in
     strategy-graph) echo "$ROOT_DIR/.run/strategy-graph.env" ;;
     strategy-engine) echo "$ROOT_DIR/.run/strategy-engine.env" ;;
     backend) echo "$ROOT_DIR/.run/backend.env" ;;
@@ -101,7 +162,7 @@ PY
 }
 
 service_port() {
-  case "$1" in
+  case "$(canonical_service "$1")" in
     strategy-graph) read_env_override "$(service_env_file strategy-graph)" "STRATEGY_GRAPH_PORT" "18082" ;;
     strategy-engine) read_env_override "$(service_env_file strategy-engine)" "STRATEGY_ENGINE_PORT" "18081" ;;
     backend) read_env_override "$(service_env_file backend)" "APP_PORT" "18080" ;;
@@ -112,7 +173,7 @@ service_port() {
 }
 
 service_url() {
-  case "$1" in
+  case "$(canonical_service "$1")" in
     strategy-graph)
       echo "http://127.0.0.1:$(service_port strategy-graph)"
       ;;
@@ -126,14 +187,22 @@ service_url() {
       echo "http://127.0.0.1:$(service_port admin)"
       ;;
     client)
-      echo "http://127.0.0.1:$(service_port client)"
+      if [[ "$(target_client_mode "$1")" == "h5" ]] || [[ "$1" == "client" && "$(runtime_client_mode)" == "h5" ]]; then
+        echo "http://127.0.0.1:$(service_port client)/m/"
+      else
+        echo "http://127.0.0.1:$(service_port client)"
+      fi
       ;;
     *) return 1 ;;
   esac
 }
 
+client_dev_mode() {
+  configured_client_mode
+}
+
 service_health_url() {
-  case "$1" in
+  case "$(canonical_service "$1")" in
     strategy-graph)
       echo "$(service_url strategy-graph)/health"
       ;;
@@ -150,7 +219,7 @@ service_health_url() {
 }
 
 service_cmd() {
-  case "$1" in
+  case "$(canonical_service "$1")" in
     strategy-graph)
       cat <<EOF
 STRATEGY_GRAPH_ENV_FILE="$ROOT_DIR/.run/strategy-graph.env"
@@ -220,7 +289,7 @@ fi
 ADMIN_HOST="\${ADMIN_HOST:-0.0.0.0}"
 ADMIN_PORT="\${ADMIN_PORT:-$(service_port admin)}"
 VITE_PROXY_TARGET="\${VITE_PROXY_TARGET:-$(service_url backend)}"
-cd "$ROOT_DIR/admin" && exec env VITE_PROXY_TARGET="\${VITE_PROXY_TARGET}" npm run dev -- --host "\${ADMIN_HOST}" --port "\${ADMIN_PORT}"
+cd "$ROOT_DIR/admin" && exec env VITE_PROXY_TARGET="\${VITE_PROXY_TARGET}" npm run dev -- --host "\${ADMIN_HOST}" --port "\${ADMIN_PORT}" --strictPort
 EOF
       ;;
     client)
@@ -233,7 +302,14 @@ if [ -f "\$CLIENT_ENV_FILE" ]; then
 fi
 CLIENT_HOST="\${CLIENT_HOST:-0.0.0.0}"
 CLIENT_PORT="\${CLIENT_PORT:-$(service_port client)}"
-cd "$ROOT_DIR/client" && exec npm run dev -- --host "\${CLIENT_HOST}" --port "\${CLIENT_PORT}"
+CLIENT_MODE="\${DEVCTL_CLIENT_MODE_OVERRIDE:-\${CLIENT_MODE:-$(client_dev_mode)}}"
+if [ "\$CLIENT_MODE" = "pc" ]; then
+  CLIENT_SCRIPT="dev:pc"
+else
+  CLIENT_MODE="h5"
+  CLIENT_SCRIPT="dev:h5"
+fi
+cd "$ROOT_DIR/client" && exec env CLIENT_MODE="\${CLIENT_MODE}" npm run "\${CLIENT_SCRIPT}" -- --host "\${CLIENT_HOST}" --port "\${CLIENT_PORT}" --strictPort
 EOF
       ;;
     *)
@@ -251,11 +327,11 @@ service_wait_checks() {
 }
 
 pid_file() {
-  echo "$RUN_DIR/$1.pid"
+  echo "$RUN_DIR/$(canonical_service "$1").pid"
 }
 
 log_file() {
-  echo "$LOG_DIR/$1.log"
+  echo "$LOG_DIR/$(canonical_service "$1").log"
 }
 
 is_pid_running() {
@@ -289,7 +365,7 @@ kill_port_processes() {
   local port="$1"
   local pids
 
-  pids="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
+  pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
   if [[ -z "$pids" ]]; then
     return 0
   fi
@@ -307,7 +383,7 @@ wait_for_port() {
   local checks=0
 
   while [[ $checks -lt $max_checks ]]; do
-    if lsof -ti tcp:"$port" >/dev/null 2>&1; then
+    if lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
       return 0
     fi
     checks=$((checks + 1))
@@ -318,7 +394,7 @@ wait_for_port() {
 
 is_port_listening() {
   local port="$1"
-  lsof -ti tcp:"$port" >/dev/null 2>&1
+  lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
 }
 
 wait_for_http_ready() {
@@ -345,7 +421,7 @@ wait_for_http_ready() {
 
 first_listener_pid() {
   local port="$1"
-  lsof -ti tcp:"$port" 2>/dev/null | head -n 1
+  lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -n 1
 }
 
 spawn_detached() {
@@ -375,11 +451,16 @@ PY
 
 start_service() {
   local service="$1"
-  local port cmd pidfile logfile old_pid pid
+  local canonical_service_name port cmd pidfile logfile old_pid pid client_mode
 
   ensure_dirs
+  canonical_service_name="$(canonical_service "$service")"
   port="$(service_port "$service")"
   cmd="$(service_cmd "$service")"
+  if [[ "$canonical_service_name" == "client" ]]; then
+    client_mode="$(target_client_mode "$service")"
+    cmd="export DEVCTL_CLIENT_MODE_OVERRIDE=\"$client_mode\"; $cmd"
+  fi
   pidfile="$(pid_file "$service")"
   logfile="$(log_file "$service")"
 
@@ -426,6 +507,9 @@ start_service() {
     if [[ -n "$listener_pid" ]]; then
       echo "$listener_pid" > "$pidfile"
     fi
+    if [[ "$canonical_service_name" == "client" ]]; then
+      persist_client_mode "$client_mode"
+    fi
     echo "[OK] ${service} 已启动: PID=${pid} PORT=${port} URL=$(service_url "$service")"
   else
     echo "[ERROR] ${service} 未能监听端口 ${port}。日志: ${logfile}"
@@ -437,8 +521,9 @@ start_service() {
 
 stop_service() {
   local service="$1"
-  local port pidfile pid pids stopped=0
+  local canonical_service_name port pidfile pid pids stopped=0
 
+  canonical_service_name="$(canonical_service "$service")"
   port="$(service_port "$service")"
   pidfile="$(pid_file "$service")"
 
@@ -452,7 +537,7 @@ stop_service() {
     rm -f "$pidfile"
   fi
 
-  pids="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
+  pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
   if [[ -n "$pids" ]]; then
     echo "[INFO] 清理 ${service} 端口 ${port} 进程: $(echo "$pids" | tr '\n' ' ')"
     while IFS= read -r pid; do
@@ -463,6 +548,9 @@ stop_service() {
   fi
 
   if [[ $stopped -eq 1 ]]; then
+    if [[ "$canonical_service_name" == "client" ]]; then
+      clear_client_mode_state
+    fi
     echo "[OK] $service 已停止"
   else
     echo "[INFO] $service 未运行"
@@ -487,7 +575,7 @@ status_service() {
     fi
   fi
 
-  port_pids="$(lsof -ti tcp:"$port" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
+  port_pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
   if [[ -n "$port_pids" ]]; then
     echo "[STATUS] ${service}: ${process_status}, port=${port}(LISTEN:${port_pids}), log=$(log_file "$service")"
   else
@@ -498,7 +586,7 @@ status_service() {
 is_valid_service() {
   local target="$1"
   local item
-  for item in "${ALL_SERVICES[@]}"; do
+  for item in "${SERVICE_TARGETS[@]}"; do
     if [[ "$item" == "$target" ]]; then
       return 0
     fi

@@ -1,6 +1,6 @@
 # Strategy Engine Vibe Coding 开发总览
 
-最后更新: 2026-03-22  
+最后更新: 2026-03-24  
 状态: 阶段8已完成，阶段9已完成（双资产智能策略研究平台 V2 收官）
 
 ## 文档目的
@@ -72,8 +72,19 @@
 - 阶段8收官文档：`docs/strategy-engine/阶段8-真实数据接入与真相源增强.md`
 - 阶段9最终收官文档：`docs/strategy-engine/阶段9-股票智能量化选股系统与后台独立模块.md`
 - 后续专题总路线图：`docs/strategy-engine/专题路线图-多源市场与研究治理平台.md`
+- 未完成专题细化任务表：`docs/strategy-engine/未完成专题细化任务表.md`
 - 专题A正式文档：`docs/strategy-engine/专题A-多源市场数据统一模型与供应商治理.md`
 - 专题A第一轮启动清单：`docs/strategy-engine/专题A-第一轮-开发启动清单.md`
+- 专题B正式文档：`docs/strategy-engine/专题B-股票事件图谱与资讯语义工作台.md`
+- 专题B第一轮启动清单：`docs/strategy-engine/专题B-第一轮-开发启动清单.md`
+- 专题C正式文档：`docs/strategy-engine/专题C-期货深度因子与主数据画像.md`
+- 专题C第一轮启动清单：`docs/strategy-engine/专题C-第一轮-开发启动清单.md`
+- 专题D正式文档：`docs/strategy-engine/专题D-回测实验与自动化运营联动.md`
+- 专题D第一轮启动清单：`docs/strategy-engine/专题D-第一轮-开发启动清单.md`
+- 专题E正式文档：`docs/strategy-engine/专题E-审计通知与系统消息平台.md`
+- 专题E第一轮启动清单：`docs/strategy-engine/专题E-第一轮-开发启动清单.md`
+- 专题F正式文档：`docs/strategy-engine/专题F-旧链路收缩与迁移收口.md`
+- 专题F第一轮启动清单：`docs/strategy-engine/专题F-第一轮-开发启动清单.md`
 - 阶段9第一轮历史蓝图：`docs/strategy-engine/阶段9-第一轮-自动选股与后台骨架.md`
 - 阶段9第一轮历史启动清单：`docs/strategy-engine/阶段9-第一轮-开发启动清单.md`
 
@@ -95,10 +106,23 @@
 
 作为后续真相源。
 
-当前第一个已正式展开的后续专题为：
+当前后续专题已经全部补齐正式文档，且 `专题A ~ 专题F` 的第一轮清单都已细到文件级任务表。当前可立即开工的优先入口为：
 
-- `docs/strategy-engine/专题A-多源市场数据统一模型与供应商治理.md`
+- `docs/strategy-engine/未完成专题细化任务表.md`
 - `docs/strategy-engine/专题A-第一轮-开发启动清单.md`
+- `docs/strategy-engine/专题B-第一轮-开发启动清单.md`
+- `docs/strategy-engine/专题C-第一轮-开发启动清单.md`
+- `docs/strategy-engine/专题D-第一轮-开发启动清单.md`
+- `docs/strategy-engine/专题E-第一轮-开发启动清单.md`
+- `docs/strategy-engine/专题F-第一轮-开发启动清单.md`
+
+其中专题推进状态补充如下：
+
+- `专题B` 第一轮已完成“事件真相源 -> 待审核队列 -> reviewed event graph -> Admin 审核台 -> explanation 事件证据卡”的最小闭环
+- `专题B` 的 reviewed event graph 第一轮采用 `reviewed-event-<cluster_id>` 伪快照复用现有 `strategy-graph subgraph` 查询，不额外破坏 run snapshot 兼容层
+- `专题C` 第一轮已完成“主数据画像 v2 -> inventory / warehouse 深层因子 -> basis / spread / curve 深化 -> 商品链证据接入 explanation / Admin / Client”的最小闭环
+- 当前真实代码顺序已经从 `专题B/C` 收官，下一优先入口切回 `docs/strategy-engine/专题A-第一轮-开发启动清单.md`，随后进入 `docs/strategy-engine/专题E-第一轮-开发启动清单.md`
+- `/Users/gjhan21/cursor/sercherai/admin/src/router/index.js:155` 的权限跳转问题继续保持独立，不插队到当前 `专题A / 专题E` 主线
 
 ## 统一验收口径
 

@@ -1,0 +1,760 @@
+<style>
+  .hero-note {
+    margin-bottom: 20px;
+    padding: 16px 18px;
+    border-radius: 16px;
+    border: 1px solid rgba(26, 59, 113, 0.14);
+    background:
+      radial-gradient(circle at top right, rgba(205, 171, 88, 0.14), transparent 24%),
+      linear-gradient(135deg, rgba(246, 250, 255, 0.96), rgba(238, 244, 253, 0.92));
+    color: #33517f;
+    font-size: 14px;
+    line-height: 1.75;
+  }
+
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1.48fr 0.92fr;
+    gap: 24px;
+    align-items: start;
+    margin-bottom: 24px;
+  }
+
+  .panel {
+    border-radius: 26px;
+    border: 1px solid rgba(20, 47, 96, 0.14);
+    background:
+      radial-gradient(circle at top right, rgba(207, 171, 88, 0.14), transparent 23%),
+      linear-gradient(180deg, #fbfdff 0%, #f1f5fb 100%);
+    box-shadow: 0 22px 50px rgba(15, 37, 78, 0.1);
+    overflow: hidden;
+  }
+
+  .pc-shell {
+    min-height: 760px;
+  }
+
+  .pc-topbar {
+    height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    background: linear-gradient(90deg, #102d61 0%, #1a4687 52%, #214f95 100%);
+    color: #eef4ff;
+  }
+
+  .pc-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+
+  .brand-mark {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #d6b36c, #b7882a);
+    color: #16305f;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .pc-nav {
+    display: flex;
+    gap: 8px;
+    font-size: 12px;
+  }
+
+  .pc-nav span {
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .pc-nav span.active {
+    background: rgba(214, 179, 108, 0.18);
+    color: #f7e6bc;
+  }
+
+  .pc-body {
+    padding: 18px;
+    display: grid;
+    grid-template-columns: 1.5fr 0.9fr;
+    gap: 16px;
+  }
+
+  .pc-main,
+  .pc-side,
+  .h5-content {
+    display: grid;
+    gap: 14px;
+  }
+
+  .module {
+    border-radius: 18px;
+    border: 1px solid rgba(33, 60, 115, 0.12);
+    background: rgba(255, 255, 255, 0.92);
+    padding: 14px;
+  }
+
+  .module-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .module-title strong {
+    color: #173668;
+    font-size: 15px;
+  }
+
+  .module-title span {
+    color: #7c8eb1;
+    font-size: 11px;
+  }
+
+  .hero {
+    min-height: 190px;
+    color: #f6f9ff;
+    background:
+      radial-gradient(circle at top right, rgba(216, 182, 101, 0.26), transparent 28%),
+      linear-gradient(135deg, #14356c 0%, #1c4d92 58%, #22579e 100%);
+  }
+
+  .hero-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .hero-pill-row,
+  .tag-row,
+  .cta-row,
+  .mini-grid,
+  .report-tag-row,
+  .footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .hero-pill,
+  .tag,
+  .report-tag {
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .hero-pill {
+    color: #fff5d9;
+    background: rgba(213, 178, 95, 0.18);
+    border: 1px solid rgba(221, 189, 116, 0.28);
+  }
+
+  .hero h3,
+  .report-focus h3,
+  .h5-hero h3 {
+    margin: 0 0 10px;
+    font-size: 25px;
+    line-height: 1.35;
+  }
+
+  .hero p,
+  .report-focus p,
+  .h5-hero p {
+    margin: 0 0 12px;
+    font-size: 13px;
+    line-height: 1.72;
+    color: rgba(242, 246, 255, 0.9);
+  }
+
+  .cta {
+    min-width: 98px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .cta.primary {
+    background: linear-gradient(135deg, #d8b46a, #b8882a);
+    color: #17315e;
+  }
+
+  .cta.soft {
+    background: rgba(255, 255, 255, 0.12);
+    color: #f3f6fc;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+  }
+
+  .mini-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .mini-card {
+    border-radius: 14px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .mini-card span,
+  .fact-card span,
+  .timeline-item span,
+  .news-row span,
+  .footer-links span,
+  .h5-footer span {
+    display: block;
+    font-size: 11px;
+    color: #7f93b8;
+  }
+
+  .hero .mini-card span {
+    color: rgba(226, 234, 251, 0.76);
+  }
+
+  .mini-card strong,
+  .fact-card strong,
+  .timeline-item strong,
+  .report-point strong,
+  .news-row strong,
+  .h5-block strong,
+  .h5-news strong {
+    display: block;
+    margin-top: 4px;
+    color: #153567;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .hero .mini-card strong {
+    color: #f7fbff;
+  }
+
+  .fact-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .fact-card {
+    border-radius: 15px;
+    padding: 12px;
+    background: linear-gradient(180deg, #f9fbff 0%, #f0f5fd 100%);
+    border: 1px solid rgba(39, 66, 119, 0.1);
+  }
+
+  .timeline {
+    display: grid;
+    gap: 10px;
+  }
+
+  .timeline-item {
+    border-radius: 15px;
+    padding: 12px;
+    background: rgba(245, 249, 255, 0.92);
+    border: 1px solid rgba(44, 73, 126, 0.1);
+  }
+
+  .timeline-item strong {
+    font-size: 13px;
+  }
+
+  .report-focus {
+    min-height: 222px;
+    background:
+      radial-gradient(circle at top right, rgba(211, 177, 97, 0.16), transparent 30%),
+      linear-gradient(180deg, rgba(253, 254, 255, 0.98), rgba(239, 245, 255, 0.94));
+  }
+
+  .report-topline,
+  .news-topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+    font-size: 11px;
+    color: #6f84ac;
+  }
+
+  .report-tag {
+    color: #8a6918;
+    background: rgba(209, 176, 94, 0.16);
+    border: 1px solid rgba(209, 176, 94, 0.24);
+  }
+
+  .report-points {
+    display: grid;
+    gap: 10px;
+  }
+
+  .report-point {
+    padding: 11px 12px;
+    border-left: 4px solid #c6a14a;
+    border-radius: 0 12px 12px 0;
+    background: rgba(255, 255, 255, 0.72);
+  }
+
+  .report-point p,
+  .fact-card p,
+  .timeline-item p,
+  .news-row p,
+  .h5-block p,
+  .h5-news p,
+  .h5-footer p {
+    margin: 6px 0 0;
+    font-size: 12px;
+    line-height: 1.68;
+    color: #526b98;
+  }
+
+  .news-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .news-row {
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(246, 249, 255, 0.92);
+    border: 1px solid rgba(39, 69, 126, 0.1);
+  }
+
+  .pc-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 18px;
+    border-top: 1px solid rgba(28, 56, 108, 0.1);
+    background: linear-gradient(180deg, rgba(247, 250, 255, 0.9), rgba(239, 244, 252, 0.96));
+  }
+
+  .footer-links {
+    color: #58709d;
+    font-size: 12px;
+  }
+
+  .footer-links span {
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.75);
+    color: #5b7098;
+  }
+
+  .footer-text {
+    color: #7084a9;
+    font-size: 12px;
+  }
+
+  .phone-wrap {
+    border-radius: 32px;
+    padding: 14px;
+    background: linear-gradient(180deg, #102e63 0%, #15386f 16%, #edf3fb 16%, #edf3fb 100%);
+    box-shadow: 0 28px 54px rgba(14, 36, 74, 0.16);
+  }
+
+  .phone-screen {
+    border-radius: 24px;
+    overflow: hidden;
+    background: linear-gradient(180deg, #f8fbff 0%, #edf2fa 100%);
+  }
+
+  .phone-top {
+    height: 48px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #f2f7ff;
+    font-size: 12px;
+  }
+
+  .h5-content {
+    padding: 12px;
+  }
+
+  .h5-hero {
+    border-radius: 18px;
+    padding: 14px;
+    color: #f6f9ff;
+    background:
+      radial-gradient(circle at top right, rgba(216, 182, 101, 0.26), transparent 28%),
+      linear-gradient(135deg, #15356c 0%, #1d4e93 58%, #2358a0 100%);
+  }
+
+  .h5-pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-bottom: 10px;
+  }
+
+  .h5-pill {
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: rgba(218, 184, 104, 0.18);
+    color: #fff4d6;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .h5-hero h3 {
+    font-size: 19px;
+  }
+
+  .h5-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .h5-block,
+  .h5-news,
+  .h5-footer {
+    border-radius: 16px;
+    border: 1px solid rgba(31, 60, 114, 0.12);
+    background: rgba(255, 255, 255, 0.92);
+    padding: 12px;
+  }
+
+  .h5-news {
+    border-left: 4px solid #caa24b;
+  }
+
+  .h5-footer {
+    background: linear-gradient(180deg, rgba(247, 250, 255, 0.94), rgba(238, 244, 252, 0.98));
+  }
+
+  .decision-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .decision-card {
+    border-radius: 18px;
+    border: 1px solid rgba(28, 58, 112, 0.12);
+    background: rgba(248, 251, 255, 0.96);
+    padding: 16px;
+  }
+
+  .decision-card h3 {
+    margin: 0 0 8px;
+    color: #17396d;
+    font-size: 16px;
+  }
+
+  .decision-card p {
+    margin: 0;
+    color: #54709b;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  @media (max-width: 1200px) {
+    .detail-grid,
+    .decision-row {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<h2>A 方案细化稿</h2>
+<p class="subtitle">方向不变：券商研究终端风，首页首屏先打“推荐”，右侧稳定承接“焦点研报与市场导读”。这一版已经补上历史样本预览和底部信息。</p>
+
+<div class="hero-note">
+  这不是最终像素稿，而是接近正式 demo 的结构稿。你可以重点看 4 件事：推荐区够不够稳、研报区够不够有分量、H5 是否还是同一套信息逻辑、底部信息是否像一个完整站点而不是半截页面。
+</div>
+
+<div class="detail-grid">
+  <div>
+    <div class="label">PC 首页</div>
+    <div class="panel pc-shell">
+      <div class="pc-topbar">
+        <div class="pc-brand">
+          <span class="brand-mark">S</span>
+          <span>SercherAI 研究终端</span>
+        </div>
+        <div class="pc-nav">
+          <span class="active">首页</span>
+          <span>策略</span>
+          <span>资讯</span>
+          <span>会员</span>
+          <span>我的</span>
+        </div>
+      </div>
+
+      <div class="pc-body">
+        <div class="pc-main">
+          <section class="module hero">
+            <div class="hero-head">
+              <div>
+                <div class="hero-pill-row">
+                  <span class="hero-pill">今日推荐</span>
+                  <span class="hero-pill">股票主位</span>
+                  <span class="hero-pill">期货同步承接</span>
+                </div>
+                <h3>先看主推荐，再决定是否继续看候选与研报</h3>
+                <p>主位直接展示标的、结论、核心理由、止盈止损边界和下一动作，避免首页只有“热闹”没有“可执行信息”。</p>
+              </div>
+              <div class="cta-row">
+                <span class="cta primary">查看完整观点</span>
+                <span class="cta soft">加入关注</span>
+                <span class="cta soft">进入资讯</span>
+              </div>
+            </div>
+
+            <div class="mini-grid">
+              <div class="mini-card">
+                <span>推荐标的</span>
+                <strong>宁德时代 / 主推荐</strong>
+              </div>
+              <div class="mini-card">
+                <span>为什么选</span>
+                <strong>景气修复 + 订单验证</strong>
+              </div>
+              <div class="mini-card">
+                <span>止盈止损</span>
+                <strong>目标位 / 风控线</strong>
+              </div>
+              <div class="mini-card">
+                <span>下一动作</span>
+                <strong>持有观察 / 等待确认</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="module">
+            <div class="module-title">
+              <strong>为什么选择它</strong>
+              <span>把策略解释压成首页可读结构</span>
+            </div>
+            <div class="fact-grid">
+              <div class="fact-card">
+                <span>核心结论</span>
+                <strong>当前更偏中线配置，不做短线情绪追高</strong>
+                <p>首页只讲结论和方向，不把细节全堆出来，避免首屏像后台表格。</p>
+              </div>
+              <div class="fact-card">
+                <span>证据来源</span>
+                <strong>推荐理由来自当前 insight 与历史版本对照</strong>
+                <p>强调“为什么今天先看它”，不是单纯放一个涨跌数字。</p>
+              </div>
+              <div class="fact-card">
+                <span>风险边界</span>
+                <strong>风控线、仓位建议和失效条件前置展示</strong>
+                <p>符合中文金融站习惯，先给边界，再说机会。</p>
+              </div>
+              <div class="fact-card">
+                <span>期货承接</span>
+                <strong>首页只给一条期货机会卡，不抢股票主位</strong>
+                <p>保留现有真实能力，但不让首页主线发散。</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="module">
+            <div class="module-title">
+              <strong>历史样本预览</strong>
+              <span>承接 archive 的真实能力，但首页只做预览</span>
+            </div>
+            <div class="timeline">
+              <div class="timeline-item">
+                <span>历史推荐样本 01</span>
+                <strong>展示历史涨幅 / 跌幅、当时推荐理由、后期止盈止损原因</strong>
+                <p>这里不做完整工作台，只做 2 至 3 条可快速复盘的样本卡，点击再进入历史档案页。</p>
+              </div>
+              <div class="timeline-item">
+                <span>历史推荐样本 02</span>
+                <strong>不只展示成功样本，也允许展示止损和失效样本</strong>
+                <p>这样首页会更像真实投研站，而不是营销页。</p>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="pc-side">
+          <section class="module report-focus">
+            <div class="report-topline">
+              <span>今日焦点研报</span>
+              <div class="report-tag-row">
+                <span class="report-tag">研报</span>
+                <span class="report-tag">VIP 深读</span>
+              </div>
+            </div>
+            <h3>研报作为首页第二主线，但不是普通新闻列表</h3>
+            <p>右侧第一卡固定给一篇焦点研报：标题、来源、时间、摘要、三条解读结论，突出“研报是别处没有的核心内容”。</p>
+            <div class="report-points">
+              <div class="report-point">
+                <strong>一句话解读</strong>
+                <p>把长研报压成首页能看完的一段核心判断。</p>
+              </div>
+              <div class="report-point">
+                <strong>对策略的影响</strong>
+                <p>说明研报与今日主推荐、行业判断之间的关系。</p>
+              </div>
+              <div class="report-point">
+                <strong>继续阅读入口</strong>
+                <p>点进资讯页后再进入完整正文、附件与会员权限链。</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="module">
+            <div class="module-title">
+              <strong>市场资讯速览</strong>
+              <span>只导流，不抢研报主位</span>
+            </div>
+            <div class="news-list">
+              <div class="news-row">
+                <span>资讯 01</span>
+                <strong>市场要闻、行业快讯、公告摘要按时间顺序给 3 条</strong>
+                <p>像国内财经站右栏快讯，不做国外媒体式大块 editorial 卡片。</p>
+              </div>
+              <div class="news-row">
+                <span>资讯 02</span>
+                <strong>保留搜索与栏目切换承接，但首页只展示入口和焦点</strong>
+                <p>真正深读动作仍进入资讯页完成。</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="module">
+            <div class="module-title">
+              <strong>站内承接</strong>
+              <span>首页尾部动作区</span>
+            </div>
+            <div class="news-list">
+              <div class="news-row">
+                <span>去策略页</span>
+                <strong>看完整股票 / 期货 / 事件列表</strong>
+                <p>承接真实 `strategies` 能力。</p>
+              </div>
+              <div class="news-row">
+                <span>去会员页</span>
+                <strong>查看会员状态、套餐和实名激活</strong>
+                <p>首页只做轻承接，不提前把价格堆成营销长页。</p>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <div class="pc-footer">
+        <div class="footer-links">
+          <span>关于我们</span>
+          <span>会员服务</span>
+          <span>风险提示</span>
+          <span>用户协议</span>
+          <span>隐私说明</span>
+        </div>
+        <div class="footer-text">底部固定做成标准中文金融站信息区，补齐“这是一个完整站点”的感受。</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="label">H5 首页</div>
+    <div class="phone-wrap">
+      <div class="phone-screen">
+        <div class="phone-top">
+          <span>09:41</span>
+          <span>首页</span>
+          <span>消息</span>
+        </div>
+
+        <div class="h5-content">
+          <section class="h5-hero">
+            <div class="h5-pill-row">
+              <span class="h5-pill">今日推荐</span>
+              <span class="h5-pill">主线观点</span>
+            </div>
+            <h3>先看主推荐，再看焦点研报</h3>
+            <p>H5 不做独立设计分叉，仍沿用 PC 的信息顺序，只是压成单列阅读节奏。</p>
+          </section>
+
+          <div class="h5-grid">
+            <div class="h5-block">
+              <span>为什么选</span>
+              <strong>核心理由摘要</strong>
+              <p>把 insight 压缩成一眼能懂的两三段。</p>
+            </div>
+            <div class="h5-block">
+              <span>风控边界</span>
+              <strong>止盈止损前置</strong>
+              <p>手机端仍优先看边界而不是只看情绪。</p>
+            </div>
+          </div>
+
+          <div class="h5-news">
+            <span>焦点研报</span>
+            <strong>一篇研报主卡 + 一段解读摘要</strong>
+            <p>研报仍然是第二主线，不会在 H5 上退化成普通资讯项。</p>
+          </div>
+
+          <div class="h5-block">
+            <span>历史样本预览</span>
+            <strong>只保留 1 至 2 条代表样本</strong>
+            <p>展示历史涨跌与后期处理原因，避免首屏拖得过长。</p>
+          </div>
+
+          <div class="h5-block">
+            <span>资讯速览</span>
+            <strong>3 条以内市场快讯导流</strong>
+            <p>点击后进入资讯页继续刷，不在首页堆满资讯流。</p>
+          </div>
+
+          <div class="h5-footer">
+            <span>底部信息</span>
+            <p>H5 也保留精简版站点底部信息区，而不是直接断掉页面。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>这一版想让你确认的唯一问题</h3>
+  <p class="subtitle">首页首屏“推荐”和“研报”的比例，现在是否合适？</p>
+  <div class="options">
+    <div class="option" data-choice="balanced" onclick="toggleSelect(this)">
+      <div class="letter">1</div>
+      <div class="content">
+        <h3>比例正好</h3>
+        <p>保持现在这个结构，下一步直接做正式 HTML demo。</p>
+      </div>
+    </div>
+    <div class="option" data-choice="more-report" onclick="toggleSelect(this)">
+      <div class="letter">2</div>
+      <div class="content">
+        <h3>研报再重一点</h3>
+        <p>让右侧焦点研报更大、更像首页第二主视觉。</p>
+      </div>
+    </div>
+    <div class="option" data-choice="more-reco" onclick="toggleSelect(this)">
+      <div class="letter">3</div>
+      <div class="content">
+        <h3>推荐再重一点</h3>
+        <p>把首页更收敛成“推荐工作台”，研报继续做强导流。</p>
+      </div>
+    </div>
+  </div>
+</div>

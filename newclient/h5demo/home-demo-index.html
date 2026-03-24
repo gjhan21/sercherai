@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SercherAI 首页 Demo 入口</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap");
+
+      :root {
+        --bg-base: #edf3fb;
+        --text-main: #16386c;
+        --text-sub: #587199;
+        --text-soft: #7c90b2;
+        --line: rgba(24, 56, 108, 0.1);
+        --panel: rgba(255, 255, 255, 0.94);
+        --gold: #caa24a;
+        --gold-soft: rgba(202, 162, 74, 0.14);
+        --shadow: 0 24px 56px rgba(12, 31, 64, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        font-family: "Noto Sans SC", "IBM Plex Sans", sans-serif;
+        color: var(--text-main);
+        background:
+          radial-gradient(circle at top right, rgba(202, 162, 74, 0.12), transparent 20%),
+          linear-gradient(180deg, #f4f8fe 0%, #edf3fb 45%, #e7eef8 100%);
+      }
+
+      .shell {
+        width: min(1460px, calc(100% - 40px));
+        margin: 22px auto 40px;
+      }
+
+      .hero {
+        padding: 24px 26px;
+        border-radius: 28px;
+        border: 1px solid var(--line);
+        background:
+          radial-gradient(circle at top right, rgba(202, 162, 74, 0.16), transparent 24%),
+          linear-gradient(135deg, rgba(248, 251, 255, 0.98), rgba(239, 245, 254, 0.96));
+        box-shadow: var(--shadow);
+      }
+
+      .hero h1 {
+        margin: 0 0 10px;
+        font-size: 34px;
+        line-height: 1.3;
+      }
+
+      .hero p {
+        margin: 0;
+        max-width: 980px;
+        color: var(--text-sub);
+        font-size: 15px;
+        line-height: 1.82;
+      }
+
+      .pill-row,
+      .action-row,
+      .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .pill,
+      .link-btn {
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .pill {
+        margin-bottom: 12px;
+        color: #83661a;
+        background: var(--gold-soft);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+        margin-top: 20px;
+      }
+
+      .card {
+        padding: 18px;
+        border-radius: 24px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .card h2 {
+        margin: 0 0 8px;
+        font-size: 24px;
+        line-height: 1.4;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--text-sub);
+        font-size: 14px;
+        line-height: 1.78;
+      }
+
+      .action-row {
+        margin-top: 14px;
+      }
+
+      .link-btn {
+        color: #17325f;
+        background: linear-gradient(135deg, #d7b267, #b88626);
+      }
+
+      .link-btn.secondary {
+        color: var(--text-main);
+        background: rgba(20, 55, 107, 0.06);
+      }
+
+      iframe {
+        width: 100%;
+        height: 720px;
+        margin-top: 16px;
+        border: 1px solid rgba(24, 56, 108, 0.08);
+        border-radius: 18px;
+        background: #fff;
+      }
+
+      .meta {
+        margin-top: 22px;
+        padding: 18px;
+        border-radius: 20px;
+        border: 1px solid var(--line);
+        background: rgba(248, 251, 255, 0.96);
+      }
+
+      .meta h3 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      .meta ul {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--text-sub);
+        font-size: 14px;
+        line-height: 1.82;
+      }
+
+      .meta-row {
+        margin-top: 14px;
+        color: var(--text-soft);
+        font-size: 12px;
+      }
+
+      @media (max-width: 1100px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        iframe {
+          height: 620px;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .shell {
+          width: min(100% - 20px, 1460px);
+        }
+
+        .hero h1 {
+          font-size: 28px;
+        }
+
+        iframe {
+          height: 560px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="hero">
+        <div class="pill-row">
+          <span class="pill">首页 Demo</span>
+          <span class="pill">PC / H5 分开设计</span>
+          <span class="pill">只基于真实能力</span>
+        </div>
+        <h1>SercherAI 新客户端首页 Demo 入口</h1>
+        <p>
+          这组首页 demo 已按确认方向固化：
+          PC 首页采用“推荐主工作区 + 焦点研报侧栏”的双塔结构；
+          H5 首页采用更接近国内金融 App 的信息头、快捷入口、推荐主卡、研报大卡和底部 Tab 结构。
+        </p>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>PC 首页</h2>
+          <p>
+            适合审查中文金融站首页的页面层级、推荐主位、焦点研报、历史样本预览与底部站点信息区是否统一成一套视觉系统。
+          </p>
+          <div class="action-row">
+            <a class="link-btn" href="./home-pc-demo.html" target="_blank" rel="noreferrer">单独打开 PC 首页</a>
+          </div>
+          <iframe src="./home-pc-demo.html" title="PC 首页 Demo 预览"></iframe>
+        </article>
+
+        <article class="card">
+          <h2>H5 首页</h2>
+          <p>
+            适合审查是否已经从“简单 H5 页面”收敛到“国内金融 App 首页”，包括快捷入口、推荐主卡、研报大卡、历史样本与底部 Tab 的整体感受。
+          </p>
+          <div class="action-row">
+            <a class="link-btn" href="./home-h5-demo.html" target="_blank" rel="noreferrer">单独打开 H5 首页</a>
+          </div>
+          <iframe src="./home-h5-demo.html" title="H5 首页 Demo 预览"></iframe>
+        </article>
+      </section>
+
+      <section class="meta">
+        <h3>当前设计边界</h3>
+        <ul>
+          <li>首页只承接当前真实能力：推荐、推荐理由、历史样本预览、焦点研报、市场资讯、会员与资讯页导流。</li>
+          <li>没有新增社区、热榜、直播、短视频、开放平台和云端自选股等模块。</li>
+          <li>PC 和 H5 共用蓝金金融系，但 H5 会更像国内金融 App，PC 会更像中文金融站首页。</li>
+        </ul>
+
+        <div class="meta-row">
+          <span>设计确认时间：2026-03-24</span>
+          <span>文件目录：newclient/h5demo</span>
+          <span>下一步：你确认首页后，再按同风格继续设计其他页面</span>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

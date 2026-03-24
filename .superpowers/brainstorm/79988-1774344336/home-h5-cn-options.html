@@ -1,0 +1,529 @@
+<style>
+  .lead-note {
+    margin-bottom: 18px;
+    padding: 16px 18px;
+    border-radius: 16px;
+    border: 1px solid rgba(29, 60, 112, 0.12);
+    background:
+      radial-gradient(circle at top right, rgba(208, 175, 96, 0.16), transparent 26%),
+      linear-gradient(135deg, rgba(246, 250, 255, 0.96), rgba(237, 244, 253, 0.94));
+    color: #38547f;
+    font-size: 14px;
+    line-height: 1.75;
+  }
+
+  .cards.phone-cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 22px;
+  }
+
+  .phone-card {
+    border-radius: 24px;
+    overflow: hidden;
+    border: 1px solid rgba(24, 53, 104, 0.14);
+    background: linear-gradient(180deg, #fbfdff 0%, #f1f5fb 100%);
+    box-shadow: 0 22px 50px rgba(14, 36, 74, 0.1);
+  }
+
+  .phone-card .card-body {
+    padding: 16px;
+  }
+
+  .topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .topline h3 {
+    margin: 0;
+    color: #18386c;
+    font-size: 18px;
+  }
+
+  .badge {
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #8a6918;
+    background: rgba(208, 174, 92, 0.16);
+    border: 1px solid rgba(208, 174, 92, 0.24);
+  }
+
+  .desc {
+    margin: 0 0 14px;
+    color: #54709b;
+    font-size: 13px;
+    line-height: 1.72;
+  }
+
+  .phone {
+    width: 230px;
+    margin: 0 auto 14px;
+    padding: 8px;
+    border-radius: 28px;
+    background: linear-gradient(180deg, #0f2d61 0%, #183b72 16%, #eaf1fa 16%, #eaf1fa 100%);
+  }
+
+  .screen {
+    overflow: hidden;
+    border-radius: 21px;
+    background: linear-gradient(180deg, #15376f 0%, #1c4a8b 13%, #eef3fb 13%, #eef3fb 100%);
+  }
+
+  .status {
+    height: 22px;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: rgba(243, 248, 255, 0.9);
+    font-size: 10px;
+  }
+
+  .head {
+    padding: 8px 10px 10px;
+    color: #f5f9ff;
+  }
+
+  .head-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+  }
+
+  .brand-mark {
+    width: 22px;
+    height: 22px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #d7b368, #ba8827);
+  }
+
+  .head-icons {
+    display: flex;
+    gap: 6px;
+  }
+
+  .head-icons i {
+    width: 22px;
+    height: 22px;
+    border-radius: 8px;
+    display: block;
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  .hero {
+    border-radius: 14px;
+    padding: 10px;
+    background:
+      radial-gradient(circle at top right, rgba(217, 184, 106, 0.24), transparent 30%),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(17, 46, 95, 0.16));
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .hero-line,
+  .line {
+    height: 6px;
+    margin-bottom: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.24);
+  }
+
+  .hero-line.short,
+  .line.short {
+    width: 42%;
+  }
+
+  .hero-line.mid,
+  .line.mid {
+    width: 64%;
+  }
+
+  .hero-line.long,
+  .line.long {
+    width: 88%;
+  }
+
+  .body {
+    padding: 10px;
+    display: grid;
+    gap: 8px;
+  }
+
+  .block {
+    border-radius: 12px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(35, 66, 121, 0.08);
+  }
+
+  .grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .quick {
+    text-align: center;
+  }
+
+  .quick i {
+    display: block;
+    width: 28px;
+    height: 28px;
+    margin: 0 auto 6px;
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(24, 61, 122, 0.16), rgba(214, 181, 100, 0.12));
+  }
+
+  .quick span {
+    display: block;
+    font-size: 10px;
+    color: #6f83a8;
+  }
+
+  .main-card {
+    color: #f6f9ff;
+    background:
+      radial-gradient(circle at top right, rgba(215, 181, 102, 0.24), transparent 28%),
+      linear-gradient(135deg, #16386f 0%, #1d4e93 60%, #2358a0 100%);
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .main-card .line {
+    background: rgba(255, 255, 255, 0.24);
+  }
+
+  .report-card {
+    border-left: 4px solid #c7a14a;
+  }
+
+  .tabbar {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+    border-radius: 14px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(33, 62, 115, 0.08);
+  }
+
+  .tab {
+    text-align: center;
+  }
+
+  .tab i {
+    width: 16px;
+    height: 16px;
+    display: block;
+    margin: 0 auto 4px;
+    border-radius: 6px;
+    background: linear-gradient(180deg, rgba(25, 60, 118, 0.18), rgba(210, 176, 94, 0.14));
+  }
+
+  .tab span {
+    display: block;
+    font-size: 9px;
+    color: #6c81a7;
+  }
+
+  .notes {
+    display: grid;
+    gap: 8px;
+  }
+
+  .note {
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(247, 250, 255, 0.96);
+    border: 1px solid rgba(35, 65, 120, 0.08);
+    color: #54709b;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  .note strong {
+    display: block;
+    margin-bottom: 2px;
+    color: #17386c;
+    font-size: 12px;
+  }
+
+  @media (max-width: 1100px) {
+    .cards.phone-cards {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<h2>H5 首页本土化方向对比</h2>
+<p class="subtitle">你刚才选的是“还要再像国内 App 一点”。下面这 3 个方向都只用现有真实能力，但在首页组织方式上更接近国内金融 App。</p>
+
+<div class="lead-note">
+  三个方向的区别不在“加新功能”，而在“怎么排现有内容”。你可以只看感觉：哪一个最像你希望的新客户端首页。
+</div>
+
+<div class="cards phone-cards">
+  <div class="card phone-card" data-choice="a1" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div class="topline">
+        <h3>A1. 快捷入口更重</h3>
+        <span class="badge">更像 App</span>
+      </div>
+      <p class="desc">顶部之下先给快捷入口和数据条，再进入推荐主卡。更像很多国内金融 App 首页，操作感强。</p>
+
+      <div class="phone">
+        <div class="screen">
+          <div class="status">
+            <span>09:41</span>
+            <span>5G</span>
+          </div>
+          <div class="head">
+            <div class="head-row">
+              <div class="brand">
+                <span class="brand-mark"></span>
+                <span>SercherAI</span>
+              </div>
+              <div class="head-icons"><i></i><i></i></div>
+            </div>
+            <div class="hero">
+              <div class="hero-line short"></div>
+              <div class="hero-line long"></div>
+              <div class="hero-line mid"></div>
+            </div>
+          </div>
+          <div class="body">
+            <div class="block">
+              <div class="grid-4">
+                <div class="quick"><i></i><span>推荐</span></div>
+                <div class="quick"><i></i><span>研报</span></div>
+                <div class="quick"><i></i><span>样本</span></div>
+                <div class="quick"><i></i><span>会员</span></div>
+              </div>
+            </div>
+            <div class="block">
+              <div class="grid-2">
+                <div>
+                  <div class="line short" style="background:#d5dfef;"></div>
+                  <div class="line mid" style="background:#d5dfef;"></div>
+                </div>
+                <div>
+                  <div class="line short" style="background:#d5dfef;"></div>
+                  <div class="line mid" style="background:#d5dfef;"></div>
+                </div>
+              </div>
+            </div>
+            <div class="block main-card">
+              <div class="line short"></div>
+              <div class="line long"></div>
+              <div class="line mid"></div>
+            </div>
+            <div class="block report-card">
+              <div class="line short" style="background:#d5dfef;"></div>
+              <div class="line long" style="background:#d5dfef;"></div>
+              <div class="line mid" style="background:#d5dfef;"></div>
+            </div>
+            <div class="tabbar">
+              <div class="tab"><i></i><span>首页</span></div>
+              <div class="tab"><i></i><span>策略</span></div>
+              <div class="tab"><i></i><span>资讯</span></div>
+              <div class="tab"><i></i><span>会员</span></div>
+              <div class="tab"><i></i><span>我的</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="notes">
+        <div class="note">
+          <strong>优点</strong>
+          一眼就像国内 App 首页，产品完成度很强。
+        </div>
+        <div class="note">
+          <strong>风险</strong>
+          推荐主位会被入口区分走一部分注意力。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card phone-card" data-choice="a2" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div class="topline">
+        <h3>A2. 内容列表更重</h3>
+        <span class="badge" style="color:#395f98;background:rgba(61,102,176,0.12);border-color:rgba(61,102,176,0.24);">资讯感强</span>
+      </div>
+      <p class="desc">保留 App 顶头和底部导航，但主推荐之后快速进入研报卡、样本卡、资讯卡，整体更像国内资讯投资 App。</p>
+
+      <div class="phone">
+        <div class="screen">
+          <div class="status">
+            <span>09:41</span>
+            <span>5G</span>
+          </div>
+          <div class="head">
+            <div class="head-row">
+              <div class="brand">
+                <span class="brand-mark"></span>
+                <span>SercherAI</span>
+              </div>
+              <div class="head-icons"><i></i><i></i></div>
+            </div>
+            <div class="hero">
+              <div class="hero-line short"></div>
+              <div class="hero-line long"></div>
+              <div class="hero-line mid"></div>
+            </div>
+          </div>
+          <div class="body">
+            <div class="block main-card">
+              <div class="line short"></div>
+              <div class="line long"></div>
+              <div class="line mid"></div>
+            </div>
+            <div class="block report-card">
+              <div class="line short" style="background:#d5dfef;"></div>
+              <div class="line long" style="background:#d5dfef;"></div>
+              <div class="line mid" style="background:#d5dfef;"></div>
+            </div>
+            <div class="block">
+              <div class="line short" style="background:#d5dfef;"></div>
+              <div class="line long" style="background:#d5dfef;"></div>
+              <div class="line mid" style="background:#d5dfef;"></div>
+            </div>
+            <div class="block">
+              <div class="line short" style="background:#d5dfef;"></div>
+              <div class="line long" style="background:#d5dfef;"></div>
+              <div class="line mid" style="background:#d5dfef;"></div>
+            </div>
+            <div class="block">
+              <div class="grid-4">
+                <div class="quick"><i></i><span>推荐</span></div>
+                <div class="quick"><i></i><span>研报</span></div>
+                <div class="quick"><i></i><span>样本</span></div>
+                <div class="quick"><i></i><span>会员</span></div>
+              </div>
+            </div>
+            <div class="tabbar">
+              <div class="tab"><i></i><span>首页</span></div>
+              <div class="tab"><i></i><span>策略</span></div>
+              <div class="tab"><i></i><span>资讯</span></div>
+              <div class="tab"><i></i><span>会员</span></div>
+              <div class="tab"><i></i><span>我的</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="notes">
+        <div class="note">
+          <strong>优点</strong>
+          更像国内内容型投资 App，读起来顺。
+        </div>
+        <div class="note">
+          <strong>风险</strong>
+          App 感是有了，但“快捷操作感”会稍弱。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card phone-card" data-choice="a3" onclick="toggleSelect(this)">
+    <div class="card-body">
+      <div class="topline">
+        <h3>A3. 平衡版</h3>
+        <span class="badge">推荐方案</span>
+      </div>
+      <p class="desc">顶部信息头、快捷入口、推荐主卡、焦点研报、历史样本、资讯列表和底部 Tab 都保留，但每一块都更克制，兼顾 App 感和首页主线。</p>
+
+      <div class="phone">
+        <div class="screen">
+          <div class="status">
+            <span>09:41</span>
+            <span>5G</span>
+          </div>
+          <div class="head">
+            <div class="head-row">
+              <div class="brand">
+                <span class="brand-mark"></span>
+                <span>SercherAI</span>
+              </div>
+              <div class="head-icons"><i></i><i></i></div>
+            </div>
+            <div class="hero">
+              <div class="hero-line short"></div>
+              <div class="hero-line long"></div>
+              <div class="hero-line mid"></div>
+            </div>
+          </div>
+          <div class="body">
+            <div class="block">
+              <div class="grid-4">
+                <div class="quick"><i></i><span>推荐</span></div>
+                <div class="quick"><i></i><span>研报</span></div>
+                <div class="quick"><i></i><span>样本</span></div>
+                <div class="quick"><i></i><span>会员</span></div>
+              </div>
+            </div>
+            <div class="block main-card">
+              <div class="line short"></div>
+              <div class="line long"></div>
+              <div class="line mid"></div>
+            </div>
+            <div class="grid-2">
+              <div class="block report-card">
+                <div class="line short" style="background:#d5dfef;"></div>
+                <div class="line long" style="background:#d5dfef;"></div>
+              </div>
+              <div class="block">
+                <div class="line short" style="background:#d5dfef;"></div>
+                <div class="line long" style="background:#d5dfef;"></div>
+              </div>
+            </div>
+            <div class="block">
+              <div class="line short" style="background:#d5dfef;"></div>
+              <div class="line long" style="background:#d5dfef;"></div>
+              <div class="line mid" style="background:#d5dfef;"></div>
+            </div>
+            <div class="tabbar">
+              <div class="tab"><i></i><span>首页</span></div>
+              <div class="tab"><i></i><span>策略</span></div>
+              <div class="tab"><i></i><span>资讯</span></div>
+              <div class="tab"><i></i><span>会员</span></div>
+              <div class="tab"><i></i><span>我的</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="notes">
+        <div class="note">
+          <strong>优点</strong>
+          既像国内 App，也能保住首页“推荐 + 研报双主线”的中心感。
+        </div>
+        <div class="note">
+          <strong>风险</strong>
+          没有 A1 那么强操作感，也没有 A2 那么强内容流感。
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

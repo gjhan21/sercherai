@@ -1,0 +1,768 @@
+<style>
+  .intro {
+    margin-bottom: 18px;
+    padding: 16px 18px;
+    border-radius: 16px;
+    border: 1px solid rgba(29, 60, 112, 0.12);
+    background:
+      radial-gradient(circle at top right, rgba(208, 175, 96, 0.16), transparent 26%),
+      linear-gradient(135deg, rgba(246, 250, 255, 0.96), rgba(237, 244, 253, 0.94));
+    color: #38547f;
+    font-size: 14px;
+    line-height: 1.75;
+  }
+
+  .focus-layout {
+    display: grid;
+    grid-template-columns: minmax(320px, 420px) 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+
+  .phone-wrap {
+    width: 360px;
+    margin: 0 auto;
+    padding: 14px;
+    border-radius: 34px;
+    background: linear-gradient(180deg, #0f2d60 0%, #173a72 12%, #eaf1fa 12%, #eaf1fa 100%);
+    box-shadow: 0 30px 64px rgba(16, 38, 76, 0.18);
+  }
+
+  .phone-screen {
+    overflow: hidden;
+    border-radius: 28px;
+    background: linear-gradient(180deg, #15376f 0%, #1c4a8c 14%, #eff4fb 14%, #eff4fb 100%);
+  }
+
+  .statusbar {
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    color: rgba(244, 248, 255, 0.9);
+    font-size: 11px;
+  }
+
+  .app-header {
+    padding: 8px 16px 16px;
+    color: #f6f9ff;
+  }
+
+  .app-topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .brand-mark {
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #d7b469, #ba8827);
+    color: #183560;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .brand strong {
+    display: block;
+    font-size: 15px;
+    line-height: 1.2;
+  }
+
+  .brand span,
+  .icon-btn,
+  .section-head span,
+  .sample-card span,
+  .news-card span,
+  .bottom-tab small,
+  .explain-card span,
+  .quick-item span {
+    color: rgba(222, 231, 247, 0.76);
+    font-size: 11px;
+  }
+
+  .header-icons {
+    display: flex;
+    gap: 8px;
+  }
+
+  .icon-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .header-panel {
+    padding: 14px;
+    border-radius: 20px;
+    background:
+      radial-gradient(circle at top right, rgba(215, 183, 107, 0.26), transparent 30%),
+      linear-gradient(135deg, rgba(16, 45, 96, 0.26), rgba(255, 255, 255, 0.12));
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(8px);
+  }
+
+  .hero-tag-row,
+  .cta-row,
+  .tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .hero-tag {
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff6dd;
+    background: rgba(216, 182, 102, 0.18);
+    border: 1px solid rgba(216, 182, 102, 0.26);
+  }
+
+  .header-panel h2 {
+    margin: 10px 0 8px;
+    color: #f6f9ff;
+    font-size: 21px;
+    line-height: 1.35;
+  }
+
+  .header-panel p {
+    margin: 0 0 12px;
+    color: rgba(236, 242, 253, 0.88);
+    font-size: 12px;
+    line-height: 1.72;
+  }
+
+  .cta {
+    min-width: 84px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .cta.primary {
+    background: linear-gradient(135deg, #d6b066, #ba8725);
+    color: #17335f;
+  }
+
+  .cta.ghost {
+    color: #f3f7ff;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .app-body {
+    padding: 12px 14px 18px;
+    display: grid;
+    gap: 12px;
+  }
+
+  .section,
+  .bottom-tabbar {
+    border-radius: 18px;
+    border: 1px solid rgba(31, 59, 112, 0.1);
+    background: rgba(255, 255, 255, 0.94);
+  }
+
+  .section {
+    padding: 12px;
+  }
+
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .section-head strong {
+    color: #173a70;
+    font-size: 15px;
+  }
+
+  .metric-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .metric-card {
+    border-radius: 14px;
+    padding: 10px;
+    background: linear-gradient(180deg, #f9fbff 0%, #f0f5fd 100%);
+    border: 1px solid rgba(34, 64, 117, 0.08);
+  }
+
+  .metric-card span,
+  .report-card small,
+  .bottom-note small,
+  .annotation li {
+    color: #7185a8;
+    font-size: 11px;
+  }
+
+  .metric-card strong {
+    display: block;
+    margin-top: 4px;
+    color: #17396e;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  .quick-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .quick-item {
+    text-align: center;
+  }
+
+  .quick-icon {
+    width: 42px;
+    height: 42px;
+    margin: 0 auto 8px;
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(24, 63, 123, 0.12), rgba(214, 181, 100, 0.1));
+    border: 1px solid rgba(35, 69, 126, 0.1);
+  }
+
+  .quick-item strong {
+    display: block;
+    color: #1a396c;
+    font-size: 12px;
+    margin-bottom: 3px;
+  }
+
+  .recommend-card {
+    border-radius: 16px;
+    padding: 14px;
+    color: #f6f9ff;
+    background:
+      radial-gradient(circle at top right, rgba(216, 183, 104, 0.24), transparent 30%),
+      linear-gradient(135deg, #16386f 0%, #1d4e93 62%, #2258a0 100%);
+  }
+
+  .recommend-card h3,
+  .report-card h3,
+  .sample-card h3,
+  .news-card h3,
+  .explain-card strong {
+    margin: 0;
+  }
+
+  .recommend-card h3 {
+    font-size: 18px;
+    line-height: 1.4;
+    margin-bottom: 8px;
+  }
+
+  .recommend-card p {
+    margin: 0 0 12px;
+    color: rgba(235, 242, 252, 0.9);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  .recommend-grid,
+  .sample-list,
+  .news-list,
+  .explain-grid,
+  .report-points {
+    display: grid;
+    gap: 10px;
+  }
+
+  .recommend-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .recommend-item {
+    padding: 10px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .recommend-item span {
+    display: block;
+    color: rgba(225, 233, 247, 0.78);
+    font-size: 11px;
+  }
+
+  .recommend-item strong {
+    display: block;
+    margin-top: 4px;
+    color: #f8fbff;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .explain-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .explain-card {
+    padding: 11px;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #f9fbff 0%, #eff4fb 100%);
+    border: 1px solid rgba(33, 64, 117, 0.08);
+  }
+
+  .explain-card p {
+    margin: 6px 0 0;
+    color: #53709b;
+    font-size: 12px;
+    line-height: 1.68;
+  }
+
+  .report-card {
+    padding: 13px;
+    border-radius: 16px;
+    border-left: 4px solid #c8a14a;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 247, 255, 0.96));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  }
+
+  .report-card h3 {
+    color: #17396d;
+    font-size: 15px;
+    line-height: 1.5;
+    margin: 6px 0 8px;
+  }
+
+  .report-card p {
+    margin: 0;
+    color: #536f99;
+    font-size: 12px;
+    line-height: 1.72;
+  }
+
+  .report-points .point {
+    padding: 10px 0 0;
+    border-top: 1px dashed rgba(38, 69, 124, 0.12);
+  }
+
+  .report-points .point strong,
+  .sample-card strong,
+  .news-card strong {
+    display: block;
+    color: #18396c;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .report-points .point p,
+  .sample-card p,
+  .news-card p,
+  .bottom-note p {
+    margin: 5px 0 0;
+    color: #54709b;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  .sample-card,
+  .news-card {
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(247, 250, 255, 0.96);
+    border: 1px solid rgba(38, 69, 124, 0.08);
+  }
+
+  .bottom-note {
+    padding: 12px;
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(247, 250, 255, 0.94), rgba(240, 245, 252, 0.98));
+    border: 1px solid rgba(34, 64, 118, 0.08);
+  }
+
+  .bottom-tabbar {
+    padding: 8px 10px;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .bottom-tab {
+    text-align: center;
+    padding: 6px 0 4px;
+    border-radius: 12px;
+  }
+
+  .bottom-tab.active {
+    background: linear-gradient(180deg, rgba(22, 58, 113, 0.1), rgba(212, 179, 99, 0.08));
+  }
+
+  .bottom-tab i {
+    display: block;
+    width: 20px;
+    height: 20px;
+    margin: 0 auto 4px;
+    border-radius: 7px;
+    background: linear-gradient(180deg, rgba(29, 65, 126, 0.18), rgba(208, 173, 93, 0.16));
+  }
+
+  .bottom-tab strong {
+    display: block;
+    color: #1a396d;
+    font-size: 11px;
+    line-height: 1.2;
+  }
+
+  .annotation {
+    display: grid;
+    gap: 14px;
+  }
+
+  .annotation-card {
+    padding: 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(28, 58, 112, 0.1);
+    background: rgba(248, 251, 255, 0.96);
+  }
+
+  .annotation-card h3 {
+    margin: 0 0 10px;
+    color: #17386c;
+    font-size: 16px;
+  }
+
+  .annotation-card p {
+    margin: 0;
+    color: #54709b;
+    font-size: 13px;
+    line-height: 1.78;
+  }
+
+  .annotation ul {
+    margin: 10px 0 0;
+    padding-left: 18px;
+  }
+
+  .annotation li {
+    margin-bottom: 6px;
+    line-height: 1.75;
+  }
+
+  @media (max-width: 1100px) {
+    .focus-layout {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<h2>H5 首页重做方向</h2>
+<p class="subtitle">目标：把首页从“简单移动网页”改成“国内金融 App 首页”，但不新增假能力。结构更满、更像客户端，仍然围绕推荐与研报双主线展开。</p>
+
+<div class="intro">
+  这版 H5 明确吸收了国内 App 首页常见特征：顶部品牌头与消息入口、快捷入口宫格、主推荐大卡、焦点研报大卡、历史样本与资讯列表、底部 Tab。它看起来会更像一个完整产品首页，而不是把 PC 内容压成几段说明文字。
+</div>
+
+<div class="focus-layout">
+  <div class="phone-wrap">
+    <div class="phone-screen">
+      <div class="statusbar">
+        <span>09:41</span>
+        <span>5G</span>
+      </div>
+
+      <div class="app-header">
+        <div class="app-topline">
+          <div class="brand">
+            <span class="brand-mark">S</span>
+            <div>
+              <strong>SercherAI</strong>
+              <span>研究终端首页</span>
+            </div>
+          </div>
+          <div class="header-icons">
+            <span class="icon-btn">搜</span>
+            <span class="icon-btn">信</span>
+          </div>
+        </div>
+
+        <div class="header-panel">
+          <div class="hero-tag-row">
+            <span class="hero-tag">今日主线</span>
+            <span class="hero-tag">推荐优先</span>
+            <span class="hero-tag">研报并列</span>
+          </div>
+          <h2>先看主推荐，再顺着研报与资讯继续往下读</h2>
+          <p>首页首屏直接告诉用户今天先看什么、为什么看、下一步去哪，而不是只放一张漂亮卡片。</p>
+          <div class="cta-row">
+            <span class="cta primary">看完整观点</span>
+            <span class="cta ghost">去资讯页</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="app-body">
+        <section class="section">
+          <div class="metric-strip">
+            <div class="metric-card">
+              <span>今日推荐</span>
+              <strong>1 个主位</strong>
+            </div>
+            <div class="metric-card">
+              <span>焦点研报</span>
+              <strong>1 篇必读</strong>
+            </div>
+            <div class="metric-card">
+              <span>待办动作</span>
+              <strong>3 个入口</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <strong>快捷入口</strong>
+            <span>像国内 App 一样前置高频动作</span>
+          </div>
+          <div class="quick-grid">
+            <div class="quick-item">
+              <div class="quick-icon"></div>
+              <strong>今日推荐</strong>
+              <span>主位观点</span>
+            </div>
+            <div class="quick-item">
+              <div class="quick-icon"></div>
+              <strong>研报解读</strong>
+              <span>深读入口</span>
+            </div>
+            <div class="quick-item">
+              <div class="quick-icon"></div>
+              <strong>历史样本</strong>
+              <span>复盘预览</span>
+            </div>
+            <div class="quick-item">
+              <div class="quick-icon"></div>
+              <strong>会员权益</strong>
+              <span>权限承接</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="recommend-card">
+          <div class="section-head" style="margin-bottom:12px;">
+            <strong style="color:#f7fbff;">股票 / 期货推荐主卡</strong>
+            <span style="color:rgba(223,232,247,0.76);">首页第一主视觉</span>
+          </div>
+          <h3>主推荐卡不只是标题，而是直接给结论、理由和风控边界</h3>
+          <p>国内金融 App 首页常见特征是“先给用户今天该看什么”，所以这里必须是高密度、高可执行性的主卡。</p>
+          <div class="recommend-grid">
+            <div class="recommend-item">
+              <span>为什么选</span>
+              <strong>景气改善 + 订单确认</strong>
+            </div>
+            <div class="recommend-item">
+              <span>止盈止损</span>
+              <strong>目标位 / 风控线</strong>
+            </div>
+            <div class="recommend-item">
+              <span>后续动作</span>
+              <strong>持有观察 / 等待确认</strong>
+            </div>
+            <div class="recommend-item">
+              <span>期货承接</span>
+              <strong>1 条轻量机会卡</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <strong>为什么今天先看它</strong>
+            <span>解释压成 2 块，不拖长</span>
+          </div>
+          <div class="explain-grid">
+            <div class="explain-card">
+              <span>核心结论</span>
+              <strong>推荐理由摘要</strong>
+              <p>把 insight 压缩成用户能快速读完的解释块。</p>
+            </div>
+            <div class="explain-card">
+              <span>风险边界</span>
+              <strong>失效条件前置</strong>
+              <p>不是只讲机会，也把止损与边界说清楚。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <strong>焦点研报</strong>
+            <span>首页第二主线，不退化成资讯条目</span>
+          </div>
+          <div class="report-card">
+            <small>今日必读研报 / 大厂来源 / 会员深读</small>
+            <h3>研报主卡直接放标题、摘要和三条解读，让它像国内 App 的重点内容卡</h3>
+            <p>不做一条普通新闻，而是把“研报解读”单独做成有分量的大卡片。</p>
+            <div class="report-points">
+              <div class="point">
+                <strong>一句话解读</strong>
+                <p>把长报告压成首页能看懂的一条判断。</p>
+              </div>
+              <div class="point">
+                <strong>和今日推荐的关系</strong>
+                <p>说明它为什么会影响今天的观点排序。</p>
+              </div>
+              <div class="point">
+                <strong>继续深读入口</strong>
+                <p>进入资讯页看正文、附件和权限链。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <strong>历史样本预览</strong>
+            <span>不是完整档案，而是首页复盘入口</span>
+          </div>
+          <div class="sample-list">
+            <div class="sample-card">
+              <span>历史样本 01</span>
+              <strong>展示历史涨跌、当时理由、后期止盈止损原因</strong>
+              <p>更像国内投资 App 的“复盘卡片”，不是只写一句“历史表现”。</p>
+            </div>
+            <div class="sample-card">
+              <span>历史样本 02</span>
+              <strong>允许出现止损与失效样本，增强真实感</strong>
+              <p>避免首页只像营销橱窗。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <strong>市场资讯</strong>
+            <span>作为继续阅读列表，而不是只放一个按钮</span>
+          </div>
+          <div class="news-list">
+            <div class="news-card">
+              <span>资讯 01</span>
+              <strong>行业要闻 / 政策 / 公司动态</strong>
+              <p>保留国内资讯 App 的列表阅读感，但控制在 3 条以内。</p>
+            </div>
+            <div class="news-card">
+              <span>资讯 02</span>
+              <strong>焦点文章 / 公开摘要 / VIP 深读承接</strong>
+              <p>继续承接现有资讯页搜索、正文和附件能力。</p>
+            </div>
+          </div>
+        </section>
+
+        <div class="bottom-note">
+          <small>底部信息区</small>
+          <p>H5 也保留精简版权与服务说明，不让页面像半截 H5 活动页。</p>
+        </div>
+
+        <div class="bottom-tabbar">
+          <div class="bottom-tab active">
+            <i></i>
+            <strong>首页</strong>
+            <small>主线</small>
+          </div>
+          <div class="bottom-tab">
+            <i></i>
+            <strong>策略</strong>
+            <small>观点</small>
+          </div>
+          <div class="bottom-tab">
+            <i></i>
+            <strong>资讯</strong>
+            <small>研报</small>
+          </div>
+          <div class="bottom-tab">
+            <i></i>
+            <strong>会员</strong>
+            <small>权益</small>
+          </div>
+          <div class="bottom-tab">
+            <i></i>
+            <strong>我的</strong>
+            <small>账户</small>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="annotation">
+    <div class="annotation-card">
+      <h3>这版 H5 跟上一版最大的变化</h3>
+      <p>从“说明式单列页面”切成了“国内金融 App 首页结构”。用户一进来就能看到顶头、卡片层级、快捷入口、重点内容和底部导航，所以视觉感受会更像成品客户端。</p>
+      <ul>
+        <li>增加顶部品牌头、消息/搜索占位和首屏大卡</li>
+        <li>增加快捷入口宫格，强化 App 感</li>
+        <li>把焦点研报做成独立大卡，不再只是列表项</li>
+        <li>补上底部 Tab，让首页形成完整产品结构</li>
+      </ul>
+    </div>
+
+    <div class="annotation-card">
+      <h3>仍然严格遵守的边界</h3>
+      <p>虽然更像国内 App，但这版依然只用了当前真实能力，没有额外扩功能。</p>
+      <ul>
+        <li>推荐主卡来自现有股票 / 期货推荐承接</li>
+        <li>焦点研报来自现有资讯 / 研报阅读链</li>
+        <li>历史样本只是首页预览，完整能力仍属于 PC archive</li>
+        <li>底部 Tab 只对应当前已有路由：首页、策略、资讯、会员、我的</li>
+      </ul>
+    </div>
+
+    <div class="section">
+      <h3>看完这版只要告诉我一个判断</h3>
+      <p class="subtitle">这个 H5 方向是否已经更像国内金融 App 首页？</p>
+      <div class="options">
+        <div class="option" data-choice="good-cn-app" onclick="toggleSelect(this)">
+          <div class="letter">1</div>
+          <div class="content">
+            <h3>方向对了</h3>
+            <p>按这个方向去做正式的首页 PC / H5 HTML demo。</p>
+          </div>
+        </div>
+        <div class="option" data-choice="denser" onclick="toggleSelect(this)">
+          <div class="letter">2</div>
+          <div class="content">
+            <h3>还要再像国内 App 一点</h3>
+            <p>可以再加一点信息密度和卡片层次。</p>
+          </div>
+        </div>
+        <div class="option" data-choice="too-heavy" onclick="toggleSelect(this)">
+          <div class="letter">3</div>
+          <div class="content">
+            <h3>有点太重了</h3>
+            <p>保留 App 感，但把层次再收一收。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

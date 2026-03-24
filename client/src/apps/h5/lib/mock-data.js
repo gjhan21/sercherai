@@ -1,0 +1,200 @@
+import {
+  fallbackBrowseHistory,
+  fallbackInviteRecords,
+  fallbackInviteSummary,
+  fallbackMembershipOrders,
+  fallbackMessages,
+  fallbackProfile,
+  fallbackQuota,
+  fallbackRechargeRecords,
+  fallbackShareLinks,
+  fallbackSubscriptions
+} from "../../../views/profile/fallback";
+
+export {
+  fallbackBrowseHistory,
+  fallbackInviteRecords,
+  fallbackInviteSummary,
+  fallbackMembershipOrders,
+  fallbackMessages,
+  fallbackProfile,
+  fallbackQuota,
+  fallbackRechargeRecords,
+  fallbackShareLinks,
+  fallbackSubscriptions
+};
+
+export const fallbackStockRecommendations = [
+  {
+    id: "sr_local_001",
+    symbol: "600036.SH",
+    name: "招商银行",
+    score: 91.2,
+    risk_level: "MEDIUM",
+    valid_from: "2026-02-10T09:00:00+08:00",
+    reason_summary: "量价结构共振"
+  },
+  {
+    id: "sr_local_002",
+    symbol: "300750.SZ",
+    name: "宁德时代",
+    score: 88.5,
+    risk_level: "MEDIUM",
+    valid_from: "2026-02-12T09:00:00+08:00",
+    reason_summary: "趋势延续，资金净流入"
+  },
+  {
+    id: "sr_local_003",
+    symbol: "000858.SZ",
+    name: "五粮液",
+    score: 86.8,
+    risk_level: "LOW",
+    valid_from: "2026-02-19T09:00:00+08:00",
+    reason_summary: "估值修复与防御属性并存"
+  }
+];
+
+export const fallbackStockDetails = {
+  sr_local_001: { take_profit: "上涨6%-10%分批止盈", stop_loss: "跌破 33.80 止损", position_range: "10%-15%" },
+  sr_local_002: { take_profit: "上涨5%-9%分批止盈", stop_loss: "跌破 139.20 止损", position_range: "8%-12%" },
+  sr_local_003: { take_profit: "上涨4%-7%分批止盈", stop_loss: "跌破 145.00 止损", position_range: "12%-16%" }
+};
+
+export const fallbackStockInsights = {
+  sr_local_001: {
+    confidence_reason: "银行板块在防御切换中更容易承接资金，今天更适合先看高确定性资产。",
+    consensus_summary: "趋势、资金与风控视角对当前窗口达成了先跟踪再执行的共识。",
+    risk_boundary: "若跌破 33.80 且量能放大，旧结论失效。",
+    risk_flags: ["板块轮动节奏仍快", "午后需看成交延续"],
+    invalidations: ["政策预期明显转弱时停止沿用旧结论"],
+    strategy_version: "strategy-engine-demo",
+    generated_at: "2026-02-28T09:30:00+08:00",
+    workload_summary: { seed_count: 24, agent_count: 5, scenario_count: 4 },
+    seed_highlights: ["资金回流", "防御属性", "风控边界已定义"]
+  },
+  sr_local_002: {
+    confidence_reason: "高景气赛道中，龙头仍具备趋势验证价值，但波动更高。",
+    consensus_summary: "更适合作为观察清单第二顺位，而不是首笔动作。",
+    risk_boundary: "若开盘后无法站稳关键均线，优先降低仓位。",
+    risk_flags: ["高波动", "消息敏感"],
+    invalidations: ["龙头带动效应转弱"],
+    strategy_version: "strategy-engine-demo",
+    generated_at: "2026-02-28T09:12:00+08:00",
+    workload_summary: { seed_count: 19, agent_count: 5, scenario_count: 4 },
+    seed_highlights: ["趋势延续", "成交配合", "需控回撤"]
+  },
+  sr_local_003: {
+    confidence_reason: "防御消费更适合盘中稳态跟踪，承担组合平衡角色。",
+    consensus_summary: "适合作为低波动候选，不抢首屏主决策位。",
+    risk_boundary: "若板块补涨结束，则回归观察。",
+    risk_flags: ["估值修复偏慢"],
+    invalidations: ["防御风格退潮"],
+    strategy_version: "strategy-engine-demo",
+    generated_at: "2026-02-28T08:52:00+08:00",
+    workload_summary: { seed_count: 16, agent_count: 4, scenario_count: 3 },
+    seed_highlights: ["估值修复", "防御仓位"]
+  }
+};
+
+export const fallbackNewsArticles = [
+  {
+    id: "news_local_001",
+    category_id: "news",
+    title: "盘前资金风格切换，银行与高股息板块走强",
+    summary: "市场风险偏好回落，早盘更关注防御属性板块轮动。",
+    content: "盘前资金更加偏向高股息与低波动方向，银行与核心消费获得更多关注。",
+    visibility: "PUBLIC",
+    status: "PUBLISHED",
+    published_at: "2026-02-28T09:30:00+08:00"
+  },
+  {
+    id: "news_local_002",
+    category_id: "report",
+    title: "机构上调两融余额敏感行业评级",
+    summary: "研报建议继续跟踪景气向上赛道的估值切换窗口。",
+    content: "多家机构判断，在流动性平稳的背景下，高景气行业仍可能获得估值支撑。",
+    visibility: "VIP",
+    status: "PUBLISHED",
+    published_at: "2026-02-28T08:55:00+08:00"
+  },
+  {
+    id: "news_local_003",
+    category_id: "journal",
+    title: "周度策略期刊：波动率管理与仓位纪律",
+    summary: "先控制回撤，再放大胜率，维持组合弹性。",
+    content: "周刊复盘显示，当前环境更强调节奏和仓位纪律，而不是单次重仓判断。",
+    visibility: "PUBLIC",
+    status: "PUBLISHED",
+    published_at: "2026-02-27T21:10:00+08:00"
+  }
+];
+
+export const fallbackNewsCategories = [
+  { id: "news", name: "新闻", sort: 1 },
+  { id: "report", name: "研报", sort: 2 },
+  { id: "journal", name: "期刊", sort: 3 }
+];
+
+export const fallbackNewsAttachments = {
+  news_local_002: [
+    {
+      id: "att_local_001",
+      file_name: "景气跟踪摘要.pdf",
+      file_size: 234000,
+      mime_type: "application/pdf",
+      file_url: "https://example.com/report.pdf",
+      created_at: "2026-02-28T08:56:00+08:00"
+    }
+  ]
+};
+
+export const fallbackMembershipProducts = [
+  {
+    id: "mp_demo_001",
+    name: "VIP月卡",
+    member_level: "VIP1",
+    duration_days: 30,
+    price: 99,
+    status: "ACTIVE",
+    feature_list: ["每日主推荐", "VIP资讯正文", "附件下载权限"]
+  },
+  {
+    id: "mp_demo_002",
+    name: "VIP季卡",
+    member_level: "VIP2",
+    duration_days: 90,
+    price: 268,
+    status: "ACTIVE",
+    feature_list: ["季卡更优价格", "策略版本追踪", "优先客服支持"]
+  },
+  {
+    id: "mp_demo_003",
+    name: "VIP年卡",
+    member_level: "VIP3",
+    duration_days: 365,
+    price: 899,
+    status: "ACTIVE",
+    feature_list: ["全年深度权限", "专属研报解锁", "年度复盘权益"]
+  }
+];
+
+export const fallbackMarketEvents = [
+  {
+    id: "me_local_001",
+    event_type: "PRICE",
+    symbol: "IF2603",
+    summary: "股指期货盘中突破关键压力位，短线情绪转强。",
+    trigger_rule: "15分钟涨幅超过 1.2%",
+    source: "system",
+    created_at: "2026-02-27T10:16:00+08:00"
+  },
+  {
+    id: "me_local_002",
+    event_type: "POLICY",
+    symbol: "ALL",
+    summary: "交易所发布盘后保证金调整通知。",
+    trigger_rule: "重要规则变更监控命中",
+    source: "exchange",
+    created_at: "2026-02-27T08:42:00+08:00"
+  }
+];
