@@ -907,6 +907,111 @@ type NewsSyncRunDetail struct {
 	UpdatedAt     string `json:"updated_at,omitempty"`
 }
 
+type MarketBackfillCreateInput struct {
+	RunType               string   `json:"run_type"`
+	AssetScope            []string `json:"asset_scope"`
+	SourceKey             string   `json:"source_key"`
+	TradeDateFrom         string   `json:"trade_date_from,omitempty"`
+	TradeDateTo           string   `json:"trade_date_to,omitempty"`
+	BatchSize             int      `json:"batch_size,omitempty"`
+	Stages                []string `json:"stages,omitempty"`
+	ForceRefreshUniverse  bool     `json:"force_refresh_universe,omitempty"`
+	RebuildTruthAfterSync bool     `json:"rebuild_truth_after_sync,omitempty"`
+}
+
+type MarketBackfillRetryInput struct {
+	RetryMode string   `json:"retry_mode"`
+	Stage     string   `json:"stage,omitempty"`
+	AssetType string   `json:"asset_type,omitempty"`
+	BatchKeys []string `json:"batch_keys,omitempty"`
+}
+
+type MarketUniverseSnapshot struct {
+	ID             string                            `json:"id"`
+	Scope          []string                          `json:"scope,omitempty"`
+	SourceKey      string                            `json:"source_key,omitempty"`
+	SnapshotDate   string                            `json:"snapshot_date,omitempty"`
+	AssetSummaries []MarketUniverseSnapshotAssetItem `json:"asset_summaries,omitempty"`
+	CreatedBy      string                            `json:"created_by,omitempty"`
+	CreatedAt      string                            `json:"created_at,omitempty"`
+}
+
+type MarketUniverseSnapshotAssetItem struct {
+	AssetType     string `json:"asset_type"`
+	ItemCount     int    `json:"item_count"`
+	ActiveCount   int    `json:"active_count"`
+	InactiveCount int    `json:"inactive_count"`
+}
+
+type MarketUniverseSnapshotItem struct {
+	ID             string `json:"id"`
+	SnapshotID     string `json:"snapshot_id"`
+	AssetType      string `json:"asset_type"`
+	InstrumentKey  string `json:"instrument_key"`
+	ExternalSymbol string `json:"external_symbol,omitempty"`
+	DisplayName    string `json:"display_name,omitempty"`
+	ExchangeCode   string `json:"exchange_code,omitempty"`
+	Status         string `json:"status,omitempty"`
+	ListDate       string `json:"list_date,omitempty"`
+	DelistDate     string `json:"delist_date,omitempty"`
+	MetadataJSON   string `json:"metadata_json,omitempty"`
+	CreatedAt      string `json:"created_at,omitempty"`
+}
+
+type MarketBackfillStageProgress struct {
+	Stage            string `json:"stage"`
+	Status           string `json:"status"`
+	TotalBatches     int    `json:"total_batches"`
+	CompletedBatches int    `json:"completed_batches"`
+	FailedBatches    int    `json:"failed_batches"`
+	SkippedBatches   int    `json:"skipped_batches"`
+}
+
+type MarketBackfillRun struct {
+	ID                 string                        `json:"id"`
+	SchedulerRunID     string                        `json:"scheduler_run_id,omitempty"`
+	RunType            string                        `json:"run_type"`
+	AssetScope         []string                      `json:"asset_scope,omitempty"`
+	TradeDateFrom      string                        `json:"trade_date_from,omitempty"`
+	TradeDateTo        string                        `json:"trade_date_to,omitempty"`
+	SourceKey          string                        `json:"source_key,omitempty"`
+	BatchSize          int                           `json:"batch_size,omitempty"`
+	UniverseSnapshotID string                        `json:"universe_snapshot_id,omitempty"`
+	Status             string                        `json:"status"`
+	CurrentStage       string                        `json:"current_stage,omitempty"`
+	StageProgress      []MarketBackfillStageProgress `json:"stage_progress,omitempty"`
+	Summary            map[string]any                `json:"summary,omitempty"`
+	ErrorMessage       string                        `json:"error_message,omitempty"`
+	CreatedBy          string                        `json:"created_by,omitempty"`
+	CreatedAt          string                        `json:"created_at,omitempty"`
+	UpdatedAt          string                        `json:"updated_at,omitempty"`
+	FinishedAt         string                        `json:"finished_at,omitempty"`
+}
+
+type MarketBackfillRunDetail struct {
+	ID             string   `json:"id"`
+	RunID          string   `json:"run_id"`
+	SchedulerRunID string   `json:"scheduler_run_id,omitempty"`
+	Stage          string   `json:"stage"`
+	AssetType      string   `json:"asset_type,omitempty"`
+	BatchKey       string   `json:"batch_key,omitempty"`
+	SourceKey      string   `json:"source_key,omitempty"`
+	SymbolCount    int      `json:"symbol_count"`
+	SymbolSample   []string `json:"symbol_sample,omitempty"`
+	TradeDateFrom  string   `json:"trade_date_from,omitempty"`
+	TradeDateTo    string   `json:"trade_date_to,omitempty"`
+	Status         string   `json:"status"`
+	FetchedCount   int      `json:"fetched_count"`
+	UpsertedCount  int      `json:"upserted_count"`
+	TruthCount     int      `json:"truth_count"`
+	WarningText    string   `json:"warning_text,omitempty"`
+	ErrorText      string   `json:"error_text,omitempty"`
+	StartedAt      string   `json:"started_at,omitempty"`
+	FinishedAt     string   `json:"finished_at,omitempty"`
+	CreatedAt      string   `json:"created_at,omitempty"`
+	UpdatedAt      string   `json:"updated_at,omitempty"`
+}
+
 type WorkflowMessage struct {
 	ID         string `json:"id"`
 	ReviewID   string `json:"review_id,omitempty"`

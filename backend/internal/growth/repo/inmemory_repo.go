@@ -12,13 +12,79 @@ import (
 )
 
 type InMemoryGrowthRepo struct {
-	mu                sync.Mutex
-	marketRhythmTasks map[string]model.MarketRhythmTask
+	mu                       sync.Mutex
+	marketRhythmTasks        map[string]model.MarketRhythmTask
+	marketBackfillRuns       map[string]model.MarketBackfillRun
+	marketBackfillRunDetails map[string][]model.MarketBackfillRunDetail
+	marketUniverseSnapshots  map[string]model.MarketUniverseSnapshot
+	marketUniverseItems      map[string][]model.MarketUniverseSnapshotItem
 }
 
 func NewInMemoryGrowthRepo() *InMemoryGrowthRepo {
+	now := time.Now().Format(time.RFC3339)
+	snapshot := model.MarketUniverseSnapshot{
+		ID:           "mus_demo_001",
+		Scope:        []string{"STOCK", "INDEX"},
+		SourceKey:    "TUSHARE",
+		SnapshotDate: "2026-03-24",
+		AssetSummaries: []model.MarketUniverseSnapshotAssetItem{
+			{AssetType: "STOCK", ItemCount: 2, ActiveCount: 2, InactiveCount: 0},
+			{AssetType: "INDEX", ItemCount: 1, ActiveCount: 1, InactiveCount: 0},
+		},
+		CreatedBy: "system",
+		CreatedAt: now,
+	}
+	run := model.MarketBackfillRun{
+		ID:                 "mbr_demo_001",
+		SchedulerRunID:     "jr_demo_market_001",
+		RunType:            "FULL",
+		AssetScope:         []string{"STOCK", "INDEX"},
+		SourceKey:          "TUSHARE",
+		BatchSize:          200,
+		UniverseSnapshotID: snapshot.ID,
+		Status:             "RUNNING",
+		CurrentStage:       "MASTER",
+		StageProgress: []model.MarketBackfillStageProgress{
+			{Stage: "UNIVERSE", Status: "SUCCESS", TotalBatches: 1, CompletedBatches: 1},
+			{Stage: "MASTER", Status: "RUNNING", TotalBatches: 2, CompletedBatches: 1},
+		},
+		Summary: map[string]any{
+			"latest_trade_date": "2026-03-24",
+		},
+		CreatedBy: "system",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
 	return &InMemoryGrowthRepo{
-		marketRhythmTasks: make(map[string]model.MarketRhythmTask),
+		marketRhythmTasks:  make(map[string]model.MarketRhythmTask),
+		marketBackfillRuns: map[string]model.MarketBackfillRun{run.ID: run},
+		marketBackfillRunDetails: map[string][]model.MarketBackfillRunDetail{
+			run.ID: {
+				{
+					ID:             "mbd_demo_001",
+					RunID:          run.ID,
+					SchedulerRunID: run.SchedulerRunID,
+					Stage:          "UNIVERSE",
+					AssetType:      "STOCK",
+					BatchKey:       "UNIVERSE-STOCK-001",
+					Status:         "SUCCESS",
+					SymbolCount:    2,
+					SymbolSample:   []string{"600519.SH", "000001.SZ"},
+					StartedAt:      now,
+					FinishedAt:     now,
+					CreatedAt:      now,
+					UpdatedAt:      now,
+				},
+			},
+		},
+		marketUniverseSnapshots: map[string]model.MarketUniverseSnapshot{snapshot.ID: snapshot},
+		marketUniverseItems: map[string][]model.MarketUniverseSnapshotItem{
+			snapshot.ID: {
+				{ID: "musi_demo_001", SnapshotID: snapshot.ID, AssetType: "STOCK", InstrumentKey: "600519.SH", ExternalSymbol: "600519.SH", DisplayName: "贵州茅台", ExchangeCode: "SH", Status: "LISTED", CreatedAt: now},
+				{ID: "musi_demo_002", SnapshotID: snapshot.ID, AssetType: "STOCK", InstrumentKey: "000001.SZ", ExternalSymbol: "000001.SZ", DisplayName: "平安银行", ExchangeCode: "SZ", Status: "LISTED", CreatedAt: now},
+				{ID: "musi_demo_003", SnapshotID: snapshot.ID, AssetType: "INDEX", InstrumentKey: "000300.SH", ExternalSymbol: "000300.SH", DisplayName: "沪深300", ExchangeCode: "SH", Status: "ACTIVE", CreatedAt: now},
+			},
+		},
 	}
 }
 

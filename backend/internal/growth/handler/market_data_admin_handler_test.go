@@ -120,3 +120,79 @@ func TestRebuildStockDerivedTruth(t *testing.T) {
 		t.Fatalf("expected success code, got %#v", payload["code"])
 	}
 }
+
+func TestCreateMarketDataBackfillRun(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/admin/market-data/backfill",
+		strings.NewReader(`{"run_type":"FULL","asset_scope":["STOCK","INDEX"],"source_key":"TUSHARE","batch_size":200}`),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handler.CreateMarketDataBackfillRun(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+	data, ok := payload["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected data payload, got %#v", payload["data"])
+	}
+	if _, ok := data["run_id"].(string); !ok {
+		t.Fatalf("expected run_id in response, got %#v", data["run_id"])
+	}
+}
+
+func TestCreateMarketDataBackfillRunRejectsMissingAssetScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/admin/market-data/backfill",
+		strings.NewReader(`{"run_type":"FULL","source_key":"TUSHARE"}`),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handler.CreateMarketDataBackfillRun(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", recorder.Code)
+	}
+}
+
+func TestGetMarketCoverageSummary(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/market-coverage-summary", nil)
+
+	handler.GetMarketCoverageSummary(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+}

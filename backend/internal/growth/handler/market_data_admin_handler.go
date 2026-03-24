@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"sercherai/backend/internal/growth/dto"
+	"sercherai/backend/internal/growth/model"
 )
 
 func (h *AdminGrowthHandler) ListMarketDataQualityLogs(c *gin.Context) {
@@ -51,6 +52,47 @@ func (h *AdminGrowthHandler) GetMarketDataQualitySummary(c *gin.Context) {
 		hours = parsed
 	}
 	item, err := h.service.AdminGetMarketDataQualitySummary(c.Query("asset_class"), hours)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminGrowthHandler) CreateMarketDataBackfillRun(c *gin.Context) {
+	var req dto.MarketDataBackfillRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	operatorVal, _ := c.Get("user_id")
+	operator, _ := operatorVal.(string)
+	item, err := h.service.AdminCreateMarketDataBackfillRun(model.MarketBackfillCreateInput{
+		RunType:               req.RunType,
+		AssetScope:            req.AssetScope,
+		SourceKey:             req.SourceKey,
+		TradeDateFrom:         req.TradeDateFrom,
+		TradeDateTo:           req.TradeDateTo,
+		BatchSize:             req.BatchSize,
+		Stages:                req.Stages,
+		ForceRefreshUniverse:  req.ForceRefreshUniverse,
+		RebuildTruthAfterSync: req.RebuildTruthAfterSync,
+	}, operator)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MARKET_DATA", "CREATE_BACKFILL_RUN", "MARKET_BACKFILL_RUN", item.ID, "", item.Status, strings.Join(item.AssetScope, ","))
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"run_id":               item.ID,
+		"scheduler_run_id":     item.SchedulerRunID,
+		"universe_snapshot_id": item.UniverseSnapshotID,
+		"status":               item.Status,
+	}))
+}
+
+func (h *AdminGrowthHandler) GetMarketCoverageSummary(c *gin.Context) {
+	item, err := h.service.AdminGetMarketCoverageSummary()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return

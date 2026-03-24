@@ -61,3 +61,32 @@ type MarketDerivedTruthSummary struct {
 	Warnings            []string `json:"warnings,omitempty"`
 	CreatedAt           string   `json:"created_at,omitempty"`
 }
+
+type MarketCoverageSummary struct {
+	TotalUniverseCount      int                               `json:"total_universe_count"`
+	MasterCoverageCount     int                               `json:"master_coverage_count"`
+	QuotesCoverageCount     int                               `json:"quotes_coverage_count"`
+	DailyBasicCoverageCount int                               `json:"daily_basic_coverage_count"`
+	MoneyflowCoverageCount  int                               `json:"moneyflow_coverage_count"`
+	LatestTradeDate         string                            `json:"latest_trade_date,omitempty"`
+	FallbackSourceSummary   []MarketCoverageSourceSummaryItem `json:"fallback_source_summary,omitempty"`
+	AssetItems              []MarketCoverageSummaryAssetItem  `json:"asset_items,omitempty"`
+	CanonicalKeyGapCount    int                               `json:"canonical_key_gap_count"`
+	DisplayNameGapCount     int                               `json:"display_name_gap_count"`
+	ListDateGapCount        int                               `json:"list_date_gap_count"`
+}
+
+type MarketCoverageSummaryAssetItem struct {
+	AssetType               string `json:"asset_type"`
+	UniverseCount           int    `json:"universe_count"`
+	MasterCoverageCount     int    `json:"master_coverage_count"`
+	QuotesCoverageCount     int    `json:"quotes_coverage_count"`
+	DailyBasicCoverageCount int    `json:"daily_basic_coverage_count"`
+	MoneyflowCoverageCount  int    `json:"moneyflow_coverage_count"`
+	LatestTradeDate         string `json:"latest_trade_date,omitempty"`
+}
+
+type MarketCoverageSourceSummaryItem struct {
+	SourceKey string `json:"source_key"`
+	Count     int    `json:"count"`
+}

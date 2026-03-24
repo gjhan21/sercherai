@@ -1,0 +1,905 @@
+package repo
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"sercherai/backend/internal/growth/model"
+)
+
+var allowedMarketBackfillAssetTypes = []string{"STOCK", "INDEX", "ETF", "LOF", "CBOND"}
+
+func normalizeMarketBackfillAssetType(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "STOCK":
+		return "STOCK"
+	case "INDEX":
+		return "INDEX"
+	case "ETF":
+		return "ETF"
+	case "LOF":
+		return "LOF"
+	case "CBOND":
+		return "CBOND"
+	default:
+		return ""
+	}
+}
+
+func normalizeMarketBackfillAssetScope(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	items := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := normalizeMarketBackfillAssetType(value)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		items = append(items, normalized)
+	}
+	return items
+}
+
+func normalizeMarketBackfillRunType(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "INCREMENTAL":
+		return "INCREMENTAL"
+	case "REBUILD_ONLY":
+		return "REBUILD_ONLY"
+	default:
+		return "FULL"
+	}
+}
+
+func normalizeMarketBackfillStage(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "UNIVERSE":
+		return "UNIVERSE"
+	case "MASTER":
+		return "MASTER"
+	case "QUOTES":
+		return "QUOTES"
+	case "DAILY_BASIC":
+		return "DAILY_BASIC"
+	case "MONEYFLOW":
+		return "MONEYFLOW"
+	case "TRUTH":
+		return "TRUTH"
+	case "COVERAGE_SUMMARY":
+		return "COVERAGE_SUMMARY"
+	default:
+		return ""
+	}
+}
+
+func normalizeMarketBackfillRetryMode(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "FROM_STAGE":
+		return "FROM_STAGE"
+	default:
+		return "FAILED_ONLY"
+	}
+}
+
+func normalizeMarketBackfillRunStatus(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "PENDING":
+		return "PENDING"
+	case "PARTIAL_SUCCESS":
+		return "PARTIAL_SUCCESS"
+	case "SUCCESS":
+		return "SUCCESS"
+	case "FAILED":
+		return "FAILED"
+	case "CANCELLED":
+		return "CANCELLED"
+	default:
+		return "RUNNING"
+	}
+}
+
+func normalizeMarketBackfillDetailStatus(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "PENDING":
+		return "PENDING"
+	case "RUNNING":
+		return "RUNNING"
+	case "SUCCESS":
+		return "SUCCESS"
+	case "FAILED":
+		return "FAILED"
+	case "SKIPPED":
+		return "SKIPPED"
+	default:
+		return "PENDING"
+	}
+}
+
+func marshalJSONText(value any) string {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(payload)
+}
+
+func unmarshalStringSlice(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var items []string
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil
+	}
+	return items
+}
+
+func unmarshalStageProgress(raw string) []model.MarketBackfillStageProgress {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var items []model.MarketBackfillStageProgress
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil
+	}
+	return items
+}
+
+func unmarshalSummaryMap(raw string) map[string]any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var item map[string]any
+	if err := json.Unmarshal([]byte(raw), &item); err != nil {
+		return nil
+	}
+	return item
+}
+
+func parseNullableTimeRFC3339(value sql.NullTime) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.Time.Format(time.RFC3339)
+}
+
+func parseNullableString(value sql.NullString) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.String
+}
+
+func defaultMarketBackfillStageProgress() []model.MarketBackfillStageProgress {
+	return []model.MarketBackfillStageProgress{
+		{Stage: "UNIVERSE", Status: "RUNNING", TotalBatches: 1},
+		{Stage: "MASTER", Status: "PENDING"},
+		{Stage: "QUOTES", Status: "PENDING"},
+		{Stage: "DAILY_BASIC", Status: "PENDING"},
+		{Stage: "MONEYFLOW", Status: "PENDING"},
+		{Stage: "TRUTH", Status: "PENDING"},
+		{Stage: "COVERAGE_SUMMARY", Status: "PENDING"},
+	}
+}
+
+func (r *MySQLGrowthRepo) AdminCreateMarketDataBackfillRun(input model.MarketBackfillCreateInput, operator string) (model.MarketBackfillRun, error) {
+	assetScope := normalizeMarketBackfillAssetScope(input.AssetScope)
+	if len(assetScope) == 0 {
+		return model.MarketBackfillRun{}, fmt.Errorf("asset_scope is required")
+	}
+	runType := normalizeMarketBackfillRunType(input.RunType)
+	batchSize := input.BatchSize
+	if batchSize <= 0 {
+		batchSize = 200
+	}
+	now := time.Now()
+	schedulerRunID, err := r.AdminCreateSchedulerJobRun("market_data_full_backfill", "MANUAL", "RUNNING", "market data backfill created", "", operator)
+	if err != nil {
+		return model.MarketBackfillRun{}, err
+	}
+
+	snapshotID := newID("mus")
+	snapshotSummary := map[string]any{
+		"asset_scope": assetScope,
+		"status":      "PENDING",
+	}
+	if _, err := r.db.Exec(`
+INSERT INTO market_universe_snapshots (id, scope, source_key, snapshot_date, summary_json, created_by, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		snapshotID,
+		marshalJSONText(assetScope),
+		strings.ToUpper(strings.TrimSpace(input.SourceKey)),
+		now.Format("2006-01-02"),
+		marshalJSONText(snapshotSummary),
+		truncateByRunes(normalizeUTF8Text(operator), 64),
+		now,
+	); err != nil {
+		return model.MarketBackfillRun{}, err
+	}
+
+	runID := newID("mbr")
+	stageProgress := defaultMarketBackfillStageProgress()
+	summary := map[string]any{
+		"requested_stages": input.Stages,
+		"asset_scope":      assetScope,
+	}
+	if _, err := r.db.Exec(`
+INSERT INTO market_backfill_runs (
+	id, scheduler_run_id, run_type, asset_scope, trade_date_from, trade_date_to, source_key, batch_size,
+	universe_snapshot_id, status, current_stage, stage_progress_json, summary_json, error_message,
+	created_by, created_at, updated_at, finished_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		runID,
+		schedulerRunID,
+		runType,
+		marshalJSONText(assetScope),
+		nullableString(strings.TrimSpace(input.TradeDateFrom)),
+		nullableString(strings.TrimSpace(input.TradeDateTo)),
+		truncateByRunes(strings.ToUpper(strings.TrimSpace(input.SourceKey)), 64),
+		batchSize,
+		snapshotID,
+		"RUNNING",
+		"UNIVERSE",
+		marshalJSONText(stageProgress),
+		marshalJSONText(summary),
+		nil,
+		truncateByRunes(normalizeUTF8Text(operator), 64),
+		now,
+		now,
+		nil,
+	); err != nil {
+		return model.MarketBackfillRun{}, err
+	}
+
+	return model.MarketBackfillRun{
+		ID:                 runID,
+		SchedulerRunID:     schedulerRunID,
+		RunType:            runType,
+		AssetScope:         assetScope,
+		TradeDateFrom:      strings.TrimSpace(input.TradeDateFrom),
+		TradeDateTo:        strings.TrimSpace(input.TradeDateTo),
+		SourceKey:          strings.ToUpper(strings.TrimSpace(input.SourceKey)),
+		BatchSize:          batchSize,
+		UniverseSnapshotID: snapshotID,
+		Status:             "RUNNING",
+		CurrentStage:       "UNIVERSE",
+		StageProgress:      stageProgress,
+		Summary:            summary,
+		CreatedBy:          operator,
+		CreatedAt:          now.Format(time.RFC3339),
+		UpdatedAt:          now.Format(time.RFC3339),
+	}, nil
+}
+
+func (r *MySQLGrowthRepo) AdminListMarketDataBackfillRuns(status string, runType string, assetType string, sourceKey string, page int, pageSize int) ([]model.MarketBackfillRun, int, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	offset := (page - 1) * pageSize
+	filters := []string{"1=1"}
+	args := make([]any, 0, 8)
+	if normalized := normalizeMarketBackfillRunStatus(status); strings.TrimSpace(status) != "" {
+		filters = append(filters, "status = ?")
+		args = append(args, normalized)
+	}
+	if normalized := normalizeMarketBackfillRunType(runType); strings.TrimSpace(runType) != "" {
+		filters = append(filters, "run_type = ?")
+		args = append(args, normalized)
+	}
+	if normalized := normalizeMarketBackfillAssetType(assetType); normalized != "" {
+		filters = append(filters, "CAST(asset_scope AS CHAR) LIKE ?")
+		args = append(args, "%"+normalized+"%")
+	}
+	if trimmed := strings.ToUpper(strings.TrimSpace(sourceKey)); trimmed != "" {
+		filters = append(filters, "source_key = ?")
+		args = append(args, trimmed)
+	}
+	where := " WHERE " + strings.Join(filters, " AND ")
+
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM market_backfill_runs"+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := r.db.Query(`
+SELECT id, scheduler_run_id, run_type, asset_scope, COALESCE(DATE_FORMAT(trade_date_from, '%Y-%m-%d'), ''),
+       COALESCE(DATE_FORMAT(trade_date_to, '%Y-%m-%d'), ''), COALESCE(source_key, ''), batch_size,
+       universe_snapshot_id, status, current_stage, COALESCE(CAST(stage_progress_json AS CHAR), ''),
+       COALESCE(CAST(summary_json AS CHAR), ''), COALESCE(error_message, ''), COALESCE(created_by, ''),
+       created_at, updated_at, finished_at
+FROM market_backfill_runs`+where+`
+ORDER BY created_at DESC
+LIMIT ? OFFSET ?`, append(args, pageSize, offset)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.MarketBackfillRun, 0, pageSize)
+	for rows.Next() {
+		var item model.MarketBackfillRun
+		var assetScopeJSON, stageProgressJSON, summaryJSON string
+		var finishedAt sql.NullTime
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(
+			&item.ID,
+			&item.SchedulerRunID,
+			&item.RunType,
+			&assetScopeJSON,
+			&item.TradeDateFrom,
+			&item.TradeDateTo,
+			&item.SourceKey,
+			&item.BatchSize,
+			&item.UniverseSnapshotID,
+			&item.Status,
+			&item.CurrentStage,
+			&stageProgressJSON,
+			&summaryJSON,
+			&item.ErrorMessage,
+			&item.CreatedBy,
+			&createdAt,
+			&updatedAt,
+			&finishedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		item.AssetScope = unmarshalStringSlice(assetScopeJSON)
+		item.StageProgress = unmarshalStageProgress(stageProgressJSON)
+		item.Summary = unmarshalSummaryMap(summaryJSON)
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		item.UpdatedAt = updatedAt.Format(time.RFC3339)
+		item.FinishedAt = parseNullableTimeRFC3339(finishedAt)
+		items = append(items, item)
+	}
+	return items, total, rows.Err()
+}
+
+func (r *MySQLGrowthRepo) AdminGetMarketDataBackfillRun(id string) (model.MarketBackfillRun, error) {
+	items, _, err := r.AdminListMarketDataBackfillRuns("", "", "", "", 1, 200)
+	if err != nil {
+		return model.MarketBackfillRun{}, err
+	}
+	for _, item := range items {
+		if item.ID == strings.TrimSpace(id) {
+			return item, nil
+		}
+	}
+	return model.MarketBackfillRun{}, sql.ErrNoRows
+}
+
+func (r *MySQLGrowthRepo) AdminListMarketDataBackfillRunDetails(runID string, stage string, assetType string, status string, page int, pageSize int) ([]model.MarketBackfillRunDetail, int, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	offset := (page - 1) * pageSize
+	filters := []string{"run_id = ?"}
+	args := []any{strings.TrimSpace(runID)}
+	if normalized := normalizeMarketBackfillStage(stage); normalized != "" {
+		filters = append(filters, "stage = ?")
+		args = append(args, normalized)
+	}
+	if normalized := normalizeMarketBackfillAssetType(assetType); normalized != "" {
+		filters = append(filters, "asset_type = ?")
+		args = append(args, normalized)
+	}
+	if normalized := normalizeMarketBackfillDetailStatus(status); strings.TrimSpace(status) != "" {
+		filters = append(filters, "status = ?")
+		args = append(args, normalized)
+	}
+	where := " WHERE " + strings.Join(filters, " AND ")
+
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM market_backfill_run_details"+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.Query(`
+SELECT id, run_id, COALESCE(scheduler_run_id, ''), stage, COALESCE(asset_type, ''), COALESCE(batch_key, ''),
+       COALESCE(source_key, ''), symbol_count, COALESCE(CAST(symbol_sample AS CHAR), ''),
+       COALESCE(DATE_FORMAT(trade_date_from, '%Y-%m-%d'), ''), COALESCE(DATE_FORMAT(trade_date_to, '%Y-%m-%d'), ''),
+       status, fetched_count, upserted_count, truth_count, COALESCE(warning_text, ''), COALESCE(error_text, ''),
+       started_at, finished_at, created_at, updated_at
+FROM market_backfill_run_details`+where+`
+ORDER BY created_at DESC
+LIMIT ? OFFSET ?`, append(args, pageSize, offset)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.MarketBackfillRunDetail, 0, pageSize)
+	for rows.Next() {
+		var item model.MarketBackfillRunDetail
+		var symbolSampleJSON string
+		var startedAt, createdAt, updatedAt time.Time
+		var finishedAt sql.NullTime
+		if err := rows.Scan(
+			&item.ID,
+			&item.RunID,
+			&item.SchedulerRunID,
+			&item.Stage,
+			&item.AssetType,
+			&item.BatchKey,
+			&item.SourceKey,
+			&item.SymbolCount,
+			&symbolSampleJSON,
+			&item.TradeDateFrom,
+			&item.TradeDateTo,
+			&item.Status,
+			&item.FetchedCount,
+			&item.UpsertedCount,
+			&item.TruthCount,
+			&item.WarningText,
+			&item.ErrorText,
+			&startedAt,
+			&finishedAt,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		item.SymbolSample = unmarshalStringSlice(symbolSampleJSON)
+		item.StartedAt = startedAt.Format(time.RFC3339)
+		item.FinishedAt = parseNullableTimeRFC3339(finishedAt)
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		item.UpdatedAt = updatedAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, rows.Err()
+}
+
+func (r *MySQLGrowthRepo) AdminRetryMarketDataBackfillRun(runID string, input model.MarketBackfillRetryInput, operator string) (model.MarketBackfillRun, error) {
+	base, err := r.AdminGetMarketDataBackfillRun(runID)
+	if err != nil {
+		return model.MarketBackfillRun{}, err
+	}
+	newSchedulerRunID, err := r.AdminRetrySchedulerJobRun(base.SchedulerRunID, "MANUAL", "RUNNING", "retry market data backfill run", "", operator)
+	if err != nil {
+		return model.MarketBackfillRun{}, err
+	}
+	newRunID := newID("mbr")
+	now := time.Now()
+	currentStage := base.CurrentStage
+	if normalized := normalizeMarketBackfillStage(input.Stage); normalized != "" && normalizeMarketBackfillRetryMode(input.RetryMode) == "FROM_STAGE" {
+		currentStage = normalized
+	}
+	retried := base
+	retried.ID = newRunID
+	retried.SchedulerRunID = newSchedulerRunID
+	retried.Status = "RUNNING"
+	retried.CurrentStage = currentStage
+	retried.ErrorMessage = ""
+	retried.CreatedBy = operator
+	retried.CreatedAt = now.Format(time.RFC3339)
+	retried.UpdatedAt = now.Format(time.RFC3339)
+	retried.FinishedAt = ""
+	if _, err := r.db.Exec(`
+INSERT INTO market_backfill_runs (
+	id, scheduler_run_id, run_type, asset_scope, trade_date_from, trade_date_to, source_key, batch_size,
+	universe_snapshot_id, status, current_stage, stage_progress_json, summary_json, error_message,
+	created_by, created_at, updated_at, finished_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		retried.ID,
+		retried.SchedulerRunID,
+		retried.RunType,
+		marshalJSONText(retried.AssetScope),
+		nullableString(strings.TrimSpace(retried.TradeDateFrom)),
+		nullableString(strings.TrimSpace(retried.TradeDateTo)),
+		nullableString(strings.TrimSpace(retried.SourceKey)),
+		retried.BatchSize,
+		retried.UniverseSnapshotID,
+		retried.Status,
+		retried.CurrentStage,
+		marshalJSONText(retried.StageProgress),
+		marshalJSONText(retried.Summary),
+		nil,
+		nullableString(strings.TrimSpace(retried.CreatedBy)),
+		now,
+		now,
+		nil,
+	); err != nil {
+		return model.MarketBackfillRun{}, err
+	}
+	return retried, nil
+}
+
+func (r *MySQLGrowthRepo) AdminListMarketUniverseSnapshots(page int, pageSize int) ([]model.MarketUniverseSnapshot, int, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	offset := (page - 1) * pageSize
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM market_universe_snapshots").Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := r.db.Query(`
+SELECT id, COALESCE(CAST(scope AS CHAR), ''), COALESCE(source_key, ''), snapshot_date,
+       COALESCE(CAST(summary_json AS CHAR), ''), COALESCE(created_by, ''), created_at
+FROM market_universe_snapshots
+ORDER BY created_at DESC
+LIMIT ? OFFSET ?`, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items := make([]model.MarketUniverseSnapshot, 0, pageSize)
+	for rows.Next() {
+		var item model.MarketUniverseSnapshot
+		var scopeJSON, summaryJSON string
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &scopeJSON, &item.SourceKey, &item.SnapshotDate, &summaryJSON, &item.CreatedBy, &createdAt); err != nil {
+			return nil, 0, err
+		}
+		item.Scope = unmarshalStringSlice(scopeJSON)
+		item.AssetSummaries = buildMarketUniverseAssetSummariesFromJSON(summaryJSON)
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return items, total, rows.Err()
+}
+
+func (r *MySQLGrowthRepo) AdminGetMarketUniverseSnapshot(id string) (model.MarketUniverseSnapshot, []model.MarketUniverseSnapshotItem, error) {
+	var snapshot model.MarketUniverseSnapshot
+	var scopeJSON, summaryJSON string
+	var createdAt time.Time
+	err := r.db.QueryRow(`
+SELECT id, COALESCE(CAST(scope AS CHAR), ''), COALESCE(source_key, ''), snapshot_date,
+       COALESCE(CAST(summary_json AS CHAR), ''), COALESCE(created_by, ''), created_at
+FROM market_universe_snapshots
+WHERE id = ?`, strings.TrimSpace(id)).
+		Scan(&snapshot.ID, &scopeJSON, &snapshot.SourceKey, &snapshot.SnapshotDate, &summaryJSON, &snapshot.CreatedBy, &createdAt)
+	if err != nil {
+		return model.MarketUniverseSnapshot{}, nil, err
+	}
+	snapshot.Scope = unmarshalStringSlice(scopeJSON)
+	snapshot.AssetSummaries = buildMarketUniverseAssetSummariesFromJSON(summaryJSON)
+	snapshot.CreatedAt = createdAt.Format(time.RFC3339)
+
+	rows, err := r.db.Query(`
+SELECT id, snapshot_id, asset_type, instrument_key, COALESCE(external_symbol, ''), COALESCE(display_name, ''),
+       COALESCE(exchange_code, ''), COALESCE(status, ''), COALESCE(DATE_FORMAT(list_date, '%Y-%m-%d'), ''),
+       COALESCE(DATE_FORMAT(delist_date, '%Y-%m-%d'), ''), COALESCE(CAST(raw_metadata_json AS CHAR), ''), created_at
+FROM market_universe_snapshot_items
+WHERE snapshot_id = ?
+ORDER BY asset_type ASC, instrument_key ASC`, snapshot.ID)
+	if err != nil {
+		return model.MarketUniverseSnapshot{}, nil, err
+	}
+	defer rows.Close()
+	items := make([]model.MarketUniverseSnapshotItem, 0)
+	for rows.Next() {
+		var item model.MarketUniverseSnapshotItem
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.SnapshotID, &item.AssetType, &item.InstrumentKey, &item.ExternalSymbol, &item.DisplayName, &item.ExchangeCode, &item.Status, &item.ListDate, &item.DelistDate, &item.MetadataJSON, &createdAt); err != nil {
+			return model.MarketUniverseSnapshot{}, nil, err
+		}
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		items = append(items, item)
+	}
+	return snapshot, items, rows.Err()
+}
+
+func buildMarketUniverseAssetSummariesFromJSON(raw string) []model.MarketUniverseSnapshotAssetItem {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var envelope struct {
+		AssetSummaries []model.MarketUniverseSnapshotAssetItem `json:"asset_summaries"`
+	}
+	if err := json.Unmarshal([]byte(raw), &envelope); err == nil && len(envelope.AssetSummaries) > 0 {
+		return envelope.AssetSummaries
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) AdminGetMarketCoverageSummary() (model.MarketCoverageSummary, error) {
+	summary := model.MarketCoverageSummary{
+		AssetItems: make([]model.MarketCoverageSummaryAssetItem, 0, len(allowedMarketBackfillAssetTypes)),
+	}
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM market_instruments WHERE asset_class = 'STOCK'`).Scan(&summary.TotalUniverseCount); err != nil {
+		return summary, err
+	}
+	summary.MasterCoverageCount = summary.TotalUniverseCount
+	if err := r.db.QueryRow(`SELECT COUNT(DISTINCT instrument_key) FROM market_daily_bar_truth WHERE asset_class = 'STOCK'`).Scan(&summary.QuotesCoverageCount); err != nil {
+		return summary, err
+	}
+	if err := r.db.QueryRow(`SELECT COUNT(DISTINCT symbol) FROM stock_daily_basic`).Scan(&summary.DailyBasicCoverageCount); err != nil {
+		return summary, err
+	}
+	if err := r.db.QueryRow(`SELECT COUNT(DISTINCT symbol) FROM stock_moneyflow_daily`).Scan(&summary.MoneyflowCoverageCount); err != nil {
+		return summary, err
+	}
+	var latestTradeDate sql.NullTime
+	if err := r.db.QueryRow(`SELECT MAX(trade_date) FROM market_daily_bar_truth WHERE asset_class = 'STOCK'`).Scan(&latestTradeDate); err != nil {
+		return summary, err
+	}
+	summary.LatestTradeDate = parseNullableTimeRFC3339(latestTradeDate)
+	if summary.LatestTradeDate != "" {
+		summary.LatestTradeDate = latestTradeDate.Time.Format("2006-01-02")
+	}
+
+	rows, err := r.db.Query(`
+SELECT source_key, COUNT(*)
+FROM market_daily_bar_truth
+WHERE asset_class = 'STOCK'
+GROUP BY source_key
+ORDER BY COUNT(*) DESC, source_key ASC
+LIMIT 5`)
+	if err != nil {
+		return summary, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item model.MarketCoverageSourceSummaryItem
+		if err := rows.Scan(&item.SourceKey, &item.Count); err != nil {
+			return summary, err
+		}
+		summary.FallbackSourceSummary = append(summary.FallbackSourceSummary, item)
+	}
+	if err := rows.Err(); err != nil {
+		return summary, err
+	}
+	summary.AssetItems = append(summary.AssetItems,
+		model.MarketCoverageSummaryAssetItem{
+			AssetType:               "STOCK",
+			UniverseCount:           summary.TotalUniverseCount,
+			MasterCoverageCount:     summary.MasterCoverageCount,
+			QuotesCoverageCount:     summary.QuotesCoverageCount,
+			DailyBasicCoverageCount: summary.DailyBasicCoverageCount,
+			MoneyflowCoverageCount:  summary.MoneyflowCoverageCount,
+			LatestTradeDate:         summary.LatestTradeDate,
+		},
+		model.MarketCoverageSummaryAssetItem{AssetType: "INDEX"},
+		model.MarketCoverageSummaryAssetItem{AssetType: "ETF"},
+		model.MarketCoverageSummaryAssetItem{AssetType: "LOF"},
+		model.MarketCoverageSummaryAssetItem{AssetType: "CBOND"},
+	)
+	return summary, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminCreateMarketDataBackfillRun(input model.MarketBackfillCreateInput, operator string) (model.MarketBackfillRun, error) {
+	assetScope := normalizeMarketBackfillAssetScope(input.AssetScope)
+	if len(assetScope) == 0 {
+		return model.MarketBackfillRun{}, fmt.Errorf("asset_scope is required")
+	}
+	if operator == "" {
+		operator = "system"
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now().Format(time.RFC3339)
+	snapshotID := "mus_" + strings.ToLower(strings.ReplaceAll(newID("snap"), "_", ""))
+	snapshot := model.MarketUniverseSnapshot{
+		ID:           snapshotID,
+		Scope:        assetScope,
+		SourceKey:    strings.ToUpper(strings.TrimSpace(input.SourceKey)),
+		SnapshotDate: time.Now().Format("2006-01-02"),
+		CreatedBy:    operator,
+		CreatedAt:    now,
+	}
+	snapshot.AssetSummaries = make([]model.MarketUniverseSnapshotAssetItem, 0, len(assetScope))
+	snapshotItems := make([]model.MarketUniverseSnapshotItem, 0, len(assetScope))
+	for index, assetType := range assetScope {
+		snapshot.AssetSummaries = append(snapshot.AssetSummaries, model.MarketUniverseSnapshotAssetItem{
+			AssetType:     assetType,
+			ItemCount:     1,
+			ActiveCount:   1,
+			InactiveCount: 0,
+		})
+		snapshotItems = append(snapshotItems, model.MarketUniverseSnapshotItem{
+			ID:             fmt.Sprintf("musi_mem_%03d", index+1),
+			SnapshotID:     snapshot.ID,
+			AssetType:      assetType,
+			InstrumentKey:  fmt.Sprintf("%s_DEMO_%03d", assetType, index+1),
+			ExternalSymbol: fmt.Sprintf("%s_DEMO_%03d", assetType, index+1),
+			DisplayName:    fmt.Sprintf("%s 样本 %d", assetType, index+1),
+			Status:         "PENDING",
+			CreatedAt:      now,
+		})
+	}
+	r.marketUniverseSnapshots[snapshot.ID] = snapshot
+	r.marketUniverseItems[snapshot.ID] = snapshotItems
+
+	run := model.MarketBackfillRun{
+		ID:                 "mbr_" + strings.ToLower(strings.ReplaceAll(newID("run"), "_", "")),
+		SchedulerRunID:     "jr_" + strings.ToLower(strings.ReplaceAll(newID("job"), "_", "")),
+		RunType:            normalizeMarketBackfillRunType(input.RunType),
+		AssetScope:         assetScope,
+		TradeDateFrom:      strings.TrimSpace(input.TradeDateFrom),
+		TradeDateTo:        strings.TrimSpace(input.TradeDateTo),
+		SourceKey:          strings.ToUpper(strings.TrimSpace(input.SourceKey)),
+		BatchSize:          input.BatchSize,
+		UniverseSnapshotID: snapshot.ID,
+		Status:             "RUNNING",
+		CurrentStage:       "UNIVERSE",
+		StageProgress:      defaultMarketBackfillStageProgress(),
+		Summary: map[string]any{
+			"requested_stages": input.Stages,
+			"asset_scope":      assetScope,
+		},
+		CreatedBy:  operator,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		FinishedAt: "",
+	}
+	if run.BatchSize <= 0 {
+		run.BatchSize = 200
+	}
+	r.marketBackfillRuns[run.ID] = run
+	r.marketBackfillRunDetails[run.ID] = []model.MarketBackfillRunDetail{
+		{
+			ID:             "mbd_" + strings.ToLower(strings.ReplaceAll(newID("detail"), "_", "")),
+			RunID:          run.ID,
+			SchedulerRunID: run.SchedulerRunID,
+			Stage:          "UNIVERSE",
+			AssetType:      assetScope[0],
+			BatchKey:       "UNIVERSE-001",
+			Status:         "RUNNING",
+			SymbolCount:    len(snapshotItems),
+			SymbolSample:   []string{snapshotItems[0].InstrumentKey},
+			StartedAt:      now,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		},
+	}
+	return run, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminListMarketDataBackfillRuns(status string, runType string, assetType string, sourceKey string, page int, pageSize int) ([]model.MarketBackfillRun, int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	items := make([]model.MarketBackfillRun, 0, len(r.marketBackfillRuns))
+	for _, item := range r.marketBackfillRuns {
+		if normalized := strings.TrimSpace(status); normalized != "" && item.Status != normalizeMarketBackfillRunStatus(normalized) {
+			continue
+		}
+		if normalized := strings.TrimSpace(runType); normalized != "" && item.RunType != normalizeMarketBackfillRunType(normalized) {
+			continue
+		}
+		if normalized := normalizeMarketBackfillAssetType(assetType); normalized != "" {
+			found := false
+			for _, current := range item.AssetScope {
+				if current == normalized {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+		if trimmed := strings.ToUpper(strings.TrimSpace(sourceKey)); trimmed != "" && item.SourceKey != trimmed {
+			continue
+		}
+		items = append(items, item)
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetMarketDataBackfillRun(id string) (model.MarketBackfillRun, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, ok := r.marketBackfillRuns[strings.TrimSpace(id)]
+	if !ok {
+		return model.MarketBackfillRun{}, sql.ErrNoRows
+	}
+	return item, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminListMarketDataBackfillRunDetails(runID string, stage string, assetType string, status string, page int, pageSize int) ([]model.MarketBackfillRunDetail, int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	items := r.marketBackfillRunDetails[strings.TrimSpace(runID)]
+	filtered := make([]model.MarketBackfillRunDetail, 0, len(items))
+	for _, item := range items {
+		if normalized := normalizeMarketBackfillStage(stage); normalized != "" && item.Stage != normalized {
+			continue
+		}
+		if normalized := normalizeMarketBackfillAssetType(assetType); normalized != "" && item.AssetType != normalized {
+			continue
+		}
+		if normalized := strings.TrimSpace(status); normalized != "" && item.Status != normalizeMarketBackfillDetailStatus(normalized) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered, len(filtered), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminRetryMarketDataBackfillRun(runID string, input model.MarketBackfillRetryInput, operator string) (model.MarketBackfillRun, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	base, ok := r.marketBackfillRuns[strings.TrimSpace(runID)]
+	if !ok {
+		return model.MarketBackfillRun{}, sql.ErrNoRows
+	}
+	now := time.Now().Format(time.RFC3339)
+	retried := base
+	retried.ID = "mbr_" + strings.ToLower(strings.ReplaceAll(newID("retry"), "_", ""))
+	retried.SchedulerRunID = "jr_" + strings.ToLower(strings.ReplaceAll(newID("retry"), "_", ""))
+	retried.Status = "RUNNING"
+	retried.ErrorMessage = ""
+	retried.CreatedBy = operator
+	retried.CreatedAt = now
+	retried.UpdatedAt = now
+	retried.FinishedAt = ""
+	if normalized := normalizeMarketBackfillStage(input.Stage); normalized != "" && normalizeMarketBackfillRetryMode(input.RetryMode) == "FROM_STAGE" {
+		retried.CurrentStage = normalized
+	}
+	r.marketBackfillRuns[retried.ID] = retried
+	r.marketBackfillRunDetails[retried.ID] = r.marketBackfillRunDetails[base.ID]
+	return retried, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminListMarketUniverseSnapshots(page int, pageSize int) ([]model.MarketUniverseSnapshot, int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	items := make([]model.MarketUniverseSnapshot, 0, len(r.marketUniverseSnapshots))
+	for _, item := range r.marketUniverseSnapshots {
+		items = append(items, item)
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetMarketUniverseSnapshot(id string) (model.MarketUniverseSnapshot, []model.MarketUniverseSnapshotItem, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, ok := r.marketUniverseSnapshots[strings.TrimSpace(id)]
+	if !ok {
+		return model.MarketUniverseSnapshot{}, nil, sql.ErrNoRows
+	}
+	return item, r.marketUniverseItems[item.ID], nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetMarketCoverageSummary() (model.MarketCoverageSummary, error) {
+	return model.MarketCoverageSummary{
+		TotalUniverseCount:      5,
+		MasterCoverageCount:     4,
+		QuotesCoverageCount:     3,
+		DailyBasicCoverageCount: 2,
+		MoneyflowCoverageCount:  2,
+		LatestTradeDate:         "2026-03-24",
+		FallbackSourceSummary: []model.MarketCoverageSourceSummaryItem{
+			{SourceKey: "TUSHARE", Count: 3},
+			{SourceKey: "AKSHARE", Count: 1},
+		},
+		AssetItems: []model.MarketCoverageSummaryAssetItem{
+			{AssetType: "STOCK", UniverseCount: 2, MasterCoverageCount: 2, QuotesCoverageCount: 2, DailyBasicCoverageCount: 2, MoneyflowCoverageCount: 2, LatestTradeDate: "2026-03-24"},
+			{AssetType: "INDEX", UniverseCount: 1, MasterCoverageCount: 1, QuotesCoverageCount: 1, LatestTradeDate: "2026-03-24"},
+			{AssetType: "ETF", UniverseCount: 1, MasterCoverageCount: 1},
+			{AssetType: "LOF", UniverseCount: 1},
+			{AssetType: "CBOND", UniverseCount: 0},
+		},
+		CanonicalKeyGapCount: 0,
+		DisplayNameGapCount:  1,
+		ListDateGapCount:     1,
+	}, nil
+}
