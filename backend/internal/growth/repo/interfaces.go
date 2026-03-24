@@ -89,6 +89,8 @@ type GrowthRepo interface {
 	AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error)
 	AdminSyncStockQuotesDetailed(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
 	AdminSyncFuturesQuotes(sourceKey string, contracts []string, days int) (model.MarketSyncResult, error)
+	AdminSyncMarketDailyBasicDetailed(assetType string, sourceKey string, instrumentKeys []string, days int) (model.MarketSyncResult, error)
+	AdminSyncMarketMoneyflowDetailed(assetType string, sourceKey string, instrumentKeys []string, days int) (model.MarketSyncResult, error)
 	AdminSyncFuturesInventory(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
 	AdminSyncMarketNews(sourceKey string, symbols []string, days int, limit int) (model.MarketSyncResult, error)
 	BuildStrategyEngineStockSelectionContext(input model.StrategyEngineStockSelectionContextRequest) (model.StrategyEngineStockSelectionContextResponse, error)
