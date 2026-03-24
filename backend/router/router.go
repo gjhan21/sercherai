@@ -280,6 +280,24 @@ func Register(r *gin.Engine) {
 			adminDataSources.GET("/:source_key/health-logs", middleware.PermissionRequired(db, "data_source.view"), adminGrowthHandler.ListDataSourceHealthLogs)
 		}
 
+		adminMarketData := v1.Group("/admin/market-data")
+		adminMarketData.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("ADMIN"))
+		{
+			adminMarketData.POST("/backfill", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.CreateMarketDataBackfillRun)
+			adminMarketData.POST("/master/sync", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.SyncMarketDataMaster)
+			adminMarketData.POST("/quotes/sync", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.SyncMarketDataQuotes)
+			adminMarketData.POST("/daily-basic/sync", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.SyncMarketDataDailyBasic)
+			adminMarketData.POST("/moneyflow/sync", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.SyncMarketDataMoneyflow)
+			adminMarketData.POST("/truth/rebuild", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.RebuildMarketDataTruth)
+			adminMarketData.GET("/backfill-runs", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListMarketDataBackfillRuns)
+			adminMarketData.GET("/backfill-runs/:id", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.GetMarketDataBackfillRun)
+			adminMarketData.GET("/backfill-runs/:id/details", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListMarketDataBackfillRunDetails)
+			adminMarketData.POST("/backfill-runs/:id/retry", middleware.PermissionRequired(db, "market.edit"), adminGrowthHandler.RetryMarketDataBackfillRun)
+			adminMarketData.GET("/universe-snapshots", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListMarketUniverseSnapshots)
+			adminMarketData.GET("/universe-snapshots/:id", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.GetMarketUniverseSnapshot)
+			adminMarketData.GET("/coverage-summary", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.GetMarketCoverageSummary)
+		}
+
 		adminStocks := v1.Group("/admin/stocks")
 		adminStocks.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("ADMIN"))
 		{

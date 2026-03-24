@@ -226,10 +226,68 @@ export function getMarketDataQualitySummary(params) {
   });
 }
 
+export function getMarketCoverageSummary() {
+  return http.get("/admin/market-data/coverage-summary");
+}
+
+export function createMarketDataBackfillRun(payload) {
+  return http.post("/admin/market-data/backfill", payload);
+}
+
+export function listMarketDataBackfillRuns(params) {
+  return http.get("/admin/market-data/backfill-runs", {
+    params: buildParams(params)
+  });
+}
+
+export function getMarketDataBackfillRun(id) {
+  return http.get(`/admin/market-data/backfill-runs/${encodeURIComponent(id)}`);
+}
+
+export function listMarketDataBackfillRunDetails(id, params) {
+  return http.get(`/admin/market-data/backfill-runs/${encodeURIComponent(id)}/details`, {
+    params: buildParams(params)
+  });
+}
+
+export function retryMarketDataBackfillRun(id, payload) {
+  return http.post(`/admin/market-data/backfill-runs/${encodeURIComponent(id)}/retry`, payload);
+}
+
+export function listMarketUniverseSnapshots(params) {
+  return http.get("/admin/market-data/universe-snapshots", {
+    params: buildParams(params)
+  });
+}
+
+export function getMarketUniverseSnapshot(id) {
+  return http.get(`/admin/market-data/universe-snapshots/${encodeURIComponent(id)}`);
+}
+
 export function getMarketDerivedTruthSummary(params) {
   return http.get("/admin/data-sources/market-derived-truth-summary", {
     params: buildParams(params)
   });
+}
+
+export function syncMarketDataMaster(payload) {
+  return http.post("/admin/market-data/master/sync", payload);
+}
+
+export function syncMarketDataQuotes(payload) {
+  return http.post("/admin/market-data/quotes/sync", payload);
+}
+
+export function syncMarketDataDailyBasic(payload) {
+  return http.post("/admin/market-data/daily-basic/sync", payload);
+}
+
+export function syncMarketDataMoneyflow(payload) {
+  return http.post("/admin/market-data/moneyflow/sync", payload);
+}
+
+export function rebuildMarketDataTruth(payload) {
+  return http.post("/admin/market-data/truth/rebuild", payload);
 }
 
 export function rebuildStockDerivedTruth(payload) {

@@ -1,16 +1,23 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessageBox } from "element-plus";
+import { useRoute } from "vue-router";
 import {
+  createMarketDataBackfillRun,
   createSchedulerJobDefinition,
   deleteSchedulerJobDefinition,
+  getMarketDataBackfillRun,
   getSchedulerJobMetrics,
+  listMarketDataBackfillRunDetails,
+  listMarketDataBackfillRuns,
+  listMarketUniverseSnapshots,
   listOperationLogs,
   listNewsSyncRunDetails,
   listSupportedSchedulerJobs,
   listSystemConfigs,
   listSchedulerJobDefinitions,
   listSchedulerJobRuns,
+  retryMarketDataBackfillRun,
   retryNewsSyncItem,
   retrySchedulerJobRun,
   triggerSchedulerJob,
@@ -19,11 +26,29 @@ import {
   updateSchedulerJobDefinitionStatus
 } from "../api/admin";
 import {
+  buildMarketBackfillGuideCards,
+  buildMarketBackfillOverviewCards,
+  buildSystemJobsActionCards,
+  buildSystemJobsGuideCards,
+  buildSystemJobsOverviewCards,
+  buildSystemJobsTabOptions,
   buildSchedulerDefinitionCreateOptions,
   buildSchedulerDefinitionOptions,
   validateSchedulerDefinitionJobName
 } from "../lib/system-jobs-admin";
+import {
+  buildUniverseSnapshotDigest,
+  formatMarketAssetLabel,
+  formatMarketAssetScopeSummary,
+  formatMarketBackfillRunTypeLabel,
+  formatMarketBackfillStageLabel,
+  formatMarketBackfillStatusLabel,
+  marketBackfillDetailStatusTagType,
+  marketBackfillStatusTagType
+} from "../lib/market-data-admin";
 import { getAccessToken, hasPermission } from "../lib/session";
+
+const route = useRoute();
 
 const metricsLoading = ref(false);
 const defsLoading = ref(false);
@@ -144,10 +169,51 @@ const newsSyncDetailFilters = reactive({
   symbol: "",
   status: ""
 });
+const marketBackfillFilters = reactive({
+  status: "",
+  run_type: "",
+  asset_type: "",
+  source_key: ""
+});
+const marketBackfillDetailFilters = reactive({
+  stage: "",
+  asset_type: "",
+  status: ""
+});
 
 const retrySimMap = ref({});
 const retrySummaryMap = ref({});
 const retryErrorMap = ref({});
+const activeTab = ref("overview");
+const marketBackfillLoaded = ref(false);
+const marketBackfillCreating = ref(false);
+const marketBackfillRunsLoading = ref(false);
+const marketBackfillRuns = ref([]);
+const marketBackfillRunPage = ref(1);
+const marketBackfillRunPageSize = ref(10);
+const marketBackfillRunTotal = ref(0);
+const marketBackfillSnapshotsLoading = ref(false);
+const marketBackfillSnapshots = ref([]);
+const marketBackfillDetailVisible = ref(false);
+const currentMarketBackfillRun = ref(null);
+const marketBackfillRunDetailLoading = ref(false);
+const marketBackfillDetailsLoading = ref(false);
+const marketBackfillDetailPage = ref(1);
+const marketBackfillDetailPageSize = ref(20);
+const marketBackfillDetailTotal = ref(0);
+const marketBackfillDetails = ref([]);
+const marketBackfillRetryingMap = ref({});
+
+const MARKET_BACKFILL_DEFAULT_STAGES = [
+  "UNIVERSE",
+  "MASTER",
+  "QUOTES",
+  "DAILY_BASIC",
+  "MONEYFLOW",
+  "TRUTH",
+  "COVERAGE_SUMMARY"
+];
+const MARKET_BACKFILL_REBUILD_STAGES = ["TRUTH", "COVERAGE_SUMMARY"];
 
 const triggerForm = reactive({
   job_name: "",
@@ -159,6 +225,17 @@ const triggerForm = reactive({
   symbols_text: "",
   sync_types: [],
   batch_size: undefined
+});
+const marketBackfillForm = reactive({
+  run_type: "FULL",
+  asset_scope: ["STOCK", "INDEX", "ETF", "LOF", "CBOND"],
+  source_key: "TUSHARE",
+  trade_date_from: "",
+  trade_date_to: "",
+  batch_size: 200,
+  stages: MARKET_BACKFILL_DEFAULT_STAGES.slice(),
+  force_refresh_universe: false,
+  rebuild_truth_after_sync: true
 });
 
 const moduleOptions = [
@@ -175,6 +252,42 @@ const runStatusOptions = [
   { label: "运行中", value: "RUNNING" },
   { label: "成功", value: "SUCCESS" },
   { label: "失败", value: "FAILED" }
+];
+const marketBackfillRunTypeOptions = [
+  { label: "全量回填", value: "FULL" },
+  { label: "增量回填", value: "INCREMENTAL" },
+  { label: "仅重建", value: "REBUILD_ONLY" }
+];
+const marketBackfillAssetOptions = [
+  { label: "股票", value: "STOCK" },
+  { label: "指数", value: "INDEX" },
+  { label: "ETF", value: "ETF" },
+  { label: "LOF", value: "LOF" },
+  { label: "可转债", value: "CBOND" }
+];
+const marketBackfillStageOptions = [
+  { label: "Universe", value: "UNIVERSE" },
+  { label: "主数据", value: "MASTER" },
+  { label: "行情", value: "QUOTES" },
+  { label: "Daily Basic", value: "DAILY_BASIC" },
+  { label: "Moneyflow", value: "MONEYFLOW" },
+  { label: "Truth", value: "TRUTH" },
+  { label: "覆盖率汇总", value: "COVERAGE_SUMMARY" }
+];
+const marketBackfillStatusOptions = [
+  { label: "待执行", value: "PENDING" },
+  { label: "进行中", value: "RUNNING" },
+  { label: "部分完成", value: "PARTIAL_SUCCESS" },
+  { label: "已完成", value: "SUCCESS" },
+  { label: "失败", value: "FAILED" },
+  { label: "已取消", value: "CANCELLED" }
+];
+const marketBackfillDetailStatusOptions = [
+  { label: "待执行", value: "PENDING" },
+  { label: "进行中", value: "RUNNING" },
+  { label: "已完成", value: "SUCCESS" },
+  { label: "失败", value: "FAILED" },
+  { label: "已跳过", value: "SKIPPED" }
 ];
 const simulateStatusOptions = [
   { label: "模拟成功", value: "SUCCESS" },
@@ -332,6 +445,33 @@ const definitionCreateJobOptions = computed(() =>
 );
 
 const definitionCronPreview = computed(() => buildDefinitionCronExpression());
+const failedRunCount = computed(() =>
+  (runs.value || []).filter((item) => String(item?.status || "").trim().toUpperCase() === "FAILED").length
+);
+const overviewCards = computed(() =>
+  buildSystemJobsOverviewCards({
+    metrics: metrics.value,
+    autoRetrySummary: autoRetrySummary.value,
+    definitionTotal: definitionTotal.value
+  })
+);
+const guideCards = computed(() => buildSystemJobsGuideCards({ canEditSystemJobs }));
+const actionCards = computed(() =>
+  buildSystemJobsActionCards({
+    canEditSystemJobs,
+    failedRunCount: failedRunCount.value
+  })
+);
+const systemJobTabs = computed(() => buildSystemJobsTabOptions({ canEditSystemJobs }));
+const marketBackfillOverviewCards = computed(() =>
+  buildMarketBackfillOverviewCards({
+    runs: marketBackfillRuns.value,
+    snapshots: marketBackfillSnapshots.value
+  })
+);
+const marketBackfillGuideCards = computed(() =>
+  buildMarketBackfillGuideCards({ canEditSystemJobs })
+);
 
 function clampInteger(value, minValue, maxValue, fallback) {
   const parsed = Number.parseInt(String(value), 10);
@@ -525,6 +665,40 @@ function parseTextList(raw) {
 
 function normalizeErrorMessage(error, fallback) {
   return error?.message || fallback || "操作失败";
+}
+
+function actionButtonType(tone) {
+  if (tone === "danger") {
+    return "danger";
+  }
+  if (tone === "success") {
+    return "success";
+  }
+  return "primary";
+}
+
+function handleActionCard(actionKey) {
+  if (actionKey === "view-failed-runs") {
+    activeTab.value = "runs";
+    applyFailedRunFilter();
+    return;
+  }
+  if (actionKey === "refresh-all") {
+    refreshAll();
+    return;
+  }
+  if (actionKey === "open-create-definition") {
+    activeTab.value = "config";
+    openCreateDefinition();
+    return;
+  }
+  if (actionKey === "scroll-trigger") {
+    activeTab.value = "trigger";
+    return;
+  }
+  if (actionKey === "scroll-definitions") {
+    activeTab.value = "config";
+  }
 }
 
 function csvEscape(value) {
@@ -906,6 +1080,363 @@ async function fetchRuns() {
   }
 }
 
+function normalizeBackfillTab(rawTab) {
+  const nextTab = String(rawTab || "").trim();
+  return systemJobTabs.value.some((item) => item.key === nextTab) ? nextTab : "overview";
+}
+
+function resetMarketBackfillForm() {
+  Object.assign(marketBackfillForm, {
+    run_type: "FULL",
+    asset_scope: ["STOCK", "INDEX", "ETF", "LOF", "CBOND"],
+    source_key: "TUSHARE",
+    trade_date_from: "",
+    trade_date_to: "",
+    batch_size: 200,
+    stages: MARKET_BACKFILL_DEFAULT_STAGES.slice(),
+    force_refresh_universe: false,
+    rebuild_truth_after_sync: true
+  });
+}
+
+function buildMarketBackfillPayload() {
+  const batchSize = Number.parseInt(String(marketBackfillForm.batch_size || ""), 10);
+  return cleanupPayload({
+    run_type: String(marketBackfillForm.run_type || "").trim().toUpperCase(),
+    asset_scope: Array.from(
+      new Set(
+        (marketBackfillForm.asset_scope || [])
+          .map((item) => String(item || "").trim().toUpperCase())
+          .filter(Boolean)
+      )
+    ),
+    source_key: String(marketBackfillForm.source_key || "").trim().toUpperCase(),
+    trade_date_from: String(marketBackfillForm.trade_date_from || "").trim(),
+    trade_date_to: String(marketBackfillForm.trade_date_to || "").trim(),
+    batch_size: Number.isFinite(batchSize) && batchSize > 0 ? batchSize : undefined,
+    stages: Array.from(
+      new Set(
+        (marketBackfillForm.stages || [])
+          .map((item) => String(item || "").trim().toUpperCase())
+          .filter(Boolean)
+      )
+    ),
+    force_refresh_universe: !!marketBackfillForm.force_refresh_universe,
+    rebuild_truth_after_sync: !!marketBackfillForm.rebuild_truth_after_sync
+  });
+}
+
+async function fetchMarketBackfillRuns(options = {}) {
+  const { preserveFeedback = false } = options;
+  marketBackfillRunsLoading.value = true;
+  if (!preserveFeedback) {
+    errorMessage.value = "";
+  }
+  try {
+    const data = await listMarketDataBackfillRuns({
+      status: marketBackfillFilters.status,
+      run_type: marketBackfillFilters.run_type,
+      asset_type: marketBackfillFilters.asset_type,
+      source_key: String(marketBackfillFilters.source_key || "").trim().toUpperCase(),
+      page: marketBackfillRunPage.value,
+      page_size: marketBackfillRunPageSize.value
+    });
+    marketBackfillRuns.value = data?.items || [];
+    marketBackfillRunTotal.value = data?.total || 0;
+    marketBackfillLoaded.value = true;
+  } catch (error) {
+    marketBackfillRuns.value = [];
+    marketBackfillRunTotal.value = 0;
+    if (!preserveFeedback) {
+      errorMessage.value = normalizeErrorMessage(error, "加载市场回填总单失败");
+    }
+  } finally {
+    marketBackfillRunsLoading.value = false;
+  }
+}
+
+async function fetchMarketBackfillSnapshots(options = {}) {
+  const { preserveFeedback = false } = options;
+  marketBackfillSnapshotsLoading.value = true;
+  if (!preserveFeedback) {
+    errorMessage.value = "";
+  }
+  try {
+    const data = await listMarketUniverseSnapshots({ page: 1, page_size: 6 });
+    marketBackfillSnapshots.value = data?.items || [];
+    marketBackfillLoaded.value = true;
+  } catch (error) {
+    marketBackfillSnapshots.value = [];
+    if (!preserveFeedback) {
+      errorMessage.value = normalizeErrorMessage(error, "加载 Universe 快照失败");
+    }
+  } finally {
+    marketBackfillSnapshotsLoading.value = false;
+  }
+}
+
+async function fetchMarketBackfillWorkspace(options = {}) {
+  const { preserveFeedback = false } = options;
+  if (!preserveFeedback) {
+    errorMessage.value = "";
+  }
+  await Promise.all([
+    fetchMarketBackfillRuns({ preserveFeedback: true }),
+    fetchMarketBackfillSnapshots({ preserveFeedback: true })
+  ]).catch((error) => {
+    if (!preserveFeedback) {
+      errorMessage.value = normalizeErrorMessage(error, "加载市场数据工作台失败");
+    }
+  });
+}
+
+async function fetchCurrentMarketBackfillRun(runID, options = {}) {
+  const { preserveFeedback = false } = options;
+  if (!runID) {
+    currentMarketBackfillRun.value = null;
+    return;
+  }
+  marketBackfillRunDetailLoading.value = true;
+  if (!preserveFeedback) {
+    errorMessage.value = "";
+  }
+  try {
+    const data = await getMarketDataBackfillRun(runID);
+    currentMarketBackfillRun.value = data || null;
+  } catch (error) {
+    currentMarketBackfillRun.value = null;
+    if (!preserveFeedback) {
+      errorMessage.value = normalizeErrorMessage(error, "加载回填总单详情失败");
+    }
+  } finally {
+    marketBackfillRunDetailLoading.value = false;
+  }
+}
+
+async function fetchMarketBackfillRunDetails(options = {}) {
+  const { preserveFeedback = false } = options;
+  const runID = String(currentMarketBackfillRun.value?.id || "").trim();
+  if (!runID) {
+    marketBackfillDetails.value = [];
+    marketBackfillDetailTotal.value = 0;
+    return;
+  }
+  marketBackfillDetailsLoading.value = true;
+  if (!preserveFeedback) {
+    errorMessage.value = "";
+  }
+  try {
+    const data = await listMarketDataBackfillRunDetails(runID, {
+      stage: marketBackfillDetailFilters.stage,
+      asset_type: marketBackfillDetailFilters.asset_type,
+      status: marketBackfillDetailFilters.status,
+      page: marketBackfillDetailPage.value,
+      page_size: marketBackfillDetailPageSize.value
+    });
+    marketBackfillDetails.value = data?.items || [];
+    marketBackfillDetailTotal.value = data?.total || 0;
+  } catch (error) {
+    marketBackfillDetails.value = [];
+    marketBackfillDetailTotal.value = 0;
+    if (!preserveFeedback) {
+      errorMessage.value = normalizeErrorMessage(error, "加载回填批次明细失败");
+    }
+  } finally {
+    marketBackfillDetailsLoading.value = false;
+  }
+}
+
+async function handleCreateMarketBackfillRun() {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
+  const payload = buildMarketBackfillPayload();
+  if (!payload.run_type || !Array.isArray(payload.asset_scope) || payload.asset_scope.length === 0) {
+    errorMessage.value = "运行类型和资产范围不能为空";
+    return;
+  }
+  marketBackfillCreating.value = true;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    const result = await createMarketDataBackfillRun(payload);
+    message.value = `已创建回填任务：${result.run_id || "-"}，状态=${formatMarketBackfillStatusLabel(result.status)}`;
+    marketBackfillRunPage.value = 1;
+    await Promise.all([
+      fetchMarketBackfillWorkspace({ preserveFeedback: true }),
+      fetchMetrics(),
+      fetchRuns()
+    ]);
+    if (result?.run_id) {
+      await handleOpenMarketBackfillRun({ id: result.run_id });
+    }
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "创建市场回填任务失败");
+  } finally {
+    marketBackfillCreating.value = false;
+  }
+}
+
+async function handleOpenMarketBackfillRun(item) {
+  const runID = String(item?.id || item?.run_id || "").trim();
+  if (!runID) {
+    errorMessage.value = "回填总单 ID 为空，无法查看详情";
+    return;
+  }
+  currentMarketBackfillRun.value = { id: runID };
+  marketBackfillDetailVisible.value = true;
+  marketBackfillDetailPage.value = 1;
+  marketBackfillDetailFilters.stage = "";
+  marketBackfillDetailFilters.asset_type = "";
+  marketBackfillDetailFilters.status = "";
+  await Promise.all([
+    fetchCurrentMarketBackfillRun(runID, { preserveFeedback: true }),
+    fetchMarketBackfillRunDetails({ preserveFeedback: true })
+  ]);
+}
+
+function handleMarketBackfillDetailClosed() {
+  currentMarketBackfillRun.value = null;
+  marketBackfillDetails.value = [];
+  marketBackfillDetailTotal.value = 0;
+}
+
+async function handleRetryMarketBackfillRun(item) {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
+  const runID = String(item?.id || "").trim();
+  if (!runID) {
+    errorMessage.value = "回填总单 ID 为空，无法重试";
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      "将仅重试失败或未完成的批次，不会重新从头全量执行，是否继续？",
+      "确认重试市场回填",
+      {
+        type: "warning",
+        confirmButtonText: "确认重试",
+        cancelButtonText: "取消"
+      }
+    );
+  } catch (error) {
+    if (error === "cancel" || error === "close") {
+      message.value = "已取消回填重试";
+      return;
+    }
+    errorMessage.value = normalizeErrorMessage(error, "回填重试确认失败");
+    return;
+  }
+
+  marketBackfillRetryingMap.value[runID] = true;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    const result = await retryMarketDataBackfillRun(runID, { retry_mode: "FAILED_ONLY" });
+    message.value = `已发起回填重试：${result.run_id || "-"}，状态=${formatMarketBackfillStatusLabel(result.status)}`;
+    await Promise.all([
+      fetchMarketBackfillWorkspace({ preserveFeedback: true }),
+      fetchMetrics(),
+      fetchRuns()
+    ]);
+    if (String(currentMarketBackfillRun.value?.id || "").trim() === runID) {
+      await Promise.all([
+        fetchCurrentMarketBackfillRun(runID, { preserveFeedback: true }),
+        fetchMarketBackfillRunDetails({ preserveFeedback: true })
+      ]);
+    }
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "重试市场回填任务失败");
+  } finally {
+    marketBackfillRetryingMap.value[runID] = false;
+  }
+}
+
+function applyMarketBackfillFilters() {
+  marketBackfillRunPage.value = 1;
+  fetchMarketBackfillRuns();
+}
+
+function resetMarketBackfillFilters() {
+  marketBackfillFilters.status = "";
+  marketBackfillFilters.run_type = "";
+  marketBackfillFilters.asset_type = "";
+  marketBackfillFilters.source_key = "";
+  marketBackfillRunPage.value = 1;
+  fetchMarketBackfillRuns();
+}
+
+function handleMarketBackfillRunPageChange(nextPage) {
+  if (nextPage === marketBackfillRunPage.value) {
+    return;
+  }
+  marketBackfillRunPage.value = nextPage;
+  fetchMarketBackfillRuns();
+}
+
+function applyMarketBackfillDetailFilters() {
+  marketBackfillDetailPage.value = 1;
+  fetchMarketBackfillRunDetails();
+}
+
+function resetMarketBackfillDetailFilters() {
+  marketBackfillDetailFilters.stage = "";
+  marketBackfillDetailFilters.asset_type = "";
+  marketBackfillDetailFilters.status = "";
+  marketBackfillDetailPage.value = 1;
+  fetchMarketBackfillRunDetails();
+}
+
+function handleMarketBackfillDetailPageChange(nextPage) {
+  if (nextPage === marketBackfillDetailPage.value) {
+    return;
+  }
+  marketBackfillDetailPage.value = nextPage;
+  fetchMarketBackfillRunDetails();
+}
+
+function canRetryMarketBackfillRun(item) {
+  const status = String(item?.status || "").trim().toUpperCase();
+  return status === "FAILED" || status === "PARTIAL_SUCCESS";
+}
+
+function formatMarketBackfillSummary(summary) {
+  if (!summary) {
+    return "暂无回填摘要";
+  }
+  if (typeof summary === "string") {
+    return summary.trim() || "暂无回填摘要";
+  }
+  try {
+    return JSON.stringify(summary, null, 2);
+  } catch {
+    return String(summary);
+  }
+}
+
+function formatMarketBackfillBatchSample(row) {
+  const items = Array.isArray(row?.symbol_sample) ? row.symbol_sample.filter(Boolean) : [];
+  return items.length ? items.join(", ") : "-";
+}
+
+function formatMarketBackfillTimeRange(row) {
+  const from = String(row?.trade_date_from || "").trim();
+  const to = String(row?.trade_date_to || "").trim();
+  if (from && to) {
+    return `${from} -> ${to}`;
+  }
+  return from || to || "-";
+}
+
+function formatMarketStageProgressSummary(item) {
+  const totalBatches = Number(item?.total_batches) || 0;
+  const completedBatches = Number(item?.completed_batches) || 0;
+  const failedBatches = Number(item?.failed_batches) || 0;
+  const skippedBatches = Number(item?.skipped_batches) || 0;
+  return `总 ${totalBatches} · 完成 ${completedBatches} · 失败 ${failedBatches} · 跳过 ${skippedBatches}`;
+}
+
 async function refreshAll() {
   errorMessage.value = "";
   message.value = "";
@@ -915,7 +1446,8 @@ async function refreshAll() {
     fetchAutoRetryChangeLogs(),
     fetchSupportedJobs(),
     fetchDefinitions(),
-    fetchRuns()
+    fetchRuns(),
+    fetchMarketBackfillWorkspace({ preserveFeedback: true })
   ]);
 }
 
@@ -1578,17 +2110,76 @@ function runSummaryPercent(row, key, digits = 2) {
   return formatPercent(value, digits);
 }
 
-onMounted(refreshAll);
+watch(
+  () => marketBackfillForm.run_type,
+  (nextValue) => {
+    const normalized = String(nextValue || "").trim().toUpperCase();
+    if (normalized === "REBUILD_ONLY") {
+      marketBackfillForm.stages = MARKET_BACKFILL_REBUILD_STAGES.slice();
+      marketBackfillForm.rebuild_truth_after_sync = true;
+      return;
+    }
+    const currentStages = Array.isArray(marketBackfillForm.stages) ? marketBackfillForm.stages : [];
+    if (
+      currentStages.length === 0 ||
+      currentStages.every((item) => MARKET_BACKFILL_REBUILD_STAGES.includes(String(item || "").trim().toUpperCase()))
+    ) {
+      marketBackfillForm.stages = MARKET_BACKFILL_DEFAULT_STAGES.slice();
+    }
+  }
+);
+
+watch(activeTab, (nextTab) => {
+  if (nextTab === "market-data" && !marketBackfillLoaded.value) {
+    fetchMarketBackfillWorkspace({ preserveFeedback: true });
+  }
+});
+
+onMounted(() => {
+  activeTab.value = normalizeBackfillTab(route.query.tab);
+  refreshAll();
+});
 </script>
 
 <template>
   <div class="page">
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">系统任务中心</h1>
-        <p class="muted">管理定时任务定义、运行记录、触发与重跑</p>
+    <div class="jobs-hero card">
+      <div class="jobs-hero__top">
+        <div>
+          <div class="page-eyebrow">调度工作台</div>
+          <h1 class="page-title">系统任务中心</h1>
+          <p class="jobs-hero__desc">
+            这里统一管理任务总览、自动重试、手动触发、任务定义和运行记录。先看异常，再做处理，操作路径会更顺。
+          </p>
+        </div>
+        <div class="jobs-hero__top-actions">
+          <el-tag :type="canEditSystemJobs ? 'success' : 'info'" effect="plain">
+            {{ canEditSystemJobs ? "当前账号可配置、触发与重跑" : "当前账号仅支持查看" }}
+          </el-tag>
+          <el-tag type="warning" effect="plain">已配置 {{ definitionTotal }} 个任务定义</el-tag>
+          <el-button :loading="defsLoading || runsLoading || metricsLoading" @click="refreshAll">刷新全部</el-button>
+        </div>
       </div>
-      <el-button :loading="defsLoading || runsLoading || metricsLoading" @click="refreshAll">刷新全部</el-button>
+
+      <div class="jobs-action-grid">
+        <div
+          v-for="item in actionCards"
+          :key="item.key"
+          class="jobs-action-card"
+          :class="`is-${item.tone}`"
+        >
+          <div class="jobs-action-card__title">{{ item.title }}</div>
+          <div class="jobs-action-card__desc">{{ item.description }}</div>
+          <el-button
+            size="small"
+            :type="actionButtonType(item.tone)"
+            :plain="item.tone !== 'primary'"
+            @click="handleActionCard(item.key)"
+          >
+            {{ item.actionText }}
+          </el-button>
+        </div>
+      </div>
     </div>
 
     <el-alert
@@ -1606,158 +2197,573 @@ onMounted(refreshAll);
       style="margin-bottom: 12px"
     />
 
-    <div class="card" style="margin-bottom: 12px">
-      <div class="toolbar">
-        <el-input v-model="metricFilter.job_name" clearable placeholder="按任务编码过滤指标（可选）" style="width: 260px" />
-        <el-button :loading="metricsLoading" @click="fetchMetrics">刷新指标</el-button>
-      </div>
-      <div class="grid grid-4" v-loading="metricsLoading">
-        <div class="metric-item">
-          <div class="metric-label">今日总运行</div>
-          <div class="metric-value">{{ metrics.today_total || 0 }}</div>
+    <div class="card jobs-tabs-shell">
+      <el-tabs v-model="activeTab" type="border-card" class="jobs-tabs">
+        <el-tab-pane
+          v-for="tab in systemJobTabs"
+          :key="tab.key"
+          :label="tab.label"
+          :name="tab.key"
+        />
+      </el-tabs>
+      <div class="jobs-tab-summary">
+        <div class="jobs-tab-summary__title">
+          {{ systemJobTabs.find((item) => item.key === activeTab)?.label || "总览" }}
         </div>
-        <div class="metric-item">
-          <div class="metric-label">今日成功</div>
-          <div class="metric-value">{{ metrics.today_success || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">今日失败</div>
-          <div class="metric-value">{{ metrics.today_failed || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">今日运行中</div>
-          <div class="metric-value">{{ metrics.today_running || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">今日重试总数</div>
-          <div class="metric-value">{{ metrics.retry_total || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">重试成功率</div>
-          <div class="metric-value">{{ formatPercent(metrics.retry_hit_rate) }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">自动重试触发次数</div>
-          <div class="metric-value">{{ metrics.auto_retry_total || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">恢复成功率（失败后重试）</div>
-          <div class="metric-value">{{ formatPercent(metrics.recovery_hit_rate) }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">恢复成功/触发</div>
-          <div class="metric-value">{{ metrics.recovery_success || 0 }}/{{ metrics.recovery_total || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">重试成功/失败</div>
-          <div class="metric-value">{{ metrics.retry_success || 0 }}/{{ metrics.retry_failed || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">平均重试次数</div>
-          <div class="metric-value">{{ Number(metrics.avg_retry_count || 0).toFixed(2) }}</div>
+        <div class="jobs-tab-summary__desc">
+          {{ systemJobTabs.find((item) => item.key === activeTab)?.description || "看今日运行、失败原因和使用说明" }}
         </div>
       </div>
-
-      <div class="toolbar" style="margin-top: 10px; margin-bottom: 6px">
-        <el-text type="primary">按任务维度的重试恢复统计</el-text>
-      </div>
-      <el-table
-        :data="metrics.job_retry_stats || []"
-        border
-        stripe
-        size="small"
-        empty-text="暂无按任务统计"
-        v-loading="metricsLoading"
-      >
-        <el-table-column label="任务" min-width="220">
-          <template #default="{ row }">
-            {{ formatJobName(row.job_name) }} ({{ row.job_name || "-" }})
-          </template>
-        </el-table-column>
-        <el-table-column prop="today_total" label="今日总运行" min-width="100" />
-        <el-table-column prop="today_failed" label="今日失败" min-width="90" />
-        <el-table-column prop="retry_total" label="重试数" min-width="80" />
-        <el-table-column label="重试成功率" min-width="120">
-          <template #default="{ row }">
-            {{ formatPercent(row.retry_hit_rate) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="auto_retry_total" label="自动重试触发" min-width="120" />
-        <el-table-column label="恢复成功/触发" min-width="130">
-          <template #default="{ row }">
-            {{ row.recovery_success || 0 }}/{{ row.recovery_total || 0 }}
-          </template>
-        </el-table-column>
-        <el-table-column label="恢复成功率" min-width="110">
-          <template #default="{ row }">
-            {{ formatPercent(row.recovery_hit_rate) }}
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="toolbar" style="margin-top: 10px; margin-bottom: 6px">
-        <el-text type="primary">失败原因聚合</el-text>
-        <el-tag type="info" effect="plain">{{ formatFailureReasonScope(metrics.failure_reason_scope || "LAST_7_DAYS") }}</el-tag>
-      </div>
-      <el-table
-        :data="metrics.failure_reasons || []"
-        border
-        stripe
-        size="small"
-        empty-text="暂无失败原因数据"
-        v-loading="metricsLoading"
-      >
-        <el-table-column prop="reason" label="原因分类" min-width="280" />
-        <el-table-column prop="count" label="次数" min-width="90" />
-        <el-table-column prop="last_occurred_at" label="最近发生时间" min-width="190">
-          <template #default="{ row }">
-            {{ row.last_occurred_at || "-" }}
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="toolbar" style="margin-top: 10px; margin-bottom: 6px">
-        <el-text type="primary">按任务失败原因</el-text>
-        <el-select
-          v-model="failureReasonJobFilter"
-          clearable
-          placeholder="按任务过滤失败原因"
-          style="width: 260px"
-        >
-          <el-option
-            v-for="name in failureReasonJobOptions"
-            :key="name"
-            :label="`${formatJobName(name)} (${name})`"
-            :value="name"
-          />
-        </el-select>
-      </div>
-      <el-table
-        :data="filteredJobFailureReasons"
-        border
-        stripe
-        size="small"
-        empty-text="暂无按任务失败原因"
-        v-loading="metricsLoading"
-      >
-        <el-table-column label="任务" min-width="220">
-          <template #default="{ row }">
-            {{ formatJobName(row.job_name) }} ({{ row.job_name || "-" }})
-          </template>
-        </el-table-column>
-        <el-table-column prop="reason" label="原因分类" min-width="280" />
-        <el-table-column prop="count" label="次数" min-width="90" />
-        <el-table-column prop="last_occurred_at" label="最近发生时间" min-width="190">
-          <template #default="{ row }">
-            {{ row.last_occurred_at || "-" }}
-          </template>
-        </el-table-column>
-      </el-table>
     </div>
 
-    <div class="card" style="margin-bottom: 12px">
+    <div v-show="activeTab === 'overview'" class="jobs-main-grid">
+      <div class="card jobs-panel-card" style="margin-bottom: 12px">
+        <div class="section-header section-header--stack">
+          <div>
+            <h3 style="margin: 0">运行总览</h3>
+            <p class="section-copy">先看核心卡片，再往下看任务维度统计和失败原因，能更快判断今天该处理哪里。</p>
+          </div>
+          <div class="inline-actions inline-actions--left">
+            <el-input
+              v-model="metricFilter.job_name"
+              clearable
+              placeholder="按任务编码过滤指标（可选）"
+              style="width: 260px"
+            />
+            <el-button :loading="metricsLoading" @click="fetchMetrics">刷新指标</el-button>
+          </div>
+        </div>
+
+        <div class="jobs-overview-grid" v-loading="metricsLoading">
+          <div
+            v-for="item in overviewCards"
+            :key="item.key"
+            class="jobs-overview-card"
+            :class="`is-${item.tone}`"
+          >
+            <div class="jobs-overview-card__title">{{ item.title }}</div>
+            <div class="jobs-overview-card__value">{{ item.value }}</div>
+            <div class="jobs-overview-card__helper">{{ item.helper }}</div>
+          </div>
+          <div class="jobs-overview-card is-info">
+            <div class="jobs-overview-card__title">今日成功</div>
+            <div class="jobs-overview-card__value">{{ metrics.today_success || 0 }}</div>
+            <div class="jobs-overview-card__helper">结合失败数一起看，便于判断成功面是否稳定</div>
+          </div>
+          <div class="jobs-overview-card is-gold">
+            <div class="jobs-overview-card__title">平均重试次数</div>
+            <div class="jobs-overview-card__value">{{ Number(metrics.avg_retry_count || 0).toFixed(2) }}</div>
+            <div class="jobs-overview-card__helper">重试次数持续升高时，建议复核任务配置或外部依赖</div>
+          </div>
+        </div>
+
+        <div class="jobs-table-block">
+          <div class="toolbar jobs-table-toolbar">
+            <el-text type="primary">按任务维度的重试恢复统计</el-text>
+            <span class="muted">用来判断问题集中在哪些任务，不要只盯总失败数。</span>
+          </div>
+          <el-table
+            :data="metrics.job_retry_stats || []"
+            border
+            stripe
+            size="small"
+            empty-text="暂无按任务统计"
+            v-loading="metricsLoading"
+          >
+            <el-table-column label="任务" min-width="220">
+              <template #default="{ row }">
+                {{ formatJobName(row.job_name) }} ({{ row.job_name || "-" }})
+              </template>
+            </el-table-column>
+            <el-table-column prop="today_total" label="今日总运行" min-width="100" />
+            <el-table-column prop="today_failed" label="今日失败" min-width="90" />
+            <el-table-column prop="retry_total" label="重试数" min-width="80" />
+            <el-table-column label="重试成功率" min-width="120">
+              <template #default="{ row }">
+                {{ formatPercent(row.retry_hit_rate) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="auto_retry_total" label="自动重试触发" min-width="120" />
+            <el-table-column label="恢复成功/触发" min-width="130">
+              <template #default="{ row }">
+                {{ row.recovery_success || 0 }}/{{ row.recovery_total || 0 }}
+              </template>
+            </el-table-column>
+            <el-table-column label="恢复成功率" min-width="110">
+              <template #default="{ row }">
+                {{ formatPercent(row.recovery_hit_rate) }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div class="jobs-table-block">
+          <div class="toolbar jobs-table-toolbar">
+            <el-text type="primary">失败原因聚合</el-text>
+            <el-tag type="info" effect="plain">{{ formatFailureReasonScope(metrics.failure_reason_scope || "LAST_7_DAYS") }}</el-tag>
+            <span class="muted">先看共性原因，再决定是调配置、重跑，还是排查外部源。</span>
+          </div>
+          <el-table
+            :data="metrics.failure_reasons || []"
+            border
+            stripe
+            size="small"
+            empty-text="暂无失败原因数据"
+            v-loading="metricsLoading"
+          >
+            <el-table-column prop="reason" label="原因分类" min-width="280" />
+            <el-table-column prop="count" label="次数" min-width="90" />
+            <el-table-column prop="last_occurred_at" label="最近发生时间" min-width="190">
+              <template #default="{ row }">
+                {{ row.last_occurred_at || "-" }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <div class="jobs-table-block">
+          <div class="toolbar jobs-table-toolbar">
+            <el-text type="primary">按任务失败原因</el-text>
+            <el-select
+              v-model="failureReasonJobFilter"
+              clearable
+              placeholder="按任务过滤失败原因"
+              style="width: 260px"
+            >
+              <el-option
+                v-for="name in failureReasonJobOptions"
+                :key="name"
+                :label="`${formatJobName(name)} (${name})`"
+                :value="name"
+              />
+            </el-select>
+            <span class="muted">适合定位某个任务的重复性故障。</span>
+          </div>
+          <el-table
+            :data="filteredJobFailureReasons"
+            border
+            stripe
+            size="small"
+            empty-text="暂无按任务失败原因"
+            v-loading="metricsLoading"
+          >
+            <el-table-column label="任务" min-width="220">
+              <template #default="{ row }">
+                {{ formatJobName(row.job_name) }} ({{ row.job_name || "-" }})
+              </template>
+            </el-table-column>
+            <el-table-column prop="reason" label="原因分类" min-width="280" />
+            <el-table-column prop="count" label="次数" min-width="90" />
+            <el-table-column prop="last_occurred_at" label="最近发生时间" min-width="190">
+              <template #default="{ row }">
+                {{ row.last_occurred_at || "-" }}
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </div>
+
+      <div class="jobs-side-column">
+        <div class="card jobs-panel-card jobs-guide-panel">
+          <div class="section-header section-header--stack">
+            <div>
+              <h3 style="margin: 0">使用说明</h3>
+              <p class="section-copy">把常用处理顺序和权限边界放在右边，避免每次都去翻说明。</p>
+            </div>
+          </div>
+          <div class="jobs-guide-list">
+            <div v-for="card in guideCards" :key="card.key" class="jobs-guide-card">
+              <div class="jobs-guide-card__title">{{ card.title }}</div>
+              <ul class="jobs-guide-card__list">
+                <li v-for="item in card.items" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-show="activeTab === 'market-data'" class="jobs-main-grid">
+      <div class="jobs-tab-stack">
+        <div class="card jobs-panel-card">
+          <div class="section-header section-header--stack">
+            <div>
+              <h3 style="margin: 0">市场数据回填工作台</h3>
+              <p class="section-copy">
+                先看最近回填总单和 Universe 快照，再决定是新建全量回填，还是只重试失败批次。
+              </p>
+            </div>
+            <div class="inline-actions inline-actions--left">
+              <el-button
+                :loading="marketBackfillRunsLoading || marketBackfillSnapshotsLoading"
+                @click="fetchMarketBackfillWorkspace"
+              >
+                刷新工作台
+              </el-button>
+              <el-button v-if="canEditSystemJobs" @click="resetMarketBackfillForm">重置新建表单</el-button>
+            </div>
+          </div>
+
+          <div
+            class="jobs-overview-grid"
+            v-loading="marketBackfillRunsLoading || marketBackfillSnapshotsLoading"
+          >
+            <div
+              v-for="item in marketBackfillOverviewCards"
+              :key="item.key"
+              class="jobs-overview-card"
+              :class="`is-${item.tone}`"
+            >
+              <div class="jobs-overview-card__title">{{ item.title }}</div>
+              <div class="jobs-overview-card__value">{{ item.value }}</div>
+              <div class="jobs-overview-card__helper">{{ item.helper }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card jobs-panel-card">
+          <div class="section-header section-header--stack">
+            <div>
+              <h3 style="margin: 0">新建回填任务</h3>
+              <p class="section-copy">
+                这里只发起真实回填总单。全量、增量和仅重建都走同一套链路，不再分散在多个入口。
+              </p>
+            </div>
+          </div>
+
+          <el-form label-position="top">
+            <div class="market-backfill-form-grid">
+              <el-form-item label="运行类型" required>
+                <el-select v-model="marketBackfillForm.run_type">
+                  <el-option
+                    v-for="item in marketBackfillRunTypeOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="来源">
+                <el-input v-model="marketBackfillForm.source_key" placeholder="默认 TUSHARE" />
+              </el-form-item>
+              <el-form-item label="批量大小">
+                <el-input-number
+                  v-model="marketBackfillForm.batch_size"
+                  :min="20"
+                  :max="500"
+                  :step="20"
+                  controls-position="right"
+                />
+              </el-form-item>
+              <el-form-item label="资产范围" required>
+                <el-select
+                  v-model="marketBackfillForm.asset_scope"
+                  multiple
+                  collapse-tags
+                  collapse-tags-tooltip
+                  placeholder="选择要回填的资产"
+                >
+                  <el-option
+                    v-for="item in marketBackfillAssetOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="阶段范围">
+                <el-select
+                  v-model="marketBackfillForm.stages"
+                  multiple
+                  collapse-tags
+                  collapse-tags-tooltip
+                  placeholder="不选则按默认阶段执行"
+                >
+                  <el-option
+                    v-for="item in marketBackfillStageOptions"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  />
+                </el-select>
+              </el-form-item>
+              <el-form-item label="开始日期">
+                <el-date-picker
+                  v-model="marketBackfillForm.trade_date_from"
+                  type="date"
+                  value-format="YYYY-MM-DD"
+                  format="YYYY-MM-DD"
+                  placeholder="可选"
+                />
+              </el-form-item>
+              <el-form-item label="结束日期">
+                <el-date-picker
+                  v-model="marketBackfillForm.trade_date_to"
+                  type="date"
+                  value-format="YYYY-MM-DD"
+                  format="YYYY-MM-DD"
+                  placeholder="可选"
+                />
+              </el-form-item>
+              <el-form-item label="任务选项" class="market-backfill-switches">
+                <el-switch
+                  v-model="marketBackfillForm.force_refresh_universe"
+                  active-text="强制刷新 Universe"
+                />
+                <el-switch
+                  v-model="marketBackfillForm.rebuild_truth_after_sync"
+                  active-text="同步后重建 Truth"
+                />
+              </el-form-item>
+            </div>
+          </el-form>
+
+          <el-alert
+            title="股票支持行情、daily_basic、moneyflow 和 truth；其他资产当前先走 universe、master、quotes 与 truth。"
+            type="info"
+            :closable="false"
+            show-icon
+          />
+
+          <div class="toolbar" style="margin-top: 10px">
+            <el-button
+              v-if="canEditSystemJobs"
+              type="primary"
+              :loading="marketBackfillCreating"
+              @click="handleCreateMarketBackfillRun"
+            >
+              发起回填
+            </el-button>
+            <el-text type="info">
+              当前默认会创建总单并直接执行，执行结果会同步回写任务运行记录。
+            </el-text>
+          </div>
+        </div>
+
+        <div class="card jobs-panel-card">
+          <div class="section-header section-header--stack">
+            <div>
+              <h3 style="margin: 0">回填总单</h3>
+              <p class="section-copy">
+                这里先看每次回填的状态、阶段和资产范围。真正定位问题时，再展开批次明细。
+              </p>
+            </div>
+          </div>
+
+          <div class="toolbar jobs-table-toolbar">
+            <el-select
+              v-model="marketBackfillFilters.status"
+              clearable
+              placeholder="全部状态"
+              style="width: 150px"
+            >
+              <el-option
+                v-for="item in marketBackfillStatusOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+            <el-select
+              v-model="marketBackfillFilters.run_type"
+              clearable
+              placeholder="全部类型"
+              style="width: 150px"
+            >
+              <el-option
+                v-for="item in marketBackfillRunTypeOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+            <el-select
+              v-model="marketBackfillFilters.asset_type"
+              clearable
+              placeholder="全部资产"
+              style="width: 150px"
+            >
+              <el-option
+                v-for="item in marketBackfillAssetOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+            <el-input
+              v-model="marketBackfillFilters.source_key"
+              clearable
+              placeholder="按来源过滤"
+              style="width: 180px"
+            />
+            <el-button type="primary" plain @click="applyMarketBackfillFilters">查询</el-button>
+            <el-button @click="resetMarketBackfillFilters">重置</el-button>
+          </div>
+
+          <el-table
+            :data="marketBackfillRuns"
+            border
+            stripe
+            v-loading="marketBackfillRunsLoading"
+            empty-text="暂无市场回填总单"
+          >
+            <el-table-column prop="id" label="总单ID" min-width="180" />
+            <el-table-column label="运行类型" min-width="110">
+              <template #default="{ row }">
+                {{ formatMarketBackfillRunTypeLabel(row.run_type) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="资产范围" min-width="180">
+              <template #default="{ row }">
+                {{ formatMarketAssetScopeSummary(row.asset_scope) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="source_key" label="来源" min-width="100" />
+            <el-table-column label="当前阶段" min-width="120">
+              <template #default="{ row }">
+                {{ formatMarketBackfillStageLabel(row.current_stage) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" min-width="110">
+              <template #default="{ row }">
+                <el-tag :type="marketBackfillStatusTagType(row.status)">
+                  {{ formatMarketBackfillStatusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="scheduler_run_id" label="调度运行ID" min-width="170" />
+            <el-table-column prop="created_at" label="创建时间" min-width="180" />
+            <el-table-column label="操作" min-width="180" align="right">
+              <template #default="{ row }">
+                <div class="inline-actions">
+                  <el-button size="small" @click="handleOpenMarketBackfillRun(row)">查看详情</el-button>
+                  <el-button
+                    v-if="canEditSystemJobs && canRetryMarketBackfillRun(row)"
+                    size="small"
+                    type="danger"
+                    plain
+                    :loading="Boolean(marketBackfillRetryingMap[row.id])"
+                    @click="handleRetryMarketBackfillRun(row)"
+                  >
+                    重试失败批次
+                  </el-button>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div class="pagination">
+            <el-text type="info">
+              第 {{ marketBackfillRunPage }} 页，共 {{ marketBackfillRunTotal }} 条
+            </el-text>
+            <el-pagination
+              background
+              layout="prev, pager, next"
+              :current-page="marketBackfillRunPage"
+              :page-size="marketBackfillRunPageSize"
+              :total="marketBackfillRunTotal"
+              @current-change="handleMarketBackfillRunPageChange"
+            />
+          </div>
+        </div>
+
+        <div class="card jobs-panel-card">
+          <div class="section-header section-header--stack">
+            <div>
+              <h3 style="margin: 0">最近 Universe 快照</h3>
+              <p class="section-copy">
+                快照是回填链路的第一步。先确认证券全集覆盖和来源，再决定后续补数范围。
+              </p>
+            </div>
+          </div>
+
+          <el-table
+            :data="marketBackfillSnapshots"
+            border
+            stripe
+            v-loading="marketBackfillSnapshotsLoading"
+            empty-text="暂无 Universe 快照"
+          >
+            <el-table-column prop="snapshot_date" label="快照日期" min-width="110" />
+            <el-table-column label="摘要" min-width="260">
+              <template #default="{ row }">
+                {{ buildUniverseSnapshotDigest(row) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="资产拆分" min-width="220">
+              <template #default="{ row }">
+                <div class="market-backfill-asset-summary">
+                  <el-tag
+                    v-for="asset in row.asset_summaries || []"
+                    :key="`${row.id}-${asset.asset_type}`"
+                    type="info"
+                    effect="plain"
+                  >
+                    {{ formatMarketAssetLabel(asset.asset_type) }} {{ asset.item_count || 0 }}
+                  </el-tag>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="created_by" label="创建人" min-width="120" />
+            <el-table-column prop="created_at" label="创建时间" min-width="180" />
+          </el-table>
+        </div>
+      </div>
+
+      <div class="jobs-side-column">
+        <div class="card jobs-panel-card jobs-guide-panel">
+          <div class="section-header section-header--stack">
+            <div>
+              <h3 style="margin: 0">使用说明</h3>
+              <p class="section-copy">把市场数据的处理顺序、支持范围和权限边界固定放在右边。</p>
+            </div>
+          </div>
+          <div class="jobs-guide-list">
+            <div v-for="card in marketBackfillGuideCards" :key="card.key" class="jobs-guide-card">
+              <div class="jobs-guide-card__title">{{ card.title }}</div>
+              <ul class="jobs-guide-card__list">
+                <li v-for="item in card.items" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card jobs-panel-card">
+          <div class="section-header section-header--stack">
+            <div>
+              <h3 style="margin: 0">当前窗口提示</h3>
+              <p class="section-copy">方便快速判断最近一次回填和最近一次快照是否正常落库。</p>
+            </div>
+          </div>
+          <div class="jobs-guide-list">
+            <div class="jobs-guide-card">
+              <div class="jobs-guide-card__title">最近回填</div>
+              <p class="jobs-guide-card__desc">
+                {{
+                  marketBackfillRuns.length
+                    ? `${formatMarketBackfillRunTypeLabel(marketBackfillRuns[0].run_type)} · ${formatMarketBackfillStatusLabel(marketBackfillRuns[0].status)}`
+                    : "暂无回填总单"
+                }}
+              </p>
+            </div>
+            <div class="jobs-guide-card">
+              <div class="jobs-guide-card__title">最近快照</div>
+              <p class="jobs-guide-card__desc">
+                {{ marketBackfillSnapshots.length ? buildUniverseSnapshotDigest(marketBackfillSnapshots[0]) : "暂无 Universe 快照" }}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-show="activeTab === 'config' || activeTab === 'trigger'" class="jobs-workbench-grid">
+    <div v-show="activeTab === 'config'" class="card jobs-panel-card" style="margin-bottom: 12px">
       <div class="section-header">
-        <h3 style="margin: 0">自动重试配置</h3>
+        <div>
+          <h3 style="margin: 0">自动重试配置</h3>
+          <p class="section-copy">先看当前生效状态，再决定要不要调整次数、退避和任务范围。</p>
+        </div>
         <div class="inline-actions inline-actions--left">
           <el-button :loading="autoRetryLoading" @click="fetchAutoRetryConfigs">刷新配置</el-button>
           <el-button v-if="canEditSystemJobs" @click="resetAutoRetryForm">重置编辑</el-button>
@@ -1844,7 +2850,7 @@ onMounted(refreshAll);
         </div>
       </el-form>
       <el-alert
-        title="说明：自动重试仅对首次执行失败的任务生效；任务列表留空表示不限制任务名。"
+        title="自动重试只对首次执行失败的任务生效；任务列表留空表示不限制任务名。"
         type="info"
         :closable="false"
         show-icon
@@ -1904,9 +2910,12 @@ onMounted(refreshAll);
       </el-table>
     </div>
 
-    <div v-if="canEditSystemJobs" class="card" style="margin-bottom: 12px">
+    <div v-if="canEditSystemJobs" v-show="activeTab === 'trigger'" class="card jobs-panel-card" style="margin-bottom: 12px">
       <div class="section-header">
-        <h3 style="margin: 0">手动触发任务</h3>
+        <div>
+          <h3 style="margin: 0">手动触发任务</h3>
+          <p class="section-copy">用于临时补跑、联调验证或主动触发一次指定任务，不影响已有任务定义。</p>
+        </div>
       </div>
       <div class="toolbar" style="margin-bottom: 8px">
         <el-text type="info">快捷选择：</el-text>
@@ -2006,10 +3015,14 @@ onMounted(refreshAll);
         show-icon
       />
     </div>
+    </div>
 
-    <div class="card" style="margin-bottom: 12px">
+    <div v-show="activeTab === 'config'" class="card jobs-panel-card" style="margin-bottom: 12px">
       <div class="section-header">
-        <h3 style="margin: 0">任务定义</h3>
+        <div>
+          <h3 style="margin: 0">任务定义</h3>
+          <p class="section-copy">维护任务编码、调度表达式、所属模块和启停状态。这里是任务中心的“配置台账”。</p>
+        </div>
         <el-button v-if="canEditSystemJobs" type="primary" @click="openCreateDefinition">新增任务定义</el-button>
       </div>
 
@@ -2103,9 +3116,12 @@ onMounted(refreshAll);
       </div>
     </div>
 
-    <div class="card">
+    <div v-show="activeTab === 'runs'" class="card jobs-panel-card">
       <div class="section-header">
-        <h3 style="margin: 0">运行记录</h3>
+        <div>
+          <h3 style="margin: 0">运行记录</h3>
+          <p class="section-copy">这里承接详情、失败重跑、批量重跑和导出，是日常排障和复核的主工作区。</p>
+        </div>
       </div>
 
       <div class="toolbar">
@@ -2239,6 +3255,243 @@ onMounted(refreshAll);
         />
       </div>
     </div>
+
+    <el-drawer
+      v-model="marketBackfillDetailVisible"
+      size="920px"
+      destroy-on-close
+      @closed="handleMarketBackfillDetailClosed"
+    >
+      <template #header>
+        <div class="drawer-title">市场回填详情</div>
+      </template>
+      <template v-if="currentMarketBackfillRun">
+        <div class="run-detail-title-row">
+          <h4>总单概览</h4>
+          <div class="inline-actions inline-actions--left">
+            <el-tag :type="marketBackfillStatusTagType(currentMarketBackfillRun.status)">
+              {{ formatMarketBackfillStatusLabel(currentMarketBackfillRun.status) }}
+            </el-tag>
+            <el-button
+              size="small"
+              :loading="marketBackfillRunDetailLoading || marketBackfillDetailsLoading"
+              @click="
+                Promise.all([
+                  fetchCurrentMarketBackfillRun(currentMarketBackfillRun.id),
+                  fetchMarketBackfillRunDetails()
+                ])
+              "
+            >
+              刷新详情
+            </el-button>
+            <el-button
+              v-if="canEditSystemJobs && canRetryMarketBackfillRun(currentMarketBackfillRun)"
+              size="small"
+              type="danger"
+              plain
+              :loading="Boolean(marketBackfillRetryingMap[currentMarketBackfillRun.id])"
+              @click="handleRetryMarketBackfillRun(currentMarketBackfillRun)"
+            >
+              重试失败批次
+            </el-button>
+          </div>
+        </div>
+
+        <el-descriptions :column="2" border size="small" v-loading="marketBackfillRunDetailLoading">
+          <el-descriptions-item label="总单ID">{{ currentMarketBackfillRun.id || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="调度运行ID">
+            {{ currentMarketBackfillRun.scheduler_run_id || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="运行类型">
+            {{ formatMarketBackfillRunTypeLabel(currentMarketBackfillRun.run_type) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="来源">
+            {{ currentMarketBackfillRun.source_key || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="资产范围">
+            {{ formatMarketAssetScopeSummary(currentMarketBackfillRun.asset_scope) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="当前阶段">
+            {{ formatMarketBackfillStageLabel(currentMarketBackfillRun.current_stage) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="Universe 快照">
+            {{ currentMarketBackfillRun.universe_snapshot_id || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="批量大小">
+            {{ currentMarketBackfillRun.batch_size || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="交易区间">
+            {{ formatMarketBackfillTimeRange(currentMarketBackfillRun) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="创建人">
+            {{ currentMarketBackfillRun.created_by || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="创建时间">
+            {{ currentMarketBackfillRun.created_at || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="完成时间">
+            {{ currentMarketBackfillRun.finished_at || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="错误信息" :span="2">
+            {{ currentMarketBackfillRun.error_message || "-" }}
+          </el-descriptions-item>
+        </el-descriptions>
+
+        <div class="run-detail-block">
+          <div class="run-detail-title-row">
+            <h4>阶段进度</h4>
+            <el-text type="info">每个阶段都显示总批次、已完成、失败和跳过数量。</el-text>
+          </div>
+          <div class="market-backfill-stage-grid">
+            <div
+              v-for="item in currentMarketBackfillRun.stage_progress || []"
+              :key="`${currentMarketBackfillRun.id}-${item.stage}`"
+              class="market-backfill-stage-card"
+              :class="`is-${marketBackfillDetailStatusTagType(item.status)}`"
+            >
+              <div class="market-backfill-stage-card__top">
+                <div class="market-backfill-stage-card__title">
+                  {{ formatMarketBackfillStageLabel(item.stage) }}
+                </div>
+                <el-tag size="small" :type="marketBackfillDetailStatusTagType(item.status)">
+                  {{ formatMarketBackfillStatusLabel(item.status) }}
+                </el-tag>
+              </div>
+              <div class="market-backfill-stage-card__desc">
+                {{ formatMarketStageProgressSummary(item) }}
+              </div>
+            </div>
+            <div
+              v-if="!(currentMarketBackfillRun.stage_progress || []).length"
+              class="market-backfill-empty"
+            >
+              暂无阶段进度
+            </div>
+          </div>
+        </div>
+
+        <div class="run-detail-block">
+          <div class="run-detail-title-row">
+            <h4>回填摘要</h4>
+          </div>
+          <pre class="run-detail-pre">{{ formatMarketBackfillSummary(currentMarketBackfillRun.summary) }}</pre>
+        </div>
+
+        <div class="run-detail-block">
+          <div class="run-detail-title-row">
+            <h4>批次明细</h4>
+            <el-button size="small" :loading="marketBackfillDetailsLoading" @click="fetchMarketBackfillRunDetails">
+              刷新明细
+            </el-button>
+          </div>
+          <div class="toolbar">
+            <el-select
+              v-model="marketBackfillDetailFilters.stage"
+              clearable
+              placeholder="全部阶段"
+              style="width: 160px"
+            >
+              <el-option
+                v-for="item in marketBackfillStageOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+            <el-select
+              v-model="marketBackfillDetailFilters.asset_type"
+              clearable
+              placeholder="全部资产"
+              style="width: 150px"
+            >
+              <el-option
+                v-for="item in marketBackfillAssetOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+            <el-select
+              v-model="marketBackfillDetailFilters.status"
+              clearable
+              placeholder="全部状态"
+              style="width: 150px"
+            >
+              <el-option
+                v-for="item in marketBackfillDetailStatusOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+            <el-button type="primary" plain @click="applyMarketBackfillDetailFilters">查询</el-button>
+            <el-button @click="resetMarketBackfillDetailFilters">重置</el-button>
+          </div>
+          <el-table
+            :data="marketBackfillDetails"
+            border
+            stripe
+            size="small"
+            v-loading="marketBackfillDetailsLoading"
+            empty-text="暂无批次明细"
+          >
+            <el-table-column label="阶段" min-width="120">
+              <template #default="{ row }">
+                {{ formatMarketBackfillStageLabel(row.stage) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="资产" min-width="90">
+              <template #default="{ row }">
+                {{ formatMarketAssetLabel(row.asset_type) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="batch_key" label="批次键" min-width="160" />
+            <el-table-column prop="source_key" label="来源" min-width="100" />
+            <el-table-column prop="symbol_count" label="样本数" min-width="80" />
+            <el-table-column label="样本示例" min-width="180">
+              <template #default="{ row }">
+                <span class="run-preview">{{ formatMarketBackfillBatchSample(row) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="交易区间" min-width="160">
+              <template #default="{ row }">
+                {{ formatMarketBackfillTimeRange(row) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" min-width="90">
+              <template #default="{ row }">
+                <el-tag :type="marketBackfillDetailStatusTagType(row.status)">
+                  {{ formatMarketBackfillStatusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="fetched_count" label="抓取" min-width="70" />
+            <el-table-column prop="upserted_count" label="入库" min-width="70" />
+            <el-table-column prop="truth_count" label="Truth" min-width="70" />
+            <el-table-column label="告警/错误" min-width="240">
+              <template #default="{ row }">
+                <span class="run-preview">{{ row.error_text || row.warning_text || "-" }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="started_at" label="开始时间" min-width="168" />
+            <el-table-column prop="finished_at" label="结束时间" min-width="168" />
+          </el-table>
+          <div class="pagination">
+            <el-text type="info">
+              第 {{ marketBackfillDetailPage }} 页，共 {{ marketBackfillDetailTotal }} 条
+            </el-text>
+            <el-pagination
+              background
+              layout="prev, pager, next"
+              :current-page="marketBackfillDetailPage"
+              :page-size="marketBackfillDetailPageSize"
+              :total="marketBackfillDetailTotal"
+              @current-change="handleMarketBackfillDetailPageChange"
+            />
+          </div>
+        </div>
+      </template>
+    </el-drawer>
 
     <el-drawer v-model="runDetailVisible" size="820px" destroy-on-close @closed="handleRunDetailClosed">
       <template #header>
@@ -2598,6 +3851,349 @@ onMounted(refreshAll);
 </template>
 
 <style scoped>
+.jobs-hero {
+  margin-bottom: 12px;
+  border: 1px solid #dbeafe;
+  background:
+    radial-gradient(circle at top right, rgba(191, 219, 254, 0.9), transparent 32%),
+    linear-gradient(135deg, #f8fbff 0%, #eef5ff 58%, #ffffff 100%);
+}
+
+.jobs-hero__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.page-eyebrow {
+  margin-bottom: 8px;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.jobs-hero__desc {
+  margin: 8px 0 0;
+  max-width: 760px;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.jobs-hero__top-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.jobs-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.jobs-action-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 156px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid #dbe5f3;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
+}
+
+.jobs-action-card.is-primary {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
+}
+
+.jobs-action-card.is-danger {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fff4f4 0%, #ffffff 100%);
+}
+
+.jobs-action-card.is-gold {
+  border-color: #fcd34d;
+  background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
+}
+
+.jobs-action-card.is-info {
+  border-color: #cbd5e1;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+}
+
+.jobs-action-card__title {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.jobs-action-card__desc {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.jobs-tabs-shell {
+  margin-bottom: 12px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.jobs-tab-summary {
+  padding: 0 18px 18px;
+}
+
+.jobs-tab-summary__title {
+  color: #0f172a;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.jobs-tab-summary__desc {
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.jobs-tab-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jobs-tabs :deep(.el-tabs__header) {
+  margin: 0;
+}
+
+.jobs-tabs :deep(.el-tabs__content) {
+  display: none;
+}
+
+.jobs-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(280px, 0.95fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.jobs-side-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jobs-panel-card {
+  padding: 18px;
+}
+
+.section-header--stack {
+  align-items: flex-start;
+}
+
+.section-copy {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.jobs-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.jobs-overview-card {
+  min-height: 132px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #dbe5f3;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.jobs-overview-card.is-primary {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
+}
+
+.jobs-overview-card.is-danger {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fff5f5 0%, #ffffff 100%);
+}
+
+.jobs-overview-card.is-warning {
+  border-color: #fde68a;
+  background: linear-gradient(180deg, #fff8e6 0%, #ffffff 100%);
+}
+
+.jobs-overview-card.is-success {
+  border-color: #bbf7d0;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+}
+
+.jobs-overview-card.is-info {
+  border-color: #cbd5e1;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+}
+
+.jobs-overview-card.is-gold {
+  border-color: #fcd34d;
+  background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
+}
+
+.jobs-overview-card__title {
+  color: #475569;
+  font-size: 12px;
+}
+
+.jobs-overview-card__value {
+  margin-top: 8px;
+  color: #0f172a;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.jobs-overview-card__helper {
+  margin-top: 10px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.jobs-table-block + .jobs-table-block {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #eef2f7;
+}
+
+.jobs-table-toolbar {
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.jobs-guide-panel {
+  position: sticky;
+  top: 20px;
+}
+
+.jobs-guide-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jobs-guide-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.jobs-guide-card__title {
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.jobs-guide-card__list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.jobs-guide-card__desc {
+  margin: 10px 0 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.jobs-workbench-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.market-backfill-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0 12px;
+}
+
+.market-backfill-asset-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.market-backfill-stage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.market-backfill-stage-card {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid #dbe5f3;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.market-backfill-stage-card.is-success {
+  border-color: #bbf7d0;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+}
+
+.market-backfill-stage-card.is-warning {
+  border-color: #fde68a;
+  background: linear-gradient(180deg, #fff8e6 0%, #ffffff 100%);
+}
+
+.market-backfill-stage-card.is-danger {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fff5f5 0%, #ffffff 100%);
+}
+
+.market-backfill-stage-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.market-backfill-stage-card__title {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.market-backfill-stage-card__desc {
+  margin-top: 10px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.market-backfill-empty {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
+  background: #f8fafc;
+}
+
 .metric-item {
   border: 1px solid #e5e7eb;
   border-radius: 12px;
@@ -2629,6 +4225,7 @@ onMounted(refreshAll);
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 
 .inline-actions {
@@ -2710,7 +4307,44 @@ onMounted(refreshAll);
   margin-bottom: 14px;
 }
 
-:deep(.dialog-grid .el-select) {
+:deep(.dialog-grid .el-select),
+:deep(.market-backfill-form-grid .el-select),
+:deep(.market-backfill-form-grid .el-date-editor),
+:deep(.market-backfill-form-grid .el-input-number) {
   width: 100%;
+}
+
+:deep(.market-backfill-switches .el-form-item__content) {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+@media (max-width: 1280px) {
+  .jobs-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .jobs-guide-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 900px) {
+  .jobs-hero__top {
+    flex-direction: column;
+  }
+
+  .jobs-hero__top-actions {
+    justify-content: flex-start;
+  }
+
+  .jobs-workbench-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .market-backfill-stage-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

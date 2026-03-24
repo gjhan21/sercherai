@@ -1413,6 +1413,10 @@ func buildMockMarketDailyBars(assetClass string, sourceKey string, instrumentKey
 	case marketAssetClassStock:
 		return convertStockQuotesToMarketBars(buildMockStockQuotes(instrumentKeys, days, sourceKey), instrumentKeys, nil)
 	default:
+		normalizedAssetClass := strings.ToUpper(strings.TrimSpace(assetClass))
+		if normalizedAssetClass == "" {
+			normalizedAssetClass = marketAssetClassFutures
+		}
 		now := time.Now()
 		tradeDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 		items := make([]model.MarketDailyBar, 0, len(instrumentKeys)*days)
@@ -1428,9 +1432,9 @@ func buildMockMarketDailyBars(assetClass string, sourceKey string, instrumentKey
 				volume := int64(20000 + math.Round(seed*1300))
 				turnover := closePrice * float64(volume)
 				items = append(items, model.MarketDailyBar{
-					AssetClass:     marketAssetClassFutures,
+					AssetClass:     normalizedAssetClass,
 					InstrumentKey:  instrumentKey,
-					ExternalSymbol: deriveDefaultExternalSymbol("MOCK", marketAssetClassFutures, instrumentKey),
+					ExternalSymbol: deriveDefaultExternalSymbol("MOCK", normalizedAssetClass, instrumentKey),
 					TradeDate:      currentDay.Format("2006-01-02"),
 					OpenPrice:      roundTo(openPrice, 4),
 					HighPrice:      roundTo(highPrice, 4),

@@ -4,7 +4,10 @@ import assert from "node:assert/strict";
 import {
   buildMarketCenterQualitySummaryReturnQuery,
   buildMarketCenterQualityReturnQuery,
+  buildMarketCoverageAssetRows,
+  buildMarketCoverageOverviewCards,
   buildMarketQualityDrillQuery,
+  buildUniverseSnapshotDigest,
   DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS,
   MARKET_QUALITY_LOOKBACK_OPTIONS,
   areMarketQualityFiltersEqual,
@@ -13,10 +16,16 @@ import {
   buildMarketQualityRouteQuery,
   buildMarketQualityBucketSummary,
   collectMarketQualityIssueOptions,
+  formatMarketAssetScopeSummary,
+  formatMarketBackfillStatusLabel,
+  formatMarketBackfillRunTypeLabel,
+  formatMarketBackfillStageLabel,
   formatMarketCenterReturnLabel,
   formatMarketQualityLookbackLabel,
   formatMarketQualityPayload,
   formatTruthRebuildSuccessMessage,
+  marketBackfillDetailStatusTagType,
+  marketBackfillStatusTagType,
   marketQualitySeverityTagType,
   normalizeMarketCenterRouteState,
   normalizeMarketCenterTab,
@@ -125,6 +134,24 @@ test("formatMarketQualityLookbackLabel prefers preset labels and falls back to h
   assert.equal(formatMarketQualityLookbackLabel(24), "近 24 小时");
   assert.equal(formatMarketQualityLookbackLabel("72"), "近 3 天");
   assert.equal(formatMarketQualityLookbackLabel(96), "近 96 小时");
+});
+
+test("market backfill labels format run type and stage in Chinese", () => {
+  assert.equal(formatMarketBackfillRunTypeLabel("full"), "全量回填");
+  assert.equal(formatMarketBackfillRunTypeLabel("INCREMENTAL"), "增量回填");
+  assert.equal(formatMarketBackfillRunTypeLabel("REBUILD_ONLY"), "仅重建");
+  assert.equal(formatMarketBackfillStageLabel("universe"), "Universe");
+  assert.equal(formatMarketBackfillStageLabel("DAILY_BASIC"), "Daily Basic");
+  assert.equal(formatMarketBackfillStageLabel("coverage_summary"), "覆盖率汇总");
+  assert.equal(formatMarketBackfillStatusLabel("skipped"), "已跳过");
+});
+
+test("marketBackfillDetailStatusTagType maps run detail status to element tag types", () => {
+  assert.equal(marketBackfillDetailStatusTagType("success"), "success");
+  assert.equal(marketBackfillDetailStatusTagType("running"), "warning");
+  assert.equal(marketBackfillDetailStatusTagType("failed"), "danger");
+  assert.equal(marketBackfillDetailStatusTagType("skipped"), "info");
+  assert.equal(marketBackfillDetailStatusTagType("unknown"), "info");
 });
 
 test("market center route helpers normalize tab and quality state", () => {
@@ -255,6 +282,124 @@ test("buildMarketCenterQualitySummaryReturnQuery uses latest issue or latest err
       quality_hours: "24",
       issue_code: "SOURCE_FETCH_FAILED"
     }
+  );
+});
+
+test("buildMarketCoverageOverviewCards builds Chinese market coverage cards", () => {
+  assert.deepEqual(
+    buildMarketCoverageOverviewCards({
+      total_universe_count: 4200,
+      quotes_coverage_count: 3980,
+      daily_basic_coverage_count: 1860,
+      moneyflow_coverage_count: 1750,
+      latest_trade_date: "2026-03-24",
+      canonical_key_gap_count: 12,
+      display_name_gap_count: 8,
+      list_date_gap_count: 3
+    }),
+    [
+      {
+        key: "universe",
+        title: "证券全集",
+        value: "4200",
+        tone: "primary",
+        helper: "当前快照里的可跟踪标的总数"
+      },
+      {
+        key: "quotes",
+        title: "行情覆盖",
+        value: "3980",
+        tone: "success",
+        helper: "已落到 truth 的行情标的数"
+      },
+      {
+        key: "enhancement",
+        title: "增强因子覆盖",
+        value: "1860 / 1750",
+        tone: "warning",
+        helper: "分别对应 daily_basic / moneyflow 覆盖数"
+      },
+      {
+        key: "gaps",
+        title: "主数据缺口",
+        value: "12 / 8 / 3",
+        tone: "danger",
+        helper: "分别对应 canonical key / 名称 / 上市日期缺口"
+      },
+      {
+        key: "latest_trade_date",
+        title: "最新交易日",
+        value: "2026-03-24",
+        tone: "gold",
+        helper: "用于判断行情覆盖是否更新到最近交易日"
+      }
+    ]
+  );
+});
+
+test("buildMarketCoverageAssetRows and scope helpers format asset level Chinese summaries", () => {
+  assert.deepEqual(
+    buildMarketCoverageAssetRows({
+      asset_items: [
+        {
+          asset_type: "ETF",
+          universe_count: 120,
+          master_coverage_count: 120,
+          quotes_coverage_count: 118,
+          daily_basic_coverage_count: 0,
+          moneyflow_coverage_count: 0,
+          latest_trade_date: "2026-03-24"
+        },
+        {
+          asset_type: "STOCK",
+          universe_count: 3800,
+          master_coverage_count: 3788,
+          quotes_coverage_count: 3610,
+          daily_basic_coverage_count: 1860,
+          moneyflow_coverage_count: 1750,
+          latest_trade_date: "2026-03-24"
+        }
+      ]
+    }),
+    [
+      {
+        key: "STOCK",
+        label: "股票",
+        universeCount: 3800,
+        masterCoverageCount: 3788,
+        quotesCoverageCount: 3610,
+        dailyBasicCoverageCount: 1860,
+        moneyflowCoverageCount: 1750,
+        latestTradeDate: "2026-03-24"
+      },
+      {
+        key: "ETF",
+        label: "ETF",
+        universeCount: 120,
+        masterCoverageCount: 120,
+        quotesCoverageCount: 118,
+        dailyBasicCoverageCount: 0,
+        moneyflowCoverageCount: 0,
+        latestTradeDate: "2026-03-24"
+      }
+    ]
+  );
+
+  assert.equal(formatMarketAssetScopeSummary(["stock", "index", "cbond"]), "股票 / 指数 / 可转债");
+  assert.equal(formatMarketAssetScopeSummary([]), "未设置");
+});
+
+test("market backfill helpers format status and snapshot digest in Chinese", () => {
+  assert.equal(formatMarketBackfillStatusLabel("PARTIAL_SUCCESS"), "部分完成");
+  assert.equal(marketBackfillStatusTagType("FAILED"), "danger");
+  assert.equal(marketBackfillStatusTagType("RUNNING"), "warning");
+  assert.equal(
+    buildUniverseSnapshotDigest({
+      scope: ["STOCK", "INDEX", "ETF"],
+      snapshot_date: "2026-03-24",
+      source_key: "TUSHARE"
+    }),
+    "2026-03-24 · 股票 / 指数 / ETF · TUSHARE"
   );
 });
 

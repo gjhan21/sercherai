@@ -2,9 +2,38 @@ package repo
 
 import (
 	"testing"
+	"time"
+
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 
 	"sercherai/backend/internal/growth/model"
 )
+
+const marketBackfillRunByIDQueryPattern = `(?s)SELECT id, scheduler_run_id, run_type, COALESCE\(CAST\(asset_scope AS CHAR\), ''\),\s*COALESCE\(DATE_FORMAT\(trade_date_from, '%Y-%m-%d'\), ''\),\s*COALESCE\(DATE_FORMAT\(trade_date_to, '%Y-%m-%d'\), ''\),\s*COALESCE\(source_key, ''\), batch_size,\s*universe_snapshot_id, status, current_stage, COALESCE\(CAST\(stage_progress_json AS CHAR\), ''\),\s*COALESCE\(CAST\(summary_json AS CHAR\), ''\), COALESCE\(error_message, ''\), COALESCE\(created_by, ''\),\s*created_at, updated_at, finished_at\s*FROM market_backfill_runs\s*WHERE id = \?`
+
+const marketBackfillSnapshotItemsQueryPattern = `(?s)SELECT id, snapshot_id, asset_type, instrument_key, COALESCE\(external_symbol, ''\), COALESCE\(display_name, ''\),\s*COALESCE\(exchange_code, ''\), COALESCE\(status, ''\), COALESCE\(DATE_FORMAT\(list_date, '%Y-%m-%d'\), ''\),\s*COALESCE\(DATE_FORMAT\(delist_date, '%Y-%m-%d'\), ''\), COALESCE\(CAST\(raw_metadata_json AS CHAR\), ''\), created_at\s*FROM market_universe_snapshot_items\s*WHERE snapshot_id = \?\s*ORDER BY asset_type ASC, instrument_key ASC`
+
+const marketInstrumentSourceFactsQueryPattern = `(?s)SELECT\s+asset_class,.*?source_updated_at\s+FROM market_instrument_source_facts`
+
+const marketBackfillDetailInsertPattern = `INSERT INTO market_backfill_run_details`
+
+const marketBackfillRunUpdatePattern = `UPDATE market_backfill_runs`
+
+const schedulerJobRunUpdatePattern = `UPDATE scheduler_job_runs`
+
+const marketInstrumentsUpsertPattern = `INSERT INTO market_instruments`
+
+const marketInstrumentFactsUpsertPattern = `INSERT INTO market_instrument_source_facts`
+
+const marketSymbolAliasUpsertPattern = `INSERT INTO market_symbol_aliases`
+
+const marketDailyBarsUpsertPattern = `INSERT INTO market_daily_bars`
+
+const marketDailyBarTruthInsertPattern = `INSERT INTO market_daily_bar_truth`
+
+const stockDailyBasicUpsertPattern = `INSERT INTO stock_daily_basic`
+
+const stockMoneyflowUpsertPattern = `INSERT INTO stock_moneyflow_daily`
 
 func TestAdminBuildMarketUniverseSnapshotIncludesRequestedAssetScope(t *testing.T) {
 	repo := NewInMemoryGrowthRepo()
@@ -54,8 +83,8 @@ func TestAdminCreateMarketDataBackfillRunBuildsUniverseSnapshotPerAsset(t *testi
 	if run.UniverseSnapshotID == "" {
 		t.Fatal("expected universe snapshot id")
 	}
-	if run.CurrentStage != "MASTER" {
-		t.Fatalf("expected current stage MASTER after snapshot build, got %s", run.CurrentStage)
+	if run.CurrentStage != "COVERAGE_SUMMARY" {
+		t.Fatalf("expected final stage COVERAGE_SUMMARY after immediate execution, got %s", run.CurrentStage)
 	}
 	if len(run.StageProgress) == 0 || run.StageProgress[0].Stage != "UNIVERSE" || run.StageProgress[0].Status != "SUCCESS" {
 		t.Fatalf("expected universe stage success progress, got %+v", run.StageProgress)
@@ -120,10 +149,22 @@ func TestAdminSyncMarketMoneyflowDetailedSupportsStocks(t *testing.T) {
 	}
 }
 
+func TestBuildMockMarketDailyBarsPreservesRequestedAssetType(t *testing.T) {
+	bars := buildMockMarketDailyBars("INDEX", "MOCK", []string{"000300.SH"}, 2)
+	if len(bars) != 2 {
+		t.Fatalf("expected 2 mock bars, got %d", len(bars))
+	}
+	for _, bar := range bars {
+		if bar.AssetClass != "INDEX" {
+			t.Fatalf("expected mock bar asset class INDEX, got %+v", bar)
+		}
+	}
+}
+
 func TestExecuteMarketDataBackfillRunMarksEnhancementStagesBySupportMatrix(t *testing.T) {
 	repo := NewInMemoryGrowthRepo()
 
-	run, err := repo.AdminCreateMarketDataBackfillRun(model.MarketBackfillCreateInput{
+	executed, err := repo.AdminCreateMarketDataBackfillRun(model.MarketBackfillCreateInput{
 		RunType:    "FULL",
 		AssetScope: []string{"STOCK", "INDEX"},
 		SourceKey:  "TUSHARE",
@@ -132,11 +173,6 @@ func TestExecuteMarketDataBackfillRunMarksEnhancementStagesBySupportMatrix(t *te
 	if err != nil {
 		t.Fatalf("AdminCreateMarketDataBackfillRun returned error: %v", err)
 	}
-
-	executed, err := repo.executeMarketDataBackfillRun(run.ID)
-	if err != nil {
-		t.Fatalf("executeMarketDataBackfillRun returned error: %v", err)
-	}
 	if executed.Status != "SUCCESS" {
 		t.Fatalf("expected SUCCESS run, got %+v", executed)
 	}
@@ -144,7 +180,7 @@ func TestExecuteMarketDataBackfillRunMarksEnhancementStagesBySupportMatrix(t *te
 		t.Fatalf("expected final current stage COVERAGE_SUMMARY, got %s", executed.CurrentStage)
 	}
 
-	dailyBasicDetails, total, err := repo.AdminListMarketDataBackfillRunDetails(run.ID, "DAILY_BASIC", "", "", 1, 10)
+	dailyBasicDetails, total, err := repo.AdminListMarketDataBackfillRunDetails(executed.ID, "DAILY_BASIC", "", "", 1, 10)
 	if err != nil {
 		t.Fatalf("AdminListMarketDataBackfillRunDetails daily basic returned error: %v", err)
 	}
@@ -158,7 +194,7 @@ func TestExecuteMarketDataBackfillRunMarksEnhancementStagesBySupportMatrix(t *te
 		t.Fatalf("expected one skipped detail, got %+v", dailyBasicDetails)
 	}
 
-	moneyflowDetails, total, err := repo.AdminListMarketDataBackfillRunDetails(run.ID, "MONEYFLOW", "", "", 1, 10)
+	moneyflowDetails, total, err := repo.AdminListMarketDataBackfillRunDetails(executed.ID, "MONEYFLOW", "", "", 1, 10)
 	if err != nil {
 		t.Fatalf("AdminListMarketDataBackfillRunDetails moneyflow returned error: %v", err)
 	}
@@ -170,5 +206,275 @@ func TestExecuteMarketDataBackfillRunMarksEnhancementStagesBySupportMatrix(t *te
 	}
 	if moneyflowDetails[0].Status != "SKIPPED" && moneyflowDetails[1].Status != "SKIPPED" {
 		t.Fatalf("expected one skipped moneyflow detail, got %+v", moneyflowDetails)
+	}
+}
+
+func TestAdminCreateMarketDataBackfillRunExecutesImmediately(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+
+	run, err := repo.AdminCreateMarketDataBackfillRun(model.MarketBackfillCreateInput{
+		RunType:       "FULL",
+		AssetScope:    []string{"STOCK", "INDEX"},
+		SourceKey:     "MOCK",
+		TradeDateFrom: "2026-03-23",
+		TradeDateTo:   "2026-03-24",
+		BatchSize:     200,
+	}, "tester")
+	if err != nil {
+		t.Fatalf("AdminCreateMarketDataBackfillRun returned error: %v", err)
+	}
+	if run.Status != "SUCCESS" {
+		t.Fatalf("expected immediate SUCCESS run, got %+v", run)
+	}
+	if run.CurrentStage != "COVERAGE_SUMMARY" {
+		t.Fatalf("expected final stage COVERAGE_SUMMARY, got %s", run.CurrentStage)
+	}
+}
+
+func TestAdminRetryMarketDataBackfillRunExecutesImmediately(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+
+	base, err := repo.AdminCreateMarketDataBackfillRun(model.MarketBackfillCreateInput{
+		RunType:       "FULL",
+		AssetScope:    []string{"STOCK", "INDEX"},
+		SourceKey:     "MOCK",
+		TradeDateFrom: "2026-03-23",
+		TradeDateTo:   "2026-03-24",
+		BatchSize:     200,
+	}, "tester")
+	if err != nil {
+		t.Fatalf("AdminCreateMarketDataBackfillRun returned error: %v", err)
+	}
+
+	retried, err := repo.AdminRetryMarketDataBackfillRun(base.ID, model.MarketBackfillRetryInput{
+		RetryMode: "FROM_STAGE",
+		Stage:     "QUOTES",
+	}, "tester")
+	if err != nil {
+		t.Fatalf("AdminRetryMarketDataBackfillRun returned error: %v", err)
+	}
+	if retried.ID == base.ID {
+		t.Fatalf("expected new run id, got %+v", retried)
+	}
+	if retried.Status != "SUCCESS" {
+		t.Fatalf("expected retried run success, got %+v", retried)
+	}
+	if retried.CurrentStage != "COVERAGE_SUMMARY" {
+		t.Fatalf("expected retried run final stage COVERAGE_SUMMARY, got %s", retried.CurrentStage)
+	}
+}
+
+func TestMySQLExecuteMarketDataBackfillRunCompletesMockPipeline(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.MatchExpectationsInOrder(false)
+
+	repo := &MySQLGrowthRepo{db: db}
+	createdAt := time.Date(2026, 3, 24, 9, 0, 0, 0, time.Local)
+
+	mock.ExpectQuery(marketBackfillRunByIDQueryPattern).
+		WithArgs("mbr_001").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"scheduler_run_id",
+			"run_type",
+			"asset_scope",
+			"trade_date_from",
+			"trade_date_to",
+			"source_key",
+			"batch_size",
+			"universe_snapshot_id",
+			"status",
+			"current_stage",
+			"stage_progress_json",
+			"summary_json",
+			"error_message",
+			"created_by",
+			"created_at",
+			"updated_at",
+			"finished_at",
+		}).AddRow(
+			"mbr_001",
+			"jr_001",
+			"FULL",
+			`["STOCK","INDEX"]`,
+			"2026-03-23",
+			"2026-03-24",
+			"MOCK",
+			200,
+			"mus_001",
+			"RUNNING",
+			"MASTER",
+			`[{"stage":"UNIVERSE","status":"SUCCESS","total_batches":2,"completed_batches":2},{"stage":"MASTER","status":"PENDING"},{"stage":"QUOTES","status":"PENDING"},{"stage":"DAILY_BASIC","status":"PENDING"},{"stage":"MONEYFLOW","status":"PENDING"},{"stage":"TRUTH","status":"PENDING"},{"stage":"COVERAGE_SUMMARY","status":"PENDING"}]`,
+			`{"requested_stages":["MASTER","QUOTES","DAILY_BASIC","MONEYFLOW","TRUTH"],"asset_scope":["STOCK","INDEX"],"universe_item_count":2}`,
+			"",
+			"tester",
+			createdAt,
+			createdAt,
+			nil,
+		))
+
+	mock.ExpectQuery(marketBackfillSnapshotItemsQueryPattern).
+		WithArgs("mus_001").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"snapshot_id",
+			"asset_type",
+			"instrument_key",
+			"external_symbol",
+			"display_name",
+			"exchange_code",
+			"status",
+			"list_date",
+			"delist_date",
+			"raw_metadata_json",
+			"created_at",
+		}).
+			AddRow("musi_stock", "mus_001", "STOCK", "600519.SH", "600519.SH", "贵州茅台", "SH", "ACTIVE", "2001-08-27", "", `{"industry":"白酒"}`, createdAt).
+			AddRow("musi_index", "mus_001", "INDEX", "000300.SH", "000300.SH", "沪深300", "SH", "ACTIVE", "2005-04-08", "", `{"category":"broad_index"}`, createdAt))
+
+	for range []int{0, 1} {
+		mock.ExpectExec(marketInstrumentsUpsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	for range []int{0, 1} {
+		mock.ExpectExec(marketInstrumentFactsUpsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	for range []int{0, 1} {
+		mock.ExpectExec(marketSymbolAliasUpsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+
+	mock.ExpectQuery(marketInstrumentSourceFactsQueryPattern).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"asset_class",
+			"instrument_key",
+			"source_key",
+			"external_symbol",
+			"display_name",
+			"exchange_code",
+			"product_key",
+			"list_date",
+			"delist_date",
+			"status",
+			"metadata_json",
+			"quality_score",
+			"source_updated_at",
+		}).AddRow("INDEX", "000300.SH", "MOCK", "000300.SH", "沪深300", "SH", "INDEX:000300", "2005-04-08", "", "ACTIVE", `{"category":"broad_index"}`, 0.93, createdAt))
+	mock.ExpectExec(`UPDATE market_instruments`).WillReturnResult(sqlmock.NewResult(1, 1))
+
+	mock.ExpectQuery(marketInstrumentSourceFactsQueryPattern).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"asset_class",
+			"instrument_key",
+			"source_key",
+			"external_symbol",
+			"display_name",
+			"exchange_code",
+			"product_key",
+			"list_date",
+			"delist_date",
+			"status",
+			"metadata_json",
+			"quality_score",
+			"source_updated_at",
+		}).AddRow("STOCK", "600519.SH", "MOCK", "600519.SH", "贵州茅台", "SH", "STOCK:600519", "2001-08-27", "", "ACTIVE", `{"industry":"白酒"}`, 0.96, createdAt))
+	mock.ExpectExec(`UPDATE market_instruments`).WillReturnResult(sqlmock.NewResult(1, 1))
+
+	for range []int{0, 1} {
+		mock.ExpectExec(marketBackfillDetailInsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	for range []int{0, 1, 2, 3} {
+		mock.ExpectExec(marketDailyBarsUpsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	for range []int{0, 1} {
+		mock.ExpectExec(marketBackfillDetailInsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	for range []int{0, 1} {
+		mock.ExpectExec(stockDailyBasicUpsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	for range []int{0, 1} {
+		mock.ExpectExec(marketBackfillDetailInsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	for range []int{0, 1} {
+		mock.ExpectExec(stockMoneyflowUpsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	for range []int{0, 1} {
+		mock.ExpectExec(marketBackfillDetailInsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	for _, assetType := range []string{"INDEX", "STOCK"} {
+		instrumentKey := map[string]string{"INDEX": "000300.SH", "STOCK": "600519.SH"}[assetType]
+		for _, payload := range []struct {
+			tradeDate time.Time
+			open      float64
+			high      float64
+			low       float64
+			close     float64
+			prevClose float64
+			volume    int
+			turnover  int
+		}{
+			{tradeDate: time.Date(2026, 3, 23, 0, 0, 0, 0, time.Local), open: 10, high: 11, low: 9, close: 10.5, prevClose: 10, volume: 1000, turnover: 10000},
+			{tradeDate: time.Date(2026, 3, 24, 0, 0, 0, 0, time.Local), open: 10.5, high: 11.2, low: 10.1, close: 10.9, prevClose: 10.5, volume: 1100, turnover: 11990},
+		} {
+			mock.ExpectQuery(`SELECT instrument_key, external_symbol, trade_date, open_price, high_price, low_price, close_price`).
+				WithArgs(assetType, sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows([]string{
+					"instrument_key",
+					"external_symbol",
+					"trade_date",
+					"open_price",
+					"high_price",
+					"low_price",
+					"close_price",
+					"prev_close_price",
+					"settle_price",
+					"prev_settle_price",
+					"volume",
+					"turnover",
+					"open_interest",
+					"source_key",
+				}).AddRow(
+					instrumentKey,
+					instrumentKey,
+					payload.tradeDate,
+					payload.open,
+					payload.high,
+					payload.low,
+					payload.close,
+					payload.prevClose,
+					0,
+					0,
+					payload.volume,
+					payload.turnover,
+					0,
+					"MOCK",
+				))
+			mock.ExpectExec(marketDailyBarTruthInsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+		}
+	}
+	for range []int{0, 1} {
+		mock.ExpectExec(marketBackfillDetailInsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	}
+	mock.ExpectExec(marketBackfillDetailInsertPattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(marketBackfillRunUpdatePattern).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(schedulerJobRunUpdatePattern).WillReturnResult(sqlmock.NewResult(1, 1))
+
+	run, err := repo.executeMarketDataBackfillRun("mbr_001")
+	if err != nil {
+		t.Fatalf("executeMarketDataBackfillRun returned error: %v", err)
+	}
+	if run.Status != "SUCCESS" {
+		t.Fatalf("expected SUCCESS run, got %+v", run)
+	}
+	if run.CurrentStage != "COVERAGE_SUMMARY" {
+		t.Fatalf("expected final stage COVERAGE_SUMMARY, got %s", run.CurrentStage)
+	}
+	if got := run.Summary["window_days"]; got != 2 {
+		t.Fatalf("expected window_days summary 2, got %+v", run.Summary)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }

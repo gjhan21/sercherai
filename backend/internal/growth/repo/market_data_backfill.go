@@ -330,25 +330,14 @@ INSERT INTO market_backfill_run_details (
 			return model.MarketBackfillRun{}, err
 		}
 	}
-
-	return model.MarketBackfillRun{
-		ID:                 runID,
-		SchedulerRunID:     schedulerRunID,
-		RunType:            runType,
-		AssetScope:         assetScope,
-		TradeDateFrom:      strings.TrimSpace(input.TradeDateFrom),
-		TradeDateTo:        strings.TrimSpace(input.TradeDateTo),
-		SourceKey:          snapshot.SourceKey,
-		BatchSize:          batchSize,
-		UniverseSnapshotID: snapshot.ID,
-		Status:             "RUNNING",
-		CurrentStage:       "MASTER",
-		StageProgress:      stageProgress,
-		Summary:            summary,
-		CreatedBy:          operator,
-		CreatedAt:          now.Format(time.RFC3339),
-		UpdatedAt:          now.Format(time.RFC3339),
-	}, nil
+	executed, execErr := r.executeMarketDataBackfillRun(runID)
+	if execErr != nil {
+		if latest, getErr := r.AdminGetMarketDataBackfillRun(runID); getErr == nil {
+			return latest, execErr
+		}
+		return model.MarketBackfillRun{}, execErr
+	}
+	return executed, nil
 }
 
 func (r *MySQLGrowthRepo) AdminListMarketDataBackfillRuns(status string, runType string, assetType string, sourceKey string, page int, pageSize int) ([]model.MarketBackfillRun, int, error) {
@@ -591,7 +580,14 @@ INSERT INTO market_backfill_runs (
 	); err != nil {
 		return model.MarketBackfillRun{}, err
 	}
-	return retried, nil
+	executed, execErr := r.executeMarketDataBackfillRun(retried.ID)
+	if execErr != nil {
+		if latest, getErr := r.AdminGetMarketDataBackfillRun(retried.ID); getErr == nil {
+			return latest, execErr
+		}
+		return model.MarketBackfillRun{}, execErr
+	}
+	return executed, nil
 }
 
 func (r *MySQLGrowthRepo) AdminListMarketUniverseSnapshots(page int, pageSize int) ([]model.MarketUniverseSnapshot, int, error) {
@@ -764,12 +760,12 @@ func (r *InMemoryGrowthRepo) AdminCreateMarketDataBackfillRun(input model.Market
 		operator = "system"
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	now := time.Now()
 	nowText := now.Format(time.RFC3339)
 	snapshot, snapshotItems, err := r.buildMarketUniverseSnapshotLocked(input.SourceKey, assetScope, operator)
 	if err != nil {
+		r.mu.Unlock()
 		return model.MarketBackfillRun{}, err
 	}
 
@@ -801,7 +797,13 @@ func (r *InMemoryGrowthRepo) AdminCreateMarketDataBackfillRun(input model.Market
 	}
 	r.marketBackfillRuns[run.ID] = run
 	r.marketBackfillRunDetails[run.ID] = buildMarketUniverseRunDetails(run.ID, run.SchedulerRunID, run.SourceKey, snapshotItems, assetScope, now)
-	return run, nil
+	r.mu.Unlock()
+
+	executed, execErr := r.executeMarketDataBackfillRun(run.ID)
+	if execErr != nil {
+		return model.MarketBackfillRun{}, execErr
+	}
+	return executed, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListMarketDataBackfillRuns(status string, runType string, assetType string, sourceKey string, page int, pageSize int) ([]model.MarketBackfillRun, int, error) {
@@ -867,9 +869,9 @@ func (r *InMemoryGrowthRepo) AdminListMarketDataBackfillRunDetails(runID string,
 
 func (r *InMemoryGrowthRepo) AdminRetryMarketDataBackfillRun(runID string, input model.MarketBackfillRetryInput, operator string) (model.MarketBackfillRun, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	base, ok := r.marketBackfillRuns[strings.TrimSpace(runID)]
 	if !ok {
+		r.mu.Unlock()
 		return model.MarketBackfillRun{}, sql.ErrNoRows
 	}
 	now := time.Now().Format(time.RFC3339)
@@ -887,7 +889,13 @@ func (r *InMemoryGrowthRepo) AdminRetryMarketDataBackfillRun(runID string, input
 	}
 	r.marketBackfillRuns[retried.ID] = retried
 	r.marketBackfillRunDetails[retried.ID] = r.marketBackfillRunDetails[base.ID]
-	return retried, nil
+	r.mu.Unlock()
+
+	executed, execErr := r.executeMarketDataBackfillRun(retried.ID)
+	if execErr != nil {
+		return model.MarketBackfillRun{}, execErr
+	}
+	return executed, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListMarketUniverseSnapshots(page int, pageSize int) ([]model.MarketUniverseSnapshot, int, error) {

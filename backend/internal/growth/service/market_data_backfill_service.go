@@ -6,6 +6,18 @@ func (s *growthService) AdminBuildMarketUniverseSnapshot(sourceKey string, asset
 	return s.repo.AdminBuildMarketUniverseSnapshot(sourceKey, assetScope, operator)
 }
 
+func (s *growthService) AdminSyncMarketMasterDetailed(assetType string, sourceKey string, instrumentKeys []string) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncMarketMasterDetailed(assetType, sourceKey, instrumentKeys)
+}
+
+func (s *growthService) AdminSyncMarketQuotesDetailed(assetType string, sourceKey string, instrumentKeys []string, days int) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncMarketQuotesDetailed(assetType, sourceKey, instrumentKeys, days)
+}
+
+func (s *growthService) AdminRebuildMarketDailyTruthDetailed(assetType string, sourceKey string, instrumentKeys []string, tradeDateFrom string, tradeDateTo string) (model.MarketSyncResult, error) {
+	return s.repo.AdminRebuildMarketDailyTruthDetailed(assetType, sourceKey, instrumentKeys, tradeDateFrom, tradeDateTo)
+}
+
 func (s *growthService) AdminCreateMarketDataBackfillRun(input model.MarketBackfillCreateInput, operator string) (model.MarketBackfillRun, error) {
 	return s.repo.AdminCreateMarketDataBackfillRun(input, operator)
 }

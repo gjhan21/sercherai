@@ -6,6 +6,41 @@ export const MARKET_QUALITY_LOOKBACK_OPTIONS = [
   { label: "近 7 天", value: 168 }
 ];
 
+const MARKET_ASSET_LABELS = {
+  STOCK: "股票",
+  INDEX: "指数",
+  ETF: "ETF",
+  LOF: "LOF",
+  CBOND: "可转债",
+  FUTURES: "期货"
+};
+
+const MARKET_BACKFILL_STATUS_LABELS = {
+  PENDING: "待执行",
+  RUNNING: "进行中",
+  PARTIAL_SUCCESS: "部分完成",
+  SUCCESS: "已完成",
+  FAILED: "失败",
+  CANCELLED: "已取消",
+  SKIPPED: "已跳过"
+};
+
+const MARKET_BACKFILL_RUN_TYPE_LABELS = {
+  FULL: "全量回填",
+  INCREMENTAL: "增量回填",
+  REBUILD_ONLY: "仅重建"
+};
+
+const MARKET_BACKFILL_STAGE_LABELS = {
+  UNIVERSE: "Universe",
+  MASTER: "主数据",
+  QUOTES: "行情",
+  DAILY_BASIC: "Daily Basic",
+  MONEYFLOW: "Moneyflow",
+  TRUTH: "Truth",
+  COVERAGE_SUMMARY: "覆盖率汇总"
+};
+
 export function normalizeMarketQualityLookbackHours(value, fallback = DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS) {
   const hours = Number(value);
   if (Number.isFinite(hours) && hours > 0) {
@@ -20,6 +55,118 @@ export function formatMarketQualityLookbackLabel(value) {
     MARKET_QUALITY_LOOKBACK_OPTIONS.find((item) => item.value === hours)?.label ||
     `近 ${hours} 小时`
   );
+}
+
+export function formatMarketAssetLabel(value) {
+  const key = String(value || "").trim().toUpperCase();
+  return MARKET_ASSET_LABELS[key] || key || "-";
+}
+
+export function formatMarketAssetScopeSummary(values = []) {
+  const labels = (Array.isArray(values) ? values : [])
+    .map((item) => formatMarketAssetLabel(item))
+    .filter(Boolean);
+  return labels.length ? labels.join(" / ") : "未设置";
+}
+
+export function formatMarketBackfillStatusLabel(value) {
+  const key = String(value || "").trim().toUpperCase();
+  return MARKET_BACKFILL_STATUS_LABELS[key] || key || "未知";
+}
+
+export function formatMarketBackfillRunTypeLabel(value) {
+  const key = String(value || "").trim().toUpperCase();
+  return MARKET_BACKFILL_RUN_TYPE_LABELS[key] || key || "-";
+}
+
+export function formatMarketBackfillStageLabel(value) {
+  const key = String(value || "").trim().toUpperCase();
+  return MARKET_BACKFILL_STAGE_LABELS[key] || key || "-";
+}
+
+export function marketBackfillStatusTagType(value) {
+  const key = String(value || "").trim().toUpperCase();
+  if (key === "FAILED") return "danger";
+  if (key === "PARTIAL_SUCCESS" || key === "RUNNING" || key === "PENDING") return "warning";
+  if (key === "SUCCESS") return "success";
+  return "info";
+}
+
+export function marketBackfillDetailStatusTagType(value) {
+  const key = String(value || "").trim().toUpperCase();
+  if (key === "FAILED") return "danger";
+  if (key === "RUNNING" || key === "PENDING") return "warning";
+  if (key === "SUCCESS") return "success";
+  if (key === "SKIPPED") return "info";
+  return "info";
+}
+
+export function buildMarketCoverageOverviewCards(summary = {}) {
+  const latestTradeDate = String(summary?.latest_trade_date || "").trim() || "-";
+  return [
+    {
+      key: "universe",
+      title: "证券全集",
+      value: String(Number(summary?.total_universe_count) || 0),
+      tone: "primary",
+      helper: "当前快照里的可跟踪标的总数"
+    },
+    {
+      key: "quotes",
+      title: "行情覆盖",
+      value: String(Number(summary?.quotes_coverage_count) || 0),
+      tone: "success",
+      helper: "已落到 truth 的行情标的数"
+    },
+    {
+      key: "enhancement",
+      title: "增强因子覆盖",
+      value: `${Number(summary?.daily_basic_coverage_count) || 0} / ${Number(summary?.moneyflow_coverage_count) || 0}`,
+      tone: "warning",
+      helper: "分别对应 daily_basic / moneyflow 覆盖数"
+    },
+    {
+      key: "gaps",
+      title: "主数据缺口",
+      value: `${Number(summary?.canonical_key_gap_count) || 0} / ${Number(summary?.display_name_gap_count) || 0} / ${Number(summary?.list_date_gap_count) || 0}`,
+      tone: "danger",
+      helper: "分别对应 canonical key / 名称 / 上市日期缺口"
+    },
+    {
+      key: "latest_trade_date",
+      title: "最新交易日",
+      value: latestTradeDate,
+      tone: "gold",
+      helper: "用于判断行情覆盖是否更新到最近交易日"
+    }
+  ];
+}
+
+export function buildMarketCoverageAssetRows(summary = {}) {
+  return (Array.isArray(summary?.asset_items) ? summary.asset_items : [])
+    .map((item) => ({
+      key: String(item?.asset_type || "").trim().toUpperCase(),
+      label: formatMarketAssetLabel(item?.asset_type),
+      universeCount: Number(item?.universe_count) || 0,
+      masterCoverageCount: Number(item?.master_coverage_count) || 0,
+      quotesCoverageCount: Number(item?.quotes_coverage_count) || 0,
+      dailyBasicCoverageCount: Number(item?.daily_basic_coverage_count) || 0,
+      moneyflowCoverageCount: Number(item?.moneyflow_coverage_count) || 0,
+      latestTradeDate: String(item?.latest_trade_date || "").trim() || "-"
+    }))
+    .sort((left, right) => {
+      const stockBias = left.key === "STOCK" ? -1 : right.key === "STOCK" ? 1 : 0;
+      if (stockBias !== 0) {
+        return stockBias;
+      }
+      return left.key.localeCompare(right.key, "zh-Hans-CN");
+    });
+}
+
+export function buildUniverseSnapshotDigest(snapshot = {}) {
+  const snapshotDate = String(snapshot?.snapshot_date || "").trim() || "-";
+  const sourceKey = String(snapshot?.source_key || "").trim().toUpperCase() || "-";
+  return `${snapshotDate} · ${formatMarketAssetScopeSummary(snapshot?.scope)} · ${sourceKey}`;
 }
 
 export function normalizeMarketCenterTab(value) {

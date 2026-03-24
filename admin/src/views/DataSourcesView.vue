@@ -7,8 +7,11 @@ import {
   checkDataSourceHealth,
   createDataSource,
   deleteDataSource,
+  getMarketCoverageSummary,
   getMarketDataQualitySummary,
   getMarketDerivedTruthSummary,
+  listMarketDataBackfillRuns,
+  listMarketUniverseSnapshots,
   listDataSourceHealthLogs,
   listDataSources,
   listMarketDataQualityLogs,
@@ -26,12 +29,18 @@ import {
   DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS,
   MARKET_QUALITY_LOOKBACK_OPTIONS,
   areMarketQualityFiltersEqual,
+  buildMarketCoverageAssetRows,
+  buildMarketCoverageOverviewCards,
+  buildUniverseSnapshotDigest,
   buildMarketQualityRouteQuery,
   buildMarketQualityBucketSummary,
   collectMarketQualityIssueOptions,
+  formatMarketAssetScopeSummary,
+  formatMarketBackfillStatusLabel,
   formatMarketQualityLookbackLabel,
   formatMarketQualityPayload,
   formatTruthRebuildSuccessMessage,
+  marketBackfillStatusTagType,
   marketQualitySeverityTagType,
   normalizeMarketQualityRouteContext,
   normalizeMarketQualityLookbackHours,
@@ -81,6 +90,13 @@ const stockLastSyncResult = ref(null);
 const futuresLastSyncResult = ref(null);
 const futuresInventoryLastSyncResult = ref(null);
 const marketNewsLastSyncResult = ref(null);
+const marketCoverageLoading = ref(false);
+const marketCoverageSummary = ref(null);
+const marketCoverageAssetRows = ref([]);
+const marketUniverseSnapshotsLoading = ref(false);
+const marketUniverseSnapshots = ref([]);
+const marketBackfillRunsLoading = ref(false);
+const marketBackfillRuns = ref([]);
 
 const formVisible = ref(false);
 const formMode = ref("create");
@@ -172,6 +188,9 @@ const qualitySeverityBuckets = computed(() =>
   buildMarketQualityBucketSummary(qualityLogItems.value, (item) => item?.severity, 3)
 );
 const qualityLookbackLabel = computed(() => formatMarketQualityLookbackLabel(qualityFilters.hours));
+const marketCoverageOverviewCards = computed(() =>
+  buildMarketCoverageOverviewCards(marketCoverageSummary.value || {})
+);
 
 const selectedQualityPayloadText = computed(() =>
   formatMarketQualityPayload(selectedQualityLog.value?.payload || "")
@@ -771,6 +790,57 @@ async function fetchQualityDashboard(options = {}) {
   ]);
 }
 
+function formatFallbackSources(items = [], limit = 4) {
+  const sourceItems = Array.isArray(items) ? items : [];
+  if (!sourceItems.length) {
+    return "暂无回退源记录";
+  }
+  return sourceItems
+    .slice(0, Math.max(0, Number(limit) || 0))
+    .map((item) => `${normalizeSourceKey(item?.source_key) || "-"} ${Number(item?.count) || 0}`)
+    .join(" / ");
+}
+
+async function fetchMarketCoverageGovernance(options = {}) {
+  const { preserveFeedback = false } = options;
+  if (!preserveFeedback) {
+    errorMessage.value = "";
+  }
+  marketCoverageLoading.value = true;
+  marketUniverseSnapshotsLoading.value = true;
+  marketBackfillRunsLoading.value = true;
+  try {
+    const [coverageData, snapshotData, runData] = await Promise.all([
+      getMarketCoverageSummary(),
+      listMarketUniverseSnapshots({ page: 1, page_size: 5 }),
+      listMarketDataBackfillRuns({ page: 1, page_size: 5 })
+    ]);
+    marketCoverageSummary.value = coverageData || null;
+    marketCoverageAssetRows.value = buildMarketCoverageAssetRows(coverageData || {});
+    marketUniverseSnapshots.value = snapshotData?.items || [];
+    marketBackfillRuns.value = runData?.items || [];
+  } catch (error) {
+    marketCoverageSummary.value = null;
+    marketCoverageAssetRows.value = [];
+    marketUniverseSnapshots.value = [];
+    marketBackfillRuns.value = [];
+    if (!preserveFeedback) {
+      errorMessage.value = error.message || "加载全市场治理概览失败";
+    }
+  } finally {
+    marketCoverageLoading.value = false;
+    marketUniverseSnapshotsLoading.value = false;
+    marketBackfillRunsLoading.value = false;
+  }
+}
+
+function openMarketBackfillWorkspace() {
+  router.push({
+    path: "/system-jobs",
+    query: { tab: "market-data" }
+  });
+}
+
 async function fetchDerivedTruthSummary(assetClass, options = {}) {
   const { preserveFeedback = false, preserveCurrent = false } = options;
   const normalizedAssetClass = normalizeSourceKey(assetClass);
@@ -946,6 +1016,7 @@ function handlePageChange(nextPage) {
 onMounted(fetchDataSources);
 onMounted(() => {
   fetchDerivedTruthSummaries({ preserveFeedback: true });
+  fetchMarketCoverageGovernance({ preserveFeedback: true });
 });
 
 watch(
@@ -1235,6 +1306,154 @@ watch(
             </el-text>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 12px">
+      <div class="section-header">
+        <div>
+          <h3 style="margin: 0">全市场覆盖治理</h3>
+          <p class="muted" style="margin: 6px 0 0">
+            这里看证券全集、行情覆盖、增强因子覆盖和最近回填情况，适合先判断数据底座是否完整，再决定去哪里补数。
+          </p>
+        </div>
+        <div class="inline-actions inline-actions--left">
+          <el-button
+            :loading="marketCoverageLoading || marketUniverseSnapshotsLoading || marketBackfillRunsLoading"
+            @click="fetchMarketCoverageGovernance"
+          >
+            刷新治理概览
+          </el-button>
+          <el-button type="primary" plain @click="openMarketBackfillWorkspace">去任务中心</el-button>
+        </div>
+      </div>
+
+      <div class="governance-kpi-grid" style="margin-top: 12px">
+        <div
+          v-for="item in marketCoverageOverviewCards"
+          :key="item.key"
+          class="governance-kpi-card"
+          :class="`is-${item.tone}`"
+        >
+          <div class="governance-kpi-card__title">{{ item.title }}</div>
+          <div class="governance-kpi-card__value">{{ item.value }}</div>
+          <div class="governance-kpi-card__helper">{{ item.helper }}</div>
+        </div>
+      </div>
+
+      <div class="truth-summary-grid" style="margin-top: 12px">
+        <div class="truth-summary-card">
+          <div class="truth-summary-card__title">回退源摘要</div>
+          <ul v-if="marketCoverageSummary" class="truth-summary-list">
+            <li>最近交易日：{{ marketCoverageSummary.latest_trade_date || "-" }}</li>
+            <li>主数据覆盖：{{ marketCoverageSummary.master_coverage_count || 0 }}</li>
+            <li>回退源分布：{{ formatFallbackSources(marketCoverageSummary.fallback_source_summary) }}</li>
+          </ul>
+          <p v-else class="muted">暂无覆盖率摘要</p>
+        </div>
+        <div class="truth-summary-card">
+          <div class="truth-summary-card__title">最近 Universe 快照</div>
+          <ul v-if="marketUniverseSnapshots.length" class="truth-summary-list">
+            <li>最近快照数：{{ marketUniverseSnapshots.length }}</li>
+            <li>最新快照：{{ buildUniverseSnapshotDigest(marketUniverseSnapshots[0]) }}</li>
+            <li>资产范围：{{ formatMarketAssetScopeSummary(marketUniverseSnapshots[0]?.scope) }}</li>
+          </ul>
+          <p v-else class="muted">暂无 Universe 快照</p>
+        </div>
+        <div class="truth-summary-card">
+          <div class="truth-summary-card__title">最近回填任务</div>
+          <ul v-if="marketBackfillRuns.length" class="truth-summary-list">
+            <li>最近总单数：{{ marketBackfillRuns.length }}</li>
+            <li>最新状态：{{ formatMarketBackfillStatusLabel(marketBackfillRuns[0]?.status) }}</li>
+            <li>资产范围：{{ formatMarketAssetScopeSummary(marketBackfillRuns[0]?.asset_scope) }}</li>
+          </ul>
+          <p v-else class="muted">暂无回填总单</p>
+        </div>
+      </div>
+
+      <div class="governance-table-grid" style="margin-top: 12px">
+        <div class="governance-table-card">
+          <div class="toolbar jobs-table-toolbar">
+            <el-text type="primary">资产覆盖拆分</el-text>
+            <span class="muted">按资产类型看 universe、行情和增强因子覆盖，不把所有资产混成一个数字。</span>
+          </div>
+          <el-table
+            :data="marketCoverageAssetRows"
+            border
+            stripe
+            size="small"
+            v-loading="marketCoverageLoading"
+            empty-text="暂无资产覆盖数据"
+          >
+            <el-table-column prop="label" label="资产类型" min-width="100" />
+            <el-table-column prop="universeCount" label="全集" min-width="90" />
+            <el-table-column prop="masterCoverageCount" label="主数据" min-width="90" />
+            <el-table-column prop="quotesCoverageCount" label="行情" min-width="90" />
+            <el-table-column prop="dailyBasicCoverageCount" label="daily_basic" min-width="110" />
+            <el-table-column prop="moneyflowCoverageCount" label="moneyflow" min-width="100" />
+            <el-table-column prop="latestTradeDate" label="最新交易日" min-width="120" />
+          </el-table>
+        </div>
+
+        <div class="governance-table-card">
+          <div class="toolbar jobs-table-toolbar">
+            <el-text type="primary">最近 Universe 快照</el-text>
+            <span class="muted">快照是回填入口的第一步，先看范围和来源是否对。</span>
+          </div>
+          <el-table
+            :data="marketUniverseSnapshots"
+            border
+            stripe
+            size="small"
+            v-loading="marketUniverseSnapshotsLoading"
+            empty-text="暂无快照"
+          >
+            <el-table-column prop="snapshot_date" label="快照日期" min-width="110" />
+            <el-table-column label="资产范围" min-width="180">
+              <template #default="{ row }">
+                {{ formatMarketAssetScopeSummary(row.scope) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="source_key" label="来源" min-width="100" />
+            <el-table-column prop="created_at" label="创建时间" min-width="170" />
+          </el-table>
+        </div>
+      </div>
+
+      <div class="governance-table-card" style="margin-top: 12px">
+        <div class="toolbar jobs-table-toolbar">
+          <el-text type="primary">最近回填总单</el-text>
+          <span class="muted">在数据源页先看最近是否有人补过数，真正操作入口统一回任务中心。</span>
+        </div>
+        <el-table
+          :data="marketBackfillRuns"
+          border
+          stripe
+          size="small"
+          v-loading="marketBackfillRunsLoading"
+          empty-text="暂无回填总单"
+        >
+          <el-table-column prop="created_at" label="创建时间" min-width="170" />
+          <el-table-column label="运行类型" min-width="100">
+            <template #default="{ row }">
+              {{ row.run_type || "-" }}
+            </template>
+          </el-table-column>
+          <el-table-column label="资产范围" min-width="180">
+            <template #default="{ row }">
+              {{ formatMarketAssetScopeSummary(row.asset_scope) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" min-width="110">
+            <template #default="{ row }">
+              <el-tag :type="marketBackfillStatusTagType(row.status)">
+                {{ formatMarketBackfillStatusLabel(row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="current_stage" label="当前阶段" min-width="120" />
+          <el-table-column prop="source_key" label="来源" min-width="100" />
+        </el-table>
       </div>
     </div>
 
@@ -1821,6 +2040,65 @@ watch(
   background: #fafafa;
 }
 
+.governance-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.governance-kpi-card {
+  min-height: 132px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid #dbe5f3;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.governance-kpi-card.is-primary {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
+}
+
+.governance-kpi-card.is-success {
+  border-color: #bbf7d0;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%);
+}
+
+.governance-kpi-card.is-warning {
+  border-color: #fde68a;
+  background: linear-gradient(180deg, #fff8e6 0%, #ffffff 100%);
+}
+
+.governance-kpi-card.is-danger {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fff5f5 0%, #ffffff 100%);
+}
+
+.governance-kpi-card.is-gold {
+  border-color: #fcd34d;
+  background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
+}
+
+.governance-kpi-card__title {
+  color: #475569;
+  font-size: 12px;
+}
+
+.governance-kpi-card__value {
+  margin-top: 8px;
+  color: #0f172a;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.governance-kpi-card__helper {
+  margin-top: 10px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .truth-summary-card__title {
   font-weight: 600;
   margin-bottom: 10px;
@@ -1918,6 +2196,20 @@ watch(
   line-height: 1.6;
 }
 
+.governance-table-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.governance-table-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
 :deep(.dialog-grid .el-form-item) {
   margin-bottom: 14px;
 }
@@ -1934,6 +2226,10 @@ watch(
 
   .sync-inline-numbers {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .governance-table-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
