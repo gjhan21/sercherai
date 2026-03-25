@@ -323,7 +323,7 @@ func TestCreateMarketDataBackfillRunRejectsUnsupportedLongHistorySource(t *testi
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if message, _ := payload["message"].(string); !strings.Contains(message, "当前仅支持 TUSHARE") {
+	if message, _ := payload["message"].(string); !strings.Contains(message, "provider 为 TUSHARE") {
 		t.Fatalf("unexpected message: %#v", payload["message"])
 	}
 }

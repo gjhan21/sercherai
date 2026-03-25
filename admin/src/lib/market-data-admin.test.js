@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 
 import {
   buildMarketCenterQualitySummaryReturnQuery,
@@ -7,6 +8,7 @@ import {
   buildMarketCoverageAssetRows,
   buildMarketCoverageOverviewCards,
   buildMarketQualityDrillQuery,
+  getMarketBackfillDateSpanDays,
   validateMarketBackfillLongHistoryInput,
   buildUniverseSnapshotDigest,
   DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS,
@@ -155,6 +157,25 @@ test("marketBackfillDetailStatusTagType maps run detail status to element tag ty
   assert.equal(marketBackfillDetailStatusTagType("unknown"), "info");
 });
 
+test("getMarketBackfillDateSpanDays counts calendar days across DST", () => {
+  const moduleUrl = new URL("./market-data-admin.js", import.meta.url).href;
+  const output = execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import { getMarketBackfillDateSpanDays } from ${JSON.stringify(moduleUrl)}; process.stdout.write(String(getMarketBackfillDateSpanDays("2024-03-10", "2024-03-11")));`
+    ],
+    {
+      env: { ...process.env, TZ: "America/New_York" }
+    }
+  )
+    .toString()
+    .trim();
+  assert.equal(output, "2");
+  assert.equal(getMarketBackfillDateSpanDays("2024-01-01", "2025-01-05"), 371);
+});
+
 test("validateMarketBackfillLongHistoryInput rejects unsupported long history combinations", () => {
   assert.equal(
     validateMarketBackfillLongHistoryInput({
@@ -164,7 +185,7 @@ test("validateMarketBackfillLongHistoryInput rejects unsupported long history co
       trade_date_from: "2024-01-01",
       trade_date_to: "2025-01-05"
     }),
-    "超过 365 天的股票长历史回补当前仅支持 TUSHARE 数据源"
+    "超过 365 天的股票长历史回补当前仅支持 provider 为 TUSHARE 的数据源"
   );
 
   assert.equal(
@@ -195,6 +216,18 @@ test("validateMarketBackfillLongHistoryInput rejects unsupported long history co
       run_type: "FULL",
       asset_scope: ["STOCK"],
       source_key: "TUSHARE",
+      trade_date_from: "2024-01-01",
+      trade_date_to: "2025-01-05",
+      stages: ["QUOTES", "TRUTH"]
+    }),
+    ""
+  );
+
+  assert.equal(
+    validateMarketBackfillLongHistoryInput({
+      run_type: "FULL",
+      asset_scope: ["STOCK"],
+      source_key: "TUSHARE_CN",
       trade_date_from: "2024-01-01",
       trade_date_to: "2025-01-05",
       stages: ["QUOTES", "TRUTH"]

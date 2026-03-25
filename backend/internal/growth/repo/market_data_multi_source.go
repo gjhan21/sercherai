@@ -485,7 +485,12 @@ func (r *MySQLGrowthRepo) syncMarketDailyBars(assetClass string, sourceKey strin
 	return result, nil
 }
 
-func (r *MySQLGrowthRepo) syncStockMarketDailyBarsByDateRange(sourceKey string, instrumentKeys []string, tradeDateFrom string, tradeDateTo string, rebuildTruth bool) (model.MarketSyncResult, map[string]marketTouchedBarKey, error) {
+type marketStockDateRangeSyncOptions struct {
+	EnsureMasterSync bool
+	RebuildTruth     bool
+}
+
+func (r *MySQLGrowthRepo) syncStockMarketDailyBarsByDateRange(sourceKey string, instrumentKeys []string, tradeDateFrom string, tradeDateTo string, options marketStockDateRangeSyncOptions) (model.MarketSyncResult, map[string]marketTouchedBarKey, error) {
 	resolvedSourceKey := strings.ToUpper(strings.TrimSpace(sourceKey))
 	if resolvedSourceKey == "" {
 		resolvedSourceKey = "TUSHARE"
@@ -501,8 +506,10 @@ func (r *MySQLGrowthRepo) syncStockMarketDailyBarsByDateRange(sourceKey string, 
 	if len(instrumentKeys) == 0 {
 		return result, touched, errors.New("instrument list is empty")
 	}
-	if err := r.syncMarketInstrumentMasterData(marketAssetClassStock, resolvedSourceKey, instrumentKeys); err != nil {
-		return result, touched, err
+	if options.EnsureMasterSync {
+		if err := r.syncMarketInstrumentMasterData(marketAssetClassStock, resolvedSourceKey, instrumentKeys); err != nil {
+			return result, touched, err
+		}
 	}
 
 	sourceItem, err := r.getDataSourceBySourceKey(resolvedSourceKey)
@@ -547,7 +554,7 @@ func (r *MySQLGrowthRepo) syncStockMarketDailyBarsByDateRange(sourceKey string, 
 	}
 	if status == "SUCCESS" {
 		touched = buildTouchedBarKeysFromBars(bars)
-		if rebuildTruth && len(touched) > 0 {
+		if options.RebuildTruth && len(touched) > 0 {
 			truthBars, truthErr := r.rebuildMarketDailyBarTruth(marketAssetClassStock, touched, []string{resolvedSourceKey})
 			if truthErr != nil {
 				return result, touched, truthErr

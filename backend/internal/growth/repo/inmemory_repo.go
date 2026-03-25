@@ -1807,6 +1807,22 @@ func (r *InMemoryGrowthRepo) AdminListDataSources(page int, pageSize int) ([]mod
 			},
 			UpdatedAt: "2026-02-27T20:00:00+08:00",
 		},
+		{
+			ID:         "ds_004",
+			SourceKey:  "tushare_cn",
+			Name:       "Tushare CN Mirror",
+			SourceType: "STOCK",
+			Status:     "ACTIVE",
+			Config: map[string]interface{}{
+				"provider":          "TUSHARE",
+				"endpoint":          "https://api.tushare.pro",
+				"retry_times":       1,
+				"retry_interval_ms": 500,
+				"fail_threshold":    3,
+				"health_timeout_ms": 8000,
+			},
+			UpdatedAt: "2026-02-27T20:00:00+08:00",
+		},
 	}
 	return items, len(items), nil
 }
@@ -1912,7 +1928,7 @@ func (r *InMemoryGrowthRepo) AdminListDataSourceHealthLogs(sourceKey string, pag
 
 func inMemoryDataSourceExists(sourceKey string) bool {
 	switch strings.ToLower(strings.TrimSpace(sourceKey)) {
-	case "wind", "ds_new_001", "mock_stock", "tushare", "akshare", "tickermd", "myself":
+	case "wind", "ds_new_001", "mock_stock", "tushare", "tushare_cn", "akshare", "tickermd", "myself":
 		return true
 	default:
 		return false

@@ -2468,7 +2468,7 @@ onMounted(() => {
                 </el-select>
               </el-form-item>
               <el-form-item label="来源">
-                <el-input v-model="marketBackfillForm.source_key" placeholder="默认 TUSHARE" />
+                <el-input v-model="marketBackfillForm.source_key" placeholder="默认 TUSHARE，或填写 provider 为 TUSHARE 的 source_key" />
               </el-form-item>
               <el-form-item label="批量大小">
                 <el-input-number
@@ -2543,7 +2543,7 @@ onMounted(() => {
           </el-form>
 
           <el-alert
-            title="股票支持行情、daily_basic、moneyflow 和 truth；其他资产当前先走 universe、master、quotes 与 truth。超过 365 天的股票长历史回补目前只支持 STOCK + TUSHARE + FULL，且会自动跳过 daily_basic / moneyflow。"
+            title="股票支持行情、daily_basic、moneyflow 和 truth；其他资产当前先走 universe、master、quotes 与 truth。超过 365 天的股票长历史回补目前只支持 STOCK + provider 为 TUSHARE 的数据源 + FULL，且会自动跳过 daily_basic / moneyflow。"
             type="info"
             :closable="false"
             show-icon

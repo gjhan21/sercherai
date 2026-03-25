@@ -41,6 +41,8 @@ const MARKET_BACKFILL_STAGE_LABELS = {
   COVERAGE_SUMMARY: "覆盖率汇总"
 };
 
+const KNOWN_NON_TUSHARE_LONG_HISTORY_SOURCE_KEYS = new Set(["AKSHARE", "TICKERMD", "MYSELF", "MOCK"]);
+
 function normalizeBackfillStageList(values = []) {
   const seen = new Set();
   return (Array.isArray(values) ? values : [])
@@ -66,16 +68,12 @@ function parseBackfillDateValue(value) {
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-  const parsed = new Date(year, month - 1, day);
-  if (
-    Number.isNaN(parsed.getTime()) ||
-    parsed.getFullYear() !== year ||
-    parsed.getMonth() !== month - 1 ||
-    parsed.getDate() !== day
-  ) {
+  const timestamp = Date.UTC(year, month - 1, day);
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime()) || parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
     return null;
   }
-  return parsed;
+  return timestamp;
 }
 
 export function normalizeMarketQualityLookbackHours(value, fallback = DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS) {
@@ -127,7 +125,7 @@ export function getMarketBackfillDateSpanDays(from, to) {
   if (!fromDate || !toDate) {
     return 0;
   }
-  const diff = toDate.getTime() - fromDate.getTime();
+  const diff = toDate - fromDate;
   if (diff < 0) {
     return -1;
   }
@@ -149,9 +147,13 @@ export function validateMarketBackfillLongHistoryInput(payload = {}) {
   if (assetScope.length !== 1 || assetScope[0] !== "STOCK") {
     return "超过 365 天的长历史回补目前只支持单一 STOCK 资产范围";
   }
+  const sourceProvider = String(payload?.source_provider || "").trim().toUpperCase();
   const sourceKey = String(payload?.source_key || "").trim().toUpperCase() || "TUSHARE";
-  if (sourceKey !== "TUSHARE") {
-    return "超过 365 天的股票长历史回补当前仅支持 TUSHARE 数据源";
+  if (sourceProvider && sourceProvider !== "TUSHARE") {
+    return "超过 365 天的股票长历史回补当前仅支持 provider 为 TUSHARE 的数据源";
+  }
+  if (!sourceProvider && KNOWN_NON_TUSHARE_LONG_HISTORY_SOURCE_KEYS.has(sourceKey)) {
+    return "超过 365 天的股票长历史回补当前仅支持 provider 为 TUSHARE 的数据源";
   }
   const runType = String(payload?.run_type || "").trim().toUpperCase() || "FULL";
   if (runType !== "FULL") {

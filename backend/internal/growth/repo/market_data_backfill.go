@@ -242,7 +242,7 @@ func parseMarketBackfillDateInput(value string, fieldName string) (time.Time, er
 	if trimmed == "" {
 		return time.Time{}, nil
 	}
-	parsed, err := time.ParseInLocation("2006-01-02", trimmed, time.Local)
+	parsed, err := time.Parse("2006-01-02", trimmed)
 	if err != nil {
 		return time.Time{}, newMarketBackfillBadRequestError(fmt.Sprintf("%s 必须是 YYYY-MM-DD 格式", fieldName))
 	}
@@ -276,7 +276,7 @@ func parseMarketBackfillDateRange(tradeDateFrom string, tradeDateTo string) (mar
 		ToText:   toText,
 		FromTime: fromTime,
 		ToTime:   toTime,
-		Days:     int(toTime.Sub(fromTime).Hours()/24) + 1,
+		Days:     int(toTime.Sub(fromTime)/(24*time.Hour)) + 1,
 	}, nil
 }
 
@@ -310,7 +310,7 @@ func splitMarketBackfillDateChunks(dateRange marketBackfillDateRange, chunkDays 
 	return chunks
 }
 
-func resolveMarketBackfillLongHistoryOptions(runType string, assetScope []string, sourceKey string, tradeDateFrom string, tradeDateTo string, stages []string) (marketBackfillLongHistoryOptions, error) {
+func resolveMarketBackfillLongHistoryOptions(runType string, assetScope []string, tradeDateFrom string, tradeDateTo string, stages []string) (marketBackfillLongHistoryOptions, error) {
 	dateRange, err := parseMarketBackfillDateRange(tradeDateFrom, tradeDateTo)
 	if err != nil {
 		return marketBackfillLongHistoryOptions{}, err
@@ -324,13 +324,6 @@ func resolveMarketBackfillLongHistoryOptions(runType string, assetScope []string
 	}
 	if len(assetScope) != 1 || assetScope[0] != "STOCK" {
 		return marketBackfillLongHistoryOptions{}, newMarketBackfillBadRequestError("超过 365 天的长历史回补目前只支持单一 STOCK 资产范围")
-	}
-	resolvedSourceKey := strings.ToUpper(strings.TrimSpace(sourceKey))
-	if resolvedSourceKey == "" {
-		resolvedSourceKey = "TUSHARE"
-	}
-	if resolvedSourceKey != "TUSHARE" {
-		return marketBackfillLongHistoryOptions{}, newMarketBackfillBadRequestError("超过 365 天的股票长历史回补当前仅支持 TUSHARE 数据源")
 	}
 	if normalizeMarketBackfillRunType(runType) != "FULL" {
 		return marketBackfillLongHistoryOptions{}, newMarketBackfillBadRequestError("超过 365 天的股票长历史回补当前只允许 FULL 运行类型")
@@ -353,7 +346,7 @@ func resolveMarketBackfillLongHistoryOptions(runType string, assetScope []string
 }
 
 func resolveMarketBackfillLongHistoryOptionsFromRun(run model.MarketBackfillRun) marketBackfillLongHistoryOptions {
-	options, _ := resolveMarketBackfillLongHistoryOptions(run.RunType, normalizeMarketBackfillAssetScope(run.AssetScope), run.SourceKey, run.TradeDateFrom, run.TradeDateTo, nil)
+	options, _ := resolveMarketBackfillLongHistoryOptions(run.RunType, normalizeMarketBackfillAssetScope(run.AssetScope), run.TradeDateFrom, run.TradeDateTo, nil)
 	if summaryChunkDays := marketBackfillSummaryInt(run.Summary, "long_history_chunk_days", 0); summaryChunkDays > 0 {
 		options.ChunkDays = summaryChunkDays
 	}
@@ -363,6 +356,59 @@ func resolveMarketBackfillLongHistoryOptionsFromRun(run model.MarketBackfillRun)
 		}
 	}
 	return options
+}
+
+func marketBackfillLongHistorySourceProviderError() error {
+	return newMarketBackfillBadRequestError("超过 365 天的股票长历史回补当前仅支持 provider 为 TUSHARE 的数据源")
+}
+
+func isMarketBackfillTushareProvider(item model.DataSource) bool {
+	provider := strings.ToUpper(parseDataSourceStringConfig(item.Config, "provider", "vendor"))
+	if provider == "" {
+		provider = strings.ToUpper(strings.TrimSpace(item.SourceKey))
+	}
+	return provider == "TUSHARE"
+}
+
+func (r *MySQLGrowthRepo) validateMarketBackfillLongHistorySourceKey(sourceKey string, longHistory marketBackfillLongHistoryOptions) error {
+	if !longHistory.Enabled {
+		return nil
+	}
+	resolvedSourceKey := strings.ToUpper(strings.TrimSpace(sourceKey))
+	if resolvedSourceKey == "" {
+		resolvedSourceKey = "TUSHARE"
+	}
+	sourceItem, err := r.getDataSourceBySourceKey(resolvedSourceKey)
+	if err != nil {
+		return marketBackfillLongHistorySourceProviderError()
+	}
+	if !isMarketBackfillTushareProvider(sourceItem) {
+		return marketBackfillLongHistorySourceProviderError()
+	}
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) validateMarketBackfillLongHistorySourceKey(sourceKey string, longHistory marketBackfillLongHistoryOptions) error {
+	if !longHistory.Enabled {
+		return nil
+	}
+	resolvedSourceKey := strings.ToUpper(strings.TrimSpace(sourceKey))
+	if resolvedSourceKey == "" {
+		resolvedSourceKey = "TUSHARE"
+	}
+	items, _, err := r.AdminListDataSources(1, 100)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item.SourceKey), resolvedSourceKey) {
+			if isMarketBackfillTushareProvider(item) {
+				return nil
+			}
+			return marketBackfillLongHistorySourceProviderError()
+		}
+	}
+	return marketBackfillLongHistorySourceProviderError()
 }
 
 func marketBackfillSummaryInt(summary map[string]any, key string, fallback int) int {
@@ -489,8 +535,11 @@ func (r *MySQLGrowthRepo) AdminCreateMarketDataBackfillRun(input model.MarketBac
 	if batchSize <= 0 {
 		batchSize = 200
 	}
-	longHistory, err := resolveMarketBackfillLongHistoryOptions(runType, assetScope, input.SourceKey, input.TradeDateFrom, input.TradeDateTo, input.Stages)
+	longHistory, err := resolveMarketBackfillLongHistoryOptions(runType, assetScope, input.TradeDateFrom, input.TradeDateTo, input.Stages)
 	if err != nil {
+		return model.MarketBackfillRun{}, err
+	}
+	if err := r.validateMarketBackfillLongHistorySourceKey(input.SourceKey, longHistory); err != nil {
 		return model.MarketBackfillRun{}, err
 	}
 	now := time.Now()
@@ -993,8 +1042,11 @@ func (r *InMemoryGrowthRepo) AdminCreateMarketDataBackfillRun(input model.Market
 	if len(assetScope) == 0 {
 		return model.MarketBackfillRun{}, fmt.Errorf("asset_scope is required")
 	}
-	longHistory, err := resolveMarketBackfillLongHistoryOptions(input.RunType, assetScope, input.SourceKey, input.TradeDateFrom, input.TradeDateTo, input.Stages)
+	longHistory, err := resolveMarketBackfillLongHistoryOptions(input.RunType, assetScope, input.TradeDateFrom, input.TradeDateTo, input.Stages)
 	if err != nil {
+		return model.MarketBackfillRun{}, err
+	}
+	if err := r.validateMarketBackfillLongHistorySourceKey(input.SourceKey, longHistory); err != nil {
 		return model.MarketBackfillRun{}, err
 	}
 	if operator == "" {
@@ -1023,11 +1075,11 @@ func (r *InMemoryGrowthRepo) AdminCreateMarketDataBackfillRun(input model.Market
 		Status:             "RUNNING",
 		CurrentStage:       "MASTER",
 		StageProgress:      buildMarketBackfillStageProgressAfterUniverse(assetScope),
-		Summary:    buildMarketBackfillSummary(input, assetScope, snapshotItems, longHistory),
-		CreatedBy:  operator,
-		CreatedAt:  nowText,
-		UpdatedAt:  nowText,
-		FinishedAt: "",
+		Summary:            buildMarketBackfillSummary(input, assetScope, snapshotItems, longHistory),
+		CreatedBy:          operator,
+		CreatedAt:          nowText,
+		UpdatedAt:          nowText,
+		FinishedAt:         "",
 	}
 	if run.BatchSize <= 0 {
 		run.BatchSize = 200

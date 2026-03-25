@@ -246,8 +246,48 @@ func TestAdminCreateMarketDataBackfillRunRejectsLongHistoryWithNonTushareSource(
 	if err == nil {
 		t.Fatal("expected long-history validation error")
 	}
-	if !strings.Contains(err.Error(), "当前仅支持 TUSHARE") {
+	if !strings.Contains(err.Error(), "provider 为 TUSHARE") {
 		t.Fatalf("expected tushare-only validation, got %v", err)
+	}
+}
+
+func TestAdminCreateMarketDataBackfillRunAllowsLongHistoryWithTushareProviderAlias(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+
+	run, err := repo.AdminCreateMarketDataBackfillRun(model.MarketBackfillCreateInput{
+		RunType:       "FULL",
+		AssetScope:    []string{"STOCK"},
+		SourceKey:     "TUSHARE_CN",
+		TradeDateFrom: "2024-01-01",
+		TradeDateTo:   "2025-01-05",
+		BatchSize:     100,
+		Stages:        []string{"QUOTES", "TRUTH"},
+	}, "tester")
+	if err != nil {
+		t.Fatalf("expected tushare-provider alias to pass long-history validation, got %v", err)
+	}
+	if run.SourceKey != "TUSHARE_CN" {
+		t.Fatalf("expected source key to preserve alias, got %+v", run)
+	}
+}
+
+func TestParseMarketBackfillDateRangeCountsCalendarDaysAcrossDST(t *testing.T) {
+	originalLocal := time.Local
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	time.Local = loc
+	t.Cleanup(func() {
+		time.Local = originalLocal
+	})
+
+	dateRange, err := parseMarketBackfillDateRange("2024-03-10", "2024-03-11")
+	if err != nil {
+		t.Fatalf("parseMarketBackfillDateRange returned error: %v", err)
+	}
+	if dateRange.Days != 2 {
+		t.Fatalf("expected inclusive 2 calendar days across DST, got %+v", dateRange)
 	}
 }
 

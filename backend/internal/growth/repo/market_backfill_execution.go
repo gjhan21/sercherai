@@ -768,7 +768,10 @@ func (r *MySQLGrowthRepo) runMarketLongHistoryQuotesStage(run model.MarketBackfi
 		for _, chunk := range chunks {
 			for batchIndex, batchItems := range batches {
 				instrumentKeys := universeItemsToInstrumentKeys(batchItems)
-				syncResult, touched, err := r.syncStockMarketDailyBarsByDateRange(run.SourceKey, instrumentKeys, chunk.FromText, chunk.ToText, false)
+				syncResult, touched, err := r.syncStockMarketDailyBarsByDateRange(run.SourceKey, instrumentKeys, chunk.FromText, chunk.ToText, marketStockDateRangeSyncOptions{
+					EnsureMasterSync: false,
+					RebuildTruth:     false,
+				})
 				status := "SUCCESS"
 				message := "quotes synchronized"
 				if len(syncResult.Results) > 0 {
