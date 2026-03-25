@@ -384,6 +384,24 @@ export function collectMarketQualityIssueOptions(items, limit = 8) {
     }));
 }
 
+export function buildStockGovernanceSummaryItems(summary = {}) {
+  return [
+    { key: "stock_master_coverage", label: "主数据覆盖", value: Number(summary?.stock_master_coverage) || 0 },
+    { key: "stock_truth_coverage", label: "truth 覆盖", value: Number(summary?.stock_truth_coverage) || 0 },
+    { key: "stock_daily_basic_coverage", label: "daily_basic 覆盖", value: Number(summary?.stock_daily_basic_coverage) || 0 },
+    { key: "stock_moneyflow_coverage", label: "moneyflow 覆盖", value: Number(summary?.stock_moneyflow_coverage) || 0 },
+    { key: "stock_news_coverage", label: "公告资讯覆盖", value: Number(summary?.stock_news_coverage) || 0 },
+    { key: "canonical_key_gap_count", label: "canonical 缺口", value: Number(summary?.canonical_key_gap_count) || 0 },
+    { key: "display_name_missing_count", label: "名称缺口", value: Number(summary?.display_name_missing_count) || 0 },
+    { key: "list_date_missing_count", label: "上市日缺口", value: Number(summary?.list_date_missing_count) || 0 }
+  ];
+}
+
+export function formatStockFallbackSourceSummary(summary = {}) {
+  const raw = String(summary?.fallback_source_summary || "").trim();
+  return raw || "暂无回填摘要";
+}
+
 export function buildMarketQualityDialogTitle(item = {}) {
   const assetClass = String(item?.asset_class || "").trim().toUpperCase();
   const issueCode = String(item?.issue_code || "").trim().toUpperCase();

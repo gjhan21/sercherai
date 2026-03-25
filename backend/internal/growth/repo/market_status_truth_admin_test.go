@@ -231,6 +231,37 @@ func TestAdminGetMarketDataQualitySummaryAggregatesCountsAndLatestEntries(t *tes
 			"upstream timeout",
 			latestErrorAt,
 		))
+	mock.ExpectQuery(`SELECT MAX\(trade_date\)\s+FROM market_daily_bar_truth`).
+		WithArgs("STOCK").
+		WillReturnRows(sqlmock.NewRows([]string{"max_trade_date"}).AddRow(latestTradeDate))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM market_instruments\s+WHERE asset_class = \? AND status = 'ACTIVE'`).
+		WithArgs("STOCK").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4821))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM market_instruments\s+WHERE asset_class = \? AND status = 'ACTIVE' AND \(display_name IS NULL OR TRIM\(display_name\) = '' OR display_name = instrument_key\)`).
+		WithArgs("STOCK").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(8))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM market_instruments\s+WHERE asset_class = \? AND status = 'ACTIVE' AND list_date IS NULL`).
+		WithArgs("STOCK").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(21))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM market_instruments\s+WHERE asset_class = \? AND status = 'ACTIVE' AND instrument_key NOT LIKE '%%\.%%'`).
+		WithArgs("STOCK").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT instrument_key\)\s+FROM market_daily_bar_truth`).
+		WithArgs("STOCK", "2026-03-22").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4789))
+	mock.ExpectQuery(`SELECT COALESCE\(selected_source_key, ''\), COUNT\(\*\)\s+FROM market_daily_bar_truth`).
+		WithArgs("STOCK", "2026-03-22").
+		WillReturnRows(sqlmock.NewRows([]string{"selected_source_key", "count"}).
+			AddRow("TUSHARE", 4620).
+			AddRow("MYSELF", 121).
+			AddRow("AKSHARE", 48))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT symbol\) FROM stock_daily_basic WHERE trade_date = \(SELECT MAX\(trade_date\) FROM stock_daily_basic\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4703))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT symbol\) FROM stock_moneyflow_daily WHERE trade_date = \(SELECT MAX\(trade_date\) FROM stock_moneyflow_daily\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4688))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT symbol\) FROM stock_news_raw WHERE published_at >= \?`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1264))
 
 	summary, err := repo.AdminGetMarketDataQualitySummary("stock", 24)
 	if err != nil {
@@ -256,6 +287,18 @@ func TestAdminGetMarketDataQualitySummaryAggregatesCountsAndLatestEntries(t *tes
 	}
 	if summary.LatestErrorCreatedAt == "" {
 		t.Fatalf("expected latest error created_at, got %+v", summary)
+	}
+	if summary.StockMasterCoverage != 4821 || summary.StockTruthCoverage != 4789 {
+		t.Fatalf("unexpected stock coverage fields: %+v", summary)
+	}
+	if summary.StockDailyBasicCoverage != 4703 || summary.StockMoneyflowCoverage != 4688 || summary.StockNewsCoverage != 1264 {
+		t.Fatalf("unexpected factor coverage fields: %+v", summary)
+	}
+	if summary.FallbackSourceSummary != "TUSHARE:4620, MYSELF:121, AKSHARE:48" {
+		t.Fatalf("unexpected fallback source summary: %+v", summary)
+	}
+	if summary.CanonicalKeyGapCount != 3 || summary.DisplayNameMissingCount != 8 || summary.ListDateMissingCount != 21 {
+		t.Fatalf("unexpected stock governance gaps: %+v", summary)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)

@@ -28,6 +28,13 @@ func TestLoadStrategyStockContextCandidatesDedupesMixedSymbolFormatsInAutoMode(t
 			"turnover",
 			"metadata_json",
 		}).AddRow(
+			"600036",
+			"招商银行",
+			"AKSHARE",
+			1100000,
+			990000000,
+			`{"industry":"银行","sector":"金融"}`,
+		).AddRow(
 			"600036.SH",
 			"招商银行",
 			"MYSELF",
@@ -35,14 +42,7 @@ func TestLoadStrategyStockContextCandidatesDedupesMixedSymbolFormatsInAutoMode(t
 			980000000,
 			`{"industry":"银行","sector":"金融"}`,
 		).AddRow(
-			"600036",
-			"招商银行",
-			"AKSHARE",
-			900000,
-			970000000,
-			`{"industry":"银行","sector":"金融"}`,
-		).AddRow(
-			"000333",
+			"000333.SZ",
 			"美的集团",
 			"AKSHARE",
 			1200000,
@@ -58,9 +58,9 @@ func TestLoadStrategyStockContextCandidatesDedupesMixedSymbolFormatsInAutoMode(t
 		t.Fatalf("expected 2 deduped candidates, got %d (%+v)", len(items), items)
 	}
 	if items[0].Symbol != "600036.SH" {
-		t.Fatalf("expected higher-priority first variant to be kept, got %+v", items[0])
+		t.Fatalf("expected canonical ts_code variant to be kept, got %+v", items[0])
 	}
-	if items[1].Symbol != "000333" {
+	if items[1].Symbol != "000333.SZ" {
 		t.Fatalf("expected unrelated symbol to remain, got %+v", items[1])
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

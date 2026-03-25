@@ -35,6 +35,7 @@ import {
   areMarketQualityFiltersEqual,
   buildMarketCoverageAssetRows,
   buildMarketCoverageOverviewCards,
+  buildStockGovernanceSummaryItems,
   buildUniverseSnapshotDigest,
   buildMarketQualityRouteQuery,
   buildMarketQualityBucketSummary,
@@ -43,6 +44,7 @@ import {
   formatMarketBackfillStatusLabel,
   formatMarketQualityLookbackLabel,
   formatMarketQualityPayload,
+  formatStockFallbackSourceSummary,
   formatTruthRebuildSuccessMessage,
   marketBackfillStatusTagType,
   marketQualitySeverityTagType,
@@ -213,6 +215,9 @@ const qualitySeverityBuckets = computed(() =>
 const qualityLookbackLabel = computed(() => formatMarketQualityLookbackLabel(qualityFilters.hours));
 const marketCoverageOverviewCards = computed(() =>
   buildMarketCoverageOverviewCards(marketCoverageSummary.value || {})
+);
+const stockGovernanceSummaryItems = computed(() =>
+  buildStockGovernanceSummaryItems(qualitySummaryStock.value || {})
 );
 
 const selectedQualityPayloadText = computed(() =>
@@ -2113,8 +2118,15 @@ watch(
             <li>警告：{{ qualitySummaryStock?.warn_count || 0 }}</li>
             <li>信息：{{ qualitySummaryStock?.info_count || 0 }}</li>
             <li>涉及来源：{{ qualitySummaryStock?.distinct_source_count || 0 }}</li>
+            <li>最新交易日：{{ qualitySummaryStock?.latest_trade_date || "暂无" }}</li>
             <li>最近事件：{{ formatQualitySummaryLatest(qualitySummaryStock) }}</li>
             <li>最近错误：{{ formatQualitySummaryLatestError(qualitySummaryStock) }}</li>
+            <li>回填来源：{{ formatStockFallbackSourceSummary(qualitySummaryStock) }}</li>
+          </ul>
+          <ul class="truth-summary-list truth-summary-list--compact">
+            <li v-for="item in stockGovernanceSummaryItems" :key="item.key">
+              {{ item.label }}：{{ item.value }}
+            </li>
           </ul>
         </div>
         <div class="truth-summary-card">

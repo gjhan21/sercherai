@@ -15,23 +15,32 @@ type MarketDataQualityLog struct {
 }
 
 type MarketDataQualitySummary struct {
-	AssetClass           string `json:"asset_class,omitempty"`
-	LookbackHours        int    `json:"lookback_hours"`
-	TotalCount           int    `json:"total_count"`
-	ErrorCount           int    `json:"error_count"`
-	WarnCount            int    `json:"warn_count"`
-	InfoCount            int    `json:"info_count"`
-	DistinctSourceCount  int    `json:"distinct_source_count"`
-	LatestSourceKey      string `json:"latest_source_key,omitempty"`
-	LatestSeverity       string `json:"latest_severity,omitempty"`
-	LatestIssueCode      string `json:"latest_issue_code,omitempty"`
-	LatestIssueMessage   string `json:"latest_issue_message,omitempty"`
-	LatestTradeDate      string `json:"latest_trade_date,omitempty"`
-	LatestCreatedAt      string `json:"latest_created_at,omitempty"`
-	LatestErrorSourceKey string `json:"latest_error_source_key,omitempty"`
-	LatestErrorIssueCode string `json:"latest_error_issue_code,omitempty"`
-	LatestErrorMessage   string `json:"latest_error_message,omitempty"`
-	LatestErrorCreatedAt string `json:"latest_error_created_at,omitempty"`
+	AssetClass              string `json:"asset_class,omitempty"`
+	LookbackHours           int    `json:"lookback_hours"`
+	TotalCount              int    `json:"total_count"`
+	ErrorCount              int    `json:"error_count"`
+	WarnCount               int    `json:"warn_count"`
+	InfoCount               int    `json:"info_count"`
+	DistinctSourceCount     int    `json:"distinct_source_count"`
+	LatestSourceKey         string `json:"latest_source_key,omitempty"`
+	LatestSeverity          string `json:"latest_severity,omitempty"`
+	LatestIssueCode         string `json:"latest_issue_code,omitempty"`
+	LatestIssueMessage      string `json:"latest_issue_message,omitempty"`
+	LatestTradeDate         string `json:"latest_trade_date,omitempty"`
+	LatestCreatedAt         string `json:"latest_created_at,omitempty"`
+	LatestErrorSourceKey    string `json:"latest_error_source_key,omitempty"`
+	LatestErrorIssueCode    string `json:"latest_error_issue_code,omitempty"`
+	LatestErrorMessage      string `json:"latest_error_message,omitempty"`
+	LatestErrorCreatedAt    string `json:"latest_error_created_at,omitempty"`
+	StockMasterCoverage     int    `json:"stock_master_coverage,omitempty"`
+	StockTruthCoverage      int    `json:"stock_truth_coverage,omitempty"`
+	StockDailyBasicCoverage int    `json:"stock_daily_basic_coverage,omitempty"`
+	StockMoneyflowCoverage  int    `json:"stock_moneyflow_coverage,omitempty"`
+	StockNewsCoverage       int    `json:"stock_news_coverage,omitempty"`
+	FallbackSourceSummary   string `json:"fallback_source_summary,omitempty"`
+	CanonicalKeyGapCount    int    `json:"canonical_key_gap_count,omitempty"`
+	DisplayNameMissingCount int    `json:"display_name_missing_count,omitempty"`
+	ListDateMissingCount    int    `json:"list_date_missing_count,omitempty"`
 }
 
 type MarketDerivedTruthRebuildResult struct {

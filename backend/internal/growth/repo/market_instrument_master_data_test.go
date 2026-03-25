@@ -1,10 +1,219 @@
 package repo
 
 import (
+	"bytes"
+	"io"
+	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestCanonicalStockInstrumentKey(t *testing.T) {
+	cases := map[string]string{
+		"600519":    "600519.SH",
+		"000001":    "000001.SZ",
+		"430047":    "430047.BJ",
+		"sh600519":  "600519.SH",
+		"sz000001":  "000001.SZ",
+		"bj430047":  "430047.BJ",
+		"600519.SH": "600519.SH",
+		"":          "",
+	}
+	for raw, expected := range cases {
+		if got := canonicalStockInstrumentKey(raw); got != expected {
+			t.Fatalf("canonicalStockInstrumentKey(%q) = %q, want %q", raw, got, expected)
+		}
+	}
+}
+
+func TestNormalizeStockSymbolListCanonicalizesAndDeduplicates(t *testing.T) {
+	items := normalizeStockSymbolList([]string{
+		"600519",
+		"600519.SH",
+		"sh600519",
+		"000001",
+		"000001.SZ",
+		"sz000001",
+		"430047",
+		"bj430047",
+		"",
+		"   ",
+	})
+	expected := []string{"600519.SH", "000001.SZ", "430047.BJ"}
+	if !reflect.DeepEqual(items, expected) {
+		t.Fatalf("unexpected normalized stock symbol list: %#v", items)
+	}
+}
+
+func TestBuildTushareStockInstrumentFacts(t *testing.T) {
+	fetchedAt := time.Date(2026, 3, 23, 10, 0, 0, 0, time.Local)
+	facts := buildTushareStockInstrumentFacts([]tushareStockBasicRecord{
+		{
+			TSCode:     "600519.SH",
+			Symbol:     "600519",
+			Name:       "贵州茅台",
+			Area:       "贵州",
+			Industry:   "白酒",
+			Market:     "主板",
+			ListDate:   "20010827",
+			ListStatus: "L",
+			IsHS:       "H",
+			Exchange:   "SSE",
+		},
+		{
+			TSCode:     "000001.SZ",
+			Symbol:     "000001",
+			Name:       "平安银行",
+			Area:       "深圳",
+			Industry:   "银行",
+			Market:     "主板",
+			ListDate:   "19910403",
+			ListStatus: "L",
+			Exchange:   "SZSE",
+		},
+	}, fetchedAt)
+	if len(facts) != 2 {
+		t.Fatalf("expected 2 facts, got %d", len(facts))
+	}
+	if facts[0].InstrumentKey != "600519.SH" || facts[1].InstrumentKey != "000001.SZ" {
+		t.Fatalf("unexpected instrument keys: %#v", facts)
+	}
+	if facts[0].DisplayName != "贵州茅台" || facts[1].DisplayName != "平安银行" {
+		t.Fatalf("unexpected display names: %#v", facts)
+	}
+	if facts[0].ListDate != "2001-08-27" || facts[1].ListDate != "1991-04-03" {
+		t.Fatalf("unexpected list dates: %#v", facts)
+	}
+	if facts[0].SourceUpdatedAt != fetchedAt || facts[1].SourceUpdatedAt != fetchedAt {
+		t.Fatalf("unexpected source updated at: %#v", facts)
+	}
+}
+
+func TestFetchStockInstrumentFactsFromTushareReturnsFullMarketFactsWhenKeysEmpty(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	defer func() {
+		http.DefaultTransport = originalTransport
+	}()
+
+	requestCount := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requestCount++
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if !bytes.Contains(body, []byte(`"api_name":"stock_basic"`)) {
+			t.Fatalf("expected stock_basic api call, got %s", string(body))
+		}
+		payload := `{"code":0,"msg":"","data":{"fields":["ts_code","symbol","name","area","industry","market","list_date","delist_date","list_status","is_hs","exchange"],"items":[["600519.SH","600519","贵州茅台","贵州","白酒","主板","20010827","","L","H","SSE"],["000001.SZ","000001","平安银行","深圳","银行","主板","19910403","","L","","SZSE"]]}}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(payload)),
+			Header:     make(http.Header),
+		}, nil
+	})
+
+	facts, err := fetchStockInstrumentFactsFromTushare("token", "TUSHARE", nil, 1000)
+	if err != nil {
+		t.Fatalf("fetchStockInstrumentFactsFromTushare: %v", err)
+	}
+	if requestCount != 1 {
+		t.Fatalf("expected 1 request, got %d", requestCount)
+	}
+	if len(facts) != 2 {
+		t.Fatalf("expected 2 facts, got %d", len(facts))
+	}
+	if facts[0].SourceKey != "TUSHARE" || facts[1].SourceKey != "TUSHARE" {
+		t.Fatalf("expected source key TUSHARE, got %#v", facts)
+	}
+	if facts[0].InstrumentKey != "600519.SH" || facts[1].InstrumentKey != "000001.SZ" {
+		t.Fatalf("unexpected facts: %#v", facts)
+	}
+}
+
+func TestFetchStockInstrumentFactsFromTushareCanonicalizesRequestedKeys(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	defer func() {
+		http.DefaultTransport = originalTransport
+	}()
+
+	requestBodies := make([]string, 0, 2)
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		requestBodies = append(requestBodies, string(body))
+		switch len(requestBodies) {
+		case 1:
+			if !bytes.Contains(body, []byte(`"ts_code":"600519.SH"`)) {
+				t.Fatalf("expected canonical ts_code in stock_basic request, got %s", string(body))
+			}
+			payload := `{"code":0,"msg":"","data":{"fields":["ts_code","symbol","name","area","industry","market","list_date","delist_date","list_status","is_hs","exchange"],"items":[["600519.SH","600519","贵州茅台","贵州","白酒","主板","20010827","","L","H","SSE"]]}}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(payload)),
+				Header:     make(http.Header),
+			}, nil
+		default:
+			if !bytes.Contains(body, []byte(`"api_name":"stock_company"`)) || !bytes.Contains(body, []byte(`"ts_code":"600519.SH"`)) {
+				t.Fatalf("expected canonical ts_code in stock_company request, got %s", string(body))
+			}
+			payload := `{"code":0,"msg":"","data":{"fields":["ts_code","exchange","chairman","manager","secretary","reg_capital","setup_date","province","city","website","email","employees","main_business","business_scope"],"items":[["600519.SH","SSE","","","","","","","","","","","",""]]}}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(payload)),
+				Header:     make(http.Header),
+			}, nil
+		}
+	})
+
+	facts, err := fetchStockInstrumentFactsFromTushare("token", "TUSHARE", []string{"600519"}, 1000)
+	if err != nil {
+		t.Fatalf("fetchStockInstrumentFactsFromTushare: %v", err)
+	}
+	if len(requestBodies) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(requestBodies))
+	}
+	if len(facts) != 1 || facts[0].InstrumentKey != "600519.SH" {
+		t.Fatalf("unexpected facts: %#v", facts)
+	}
+}
+
+func TestNormalizeMarketInstrumentKeysCanonicalizesStockKeys(t *testing.T) {
+	items := normalizeMarketInstrumentKeys(marketAssetClassStock, []string{
+		"600519",
+		"600519.SH",
+		"sh600519",
+		"000001",
+		"000001.SZ",
+	})
+	expected := []string{"600519.SH", "000001.SZ"}
+	if !reflect.DeepEqual(items, expected) {
+		t.Fatalf("unexpected market instrument keys: %#v", items)
+	}
+}
+
+func TestMergeMarketInstrumentKeysFromFactsUsesFetchedStockUniverse(t *testing.T) {
+	items := mergeMarketInstrumentKeysFromFacts(marketAssetClassStock, nil, []marketInstrumentSourceFact{
+		{InstrumentKey: "600519.SH"},
+		{InstrumentKey: "600519"},
+		{InstrumentKey: "000001.SZ"},
+		{InstrumentKey: "000001"},
+	})
+	expected := []string{"600519.SH", "000001.SZ"}
+	if !reflect.DeepEqual(items, expected) {
+		t.Fatalf("unexpected merged market instrument keys: %#v", items)
+	}
+}
+
+type roundTripFunc func(req *http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
 
 func TestBuildTushareStockInstrumentFact(t *testing.T) {
 	fetchedAt := time.Date(2026, 3, 22, 10, 30, 0, 0, time.Local)

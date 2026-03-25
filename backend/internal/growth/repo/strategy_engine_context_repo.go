@@ -531,6 +531,16 @@ WHERE asset_class = ? AND trade_date <= ?`
 }
 
 func (r *MySQLGrowthRepo) loadStrategyStockContextCandidates(selectedTradeDate time.Time, includeSymbols []string, excludeSymbols map[string]struct{}, limit int) ([]strategyStockContextCandidate, error) {
+	includeSymbols = normalizeStockSymbolList(includeSymbols)
+	normalizedExcludeSymbols := make(map[string]struct{}, len(excludeSymbols))
+	for symbol := range excludeSymbols {
+		normalized := canonicalStockInstrumentKey(symbol)
+		if normalized == "" {
+			continue
+		}
+		normalizedExcludeSymbols[normalized] = struct{}{}
+	}
+
 	args := []any{marketAssetClassStock, selectedTradeDate.Format("2006-01-02")}
 	query := `
 SELECT t.instrument_key,
@@ -567,14 +577,14 @@ WHERE t.asset_class = ? AND t.trade_date = ?`
 		if err := rows.Scan(&item.Symbol, &item.Name, &item.PriceSource, &item.Volume, &item.Turnover, &metadataJSON); err != nil {
 			return nil, err
 		}
-		item.Symbol = strings.ToUpper(strings.TrimSpace(item.Symbol))
+		item.Symbol = canonicalStockInstrumentKey(item.Symbol)
 		item.Name = strings.TrimSpace(item.Name)
 		item.PriceSource = strings.ToUpper(strings.TrimSpace(item.PriceSource))
 		item.Industry, item.Sector, item.ThemeTags, item.RiskFlags, item.RiskWarning = parseStockInstrumentMetadata(metadataJSON)
 		if item.Symbol == "" {
 			continue
 		}
-		if _, blocked := excludeSymbols[item.Symbol]; blocked {
+		if _, blocked := normalizedExcludeSymbols[item.Symbol]; blocked {
 			continue
 		}
 		if item.Name == "" {
@@ -593,7 +603,7 @@ WHERE t.asset_class = ? AND t.trade_date = ?`
 	}
 	order := make(map[string]int, len(includeSymbols))
 	for index, symbol := range includeSymbols {
-		order[symbol] = index
+		order[canonicalStockInstrumentKey(symbol)] = index
 	}
 	sort.SliceStable(items, func(i, j int) bool {
 		return order[items[i].Symbol] < order[items[j].Symbol]

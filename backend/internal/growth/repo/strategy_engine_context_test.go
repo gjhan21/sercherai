@@ -407,37 +407,37 @@ func TestBuildStrategyEngineStockSelectionContextAutoModeSkipsListingDaysWhenTru
 			AddRow("600519", "贵州茅台", "AKSHARE", 26132, 3782818260, "").
 			AddRow("300750", "宁德时代", "AKSHARE", 537297, 22252017693, ""))
 	mock.ExpectQuery(strategyStockContextHistoryQueryPattern).
-		WithArgs(marketAssetClassStock, "600519", "300750", "2026-01-19", "2026-03-20").
+		WithArgs(marketAssetClassStock, "600519.SH", "300750.SZ", "2026-01-19", "2026-03-20").
 		WillReturnRows(func() *sqlmock.Rows {
 			rows := sqlmock.NewRows([]string{"instrument_key", "trade_date", "open_price", "high_price", "low_price", "close_price", "prev_close_price", "volume", "turnover"})
-			rows = appendStrategyHistoryRows(rows, "600519", 1400, 2.5, 200000, 30)
-			rows = appendStrategyHistoryRows(rows, "300750", 380, 3.2, 500000, 30)
+			rows = appendStrategyHistoryRows(rows, "600519.SH", 1400, 2.5, 200000, 30)
+			rows = appendStrategyHistoryRows(rows, "300750.SZ", 380, 3.2, 500000, 30)
 			return rows
 		}())
 	mock.ExpectQuery(strategyStockContextStatusTruthQueryPattern).
-		WithArgs("2026-03-20", "600519", "300750").
+		WithArgs("2026-03-20", "600519.SH", "300750.SZ").
 		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "list_date", "is_suspended", "is_st", "risk_warning", "status_reason_codes_json"}))
 	mock.ExpectQuery(strategyStockContextInstrumentListDateQueryPattern).
-		WithArgs(marketAssetClassStock, "600519", "300750").
+		WithArgs(marketAssetClassStock, "600519.SH", "300750.SZ").
 		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "list_date"}))
 	mock.ExpectQuery(strategyStockContextListingDateQueryPattern).
-		WithArgs(marketAssetClassStock, "600519", "300750", "600519", "300750").
+		WithArgs(marketAssetClassStock, "600519.SH", "300750.SZ", "600519", "300750").
 		WillReturnRows(sqlmock.NewRows([]string{"instrument_key", "min_trade_date"}).
-			AddRow("600519", time.Date(2025, 11, 11, 0, 0, 0, 0, time.Local)).
-			AddRow("300750", time.Date(2025, 11, 11, 0, 0, 0, 0, time.Local)))
+			AddRow("600519.SH", time.Date(2025, 11, 11, 0, 0, 0, 0, time.Local)).
+			AddRow("300750.SZ", time.Date(2025, 11, 11, 0, 0, 0, 0, time.Local)))
 	mock.ExpectQuery(strategyStockContextCoverageStartQueryPattern).
 		WithArgs(marketAssetClassStock).
 		WillReturnRows(sqlmock.NewRows([]string{"min_trade_date"}).AddRow(time.Date(2025, 11, 11, 0, 0, 0, 0, time.Local)))
 	mock.ExpectQuery(strategyStockContextDailyBasicQueryPattern).
-		WithArgs("600519", "300750", "2026-03-20", "600519", "300750").
+		WithArgs("600519.SH", "300750.SZ", "2026-03-20", "600519.SH", "300750.SZ").
 		WillReturnRows(sqlmock.NewRows([]string{"symbol", "trade_date", "turnover_rate", "volume_ratio", "pe_ttm", "pb", "total_mv", "circ_mv", "source_key"}).
-			AddRow("600519", selectedTradeDate, 0.82, 1.18, 25.6, 9.1, 1000000, 800000, "AKSHARE").
-			AddRow("300750", selectedTradeDate, 1.36, 1.42, 32.4, 7.4, 1200000, 900000, "AKSHARE"))
+			AddRow("600519.SH", selectedTradeDate, 0.82, 1.18, 25.6, 9.1, 1000000, 800000, "AKSHARE").
+			AddRow("300750.SZ", selectedTradeDate, 1.36, 1.42, 32.4, 7.4, 1200000, 900000, "AKSHARE"))
 	mock.ExpectQuery(strategyStockContextMoneyflowQueryPattern).
-		WithArgs("600519", "300750", "2026-03-20", "600519", "300750").
+		WithArgs("600519.SH", "300750.SZ", "2026-03-20", "600519.SH", "300750.SZ").
 		WillReturnRows(sqlmock.NewRows([]string{"symbol", "trade_date", "net_mf_amount", "buy_lg_amount", "sell_lg_amount", "buy_elg_amount", "sell_elg_amount", "source_key"}).
-			AddRow("600519", selectedTradeDate, 9800.5, 0, 0, 0, 0, "AKSHARE").
-			AddRow("300750", selectedTradeDate, 15200.7, 0, 0, 0, 0, "AKSHARE"))
+			AddRow("600519.SH", selectedTradeDate, 9800.5, 0, 0, 0, 0, "AKSHARE").
+			AddRow("300750.SZ", selectedTradeDate, 15200.7, 0, 0, 0, 0, "AKSHARE"))
 	mock.ExpectQuery(strategyStockContextNewsQueryPattern).
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"primary_symbol", "symbols_json", "title"}))

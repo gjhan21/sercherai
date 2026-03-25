@@ -161,6 +161,12 @@ type StockQuoteSyncRequest struct {
 	SourceKey string   `json:"source_key"`
 	Symbols   []string `json:"symbols"`
 	Days      int      `json:"days" binding:"omitempty,gte=5,lte=365"`
+	SyncMode  string   `json:"sync_mode"`
+}
+
+type StockMasterSyncRequest struct {
+	SourceKey string   `json:"source_key"`
+	Symbols   []string `json:"symbols"`
 }
 
 type FuturesStrategyRequest struct {

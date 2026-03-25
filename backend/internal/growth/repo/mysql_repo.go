@@ -11337,7 +11337,7 @@ func normalizeStockSymbolList(symbols []string) []string {
 	seen := make(map[string]struct{}, len(symbols))
 	result := make([]string, 0, len(symbols))
 	for _, symbol := range symbols {
-		normalized := strings.ToUpper(strings.TrimSpace(symbol))
+		normalized := canonicalStockInstrumentKey(symbol)
 		if normalized == "" {
 			continue
 		}

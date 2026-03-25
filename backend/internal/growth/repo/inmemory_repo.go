@@ -1011,6 +1011,39 @@ func (r *InMemoryGrowthRepo) AdminUpdateStockRecommendationStatus(id string, sta
 	return nil
 }
 
+func (r *InMemoryGrowthRepo) AdminSyncStockInstrumentMaster(sourceKey string, symbols []string) (model.MarketSyncResult, error) {
+	symbols = normalizeStockSymbolList(symbols)
+	if len(symbols) == 0 {
+		symbols = []string{
+			"600519.SH", "601318.SH", "600036.SH", "600276.SH", "601012.SH",
+			"000333.SZ", "300750.SZ", "002594.SZ", "688981.SH", "601888.SH",
+			"000858.SZ", "000001.SZ", "601166.SH", "300015.SZ", "000651.SZ",
+		}
+	}
+	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
+	if sourceKey == "" {
+		sourceKey = "TUSHARE"
+	}
+	count := len(symbols)
+	return model.MarketSyncResult{
+		AssetClass:         "STOCK",
+		DataKind:           "INSTRUMENT_MASTER",
+		RequestedSourceKey: sourceKey,
+		ResolvedSourceKeys: []string{sourceKey},
+		TruthCount:         count,
+		Results: []model.MarketSourceSyncItemResult{
+			{
+				SourceKey:     sourceKey,
+				Status:        "SUCCESS",
+				TruthCount:    count,
+				Message:       "in-memory stock instrument sync",
+				SnapshotCount: 1,
+			},
+		},
+		SnapshotCount: 1,
+	}, nil
+}
+
 func (r *InMemoryGrowthRepo) AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error) {
 	result, err := r.AdminSyncStockQuotesDetailed(sourceKey, symbols, days)
 	if err != nil {
@@ -1052,6 +1085,138 @@ func (r *InMemoryGrowthRepo) AdminSyncStockQuotesDetailed(sourceKey string, symb
 				Message:       "in-memory market sync",
 			},
 		},
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncStockQuotesFromMaster(sourceKey string, days int) (model.MarketSyncResult, error) {
+	if days <= 0 {
+		days = 90
+	}
+	symbols := []string{
+		"000001.SZ", "000333.SZ", "002594.SZ", "300750.SZ",
+		"600000.SH", "600036.SH", "600519.SH", "601318.SH",
+		"601398.SH", "601899.SH", "688111.SH", "688981.SH",
+	}
+	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
+	if sourceKey == "" {
+		sourceKey = "TUSHARE"
+	}
+	count := len(symbols) * days
+	return model.MarketSyncResult{
+		AssetClass:         "STOCK",
+		DataKind:           "DAILY_BARS",
+		RequestedSourceKey: sourceKey,
+		ResolvedSourceKeys: []string{sourceKey},
+		BarCount:           count,
+		TruthCount:         count,
+		SnapshotCount:      1,
+		Results: []model.MarketSourceSyncItemResult{
+			{
+				SourceKey:     sourceKey,
+				Status:        "SUCCESS",
+				BarCount:      count,
+				TruthCount:    count,
+				SnapshotCount: 1,
+				Message:       "in-memory full-market stock sync",
+			},
+		},
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncStockDailyBasics(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
+	if days <= 0 {
+		days = 30
+	}
+	if len(symbols) == 0 {
+		symbols = []string{
+			"000001.SZ", "000333.SZ", "002594.SZ", "300750.SZ",
+			"600000.SH", "600036.SH", "600519.SH", "601318.SH",
+			"601398.SH", "601899.SH", "688111.SH", "688981.SH",
+		}
+	}
+	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
+	if sourceKey == "" {
+		sourceKey = "TUSHARE"
+	}
+	count := len(symbols) * days
+	return model.MarketSyncResult{
+		AssetClass:         "STOCK",
+		DataKind:           "STOCK_DAILY_BASIC",
+		RequestedSourceKey: sourceKey,
+		ResolvedSourceKeys: []string{sourceKey},
+		TruthCount:         count,
+		SnapshotCount:      1,
+		Results: []model.MarketSourceSyncItemResult{{
+			SourceKey:     sourceKey,
+			Status:        "SUCCESS",
+			TruthCount:    count,
+			SnapshotCount: 1,
+			Message:       "in-memory stock daily basic sync",
+		}},
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncStockMoneyflows(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
+	if days <= 0 {
+		days = 30
+	}
+	if len(symbols) == 0 {
+		symbols = []string{
+			"000001.SZ", "000333.SZ", "002594.SZ", "300750.SZ",
+			"600000.SH", "600036.SH", "600519.SH", "601318.SH",
+			"601398.SH", "601899.SH", "688111.SH", "688981.SH",
+		}
+	}
+	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
+	if sourceKey == "" {
+		sourceKey = "TUSHARE"
+	}
+	count := len(symbols) * days
+	return model.MarketSyncResult{
+		AssetClass:         "STOCK",
+		DataKind:           "STOCK_MONEYFLOW",
+		RequestedSourceKey: sourceKey,
+		ResolvedSourceKeys: []string{sourceKey},
+		TruthCount:         count,
+		SnapshotCount:      1,
+		Results: []model.MarketSourceSyncItemResult{{
+			SourceKey:     sourceKey,
+			Status:        "SUCCESS",
+			TruthCount:    count,
+			SnapshotCount: 1,
+			Message:       "in-memory stock moneyflow sync",
+		}},
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncStockNewsRaw(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
+	if days <= 0 {
+		days = 7
+	}
+	if len(symbols) == 0 {
+		symbols = []string{
+			"600519.SH", "601318.SH", "300750.SZ", "000333.SZ",
+		}
+	}
+	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
+	if sourceKey == "" {
+		sourceKey = "TUSHARE"
+	}
+	count := len(symbols) * 2
+	return model.MarketSyncResult{
+		AssetClass:         "STOCK",
+		DataKind:           "STOCK_NEWS_RAW",
+		RequestedSourceKey: sourceKey,
+		ResolvedSourceKeys: []string{sourceKey},
+		NewsCount:          count,
+		SnapshotCount:      1,
+		Results: []model.MarketSourceSyncItemResult{{
+			SourceKey:     sourceKey,
+			Status:        "SUCCESS",
+			NewsCount:     count,
+			SnapshotCount: 1,
+			Message:       "in-memory stock news sync",
+		}},
 	}, nil
 }
 

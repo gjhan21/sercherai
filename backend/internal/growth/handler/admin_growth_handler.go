@@ -886,6 +886,18 @@ func normalizeStockSymbols(raw []string) []string {
 	return result
 }
 
+func normalizeStockQuoteSyncMode(raw string, symbols []string) string {
+	mode := strings.ToUpper(strings.TrimSpace(raw))
+	switch mode {
+	case "FULL_MARKET", "EXPLICIT", "SAMPLE":
+		return mode
+	}
+	if len(symbols) > 0 {
+		return "EXPLICIT"
+	}
+	return "SAMPLE"
+}
+
 func parseQuantEvaluationQuery(c *gin.Context) (int, int) {
 	windowDays := 60
 	if parsed, err := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("days", "60"))); err == nil && parsed > 0 {
@@ -1034,8 +1046,17 @@ func (h *AdminGrowthHandler) SyncStockQuotes(c *gin.Context) {
 		days = 365
 	}
 	symbols := normalizeStockSymbols(req.Symbols)
+	syncMode := normalizeStockQuoteSyncMode(req.SyncMode, symbols)
 
-	result, err := h.service.AdminSyncStockQuotesDetailed(sourceKey, symbols, days)
+	var (
+		result model.MarketSyncResult
+		err    error
+	)
+	if syncMode == "FULL_MARKET" {
+		result, err = h.service.AdminSyncStockQuotesFromMaster(sourceKey, days)
+	} else {
+		result, err = h.service.AdminSyncStockQuotesDetailed(sourceKey, symbols, days)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
@@ -1055,6 +1076,40 @@ func (h *AdminGrowthHandler) SyncStockQuotes(c *gin.Context) {
 		"source_key":           sourceKey,
 		"requested_source_key": requestedSourceKey,
 		"days":                 days,
+		"sync_mode":            syncMode,
+		"symbols":              symbols,
+		"result":               result,
+	}))
+}
+
+func (h *AdminGrowthHandler) SyncStockInstrumentMaster(c *gin.Context) {
+	var req dto.StockMasterSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	requestedSourceKey := strings.ToUpper(strings.TrimSpace(req.SourceKey))
+	sourceKey := requestedSourceKey
+	if sourceKey == "" {
+		sourceKey = h.resolveDefaultConfigValue("stock.master.default_source_key", "TUSHARE")
+	}
+	symbols := normalizeStockSymbols(req.Symbols)
+	result, err := h.service.AdminSyncStockInstrumentMaster(sourceKey, symbols)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	count := result.TruthCount
+	beforeValue := requestedSourceKey
+	if beforeValue == "" {
+		beforeValue = "DEFAULT"
+	}
+	reason := fmt.Sprintf("symbols=%d", len(symbols))
+	h.writeOperationLog(c, "STOCK", "SYNC_INSTRUMENT_MASTER", "STOCK_MASTER", sourceKey, beforeValue, "count="+strconv.Itoa(count), reason)
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"count":                count,
+		"source_key":           sourceKey,
+		"requested_source_key": requestedSourceKey,
 		"symbols":              symbols,
 		"result":               result,
 	}))

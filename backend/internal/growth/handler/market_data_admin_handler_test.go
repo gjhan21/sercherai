@@ -130,6 +130,35 @@ func TestGetMarketDataQualitySummary(t *testing.T) {
 	}
 }
 
+func TestGetMarketDataQualitySummaryIncludesStockCoverageFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/market-quality-summary?asset_class=stock&hours=24", nil)
+
+	handler.GetMarketDataQualitySummary(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	data, _ := payload["data"].(map[string]any)
+	if coverage, ok := data["stock_master_coverage"].(float64); !ok || coverage <= 0 {
+		t.Fatalf("expected stock_master_coverage, got %#v", data["stock_master_coverage"])
+	}
+	if truthCoverage, ok := data["stock_truth_coverage"].(float64); !ok || truthCoverage <= 0 {
+		t.Fatalf("expected stock_truth_coverage, got %#v", data["stock_truth_coverage"])
+	}
+	if latestTradeDate, _ := data["latest_trade_date"].(string); latestTradeDate == "" {
+		t.Fatalf("expected latest_trade_date, got %#v", data["latest_trade_date"])
+	}
+}
+
 func TestGetMarketProviderGovernanceOverview(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := newStockSelectionTestHandler()
@@ -244,6 +273,167 @@ func TestRebuildStockDerivedTruth(t *testing.T) {
 	}
 	if code, ok := payload["code"].(float64); !ok || code != 0 {
 		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+}
+
+func TestSyncStockInstrumentMaster(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/master/sync", strings.NewReader(`{"source_key":"TUSHARE"}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SyncStockInstrumentMaster(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+	data, _ := payload["data"].(map[string]any)
+	if count, ok := data["count"].(float64); !ok || count <= 0 {
+		t.Fatalf("expected positive count, got %#v", data["count"])
+	}
+}
+
+func TestSyncStockQuotesSupportsFullMarketMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/quotes/sync", strings.NewReader(`{"source_key":"TUSHARE","sync_mode":"FULL_MARKET","days":30}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SyncStockQuotes(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+	data, _ := payload["data"].(map[string]any)
+	if mode, _ := data["sync_mode"].(string); mode != "FULL_MARKET" {
+		t.Fatalf("expected sync_mode FULL_MARKET, got %#v", data["sync_mode"])
+	}
+	if count, ok := data["count"].(float64); !ok || count != 360 {
+		t.Fatalf("expected full-market count 360, got %#v", data["count"])
+	}
+}
+
+func TestSyncStockDailyBasics(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/daily-basic/sync", strings.NewReader(`{"source_key":"TUSHARE","days":20}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SyncStockDailyBasics(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+	data, _ := payload["data"].(map[string]any)
+	if count, ok := data["count"].(float64); !ok || count <= 0 {
+		t.Fatalf("expected positive count, got %#v", data["count"])
+	}
+}
+
+func TestSyncStockMoneyflows(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/moneyflow/sync", strings.NewReader(`{"source_key":"TUSHARE","days":20}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SyncStockMoneyflows(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+	data, _ := payload["data"].(map[string]any)
+	if count, ok := data["count"].(float64); !ok || count <= 0 {
+		t.Fatalf("expected positive count, got %#v", data["count"])
+	}
+}
+
+func TestSyncStockNewsSource(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/news/sync", strings.NewReader(`{"source_key":"TUSHARE","days":7}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SyncStockNewsSource(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+}
+
+func TestBackfillStockMarketData(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/backfill", strings.NewReader(`{"source_key":"TUSHARE","days":15}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handler.BackfillStockMarketData(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+	data, _ := payload["data"].(map[string]any)
+	if _, ok := data["daily_basic_result"].(map[string]any); !ok {
+		t.Fatalf("expected daily_basic_result summary, got %#v", data["daily_basic_result"])
 	}
 }
 

@@ -1,5 +1,17 @@
 package dto
 
+type StockMarketDataSyncRequest struct {
+	SourceKey string   `json:"source_key"`
+	Symbols   []string `json:"symbols"`
+	Days      int      `json:"days" binding:"omitempty,gte=1,lte=365"`
+}
+
+type StockMarketDataBackfillRequest struct {
+	SourceKey string   `json:"source_key"`
+	Symbols   []string `json:"symbols"`
+	Days      int      `json:"days" binding:"omitempty,gte=1,lte=365"`
+}
+
 type FuturesQuoteSyncRequest struct {
 	SourceKey string   `json:"source_key"`
 	Contracts []string `json:"contracts"`

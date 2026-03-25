@@ -85,8 +85,13 @@ type GrowthService interface {
 	AdminListStockRecommendations(status string, page int, pageSize int) ([]model.StockRecommendation, int, error)
 	AdminCreateStockRecommendation(item model.StockRecommendation) (string, error)
 	AdminUpdateStockRecommendationStatus(id string, status string) error
+	AdminSyncStockInstrumentMaster(sourceKey string, symbols []string) (model.MarketSyncResult, error)
 	AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error)
 	AdminSyncStockQuotesDetailed(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
+	AdminSyncStockQuotesFromMaster(sourceKey string, days int) (model.MarketSyncResult, error)
+	AdminSyncStockDailyBasics(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
+	AdminSyncStockMoneyflows(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
+	AdminSyncStockNewsRaw(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
 	AdminSyncFuturesQuotes(sourceKey string, contracts []string, days int) (model.MarketSyncResult, error)
 	AdminSyncMarketMasterDetailed(assetType string, sourceKey string, instrumentKeys []string) (model.MarketSyncResult, error)
 	AdminSyncMarketQuotesDetailed(assetType string, sourceKey string, instrumentKeys []string, days int) (model.MarketSyncResult, error)
@@ -591,12 +596,32 @@ func (s *growthService) AdminUpdateStockRecommendationStatus(id string, status s
 	return s.repo.AdminUpdateStockRecommendationStatus(id, status)
 }
 
+func (s *growthService) AdminSyncStockInstrumentMaster(sourceKey string, symbols []string) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncStockInstrumentMaster(sourceKey, symbols)
+}
+
 func (s *growthService) AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error) {
 	return s.repo.AdminSyncStockQuotes(sourceKey, symbols, days)
 }
 
 func (s *growthService) AdminSyncStockQuotesDetailed(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
 	return s.repo.AdminSyncStockQuotesDetailed(sourceKey, symbols, days)
+}
+
+func (s *growthService) AdminSyncStockQuotesFromMaster(sourceKey string, days int) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncStockQuotesFromMaster(sourceKey, days)
+}
+
+func (s *growthService) AdminSyncStockDailyBasics(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncStockDailyBasics(sourceKey, symbols, days)
+}
+
+func (s *growthService) AdminSyncStockMoneyflows(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncStockMoneyflows(sourceKey, symbols, days)
+}
+
+func (s *growthService) AdminSyncStockNewsRaw(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncStockNewsRaw(sourceKey, symbols, days)
 }
 
 func (s *growthService) AdminSyncFuturesQuotes(sourceKey string, contracts []string, days int) (model.MarketSyncResult, error) {

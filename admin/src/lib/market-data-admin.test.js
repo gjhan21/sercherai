@@ -8,6 +8,7 @@ import {
   buildMarketCoverageAssetRows,
   buildMarketCoverageOverviewCards,
   buildMarketQualityDrillQuery,
+  buildStockGovernanceSummaryItems,
   getMarketBackfillDateSpanDays,
   validateMarketBackfillLongHistoryInput,
   buildUniverseSnapshotDigest,
@@ -26,6 +27,7 @@ import {
   formatMarketCenterReturnLabel,
   formatMarketQualityLookbackLabel,
   formatMarketQualityPayload,
+  formatStockFallbackSourceSummary,
   formatTruthRebuildSuccessMessage,
   marketBackfillDetailStatusTagType,
   marketBackfillStatusTagType,
@@ -92,6 +94,26 @@ test("collectMarketQualityIssueOptions sorts by frequency then code", () => {
       { value: "SOURCE_FETCH_FAILED", label: "SOURCE_FETCH_FAILED (2)" }
     ]
   );
+});
+
+test("buildStockGovernanceSummaryItems normalizes stock governance coverage fields", () => {
+  assert.deepEqual(
+    buildStockGovernanceSummaryItems({
+      stock_master_coverage: 4800,
+      stock_truth_coverage: "4700",
+      canonical_key_gap_count: "6"
+    }).slice(0, 3),
+    [
+      { key: "stock_master_coverage", label: "主数据覆盖", value: 4800 },
+      { key: "stock_truth_coverage", label: "truth 覆盖", value: 4700 },
+      { key: "stock_daily_basic_coverage", label: "daily_basic 覆盖", value: 0 }
+    ]
+  );
+  assert.equal(
+    formatStockFallbackSourceSummary({ fallback_source_summary: "TUSHARE:4620, MYSELF:121" }),
+    "TUSHARE:4620, MYSELF:121"
+  );
+  assert.equal(formatStockFallbackSourceSummary({}), "暂无回填摘要");
 });
 
 test("buildMarketQualityDialogTitle uses asset and issue code when present", () => {

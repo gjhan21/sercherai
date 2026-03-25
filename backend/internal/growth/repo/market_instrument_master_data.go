@@ -117,12 +117,48 @@ func defaultMarketInstrumentSourcePriority(assetClass string) []string {
 	}
 }
 
+func normalizeMarketInstrumentKeys(assetClass string, instrumentKeys []string) []string {
+	switch assetClass {
+	case marketAssetClassStock:
+		return normalizeStockSymbolList(instrumentKeys)
+	case marketAssetClassFutures:
+		return normalizeFuturesContractList(instrumentKeys)
+	default:
+		seen := make(map[string]struct{}, len(instrumentKeys))
+		items := make([]string, 0, len(instrumentKeys))
+		for _, instrumentKey := range instrumentKeys {
+			normalized := strings.ToUpper(strings.TrimSpace(instrumentKey))
+			if normalized == "" {
+				continue
+			}
+			if _, ok := seen[normalized]; ok {
+				continue
+			}
+			seen[normalized] = struct{}{}
+			items = append(items, normalized)
+		}
+		return items
+	}
+}
+
+func mergeMarketInstrumentKeysFromFacts(assetClass string, instrumentKeys []string, facts []marketInstrumentSourceFact) []string {
+	items := append([]string(nil), instrumentKeys...)
+	for _, fact := range facts {
+		items = append(items, fact.InstrumentKey)
+	}
+	return normalizeMarketInstrumentKeys(assetClass, items)
+}
+
 func (r *MySQLGrowthRepo) syncMarketInstrumentMasterData(assetClass string, requestedSourceKey string, instrumentKeys []string) error {
-	if len(instrumentKeys) == 0 {
+	instrumentKeys = normalizeMarketInstrumentKeys(assetClass, instrumentKeys)
+	allowSourceDiscoveredUniverse := assetClass == marketAssetClassStock && len(instrumentKeys) == 0
+	if len(instrumentKeys) == 0 && !allowSourceDiscoveredUniverse {
 		return nil
 	}
-	if err := r.upsertMarketInstruments(assetClass, instrumentKeys); err != nil {
-		return err
+	if len(instrumentKeys) > 0 {
+		if err := r.upsertMarketInstruments(assetClass, instrumentKeys); err != nil {
+			return err
+		}
 	}
 
 	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(
@@ -146,6 +182,10 @@ func (r *MySQLGrowthRepo) syncMarketInstrumentMasterData(assetClass string, requ
 			}
 			continue
 		}
+		instrumentKeys = mergeMarketInstrumentKeysFromFacts(assetClass, instrumentKeys, facts)
+		if err := r.upsertMarketInstruments(assetClass, instrumentKeys); err != nil {
+			return err
+		}
 		if err := r.upsertMarketInstrumentSourceFacts(facts); err != nil {
 			if isMarketInstrumentSchemaCompatError(err) {
 				continue
@@ -157,6 +197,9 @@ func (r *MySQLGrowthRepo) syncMarketInstrumentMasterData(assetClass string, requ
 		}
 	}
 
+	if len(instrumentKeys) == 0 {
+		return nil
+	}
 	if err := r.rebuildMarketInstrumentTruth(assetClass, instrumentKeys, sourceKeys); err != nil {
 		if isMarketInstrumentSchemaCompatError(err) {
 			return nil
@@ -204,7 +247,11 @@ func fetchStockInstrumentFactsFromTushare(token string, sourceKey string, instru
 	if timeoutMS <= 0 {
 		timeoutMS = 12000
 	}
+	instrumentKeys = normalizeStockSymbolList(instrumentKeys)
 	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+	if len(instrumentKeys) == 0 {
+		return fetchAllStockInstrumentFactsFromTushare(client, token, sourceKey)
+	}
 	facts := make([]marketInstrumentSourceFact, 0, len(instrumentKeys))
 	errs := make([]string, 0)
 	fetchedAt := time.Now()
@@ -231,6 +278,42 @@ func fetchStockInstrumentFactsFromTushare(token string, sourceKey string, instru
 	}
 	if len(facts) == 0 && len(errs) > 0 {
 		return nil, errors.New(strings.Join(errs, "; "))
+	}
+	return facts, nil
+}
+
+func fetchAllStockInstrumentFactsFromTushare(client *http.Client, token string, sourceKey string) ([]marketInstrumentSourceFact, error) {
+	parsed, err := callTushareAPI(client, token, "stock_basic", map[string]string{
+		"list_status": "L",
+	}, "ts_code,symbol,name,area,industry,market,list_date,delist_date,list_status,is_hs,exchange")
+	if err != nil {
+		return nil, err
+	}
+	fieldIndex := buildTushareFieldIndex(parsed.Data.Fields)
+	records := make([]tushareStockBasicRecord, 0, len(parsed.Data.Items))
+	for _, row := range parsed.Data.Items {
+		tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+		if !ok {
+			continue
+		}
+		records = append(records, tushareStockBasicRecord{
+			TSCode:     strings.ToUpper(strings.TrimSpace(tsCode)),
+			Symbol:     fallbackTushareString(row, fieldIndex, "symbol"),
+			Name:       fallbackTushareString(row, fieldIndex, "name"),
+			Area:       fallbackTushareString(row, fieldIndex, "area"),
+			Industry:   fallbackTushareString(row, fieldIndex, "industry"),
+			Market:     fallbackTushareString(row, fieldIndex, "market"),
+			ListDate:   fallbackTushareString(row, fieldIndex, "list_date"),
+			DelistDate: fallbackTushareString(row, fieldIndex, "delist_date"),
+			ListStatus: fallbackTushareString(row, fieldIndex, "list_status"),
+			IsHS:       fallbackTushareString(row, fieldIndex, "is_hs"),
+			Exchange:   fallbackTushareString(row, fieldIndex, "exchange"),
+		})
+	}
+	facts := buildTushareStockInstrumentFacts(records, time.Now())
+	for index := range facts {
+		facts[index].SourceKey = sourceKey
+		facts[index].QualityScore = deriveMarketInstrumentQualityScore(facts[index])
 	}
 	return facts, nil
 }
@@ -298,6 +381,18 @@ func fetchTushareStockBasicRecord(client *http.Client, token string, instrumentK
 		}, true, nil
 	}
 	return tushareStockBasicRecord{}, false, nil
+}
+
+func buildTushareStockInstrumentFacts(records []tushareStockBasicRecord, fetchedAt time.Time) []marketInstrumentSourceFact {
+	facts := make([]marketInstrumentSourceFact, 0, len(records))
+	for _, record := range records {
+		fact, ok := buildTushareStockInstrumentFact(record, nil, fetchedAt)
+		if !ok {
+			continue
+		}
+		facts = append(facts, fact)
+	}
+	return facts
 }
 
 func fetchTushareStockCompanyRecord(client *http.Client, token string, instrumentKey string) (*tushareStockCompanyRecord, error) {
@@ -1009,6 +1104,52 @@ func normalizeMarketExchangeCode(raw string, fallback string) string {
 		return "GFEX"
 	}
 	return strings.ToUpper(strings.TrimSpace(defaultString(fallback, raw)))
+}
+
+func canonicalStockInstrumentKey(raw string) string {
+	trimmed := strings.ToUpper(strings.TrimSpace(raw))
+	if trimmed == "" {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "SH") || strings.HasPrefix(trimmed, "SZ") || strings.HasPrefix(trimmed, "BJ") {
+		if len(trimmed) > 2 && strings.Index(trimmed, ".") < 0 {
+			prefix := trimmed[:2]
+			code := strings.TrimSpace(trimmed[2:])
+			if code != "" {
+				return code + "." + prefix
+			}
+		}
+	}
+	if idx := strings.LastIndex(trimmed, "."); idx >= 0 {
+		code := strings.TrimSpace(trimmed[:idx])
+		exchangeCode := normalizeMarketExchangeCode(trimmed[idx+1:], "")
+		if code == "" || exchangeCode == "" {
+			return trimmed
+		}
+		return code + "." + exchangeCode
+	}
+	exchangeCode := inferStockExchangeCode(trimmed)
+	if exchangeCode == "" {
+		return trimmed
+	}
+	return trimmed + "." + exchangeCode
+}
+
+func inferStockExchangeCode(productKey string) string {
+	trimmed := strings.ToUpper(strings.TrimSpace(productKey))
+	if trimmed == "" {
+		return ""
+	}
+	switch trimmed[0] {
+	case '5', '6', '9':
+		return "SH"
+	case '0', '1', '2', '3':
+		return "SZ"
+	case '4', '8':
+		return "BJ"
+	default:
+		return ""
+	}
 }
 
 func normalizeMarketDate(value string) string {

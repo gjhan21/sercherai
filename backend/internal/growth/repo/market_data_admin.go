@@ -329,7 +329,123 @@ LIMIT 1`, errorArgs...).Scan(
 		summary.LatestErrorCreatedAt = errorCreatedAt.Format(time.RFC3339)
 	}
 
+	if normalizedAssetClass == marketAssetClassStock {
+		if err := r.populateStockMarketQualityCoverageSummary(&summary); err != nil {
+			return summary, err
+		}
+	}
+
 	return summary, nil
+}
+
+func (r *MySQLGrowthRepo) populateStockMarketQualityCoverageSummary(summary *model.MarketDataQualitySummary) error {
+	if summary == nil {
+		return nil
+	}
+	var latestTradeDate sql.NullTime
+	if err := r.db.QueryRow(`
+SELECT MAX(trade_date)
+FROM market_daily_bar_truth
+WHERE asset_class = ?`, marketAssetClassStock).Scan(&latestTradeDate); err != nil {
+		if isMarketStatusSchemaCompatError(err) {
+			return nil
+		}
+		return err
+	}
+	if latestTradeDate.Valid {
+		summary.LatestTradeDate = latestTradeDate.Time.Format("2006-01-02")
+	}
+
+	if err := r.db.QueryRow(`
+SELECT COUNT(*)
+FROM market_instruments
+WHERE asset_class = ? AND status = 'ACTIVE'`, marketAssetClassStock).Scan(&summary.StockMasterCoverage); err != nil {
+		if !isMarketStatusSchemaCompatError(err) {
+			return err
+		}
+	}
+	if err := r.db.QueryRow(`
+SELECT COUNT(*)
+FROM market_instruments
+WHERE asset_class = ? AND status = 'ACTIVE' AND (display_name IS NULL OR TRIM(display_name) = '' OR display_name = instrument_key)`, marketAssetClassStock).Scan(&summary.DisplayNameMissingCount); err != nil {
+		if !isMarketStatusSchemaCompatError(err) {
+			return err
+		}
+	}
+	if err := r.db.QueryRow(`
+SELECT COUNT(*)
+FROM market_instruments
+WHERE asset_class = ? AND status = 'ACTIVE' AND list_date IS NULL`, marketAssetClassStock).Scan(&summary.ListDateMissingCount); err != nil {
+		if !isMarketStatusSchemaCompatError(err) {
+			return err
+		}
+	}
+	if err := r.db.QueryRow(`
+SELECT COUNT(*)
+FROM market_instruments
+WHERE asset_class = ? AND status = 'ACTIVE' AND instrument_key NOT LIKE '%%.%%'`, marketAssetClassStock).Scan(&summary.CanonicalKeyGapCount); err != nil {
+		if !isMarketStatusSchemaCompatError(err) {
+			return err
+		}
+	}
+
+	if latestTradeDate.Valid {
+		if err := r.db.QueryRow(`
+SELECT COUNT(DISTINCT instrument_key)
+FROM market_daily_bar_truth
+WHERE asset_class = ? AND trade_date = ?`, marketAssetClassStock, latestTradeDate.Time.Format("2006-01-02")).Scan(&summary.StockTruthCoverage); err != nil {
+			if !isMarketStatusSchemaCompatError(err) {
+				return err
+			}
+		}
+		rows, err := r.db.Query(`
+SELECT COALESCE(selected_source_key, ''), COUNT(*)
+FROM market_daily_bar_truth
+WHERE asset_class = ? AND trade_date = ?
+GROUP BY selected_source_key
+ORDER BY COUNT(*) DESC, selected_source_key ASC`, marketAssetClassStock, latestTradeDate.Time.Format("2006-01-02"))
+		if err != nil {
+			if !isMarketStatusSchemaCompatError(err) {
+				return err
+			}
+		} else {
+			defer rows.Close()
+			buckets := make([]string, 0)
+			for rows.Next() {
+				var sourceKey sql.NullString
+				var count int
+				if err := rows.Scan(&sourceKey, &count); err != nil {
+					return err
+				}
+				label := strings.TrimSpace(sourceKey.String)
+				if label == "" {
+					label = "UNKNOWN"
+				}
+				buckets = append(buckets, fmt.Sprintf("%s:%d", label, count))
+			}
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			summary.FallbackSourceSummary = strings.Join(buckets, ", ")
+		}
+	}
+
+	if err := r.db.QueryRow(`SELECT COUNT(DISTINCT symbol) FROM stock_daily_basic WHERE trade_date = (SELECT MAX(trade_date) FROM stock_daily_basic)`).Scan(&summary.StockDailyBasicCoverage); err != nil {
+		if !isMarketStatusSchemaCompatError(err) && !isTableNotFoundError(err) {
+			return err
+		}
+	}
+	if err := r.db.QueryRow(`SELECT COUNT(DISTINCT symbol) FROM stock_moneyflow_daily WHERE trade_date = (SELECT MAX(trade_date) FROM stock_moneyflow_daily)`).Scan(&summary.StockMoneyflowCoverage); err != nil {
+		if !isMarketStatusSchemaCompatError(err) && !isTableNotFoundError(err) {
+			return err
+		}
+	}
+	if err := r.db.QueryRow(`SELECT COUNT(DISTINCT symbol) FROM stock_news_raw WHERE published_at >= ?`, time.Now().AddDate(0, 0, -30)).Scan(&summary.StockNewsCoverage); err != nil {
+		if !isMarketStatusSchemaCompatError(err) && !isTableNotFoundError(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *MySQLGrowthRepo) AdminGetMarketDerivedTruthSummary(assetClass string) (*model.MarketDerivedTruthSummary, error) {
@@ -681,6 +797,17 @@ func (r *InMemoryGrowthRepo) AdminGetMarketDataQualitySummary(assetClass string,
 		LatestErrorIssueCode: "SOURCE_FETCH_FAILED",
 		LatestErrorMessage:   "upstream timeout",
 		LatestErrorCreatedAt: now.Add(-35 * time.Minute).Format(time.RFC3339),
+	}
+	if normalizedAssetClass == marketAssetClassStock {
+		item.StockMasterCoverage = 4821
+		item.StockTruthCoverage = 4789
+		item.StockDailyBasicCoverage = 4703
+		item.StockMoneyflowCoverage = 4688
+		item.StockNewsCoverage = 1264
+		item.FallbackSourceSummary = "TUSHARE:4620, MYSELF:121, AKSHARE:48"
+		item.CanonicalKeyGapCount = 3
+		item.DisplayNameMissingCount = 8
+		item.ListDateMissingCount = 21
 	}
 	if normalizedAssetClass == "" {
 		item.TotalCount = 13
