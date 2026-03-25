@@ -11,6 +11,7 @@ const UsersView = () => import("../views/UsersView.vue");
 const BrowseInsightsView = () => import("../views/BrowseInsightsView.vue");
 const UserMessagesView = () => import("../views/UserMessagesView.vue");
 const NewsView = () => import("../views/NewsView.vue");
+const CommunityView = () => import("../views/CommunityView.vue");
 const ReviewCenterView = () => import("../views/ReviewCenterView.vue");
 const SystemJobsView = () => import("../views/SystemJobsView.vue");
 const DataSourcesView = () => import("../views/DataSourcesView.vue");
@@ -107,6 +108,12 @@ const routes = [
         name: "news",
         component: NewsView,
         meta: { permission: "news.view" }
+      },
+      {
+        path: "community",
+        name: "community",
+        component: CommunityView,
+        meta: { permission: "community.view" }
       },
       {
         path: "review-center",

@@ -188,6 +188,21 @@ func Register(r *gin.Engine) {
 		}
 		v1.GET("/news/attachments/:id/download", userGrowthHandler.DownloadAttachment)
 
+		community := v1.Group("/community")
+		community.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("USER", "ADMIN"))
+		{
+			community.GET("/topics", userGrowthHandler.ListCommunityTopics)
+			community.GET("/me/topics", userGrowthHandler.ListMyCommunityTopics)
+			community.GET("/me/comments", userGrowthHandler.ListMyCommunityComments)
+			community.POST("/topics", userGrowthHandler.CreateCommunityTopic)
+			community.GET("/topics/:id", userGrowthHandler.GetCommunityTopic)
+			community.GET("/topics/:id/comments", userGrowthHandler.ListCommunityComments)
+			community.POST("/topics/:id/comments", userGrowthHandler.CreateCommunityComment)
+			community.POST("/reactions", userGrowthHandler.CreateCommunityReaction)
+			community.DELETE("/reactions", userGrowthHandler.DeleteCommunityReaction)
+			community.POST("/reports", userGrowthHandler.CreateCommunityReport)
+		}
+
 		public := v1.Group("/public")
 		{
 			public.GET("/holdings", userGrowthHandler.ListPublicHoldings)
@@ -196,6 +211,9 @@ func Register(r *gin.Engine) {
 			public.GET("/news/articles", userGrowthHandler.ListNewsArticles)
 			public.GET("/news/articles/:id", userGrowthHandler.GetNewsArticleDetail)
 			public.GET("/news/articles/:id/attachments", userGrowthHandler.ListNewsAttachments)
+			public.GET("/community/topics", userGrowthHandler.ListPublicCommunityTopics)
+			public.GET("/community/topics/:id", userGrowthHandler.GetPublicCommunityTopic)
+			public.GET("/community/topics/:id/comments", userGrowthHandler.ListPublicCommunityComments)
 			public.POST("/experiments/events", userGrowthHandler.TrackExperimentEvent)
 		}
 
@@ -263,6 +281,17 @@ func Register(r *gin.Engine) {
 			adminNews.POST("/articles/:id/attachments", middleware.PermissionRequired(db, "news.edit"), adminGrowthHandler.CreateNewsAttachment)
 			adminNews.DELETE("/attachments/:id", middleware.PermissionRequired(db, "news.edit"), adminGrowthHandler.DeleteNewsAttachment)
 			adminNews.POST("/market-sync", middleware.PermissionRequired(db, "news.edit"), adminGrowthHandler.SyncMarketNewsSource)
+		}
+
+		adminCommunity := v1.Group("/admin/community")
+		adminCommunity.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("ADMIN"))
+		{
+			adminCommunity.GET("/topics", middleware.PermissionRequired(db, "community.view"), adminGrowthHandler.ListCommunityTopics)
+			adminCommunity.PUT("/topics/:id/status", middleware.PermissionRequired(db, "community.edit"), adminGrowthHandler.UpdateCommunityTopicStatus)
+			adminCommunity.GET("/comments", middleware.PermissionRequired(db, "community.view"), adminGrowthHandler.ListCommunityComments)
+			adminCommunity.PUT("/comments/:id/status", middleware.PermissionRequired(db, "community.edit"), adminGrowthHandler.UpdateCommunityCommentStatus)
+			adminCommunity.GET("/reports", middleware.PermissionRequired(db, "community.view"), adminGrowthHandler.ListCommunityReports)
+			adminCommunity.PUT("/reports/:id/review", middleware.PermissionRequired(db, "community.review"), adminGrowthHandler.ReviewCommunityReport)
 		}
 
 		adminDataSources := v1.Group("/admin/data-sources")

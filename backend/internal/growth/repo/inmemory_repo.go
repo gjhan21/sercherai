@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,11 @@ type InMemoryGrowthRepo struct {
 	stockEventClusters map[string]model.StockEventCluster
 	futuresInstrumentProfiles map[string]model.FuturesInstrumentProfile
 	reviewTasks        map[string]model.ReviewTask
+	communityTopics   map[string]model.CommunityTopicDetail
+	communityComments map[string]model.CommunityComment
+	communityReports  map[string]model.CommunityReport
+	communityReacts   map[string]struct{}
+	userMessages      map[string][]model.UserMessage
 }
 
 func NewInMemoryGrowthRepo() *InMemoryGrowthRepo {
@@ -58,7 +64,7 @@ func NewInMemoryGrowthRepo() *InMemoryGrowthRepo {
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	return &InMemoryGrowthRepo{
+	repo := &InMemoryGrowthRepo{
 		marketRhythmTasks:  make(map[string]model.MarketRhythmTask),
 		marketBackfillRuns: map[string]model.MarketBackfillRun{run.ID: run},
 		marketBackfillRunDetails: map[string][]model.MarketBackfillRunDetail{
@@ -88,10 +94,17 @@ func NewInMemoryGrowthRepo() *InMemoryGrowthRepo {
 				{ID: "musi_demo_003", SnapshotID: snapshot.ID, AssetType: "INDEX", InstrumentKey: "000300.SH", ExternalSymbol: "000300.SH", DisplayName: "沪深300", ExchangeCode: "SH", Status: "ACTIVE", CreatedAt: now},
 			},
 		},
-		stockEventClusters: make(map[string]model.StockEventCluster),
+		stockEventClusters:        make(map[string]model.StockEventCluster),
 		futuresInstrumentProfiles: make(map[string]model.FuturesInstrumentProfile),
-		reviewTasks:        make(map[string]model.ReviewTask),
+		reviewTasks:               make(map[string]model.ReviewTask),
+		communityTopics:           make(map[string]model.CommunityTopicDetail),
+		communityComments:         make(map[string]model.CommunityComment),
+		communityReports:          make(map[string]model.CommunityReport),
+		communityReacts:           make(map[string]struct{}),
+		userMessages:              make(map[string][]model.UserMessage),
 	}
+	repo.seedCommunityData()
+	return repo
 }
 
 func (r *InMemoryGrowthRepo) ListBrowseHistory(userID string, contentType string, page int, pageSize int) ([]model.BrowseHistory, int, error) {
@@ -236,7 +249,21 @@ func (r *InMemoryGrowthRepo) ListMessages(userID string, page int, pageSize int)
 	items := []model.UserMessage{
 		{ID: "msg_demo_001", Title: "系统通知", Type: "SYSTEM", ReadStatus: "UNREAD", CreatedAt: "2026-02-25T08:30:00+08:00"},
 	}
-	return items, len(items), nil
+
+	if extra := r.userMessages[strings.TrimSpace(userID)]; len(extra) > 0 {
+		items = append(items, extra...)
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].CreatedAt > items[j].CreatedAt
+	})
+
+	total := len(items)
+	start, end := paginateBounds(page, pageSize, total)
+	if start >= total {
+		return []model.UserMessage{}, total, nil
+	}
+	return items[start:end], total, nil
 }
 
 func (r *InMemoryGrowthRepo) MarkMessageRead(userID string, id string) error {

@@ -8,6 +8,9 @@ const StrategyView = () => import("../views/StrategyView.vue");
 const RecommendationArchiveView = () => import("../views/RecommendationArchiveView.vue");
 const MyWatchlistView = () => import("../views/MyWatchlistView.vue");
 const NewsView = () => import("../views/NewsView.vue");
+const CommunityView = () => import("../views/CommunityView.vue");
+const CommunityTopicView = () => import("../views/CommunityTopicView.vue");
+const CommunityComposeView = () => import("../views/CommunityComposeView.vue");
 const MembershipView = () => import("../views/MembershipView.vue");
 const ProfileView = () => import("../views/ProfileView.vue");
 
@@ -38,6 +41,9 @@ const routes = [
       { path: "archive", name: "archive", component: RecommendationArchiveView },
       { path: "watchlist", name: "watchlist", component: MyWatchlistView },
       { path: "news", name: "news", component: NewsView },
+      { path: "community", name: "community", component: CommunityView },
+      { path: "community/topics/:id", name: "community-topic", component: CommunityTopicView },
+      { path: "community/new", name: "community-compose", component: CommunityComposeView, meta: { requiresAuth: true } },
       { path: "membership", name: "membership", component: MembershipView, meta: { requiresAuth: true } },
       { path: "profile", name: "profile", component: ProfileView, meta: { requiresAuth: true } }
     ]

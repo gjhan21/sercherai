@@ -55,3 +55,18 @@ test("resolveFirstAccessibleRoute returns the first visible route for the curren
 
   assert.equal(resolveFirstAccessibleRoute(), "/dashboard");
 });
+
+test("community moderation menu is visible when community.view permission exists", async () => {
+  mockLocalStorage({
+    accessToken: "test-token",
+    permissionCodes: ["community.view"]
+  });
+
+  const { getVisibleAdminNavigationItems, resolveFirstAccessibleRoute } = await import(
+    `./admin-navigation.js?test=${Date.now()}-community`
+  );
+
+  const visibleItems = getVisibleAdminNavigationItems();
+  assert.ok(visibleItems.some((item) => item.name === "community"));
+  assert.equal(resolveFirstAccessibleRoute(), "/community");
+});

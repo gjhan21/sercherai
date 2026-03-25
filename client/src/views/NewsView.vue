@@ -253,14 +253,32 @@
               <p class="decision-tag">{{ currentCategory.label }}详情</p>
               <h2>文章详情</h2>
             </div>
-            <button
-              type="button"
-              class="finance-mini-btn finance-mini-btn-accent"
-              :disabled="detailLoading"
-              @click="refreshActiveArticleDetail"
-            >
-              {{ detailLoading ? "同步中..." : "刷新详情" }}
-            </button>
+            <div class="detail-head-actions">
+              <button
+                type="button"
+                class="finance-mini-btn finance-mini-btn-soft"
+                :disabled="!activeArticleDetail"
+                @click="openCommunityFromNews"
+              >
+                看资讯讨论
+              </button>
+              <button
+                type="button"
+                class="finance-mini-btn finance-mini-btn-accent"
+                :disabled="!activeArticleDetail"
+                @click="openNewsDiscussionComposer"
+              >
+                围绕本文发观点
+              </button>
+              <button
+                type="button"
+                class="finance-mini-btn finance-mini-btn-accent"
+                :disabled="detailLoading"
+                @click="refreshActiveArticleDetail"
+              >
+                {{ detailLoading ? "同步中..." : "刷新详情" }}
+              </button>
+            </div>
           </header>
 
           <div v-if="activeArticleDetail" class="detail-body">
@@ -343,6 +361,14 @@
               <strong>{{ selectedPublisher }}</strong>
             </p>
           </div>
+          <div class="mobile-detail-actions">
+            <button type="button" class="finance-mini-btn finance-mini-btn-soft" @click="openCommunityFromNews">
+              看资讯讨论
+            </button>
+            <button type="button" class="finance-mini-btn finance-mini-btn-accent" @click="openNewsDiscussionComposer">
+              围绕本文发观点
+            </button>
+          </div>
 
           <template v-if="activeArticleDetail">
             <section class="mobile-content-box">
@@ -418,6 +444,11 @@ import {
   rememberPendingExperimentJourneySource
 } from "../lib/growth-analytics";
 import { getExperimentVariant } from "../lib/growth-experiments";
+import {
+  buildCommunityComposeRoute,
+  buildCommunityListRoute,
+  findNewsArticleLocation
+} from "../lib/community-entry-links";
 import { getAccessToken } from "../lib/session";
 
 const categoryTemplates = [
@@ -745,6 +776,14 @@ watch(
 );
 
 watch(
+  [allFeedRows, () => route.query.article_id],
+  () => {
+    syncRequestedArticleSelection();
+  },
+  { immediate: true }
+);
+
+watch(
   () => isLoggedIn.value,
   () => {
     loadMembershipStage();
@@ -968,6 +1007,33 @@ function handleNewsSecondaryAction() {
   router.push("/archive");
 }
 
+function buildActiveArticleCommunityDraft() {
+  const article = activeArticle.value;
+  if (!article?.id) {
+    return null;
+  }
+  return {
+    topicType: "NEWS",
+    sort: "LATEST",
+    entrySource: "news_detail",
+    targetType: "NEWS_ARTICLE",
+    targetID: article.id,
+    targetSnapshot: selectedArticleTitle.value,
+    title: `围绕《${selectedArticleTitle.value}》继续讨论`,
+    stance: "WATCH"
+  };
+}
+
+function openCommunityFromNews() {
+  const draft = buildActiveArticleCommunityDraft();
+  router.push(draft ? buildCommunityListRoute(draft) : "/community");
+}
+
+function openNewsDiscussionComposer() {
+  const draft = buildActiveArticleCommunityDraft();
+  router.push(draft ? buildCommunityComposeRoute(draft) : "/community/new");
+}
+
 function countFeedItemsByRole(role) {
   return allFeedRows.value.filter((item) => itemMatchesRole(item, role)).length;
 }
@@ -1020,6 +1086,26 @@ function mergeFeedRows(currentRows, nextRows) {
 
 function openArticle(id) {
   activeArticleID.value = id;
+  if (isMobileView.value) {
+    isDetailModalOpen.value = true;
+  }
+}
+
+function syncRequestedArticleSelection() {
+  const requestedArticleID = normalizeRouteValue(route.query.article_id);
+  if (!requestedArticleID) {
+    return;
+  }
+  const location = findNewsArticleLocation(feedMap.value, requestedArticleID);
+  if (!location) {
+    return;
+  }
+  if (location.categoryKey && activeTab.value !== location.categoryKey) {
+    activeTab.value = location.categoryKey;
+  }
+  if (activeArticleID.value !== location.articleID) {
+    activeArticleID.value = location.articleID;
+  }
   if (isMobileView.value) {
     isDetailModalOpen.value = true;
   }
@@ -1166,6 +1252,10 @@ function normalizeKeyword(value) {
     .trim();
 }
 
+function normalizeRouteValue(value) {
+  return String(value || "").trim();
+}
+
 function buildArticleQuery(category, page = 1) {
   const keyword = normalizeKeyword(searchKeyword.value);
   const base = {
@@ -1197,6 +1287,7 @@ function mapArticleItem(item, category) {
   const level = visibility === "VIP" ? "高" : "中";
   return {
     id: item.id,
+    categoryKey: category?.key || "",
     time,
     level,
     levelClass,
@@ -1677,6 +1768,13 @@ h3 {
   gap: 10px;
 }
 
+.detail-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .decision-tag {
   margin: 0;
   font-size: 12px;
@@ -1891,6 +1989,14 @@ h3 {
     display: none;
   }
 
+  .detail-head {
+    flex-direction: column;
+  }
+
+  .detail-head-actions {
+    justify-content: flex-start;
+  }
+
   .mobile-detail-panel {
     position: fixed;
     inset: 0;
@@ -1954,6 +2060,13 @@ h3 {
     background: var(--color-surface-panel-soft);
     padding: 9px;
     display: grid;
+    gap: 8px;
+  }
+
+  .mobile-detail-actions {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 
@@ -2142,6 +2255,10 @@ h3 {
 
   .feed-footer button {
     width: 100%;
+  }
+
+  .mobile-detail-actions {
+    grid-template-columns: 1fr;
   }
 
   h3 {

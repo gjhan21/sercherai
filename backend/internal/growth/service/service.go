@@ -31,6 +31,15 @@ type GrowthService interface {
 	ListNewsArticles(userID string, categoryID string, keyword string, page int, pageSize int) ([]model.NewsArticle, int, error)
 	GetNewsArticleDetail(userID string, articleID string) (model.NewsArticle, error)
 	ListNewsAttachments(userID string, articleID string) ([]model.NewsAttachment, error)
+	ListCommunityTopics(userID string, query model.CommunityTopicListQuery) ([]model.CommunityTopicListItem, int, error)
+	GetCommunityTopic(userID string, topicID string) (model.CommunityTopicDetail, error)
+	CreateCommunityTopic(input model.CommunityTopicCreateInput) (model.CommunityTopicDetail, error)
+	ListCommunityComments(userID string, topicID string, query model.CommunityCommentListQuery) ([]model.CommunityComment, int, error)
+	ListMyCommunityComments(userID string, page int, pageSize int) ([]model.CommunityComment, int, error)
+	CreateCommunityComment(input model.CommunityCommentCreateInput) (model.CommunityComment, error)
+	CreateCommunityReaction(input model.CommunityReactionInput) error
+	DeleteCommunityReaction(input model.CommunityReactionInput) error
+	CreateCommunityReport(input model.CommunityReportCreateInput) (model.CommunityReport, error)
 	ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error)
 	GetStockRecommendationDetail(userID string, recoID string) (model.StockRecommendationDetail, error)
 	GetStockRecommendationPerformance(userID string, recoID string) ([]model.RecommendationPerformancePoint, error)
@@ -76,6 +85,12 @@ type GrowthService interface {
 	AdminUpdateNewsCategory(id string, name string, slug string, sort int, visibility string, status string) error
 	AdminListNewsArticles(status string, categoryID string, page int, pageSize int) ([]model.NewsArticle, int, error)
 	AdminGetNewsArticleDetail(id string) (model.NewsArticle, error)
+	AdminListCommunityTopics(query model.CommunityAdminTopicQuery) ([]model.CommunityTopicListItem, int, error)
+	AdminUpdateCommunityTopicStatus(id string, status string) error
+	AdminListCommunityComments(query model.CommunityAdminCommentQuery) ([]model.CommunityComment, int, error)
+	AdminUpdateCommunityCommentStatus(id string, status string) error
+	AdminListCommunityReports(query model.CommunityAdminReportQuery) ([]model.CommunityReport, int, error)
+	AdminReviewCommunityReport(id string, status string, reviewNote string) error
 	AdminCreateNewsArticle(categoryID string, title string, summary string, content string, coverURL string, visibility string, status string, authorID string) (string, error)
 	AdminUpdateNewsArticle(id string, categoryID string, title string, summary string, content string, coverURL string, visibility string, status string) error
 	AdminPublishNewsArticle(id string, status string) error

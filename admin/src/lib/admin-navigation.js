@@ -9,6 +9,7 @@ export const adminNavigationItems = [
   { name: "user-messages", label: "用户消息", to: "/user-messages", permission: "users.view" },
   { name: "membership-center", label: "会员中心", to: "/membership-center", permission: "membership.view" },
   { name: "news", label: "新闻管理", to: "/news", permission: "news.view" },
+  { name: "community", label: "社区审核", to: "/community", permission: "community.view" },
   { name: "market-center", label: "策略中心", to: "/market-center", permission: "market.view" },
   { name: "stock-selection", label: "智能选股", to: "/stock-selection/overview", permission: "stock_selection.view" },
   { name: "futures-selection", label: "智能期货", to: "/futures-selection/overview", permission: "futures_selection.view" },

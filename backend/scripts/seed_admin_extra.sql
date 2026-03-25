@@ -292,10 +292,60 @@ VALUES
   ('role_content_editor', 'dashboard.view', NOW()),
   ('role_content_editor', 'news.view', NOW()),
   ('role_content_editor', 'news.edit', NOW()),
+  ('role_content_editor', 'community.view', NOW()),
+  ('role_content_editor', 'community.review', NOW()),
   ('role_content_editor', 'review.view', NOW()),
   ('role_content_editor', 'workflow.view', NOW())
 ON DUPLICATE KEY UPDATE
   created_at = VALUES(created_at);
+
+INSERT INTO discussion_topics (
+  id, user_id, title, summary, content, topic_type, stance, time_horizon, reason_text, risk_text,
+  status, comment_count, like_count, favorite_count, report_count, last_active_at, created_at, updated_at
+)
+VALUES (
+  'ct_demo_002', 'u_demo_002', '盘后研报怎么看，是继续持有还是等回踩',
+  '围绕研报解读后的持仓节奏讨论，适合资讯页引流到讨论页联调。',
+  '我更关注研报落地后的兑现节奏，如果只是情绪催化，第二天不一定适合追。',
+  'NEWS', 'WATCH', 'SWING', '研报热度高，但价格反应已经较快。', '如果开盘直接高开过大，追入性价比会明显下降。',
+  'PENDING_REVIEW', 1, 0, 0, 1, NOW(), NOW(), NOW()
+)
+ON DUPLICATE KEY UPDATE
+  summary = VALUES(summary),
+  content = VALUES(content),
+  topic_type = VALUES(topic_type),
+  stance = VALUES(stance),
+  time_horizon = VALUES(time_horizon),
+  reason_text = VALUES(reason_text),
+  risk_text = VALUES(risk_text),
+  status = VALUES(status),
+  comment_count = VALUES(comment_count),
+  report_count = VALUES(report_count),
+  last_active_at = VALUES(last_active_at),
+  updated_at = VALUES(updated_at);
+
+INSERT INTO discussion_topic_links (topic_id, target_type, target_id, target_snapshot, created_at, updated_at)
+VALUES ('ct_demo_002', 'NEWS_ARTICLE', 'article_demo_002', '量化策略周报', NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+  target_type = VALUES(target_type),
+  target_id = VALUES(target_id),
+  target_snapshot = VALUES(target_snapshot),
+  updated_at = VALUES(updated_at);
+
+INSERT INTO discussion_comments (id, topic_id, user_id, parent_comment_id, reply_to_user_id, content, status, like_count, created_at, updated_at)
+VALUES ('cc_demo_002', 'ct_demo_002', 'admin_003', NULL, NULL, '这类话题适合放资讯详情页侧栏引导，不适合做成聊天流。', 'PUBLISHED', 2, NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+  content = VALUES(content),
+  status = VALUES(status),
+  like_count = VALUES(like_count),
+  updated_at = VALUES(updated_at);
+
+INSERT INTO discussion_reports (id, reporter_user_id, target_type, target_id, reason, status, review_note, created_at, updated_at)
+VALUES ('cr_demo_001', 'u_demo_004', 'TOPIC', 'ct_demo_002', '标题偏情绪化，建议管理员复核。', 'PENDING', NULL, NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+  reason = VALUES(reason),
+  status = VALUES(status),
+  updated_at = VALUES(updated_at);
 
 INSERT INTO rbac_user_roles (user_id, role_id, created_at)
 VALUES

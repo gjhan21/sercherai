@@ -1381,6 +1381,18 @@ const quickActions = computed(() => [
     desc: `分享链接 ${shareLinks.value.length} 条，邀请记录 ${inviteRecords.value.length} 条。`,
     actionLabel: "查看邀请关系",
     action: { type: "module", value: "invite" }
+  },
+  {
+    title: "我的主题回看",
+    desc: "集中回看自己发过的主题，适合收盘后补充结论、依据和风险变化。",
+    actionLabel: "查看我的主题",
+    action: { type: "route", value: { path: "/community", query: { mine: "topics" } } }
+  },
+  {
+    title: "我的评论回看",
+    desc: "集中回看自己参与过的评论，确认哪些讨论还需要继续跟进。",
+    actionLabel: "查看我的评论",
+    action: { type: "route", value: { path: "/community", query: { mine: "comments" } } }
   }
 ]);
 const profileOutstandingCount = computed(() => {
@@ -1427,7 +1439,7 @@ const profileGuideRows = computed(() => [
   },
   {
     title: "常用入口集中",
-    desc: "可从这里继续前往会员页、资讯页、关注页和历史档案页。"
+    desc: "可从这里继续前往会员页、资讯页、关注页、历史档案和我的讨论。"
   }
 ]);
 const profileAccountSummaryRows = computed(() => [

@@ -192,6 +192,30 @@ export function deleteNewsAttachment(id) {
   return http.delete(`/admin/news/attachments/${encodeURIComponent(id)}`);
 }
 
+export function listCommunityTopics(params) {
+  return http.get("/admin/community/topics", { params: buildParams(params) });
+}
+
+export function updateCommunityTopicStatus(id, status) {
+  return http.put(`/admin/community/topics/${encodeURIComponent(id)}/status`, { status });
+}
+
+export function listCommunityComments(params) {
+  return http.get("/admin/community/comments", { params: buildParams(params) });
+}
+
+export function updateCommunityCommentStatus(id, status) {
+  return http.put(`/admin/community/comments/${encodeURIComponent(id)}/status`, { status });
+}
+
+export function listCommunityReports(params) {
+  return http.get("/admin/community/reports", { params: buildParams(params) });
+}
+
+export function reviewCommunityReport(id, payload) {
+  return http.put(`/admin/community/reports/${encodeURIComponent(id)}/review`, payload);
+}
+
 export function listDataSources(params) {
   return http.get("/admin/data-sources", { params: buildParams(params) });
 }

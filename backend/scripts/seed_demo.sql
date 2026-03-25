@@ -106,6 +106,54 @@ INSERT INTO messages (id, user_id, title, content, type, read_status, created_at
 VALUES ('msg_demo_001', 'u_demo_001', '系统通知', '示例消息内容', 'SYSTEM', 'UNREAD', NOW())
 ON DUPLICATE KEY UPDATE read_status = VALUES(read_status), created_at = VALUES(created_at);
 
+INSERT INTO discussion_topics (
+  id, user_id, title, summary, content, topic_type, stance, time_horizon, reason_text, risk_text,
+  status, comment_count, like_count, favorite_count, report_count, last_active_at, created_at, updated_at
+)
+VALUES (
+  'ct_demo_001', 'u_demo_001', '白酒龙头先看观察，不追高',
+  '围绕龙头股的观察观点，先确认量价和消息面是否延续。',
+  '我的看法是先观察，不急着追高，等量价和消息面继续确认后再决定。',
+  'STOCK', 'WATCH', 'SHORT', '当前位置情绪较高，但基本面支撑仍在。', '若量能无法承接，短线容易回撤。',
+  'PUBLISHED', 1, 1, 0, 0, NOW(), NOW(), NOW()
+)
+ON DUPLICATE KEY UPDATE
+  title = VALUES(title),
+  summary = VALUES(summary),
+  content = VALUES(content),
+  topic_type = VALUES(topic_type),
+  stance = VALUES(stance),
+  time_horizon = VALUES(time_horizon),
+  reason_text = VALUES(reason_text),
+  risk_text = VALUES(risk_text),
+  status = VALUES(status),
+  comment_count = VALUES(comment_count),
+  like_count = VALUES(like_count),
+  favorite_count = VALUES(favorite_count),
+  report_count = VALUES(report_count),
+  last_active_at = VALUES(last_active_at),
+  updated_at = VALUES(updated_at);
+
+INSERT INTO discussion_topic_links (topic_id, target_type, target_id, target_snapshot, created_at, updated_at)
+VALUES ('ct_demo_001', 'STOCK', '600519', '600519 贵州茅台', NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+  target_type = VALUES(target_type),
+  target_id = VALUES(target_id),
+  target_snapshot = VALUES(target_snapshot),
+  updated_at = VALUES(updated_at);
+
+INSERT INTO discussion_comments (id, topic_id, user_id, parent_comment_id, reply_to_user_id, content, status, like_count, created_at, updated_at)
+VALUES ('cc_demo_001', 'ct_demo_001', 'admin_001', NULL, NULL, '我更关心这波量能是否还能继续放大。', 'PUBLISHED', 0, NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+  content = VALUES(content),
+  status = VALUES(status),
+  like_count = VALUES(like_count),
+  updated_at = VALUES(updated_at);
+
+INSERT INTO discussion_reactions (id, user_id, target_type, target_id, reaction_type, created_at)
+VALUES ('dcr_demo_001', 'admin_001', 'TOPIC', 'ct_demo_001', 'LIKE', NOW())
+ON DUPLICATE KEY UPDATE created_at = VALUES(created_at);
+
 INSERT INTO market_events (id, event_type, symbol, summary, trigger_rule, source, created_at)
 VALUES ('me_demo_001', 'PRICE', 'RB2505', '价格突破关键区间', '突破120', 'demo', NOW())
 ON DUPLICATE KEY UPDATE summary = VALUES(summary), created_at = VALUES(created_at);

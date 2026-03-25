@@ -227,6 +227,66 @@
       </article>
     </section>
 
+    <section class="community-home-section">
+      <article class="card community-home-card">
+        <header class="decision-head">
+          <div>
+            <p class="search-kicker">观点延伸区</p>
+            <h2>看完主推荐和研报后，继续去讨论广场补充个人判断。</h2>
+          </div>
+          <button type="button" class="search-jump-btn finance-mini-btn finance-mini-btn-soft" @click="openCommunityPlaza">
+            进入讨论广场
+          </button>
+        </header>
+        <div class="community-home-grid">
+          <article
+            v-for="item in homeCommunityEntryCards"
+            :key="item.key"
+            class="finance-list-card finance-list-card-panel community-home-entry"
+          >
+            <div class="community-home-entry-top">
+              <p>{{ item.kicker }}</p>
+              <span class="finance-pill finance-pill-compact" :class="item.badgeClass">{{ item.badge }}</span>
+            </div>
+            <strong>{{ item.title }}</strong>
+            <p>{{ item.desc }}</p>
+            <div class="community-home-entry-actions">
+              <button
+                type="button"
+                class="finance-mini-btn finance-mini-btn-soft"
+                :disabled="item.disabled"
+                @click="openHomeCommunityList(item.key)"
+              >
+                先看讨论
+              </button>
+              <button
+                type="button"
+                class="finance-mini-btn finance-mini-btn-accent"
+                :disabled="item.disabled"
+                @click="openHomeCommunityComposer(item.key)"
+              >
+                发起观点
+              </button>
+            </div>
+          </article>
+        </div>
+      </article>
+
+      <aside class="card community-home-side">
+        <header class="finance-copy-stack">
+          <h2 class="section-title">讨论模块当前支持</h2>
+          <p class="section-subtitle">只承接站内真实内容，不扩聊天室式即时刷屏。</p>
+        </header>
+        <div class="community-home-side-list">
+          <article v-for="item in homeCommunitySupportRows" :key="item.title" class="finance-list-card finance-list-card-panel">
+            <p>{{ item.title }}</p>
+            <strong>{{ item.summary }}</strong>
+            <span>{{ item.desc }}</span>
+          </article>
+        </div>
+      </aside>
+    </section>
+
     <section class="mobile-quick card">
       <button
         v-for="item in mobileQuickActions"
@@ -573,6 +633,10 @@ import {
   buildStrategyMetaText,
   buildStrategyProofTags
 } from "../lib/strategy-version";
+import {
+  buildCommunityComposeRoute,
+  buildCommunityListRoute
+} from "../lib/community-entry-links";
 import { WATCHLIST_EVENT, isWatchedStock, saveWatchedStock, removeWatchedStock } from "../lib/watchlist";
 
 const fallbackStockRecommendations = [
@@ -976,6 +1040,49 @@ const researchSecondaryRows = computed(() =>
       visibility: item.visibility === "VIP" ? "VIP" : "公开"
     }))
 );
+
+const homeCommunityEntryCards = computed(() => [
+  {
+    key: "stock",
+    kicker: "围绕主推荐",
+    badge: "股票",
+    badgeClass: "finance-pill-info",
+    title: primaryStock.value ? `${primaryStock.value.symbol} ${primaryStock.value.name}` : "今日主推荐待同步",
+    desc: primaryStock.value
+      ? "先看股票主题，再决定是否围绕当前主推荐补充自己的依据、风险边界和后续动作。"
+      : "同步主推荐后，这里会自动承接到股票讨论入口。",
+    disabled: !primaryStock.value
+  },
+  {
+    key: "research",
+    kicker: "围绕焦点研报",
+    badge: featuredResearch.value?.category || "资讯",
+    badgeClass: featuredResearch.value?.visibility === "VIP" ? "finance-pill-accent" : "finance-pill-neutral",
+    title: featuredResearch.value?.title || "焦点研报待同步",
+    desc: featuredResearch.value
+      ? "先进入资讯讨论区，再决定是否围绕当前研报继续发起结构化观点主题。"
+      : "同步资讯后，这里会自动承接到研报和资讯讨论入口。",
+    disabled: !featuredResearch.value?.id
+  }
+]);
+
+const homeCommunitySupportRows = [
+  {
+    title: "当前能力",
+    summary: "主题帖、评论、点赞、收藏、举报",
+    desc: "讨论区先做结构化表达，不做实时聊天室。"
+  },
+  {
+    title: "首页承接",
+    summary: "主推荐和焦点研报可直接带上下文进入",
+    desc: "进入后列表会先展示对应主题类型，并保留发帖预填信息。"
+  },
+  {
+    title: "后续回看",
+    summary: "个人中心已支持我的讨论入口",
+    desc: "适合收盘后回看自己发过的主题和参与过的评论。"
+  }
+];
 
 const marketPulse = computed(() => {
   const scores = rawStockRecommendations.value
@@ -1514,6 +1621,10 @@ function openNewsModule() {
   router.push("/news");
 }
 
+function openCommunityPlaza() {
+  router.push("/community");
+}
+
 function goStrategyCenter() {
   router.push("/strategies");
 }
@@ -1524,6 +1635,52 @@ function goArchiveCenter() {
 
 function goWatchlistCenter() {
   router.push("/watchlist");
+}
+
+function buildHomeStockCommunityDraft() {
+  const item = primaryStock.value;
+  if (!item?.id) {
+    return null;
+  }
+  const snapshot = `${item.symbol || ""} ${item.name || ""}`.trim();
+  return {
+    topicType: "STOCK",
+    sort: "LATEST",
+    entrySource: "home_stock",
+    targetType: "STOCK",
+    targetID: item.symbol || item.id,
+    targetSnapshot: snapshot,
+    title: `${snapshot || item.name} 当前值得继续跟踪吗`,
+    stance: "WATCH"
+  };
+}
+
+function buildHomeResearchCommunityDraft() {
+  const item = featuredResearch.value;
+  if (!item?.id) {
+    return null;
+  }
+  const title = String(item.title || "").trim();
+  return {
+    topicType: "NEWS",
+    sort: "LATEST",
+    entrySource: "home_research",
+    targetType: "NEWS_ARTICLE",
+    targetID: item.id,
+    targetSnapshot: title,
+    title: title ? `围绕《${title}》继续讨论` : "围绕当前资讯继续讨论",
+    stance: "WATCH"
+  };
+}
+
+function openHomeCommunityList(key) {
+  const draft = key === "research" ? buildHomeResearchCommunityDraft() : buildHomeStockCommunityDraft();
+  router.push(draft ? buildCommunityListRoute(draft) : "/community");
+}
+
+function openHomeCommunityComposer(key) {
+  const draft = key === "research" ? buildHomeResearchCommunityDraft() : buildHomeStockCommunityDraft();
+  router.push(draft ? buildCommunityComposeRoute(draft) : "/community/new");
 }
 
 function refreshWatchState() {
@@ -2409,6 +2566,76 @@ onBeforeUnmount(() => {
   color: var(--color-text-sub);
 }
 
+.community-home-section {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1.08fr 0.92fr;
+}
+
+.community-home-card,
+.community-home-side {
+  padding: 14px;
+}
+
+.community-home-grid,
+.community-home-side-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.community-home-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.community-home-entry {
+  min-width: 0;
+}
+
+.community-home-entry-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.community-home-entry-top p,
+.community-home-entry strong,
+.community-home-entry p {
+  margin: 0;
+}
+
+.community-home-entry-top p {
+  font-size: 12px;
+  color: var(--color-pine-600);
+}
+
+.community-home-entry strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--color-text-main);
+}
+
+.community-home-entry p:last-child {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--color-text-sub);
+}
+
+.community-home-entry-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.community-home-entry-actions button {
+  width: auto;
+}
+
 .home-search-banner {
   border-radius: 20px;
   padding: 14px 16px;
@@ -3026,6 +3253,7 @@ onBeforeUnmount(() => {
 @media (max-width: 1080px) {
   .hero-stage,
   .decision-grid,
+  .community-home-section,
   .conversion-grid,
   .insight-section,
   .stock-section,
@@ -3067,6 +3295,10 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 
+  .community-home-grid {
+    grid-template-columns: 1fr;
+  }
+
   .insight-actions {
     width: 100%;
   }
@@ -3096,6 +3328,15 @@ onBeforeUnmount(() => {
   }
 
   .action-pill {
+    width: 100%;
+  }
+
+  .community-home-entry-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .community-home-entry-actions button {
     width: 100%;
   }
 

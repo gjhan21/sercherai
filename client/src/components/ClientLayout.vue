@@ -60,7 +60,7 @@
             :key="item.path"
             :to="item.path"
             class="finance-nav-link"
-            :class="{ active: route.path === item.path }"
+            :class="{ active: isTabActive(item.path) }"
           >
             {{ item.label }}
           </RouterLink>
@@ -129,7 +129,7 @@
         :key="item.path"
         :to="item.path"
         class="finance-mobile-link"
-        :class="{ active: route.path === item.path }"
+        :class="{ active: isTabActive(item.path) }"
       >
         <span class="finance-mobile-dot" />
         <span>{{ item.label }}</span>
@@ -196,6 +196,15 @@ const tabs = [
     highlights: ["研报", "正文", "附件"]
   },
   {
+    path: "/community",
+    label: "讨论",
+    short: "Community",
+    signal: "观点讨论",
+    focus: "围绕资讯、策略和标的发起结构化讨论。",
+    desc: "讨论页是观点广场，不做实时聊天室，先承接主题帖、评论、点赞、收藏和风险提示。",
+    highlights: ["观点主题", "关联标的", "风险提示"]
+  },
+  {
     path: "/membership",
     label: "会员",
     short: "Membership",
@@ -215,7 +224,7 @@ const tabs = [
   }
 ];
 
-const activeTab = computed(() => tabs.find((item) => item.path === route.path) || tabs[0]);
+const activeTab = computed(() => tabs.find((item) => isTabActive(item.path)) || tabs[0]);
 const activeHighlights = computed(() => activeTab.value.highlights || []);
 const mobileTabs = computed(() => tabs);
 const footerSupportItems = [
@@ -224,6 +233,7 @@ const footerSupportItems = [
   "历史档案",
   "我的关注",
   "研报与资讯",
+  "讨论广场",
   "会员与账户"
 ];
 
@@ -262,5 +272,9 @@ async function handleLogout() {
     loggingOut.value = false;
     await router.replace("/auth");
   }
+}
+
+function isTabActive(path) {
+  return route.path === path || route.path.startsWith(`${path}/`);
 }
 </script>

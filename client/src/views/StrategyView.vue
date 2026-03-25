@@ -80,6 +80,12 @@
             <button class="primary-btn finance-primary-btn" type="button" :disabled="stockDetailLoading || !activeStockView" @click="refreshActiveStockDetail">
               {{ stockDetailLoading ? "同步中..." : "刷新详情" }}
             </button>
+            <button class="ghost-btn finance-ghost-btn" type="button" :disabled="!activeStockView" @click="openStrategyCommunity">
+              看股票讨论
+            </button>
+            <button class="ghost-btn finance-ghost-btn" type="button" :disabled="!activeStockView" @click="openStrategyDiscussionComposer">
+              围绕当前标的发观点
+            </button>
             <button class="ghost-btn finance-ghost-btn" type="button" :disabled="!activeStockView" @click="toggleActiveStockWatch">
               {{ isActiveStockWatched ? "移出关注" : "加入关注" }}
             </button>
@@ -508,6 +514,12 @@
             <div class="focus-link-row">
               <button type="button" class="ghost-btn finance-ghost-btn" :disabled="futuresInsightLoading" @click="refreshActiveFuturesInsight">
                 {{ futuresInsightLoading ? "同步中..." : "刷新期货详情" }}
+              </button>
+              <button type="button" class="ghost-btn finance-ghost-btn" :disabled="!activeFuturesView" @click="openFuturesCommunity">
+                看期货讨论
+              </button>
+              <button type="button" class="ghost-btn finance-ghost-btn" :disabled="!activeFuturesView" @click="openFuturesDiscussionComposer">
+                围绕当前期货发观点
               </button>
               <button type="button" class="ghost-btn finance-ghost-btn" @click="openActiveFuturesDetailDialog">完整查看</button>
             </div>
@@ -1427,7 +1439,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import StatePanel from "../components/StatePanel.vue";
 import {
   getFuturesStrategyInsight,
@@ -1466,9 +1478,15 @@ import {
   firstMeaningfulStrategyText,
   mapStrategyVersionHistory
 } from "../lib/strategy-version";
+import {
+  buildCommunityComposeRoute,
+  buildCommunityListRoute,
+  findEntityIDByTarget
+} from "../lib/community-entry-links";
 import { useClientAuth } from "../lib/client-auth";
 import { WATCHLIST_EVENT, isWatchedStock, removeWatchedStock, saveWatchedStock } from "../lib/watchlist";
 
+const route = useRoute();
 const router = useRouter();
 const { isLoggedIn } = useClientAuth();
 const strategyExperimentVariant = getExperimentVariant("strategy_membership_cta", ["cadence", "proof"]);
@@ -3881,11 +3899,62 @@ function focusFutures(id) {
   activeFuturesID.value = id;
 }
 
+function syncRequestedStockFocus() {
+  const requestedTarget = normalizeRouteValue(route.query.stock_id);
+  if (!requestedTarget) {
+    return;
+  }
+  const matchedID = findEntityIDByTarget(rawStocks.value, requestedTarget, ["id", "symbol"]);
+  if (matchedID && activeStockID.value !== matchedID) {
+    activeStockID.value = matchedID;
+  }
+}
+
+function syncRequestedFuturesFocus() {
+  const requestedTarget = normalizeRouteValue(route.query.futures_id);
+  if (!requestedTarget) {
+    return;
+  }
+  const matchedID = findEntityIDByTarget(rawFutures.value, requestedTarget, ["id", "contract"]);
+  if (matchedID && activeFuturesID.value !== matchedID) {
+    activeFuturesID.value = matchedID;
+  }
+}
+
 function openActiveStockDetailDialog() {
   if (!activeStockView.value?.id) {
     return;
   }
   openStockDetail(activeStockView.value.id);
+}
+
+function buildActiveStockCommunityDraft() {
+  const stock = activeStockView.value;
+  const stockBase = activeStockBase.value;
+  if (!stock?.id) {
+    return null;
+  }
+  const snapshot = stock.name || `${stockBase?.symbol || ""} ${stockBase?.name || ""}`.trim();
+  return {
+    topicType: "STOCK",
+    sort: "LATEST",
+    entrySource: "strategy_stock",
+    targetType: "STOCK",
+    targetID: stockBase?.symbol || stock.id,
+    targetSnapshot: snapshot,
+    title: `${snapshot || "当前标的"} 当前值得继续跟踪吗`,
+    stance: "WATCH"
+  };
+}
+
+function openStrategyCommunity() {
+  const draft = buildActiveStockCommunityDraft();
+  router.push(draft ? buildCommunityListRoute(draft) : "/community");
+}
+
+function openStrategyDiscussionComposer() {
+  const draft = buildActiveStockCommunityDraft();
+  router.push(draft ? buildCommunityComposeRoute(draft) : "/community/new");
 }
 
 function openActiveFuturesDetailDialog() {
@@ -3895,6 +3964,35 @@ function openActiveFuturesDetailDialog() {
   openFuturesInsight(activeFuturesView.value.id);
 }
 
+function buildActiveFuturesCommunityDraft() {
+  const futures = activeFuturesView.value;
+  const futuresBase = activeFuturesBase.value;
+  if (!futures?.id) {
+    return null;
+  }
+  const snapshot = futures.name || `${futuresBase?.contract || ""} ${futuresBase?.name || ""}`.trim();
+  return {
+    topicType: "FUTURES",
+    sort: "LATEST",
+    entrySource: "strategy_futures",
+    targetType: "FUTURES",
+    targetID: futuresBase?.contract || futures.id,
+    targetSnapshot: snapshot,
+    title: `围绕 ${snapshot || "当前期货策略"} 继续判断`,
+    stance: "WATCH"
+  };
+}
+
+function openFuturesCommunity() {
+  const draft = buildActiveFuturesCommunityDraft();
+  router.push(draft ? buildCommunityListRoute(draft) : "/community");
+}
+
+function openFuturesDiscussionComposer() {
+  const draft = buildActiveFuturesCommunityDraft();
+  router.push(draft ? buildCommunityComposeRoute(draft) : "/community/new");
+}
+
 function parseErrorMessage(error) {
   if (!error) {
     return "unknown error";
@@ -3902,6 +4000,10 @@ function parseErrorMessage(error) {
   const responseMessage =
     error?.response?.data?.message || error?.response?.data?.error || error?.response?.statusText;
   return responseMessage || error?.message || "unknown error";
+}
+
+function normalizeRouteValue(value) {
+  return String(value || "").trim();
 }
 
 function handleStockDialogViewportChange() {
@@ -3972,6 +4074,14 @@ watch(
 );
 
 watch(
+  [() => rawStocks.value, () => route.query.stock_id],
+  () => {
+    syncRequestedStockFocus();
+  },
+  { immediate: true }
+);
+
+watch(
   futuresRows,
   (rows) => {
     if (!rows.length) {
@@ -3981,6 +4091,14 @@ watch(
     if (!rows.some((item) => item.id === activeFuturesID.value)) {
       activeFuturesID.value = rows[0].id;
     }
+  },
+  { immediate: true }
+);
+
+watch(
+  [() => rawFutures.value, () => route.query.futures_id],
+  () => {
+    syncRequestedFuturesFocus();
   },
   { immediate: true }
 );
