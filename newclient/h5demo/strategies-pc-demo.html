@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SercherAI 策略 Demo - PC</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap");
+
+      :root {
+        --bg-base: #edf3fb;
+        --bg-deep: #102e63;
+        --bg-hero: #14376f;
+        --bg-hero-2: #1d4f96;
+        --panel: rgba(255, 255, 255, 0.95);
+        --panel-soft: #f7faff;
+        --line: rgba(25, 56, 107, 0.1);
+        --text-main: #16386c;
+        --text-sub: #587199;
+        --text-soft: #7b90b3;
+        --gold: #caa24a;
+        --gold-strong: #b78627;
+        --gold-soft: rgba(202, 162, 74, 0.14);
+        --success: #1f9d66;
+        --danger: #cc4e42;
+        --shadow: 0 24px 54px rgba(15, 35, 73, 0.1);
+        --radius-xl: 26px;
+        --radius-lg: 18px;
+        --radius-md: 14px;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+
+      body {
+        font-family: "Noto Sans SC", "IBM Plex Sans", sans-serif;
+        color: var(--text-main);
+        background:
+          radial-gradient(circle at top right, rgba(202, 162, 74, 0.12), transparent 20%),
+          linear-gradient(180deg, #f4f8fe 0%, #edf3fb 45%, #e8eff9 100%);
+      }
+
+      a { color: inherit; text-decoration: none; }
+
+      .page-shell {
+        width: min(1440px, calc(100% - 48px));
+        margin: 0 auto;
+      }
+
+      .site-header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        margin: 18px 0 16px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 24px;
+        background:
+          linear-gradient(90deg, rgba(15, 45, 96, 0.96), rgba(25, 69, 132, 0.96)),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
+        color: #f5f8ff;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 18px 40px rgba(12, 29, 61, 0.16);
+      }
+
+      .site-header-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 16px 22px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 260px;
+      }
+
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #d8b468, #b58424);
+        color: #16315e;
+        font-weight: 800;
+      }
+
+      .brand-copy strong {
+        display: block;
+        font-size: 17px;
+        line-height: 1.2;
+      }
+
+      .brand-copy span {
+        display: block;
+        margin-top: 2px;
+        color: rgba(225, 233, 246, 0.76);
+        font-size: 12px;
+      }
+
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .nav a {
+        padding: 9px 14px;
+        border-radius: 999px;
+        color: rgba(236, 242, 252, 0.88);
+        font-size: 13px;
+      }
+
+      .nav a.active {
+        background: rgba(208, 173, 92, 0.18);
+        color: #f7e5be;
+        border: 1px solid rgba(208, 173, 92, 0.22);
+      }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .header-hint {
+        color: rgba(226, 235, 248, 0.74);
+        font-size: 12px;
+      }
+
+      .header-button {
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.08);
+        color: #f5f8ff;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .demo-banner {
+        margin-bottom: 18px;
+        padding: 14px 18px;
+        border: 1px solid rgba(23, 55, 107, 0.1);
+        border-radius: 18px;
+        background:
+          radial-gradient(circle at top right, rgba(202, 162, 74, 0.12), transparent 25%),
+          linear-gradient(135deg, rgba(248, 251, 255, 0.98), rgba(239, 245, 254, 0.94));
+        color: var(--text-sub);
+        font-size: 14px;
+        line-height: 1.75;
+      }
+
+      .hero-grid,
+      .content-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.5fr) minmax(340px, 0.9fr);
+        gap: 18px;
+      }
+
+      .content-grid {
+        margin-top: 18px;
+        align-items: start;
+      }
+
+      .main-column,
+      .side-column {
+        display: grid;
+        gap: 18px;
+      }
+
+      .panel {
+        border-radius: var(--radius-xl);
+        border: 1px solid var(--line);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .hero-panel { padding: 26px; }
+
+      .hero-main {
+        color: #f5f9ff;
+        background:
+          radial-gradient(circle at top right, rgba(214, 181, 100, 0.24), transparent 28%),
+          linear-gradient(135deg, var(--bg-hero) 0%, var(--bg-hero-2) 62%, #215aa5 100%);
+        border-color: rgba(255, 255, 255, 0.05);
+      }
+
+      .topline,
+      .section-head,
+      .module-head,
+      .path-row,
+      .footer-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .pill-row,
+      .hero-actions,
+      .tag-row,
+      .footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .pill,
+      .tag {
+        padding: 6px 11px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .hero-main .pill {
+        color: #fff3d2;
+        background: rgba(214, 181, 100, 0.18);
+        border: 1px solid rgba(214, 181, 100, 0.22);
+      }
+
+      .hero-main h1 {
+        margin: 16px 0 10px;
+        font-size: 34px;
+        line-height: 1.32;
+      }
+
+      .hero-main p {
+        margin: 0;
+        color: rgba(237, 243, 252, 0.9);
+        font-size: 14px;
+        line-height: 1.8;
+      }
+
+      .hero-actions { margin-top: 18px; }
+
+      .btn {
+        padding: 12px 18px;
+        border-radius: 14px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .btn-primary {
+        color: #17325f;
+        background: linear-gradient(135deg, #d8b467, #b98728);
+      }
+
+      .btn-ghost {
+        color: #f4f8ff;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+      }
+
+      .hero-stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 20px;
+      }
+
+      .stat-card {
+        padding: 14px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .stat-card span {
+        display: block;
+        color: rgba(224, 233, 246, 0.76);
+        font-size: 12px;
+      }
+
+      .stat-card strong {
+        display: block;
+        margin-top: 6px;
+        color: #f7fbff;
+        font-size: 17px;
+        line-height: 1.42;
+      }
+
+      .stat-card small {
+        display: block;
+        margin-top: 5px;
+        color: rgba(225, 233, 246, 0.7);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .hero-side {
+        padding: 24px;
+        background:
+          radial-gradient(circle at top right, rgba(202, 162, 74, 0.16), transparent 30%),
+          linear-gradient(180deg, rgba(253, 254, 255, 0.98), rgba(242, 247, 255, 0.95));
+      }
+
+      .side-kicker {
+        color: var(--text-soft);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .hero-side h2 {
+        margin: 10px 0 8px;
+        font-size: 25px;
+        line-height: 1.4;
+      }
+
+      .hero-side p {
+        margin: 0;
+        color: var(--text-sub);
+        font-size: 14px;
+        line-height: 1.78;
+      }
+
+      .read-steps {
+        display: grid;
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .step {
+        padding: 14px 14px 14px 16px;
+        border-radius: 14px;
+        border-left: 4px solid var(--gold);
+        background: rgba(255, 255, 255, 0.82);
+      }
+
+      .step strong,
+      .reason-card strong,
+      .stream-card strong,
+      .path-card strong,
+      .footer-column strong {
+        display: block;
+        color: var(--text-main);
+        font-size: 15px;
+        line-height: 1.5;
+      }
+
+      .step p,
+      .reason-card p,
+      .stream-card p,
+      .path-card p,
+      .footer-column p {
+        margin: 6px 0 0;
+        color: var(--text-sub);
+        font-size: 13px;
+        line-height: 1.75;
+      }
+
+      .module { padding: 22px; }
+
+      .section-head .copy h2 {
+        margin: 0;
+        font-size: 24px;
+        line-height: 1.4;
+      }
+
+      .section-head .copy p {
+        margin: 6px 0 0;
+        color: var(--text-sub);
+        font-size: 13px;
+        line-height: 1.7;
+      }
+
+      .head-tag {
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: var(--gold-soft);
+        color: #81651a;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .reason-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .reason-card {
+        padding: 18px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, var(--panel-soft) 0%, #eef4fd 100%);
+        border: 1px solid rgba(25, 56, 107, 0.08);
+      }
+
+      .reason-card span,
+      .stream-card span,
+      .path-card span {
+        display: block;
+        color: var(--text-soft);
+        font-size: 12px;
+      }
+
+      .tag {
+        color: #6e84a8;
+        background: rgba(20, 55, 107, 0.06);
+      }
+
+      .strategy-matrix {
+        display: grid;
+        gap: 16px;
+      }
+
+      .stream-card {
+        padding: 18px;
+        border-radius: 18px;
+        background: rgba(248, 251, 255, 0.96);
+        border: 1px solid rgba(25, 56, 107, 0.08);
+      }
+
+      .stream-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .stream-badge {
+        padding: 7px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .stream-badge.stock {
+        color: #805f17;
+        background: rgba(202, 162, 74, 0.14);
+      }
+
+      .stream-badge.future {
+        color: #245d9a;
+        background: rgba(62, 112, 190, 0.12);
+      }
+
+      .stream-badge.event {
+        color: #1f8a6f;
+        background: rgba(31, 157, 102, 0.1);
+      }
+
+      .stream-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .stream-metric {
+        padding: 12px;
+        border-radius: 14px;
+        background: #f2f6fd;
+      }
+
+      .stream-metric span {
+        display: block;
+        color: var(--text-soft);
+        font-size: 11px;
+      }
+
+      .stream-metric strong {
+        display: block;
+        margin-top: 6px;
+        color: var(--text-main);
+        font-size: 13px;
+        line-height: 1.48;
+      }
+
+      .side-stack { display: grid; gap: 18px; }
+
+      .path-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .path-card {
+        padding: 16px;
+        border-radius: 16px;
+        background: rgba(247, 250, 255, 0.96);
+        border: 1px solid rgba(25, 56, 107, 0.08);
+      }
+
+      .footer {
+        margin: 22px 0 40px;
+        padding: 24px;
+        border-radius: 24px;
+        border: 1px solid rgba(25, 56, 107, 0.08);
+        background: linear-gradient(180deg, rgba(248, 251, 255, 0.98), rgba(239, 244, 252, 0.98));
+        box-shadow: 0 18px 44px rgba(15, 35, 73, 0.08);
+      }
+
+      .footer-grid {
+        display: grid;
+        grid-template-columns: 1.3fr 1fr 1fr 1fr;
+        gap: 22px;
+      }
+
+      .footer-links a {
+        display: inline-flex;
+        padding: 7px 10px;
+        border-radius: 999px;
+        background: rgba(20, 55, 107, 0.05);
+        color: var(--text-sub);
+        font-size: 12px;
+        margin: 0 8px 8px 0;
+      }
+
+      .footer-meta {
+        margin-top: 22px;
+        padding-top: 18px;
+        border-top: 1px solid rgba(25, 56, 107, 0.08);
+        color: var(--text-soft);
+        font-size: 12px;
+      }
+
+      @media (max-width: 1220px) {
+        .hero-grid,
+        .content-grid,
+        .footer-grid,
+        .reason-grid,
+        .stream-grid,
+        .hero-stats {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 860px) {
+        .page-shell { width: min(100% - 24px, 1440px); }
+        .site-header-inner { flex-direction: column; align-items: stretch; }
+        .brand, .nav, .header-actions { justify-content: center; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <div class="site-header-inner">
+          <div class="brand">
+            <span class="brand-mark">S</span>
+            <div class="brand-copy">
+              <strong>SercherAI</strong>
+              <span>策略 Demo / PC 推荐工作台</span>
+            </div>
+          </div>
+          <nav class="nav" aria-label="主导航">
+            <a href="#">首页</a>
+            <a class="active" href="#">策略</a>
+            <a href="#">关注</a>
+            <a href="#">资讯</a>
+            <a href="#">档案</a>
+            <a href="#">会员</a>
+            <a href="#">我的</a>
+          </nav>
+          <div class="header-actions">
+            <span class="header-hint">当前页面主任务：推荐工作台</span>
+            <span class="header-button">查看 H5 版</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="demo-banner">
+        本页只承接当前真实策略能力：股票推荐、期货机会、市场事件、推荐理由、执行区间、风险边界，以及与关注页、资讯页、档案页的跳转关系。
+        不新增大盘条、热榜、社区讨论或假行情图。
+      </section>
+
+      <section class="hero-grid">
+        <article class="panel hero-panel hero-main">
+          <div class="topline">
+            <div class="pill-row">
+              <span class="pill">策略中心</span>
+              <span class="pill">推荐工作台</span>
+              <span class="pill">股票主位</span>
+            </div>
+          </div>
+          <h1>先看主推荐结论，再看执行区间、风险边界和次主线机会</h1>
+          <p>
+            这页不是资讯流，也不是后台筛选表格，而是把“今天推荐什么、为什么成立、怎么执行、失败条件是什么”集中讲清楚。
+          </p>
+          <div class="hero-actions">
+            <span class="btn btn-primary">看完整观点</span>
+            <span class="btn btn-ghost">去关注页</span>
+            <span class="btn btn-ghost">去资讯页</span>
+          </div>
+          <div class="hero-stats">
+            <div class="stat-card">
+              <span>主推荐</span>
+              <strong>宁德时代 300750</strong>
+              <small>中线跟踪 / 继续观察</small>
+            </div>
+            <div class="stat-card">
+              <span>当前动作</span>
+              <strong>等待增量确认，不追涨</strong>
+              <small>策略页先讲动作，再讲故事</small>
+            </div>
+            <div class="stat-card">
+              <span>风险等级</span>
+              <strong>中风险 / 有边界</strong>
+              <small>不是一句“长期看好”就结束</small>
+            </div>
+            <div class="stat-card">
+              <span>风险边界</span>
+              <strong>风控线 198 / 目标区间 226-238</strong>
+              <small>止盈止损要和结论同屏出现</small>
+            </div>
+          </div>
+        </article>
+
+        <aside class="panel hero-side">
+          <span class="side-kicker">页面导读</span>
+          <h2>策略页的阅读顺序是：先结论，再理由，再看期货与市场事件</h2>
+          <p>
+            首页只告诉用户“今天先看什么”，策略页则负责把理由和边界展开，并明确指出下一步是去关注、资讯还是历史档案。
+          </p>
+          <div class="read-steps">
+            <article class="step">
+              <strong>先看主推荐</strong>
+              <p>优先看股票主位、当前动作和风险边界，不先被次级内容分散注意力。</p>
+            </article>
+            <article class="step">
+              <strong>再看推荐理由</strong>
+              <p>用四张解释卡把结论、证据、执行区间和边界说清楚。</p>
+            </article>
+            <article class="step">
+              <strong>最后看期货与市场事件</strong>
+              <p>它们是次主线承接内容，负责补充策略视角，而不是抢主位。</p>
+            </article>
+          </div>
+        </aside>
+      </section>
+
+      <section class="content-grid">
+        <div class="main-column">
+          <section class="panel module">
+            <div class="section-head">
+              <div class="copy">
+                <h2>为什么今天先看它</h2>
+                <p>把推荐理由拆成四个可读模块，让 PC 端保留中文金融站的解释力度，而不是只丢一条摘要。</p>
+              </div>
+              <span class="head-tag">推荐理由</span>
+            </div>
+            <div class="reason-grid">
+              <article class="reason-card">
+                <span>核心结论</span>
+                <strong>当前更适合中线跟踪，不做短线情绪追价</strong>
+                <p>页面必须先把结论说清楚，而不是只给出一个模糊的“继续看好”。</p>
+                <div class="tag-row" style="margin-top: 10px;">
+                  <span class="tag">结论前置</span>
+                  <span class="tag">推荐主位</span>
+                </div>
+              </article>
+              <article class="reason-card">
+                <span>证据来源</span>
+                <strong>订单验证、景气修复与版本变化共同支持当前判断</strong>
+                <p>真实能力承接的是 insight 和 version history，不虚构新分析模型。</p>
+                <div class="tag-row" style="margin-top: 10px;">
+                  <span class="tag">Insight</span>
+                  <span class="tag">版本变化</span>
+                </div>
+              </article>
+              <article class="reason-card">
+                <span>执行区间</span>
+                <strong>轻仓观察到核心验证，再逐步提高权重</strong>
+                <p>把执行区间和节奏说清楚，避免策略页变成只有观点、没有动作的空页面。</p>
+                <div class="tag-row" style="margin-top: 10px;">
+                  <span class="tag">仓位建议</span>
+                  <span class="tag">节奏说明</span>
+                </div>
+              </article>
+              <article class="reason-card">
+                <span>风险边界</span>
+                <strong>风控线、止盈规则和失效条件必须同屏展示</strong>
+                <p>策略页强调风险边界，不允许只有乐观叙事没有退出条件。</p>
+                <div class="tag-row" style="margin-top: 10px;">
+                  <span class="tag">止损原因</span>
+                  <span class="tag">止盈规则</span>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel module">
+            <div class="section-head">
+              <div class="copy">
+                <h2>策略分层区</h2>
+                <p>股票主推荐、期货机会与市场事件分层展示，既保留真实能力，又不让页面结构发散。</p>
+              </div>
+              <span class="head-tag">股票 / 期货 / 市场事件</span>
+            </div>
+
+            <div class="strategy-matrix">
+              <article class="stream-card">
+                <div class="stream-head">
+                  <div>
+                    <span>股票主推荐</span>
+                    <strong>主线标的继续承接首页推荐中心位</strong>
+                  </div>
+                  <span class="stream-badge stock">股票</span>
+                </div>
+                <p>这一块负责把首页的主推荐完整展开，强调“推荐工作台”的主线感，而不是单纯复制首页 Hero。</p>
+                <div class="stream-grid">
+                  <div class="stream-metric">
+                    <span>当前判断</span>
+                    <strong>继续跟踪</strong>
+                  </div>
+                  <div class="stream-metric">
+                    <span>证据重点</span>
+                    <strong>订单验证</strong>
+                  </div>
+                  <div class="stream-metric">
+                    <span>下一动作</span>
+                    <strong>等二次确认</strong>
+                  </div>
+                </div>
+              </article>
+
+              <article class="stream-card">
+                <div class="stream-head">
+                  <div>
+                    <span>期货机会</span>
+                    <strong>期货是次主线承接，不与股票主位争抢视觉中心</strong>
+                  </div>
+                  <span class="stream-badge future">期货</span>
+                </div>
+                <p>例如工业硅、黑色链或有色链的阶段机会，用“方向 + guidance 摘要 + 风险边界”表达，而不是伪装成实时行情页。</p>
+                <div class="stream-grid">
+                  <div class="stream-metric">
+                    <span>方向</span>
+                    <strong>轻仓顺势</strong>
+                  </div>
+                  <div class="stream-metric">
+                    <span>执行摘要</span>
+                    <strong>等待价差确认</strong>
+                  </div>
+                  <div class="stream-metric">
+                    <span>失效条件</span>
+                    <strong>回落失守区间</strong>
+                  </div>
+                </div>
+              </article>
+
+              <article class="stream-card">
+                <div class="stream-head">
+                  <div>
+                    <span>市场事件</span>
+                    <strong>市场事件负责解释“为什么今天策略排序会变化”</strong>
+                  </div>
+                  <span class="stream-badge event">市场事件</span>
+                </div>
+                <p>市场事件不当作资讯条目处理，而是当作影响推荐排序与策略逻辑的背景变量，帮助用户理解策略上下文。</p>
+                <div class="stream-grid">
+                  <div class="stream-metric">
+                    <span>事件类型</span>
+                    <strong>政策窗口</strong>
+                  </div>
+                  <div class="stream-metric">
+                    <span>影响方向</span>
+                    <strong>正向催化</strong>
+                  </div>
+                  <div class="stream-metric">
+                    <span>建议动作</span>
+                    <strong>继续验证</strong>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+
+        <aside class="side-column">
+          <section class="panel module">
+            <div class="section-head">
+              <div class="copy">
+                <h2>页面关系</h2>
+                <p>策略页不是终点，而是把首页导进来的主线继续分发到关注、资讯与档案。</p>
+              </div>
+              <span class="head-tag">下一步</span>
+            </div>
+            <div class="path-list">
+              <article class="path-card">
+                <div class="path-row">
+                  <span>去关注页</span>
+                  <span>高频</span>
+                </div>
+                <strong>把推荐变成长期跟踪对象</strong>
+                <p>用户决定继续跟踪后，进入关注页看状态变化、资讯变化和边界变化。</p>
+              </article>
+              <article class="path-card">
+                <div class="path-row">
+                  <span>去资讯页</span>
+                  <span>深读</span>
+                </div>
+                <strong>查看与策略相关的焦点研报和正文附件</strong>
+                <p>策略页不把长文塞满，只负责把用户导向需要深读的内容。</p>
+              </article>
+              <article class="path-card">
+                <div class="path-row">
+                  <span>去档案页</span>
+                  <span>复盘</span>
+                </div>
+                <strong>查看历史样本的处理结果与复盘说明</strong>
+                <p>把“过去怎么做”与“今天为什么看”连接起来。</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="panel module">
+            <div class="section-head">
+              <div class="copy">
+                <h2>风险提醒</h2>
+                <p>策略中心的重点不只是推荐，更要把风险边界前置讲清楚。</p>
+              </div>
+              <span class="head-tag">边界优先</span>
+            </div>
+            <div class="path-list">
+              <article class="path-card">
+                <span>风险边界</span>
+                <strong>所有推荐都要同时给出止盈、止损和失效条件</strong>
+                <p>这里是策略页必须和资讯页区分开的核心特征。</p>
+              </article>
+              <article class="path-card">
+                <span>阅读顺序</span>
+                <strong>先看结论，再看理由，再看次主线内容</strong>
+                <p>避免用户被期货、事件和资讯分散主推荐注意力。</p>
+              </article>
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <footer class="footer">
+        <div class="footer-grid">
+          <div class="footer-column">
+            <strong>策略 Demo 说明</strong>
+            <p>本页为新客户端 `strategies` 的 PC 正式 demo，延续首页蓝金金融系和中文金融站结构，不代表新增后端接口能力。</p>
+          </div>
+          <div class="footer-column">
+            <strong>站点说明</strong>
+            <div class="footer-links">
+              <a href="#">关于策略页</a>
+              <a href="#">使用说明</a>
+              <a href="#">页面边界</a>
+            </div>
+          </div>
+          <div class="footer-column">
+            <strong>风险提示</strong>
+            <div class="footer-links">
+              <a href="#">风险边界</a>
+              <a href="#">投资提示</a>
+              <a href="#">内容说明</a>
+            </div>
+          </div>
+          <div class="footer-column">
+            <strong>账户承接</strong>
+            <div class="footer-links">
+              <a href="#">会员权限</a>
+              <a href="#">消息通知</a>
+              <a href="#">我的账户</a>
+            </div>
+          </div>
+        </div>
+        <div class="footer-meta">
+          <span>Demo 版本：2026-03-24 / Strategies PC</span>
+          <span>关键词：推荐工作台 / 风险边界 / 期货 / 市场事件</span>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SercherAI 登录 Demo - PC</title>
+    <link rel="stylesheet" href="./demo-finance.css" />
+  </head>
+  <body>
+    <div class="pc-shell">
+      <header class="site-header">
+        <div class="site-header-inner">
+          <div class="brand">
+            <span class="brand-mark">S</span>
+            <div class="brand-copy">
+              <strong>SercherAI 身份入口</strong>
+              <span>高效率登录 / 注册</span>
+            </div>
+          </div>
+          <div class="header-actions">
+            <span class="header-chip">来源：资讯页正文</span>
+            <span class="header-chip">redirect=/news</span>
+            <span class="header-chip primary">invite_code=GJH2026</span>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="page-hero">
+          <div class="pill-row">
+            <span class="pill">身份入口</span>
+            <span class="pill blue">登录 / 注册双栏</span>
+            <span class="pill blue">来源回跳可见</span>
+          </div>
+          <h1>先确认来源回跳和邀请码，再直接完成登录或注册，把信息集中在身份进入本身</h1>
+          <p>
+            登录页的任务是高效率完成身份进入。它必须同时保留来源说明、redirect 回跳和邀请码状态，
+            并且在桌面端把登录和注册并列展示，不扩第三方登录，也不把用户强制送回首页。
+          </p>
+        </section>
+
+        <section class="content-layout">
+          <div class="main-column">
+            <section class="finance-card">
+              <div class="section-head">
+                <div>
+                  <h2>顶部来源说明与回跳信息</h2>
+                  <p>用户需要知道自己为什么来到这里，以及登录后会回到哪里。</p>
+                </div>
+                <span class="head-tag">来源说明</span>
+              </div>
+              <div class="detail-grid">
+                <article class="detail-card">
+                  <span class="status-pill">当前来源</span>
+                  <strong>从资讯页正文与附件权限承接进入</strong>
+                  <p>说明当前动作和阅读链有直接关系，不是随机跳转。</p>
+                </article>
+                <article class="detail-card">
+                  <span class="status-pill gold">登录后回跳</span>
+                  <strong>继续返回 /news 的当前阅读位置</strong>
+                  <p>不强制回首页，避免阅读链中断。</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="finance-card soft">
+              <div class="section-head">
+                <div>
+                  <h2>登录 / 注册双栏主区</h2>
+                  <p>登录和注册并列呈现，邀请码始终可见，不藏进二级说明。</p>
+                </div>
+                <span class="head-tag">主区</span>
+              </div>
+
+              <div class="auth-grid">
+                <article class="auth-box">
+                  <h2>登录</h2>
+                  <p>适合已有账户的用户，继续当前阅读或支付动作。</p>
+                  <div class="input-block">
+                    <label>手机号 / 邮箱</label>
+                    <div class="input-faux">请输入手机号或邮箱</div>
+                  </div>
+                  <div class="input-block">
+                    <label>密码</label>
+                    <div class="input-faux">请输入密码</div>
+                  </div>
+                  <div class="cta-group">
+                    <a class="primary-btn" href="#">立即登录</a>
+                    <a class="secondary-btn" href="#">忘记密码</a>
+                  </div>
+                </article>
+
+                <article class="auth-box">
+                  <h2>注册</h2>
+                  <p>适合首次进入的用户，邀请码和来源信息继续显示。</p>
+                  <div class="input-block">
+                    <label>手机号 / 邮箱</label>
+                    <div class="input-faux">请输入注册账号</div>
+                  </div>
+                  <div class="input-block">
+                    <label>密码</label>
+                    <div class="input-faux">请输入注册密码</div>
+                  </div>
+                  <div class="input-block">
+                    <label>邀请码</label>
+                    <div class="input-faux">GJH2026</div>
+                  </div>
+                  <div class="cta-group">
+                    <a class="primary-btn" href="#">立即注册</a>
+                    <a class="secondary-btn" href="#">查看邀请说明</a>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="finance-card">
+              <div class="section-head">
+                <div>
+                  <h2>当前支持能力与回跳链路说明</h2>
+                  <p>只强调真实支持的身份能力，不扩第三方登录或社交入口。</p>
+                </div>
+                <span class="head-tag">能力说明</span>
+              </div>
+              <div class="feature-grid">
+                <article class="feature-card">
+                  <span class="status-pill">当前支持</span>
+                  <strong>账号密码登录 / 注册</strong>
+                  <p>继续沿用现有账户体系，不扩短信或第三方登录。</p>
+                </article>
+                <article class="feature-card">
+                  <span class="status-pill gold">邀请码可见</span>
+                  <strong>注册时直接保留 invite_code</strong>
+                  <p>不隐藏在折叠说明里。</p>
+                </article>
+                <article class="feature-card">
+                  <span class="status-pill warning">来源回跳</span>
+                  <strong>登录后继续原阅读位置</strong>
+                  <p>这让用户完成登录后可以无缝回到原来的阅读链和处理动作。</p>
+                </article>
+              </div>
+            </section>
+          </div>
+
+          <aside class="side-column">
+            <section class="side-card">
+              <div class="section-head">
+                <div>
+                  <h3>来源回跳链</h3>
+                  <p>让用户明确知道“登录后去哪”。</p>
+                </div>
+                <span class="head-tag">回跳</span>
+              </div>
+              <div class="list-stack">
+                <article class="list-item">
+                  <strong>来源：资讯页正文</strong>
+                  <p>当前被正文和附件权限承接触发。</p>
+                </article>
+                <article class="list-item">
+                  <strong>登录后：回 /news</strong>
+                  <p>继续原阅读位置，而不是重置到首页。</p>
+                </article>
+              </div>
+            </section>
+          </aside>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div class="footer-grid">
+          <div class="footer-column">
+            <strong>SercherAI 身份入口</strong>
+            <p>登录页只围绕身份进入、邀请码绑定和来源回跳展开，目标是让用户尽快回到原阅读链。</p>
+          </div>
+          <div class="footer-column">
+            <strong>身份能力</strong>
+            <div class="footer-links">
+              <a href="#">登录</a>
+              <a href="#">注册</a>
+              <a href="#">邀请码</a>
+            </div>
+          </div>
+          <div class="footer-column">
+            <strong>回跳说明</strong>
+            <div class="footer-links">
+              <a href="#">来源页</a>
+              <a href="#">继续阅读</a>
+              <a href="#">guestOnly</a>
+            </div>
+          </div>
+          <div class="footer-column">
+            <strong>账户关联</strong>
+            <div class="footer-links">
+              <a href="#">会员</a>
+              <a href="#">我的账户</a>
+              <a href="#">资讯页</a>
+            </div>
+          </div>
+        </div>
+        <div class="footer-meta">
+          <span>登录页主任务：快速完成身份进入并保留回跳</span>
+          <span>关键词：登录注册双栏 / invite_code / redirect</span>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
