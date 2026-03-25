@@ -28,7 +28,6 @@ const (
 	marketAssetClassStock   = "STOCK"
 	marketAssetClassFutures = "FUTURES"
 
-	marketDataKindInstrumentMaster = "INSTRUMENT_MASTER"
 	marketDataKindDailyBars        = "DAILY_BARS"
 	marketDataKindStockDailyBasic  = "STOCK_DAILY_BASIC"
 	marketDataKindStockMoneyflow   = "STOCK_MONEYFLOW"
@@ -509,7 +508,9 @@ func (r *MySQLGrowthRepo) AdminSyncFuturesInventory(sourceKey string, symbols []
 		ResolvedSourceKeys: sourceKeys,
 		SelectedSource:     routingSummary.SelectedSource,
 		FallbackSourceKeys: append([]string(nil), routingSummary.FallbackSourceKeys...),
+		FallbackChain:      append([]string(nil), routingSummary.FallbackSourceKeys...),
 		RoutingPolicyKey:   routingSummary.RoutingPolicyKey,
+		PolicyKey:          routingSummary.RoutingPolicyKey,
 		DecisionReason:     routingSummary.DecisionReason,
 		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
 	}
@@ -609,7 +610,9 @@ func (r *MySQLGrowthRepo) AdminSyncMarketNews(sourceKey string, symbols []string
 		ResolvedSourceKeys: sourceKeys,
 		SelectedSource:     routingSummary.SelectedSource,
 		FallbackSourceKeys: append([]string(nil), routingSummary.FallbackSourceKeys...),
+		FallbackChain:      append([]string(nil), routingSummary.FallbackSourceKeys...),
 		RoutingPolicyKey:   routingSummary.RoutingPolicyKey,
+		PolicyKey:          routingSummary.RoutingPolicyKey,
 		DecisionReason:     routingSummary.DecisionReason,
 		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
 	}
@@ -708,7 +711,9 @@ func (r *MySQLGrowthRepo) syncMarketDailyBars(assetClass string, sourceKey strin
 		ResolvedSourceKeys: sourceKeys,
 		SelectedSource:     routingSummary.SelectedSource,
 		FallbackSourceKeys: append([]string(nil), routingSummary.FallbackSourceKeys...),
+		FallbackChain:      append([]string(nil), routingSummary.FallbackSourceKeys...),
 		RoutingPolicyKey:   routingSummary.RoutingPolicyKey,
+		PolicyKey:          routingSummary.RoutingPolicyKey,
 		DecisionReason:     routingSummary.DecisionReason,
 		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
 	}

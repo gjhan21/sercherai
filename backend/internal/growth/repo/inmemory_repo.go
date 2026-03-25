@@ -27,6 +27,8 @@ type InMemoryGrowthRepo struct {
 	communityReports  map[string]model.CommunityReport
 	communityReacts   map[string]struct{}
 	userMessages      map[string][]model.UserMessage
+	adminAuditEvents  map[string]model.AdminAuditEvent
+	workflowMessages  map[string]model.WorkflowMessage
 }
 
 func NewInMemoryGrowthRepo() *InMemoryGrowthRepo {
@@ -102,6 +104,8 @@ func NewInMemoryGrowthRepo() *InMemoryGrowthRepo {
 		communityReports:          make(map[string]model.CommunityReport),
 		communityReacts:           make(map[string]struct{}),
 		userMessages:              make(map[string][]model.UserMessage),
+		adminAuditEvents:          make(map[string]model.AdminAuditEvent),
+		workflowMessages:          make(map[string]model.WorkflowMessage),
 	}
 	repo.seedCommunityData()
 	return repo
@@ -2511,37 +2515,162 @@ func (r *InMemoryGrowthRepo) AdminDeleteSchedulerJobDefinition(id string) error 
 }
 
 func (r *InMemoryGrowthRepo) AdminListWorkflowMessages(module string, eventType string, isRead string, receiverID string, page int, pageSize int) ([]model.WorkflowMessage, int, error) {
-	items := []model.WorkflowMessage{
-		{
-			ID:         "wm_001",
-			ReviewID:   "rt_001",
-			TargetID:   "sr_demo_001",
-			Module:     "STOCK",
-			ReceiverID: "admin_001",
-			SenderID:   "admin_001",
-			EventType:  "REVIEW_SUBMITTED",
-			Title:      "策略待审核",
-			Content:    "有新的股票策略提交审核",
-			IsRead:     false,
-			CreatedAt:  "2026-02-25T10:00:00+08:00",
-		},
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	module = strings.ToUpper(strings.TrimSpace(module))
+	eventType = strings.ToUpper(strings.TrimSpace(eventType))
+	isRead = strings.ToLower(strings.TrimSpace(isRead))
+	receiverID = strings.TrimSpace(receiverID)
+
+	items := make([]model.WorkflowMessage, 0, len(r.workflowMessages))
+	for _, item := range r.workflowMessages {
+		if module != "" && strings.ToUpper(strings.TrimSpace(item.Module)) != module {
+			continue
+		}
+		if eventType != "" && strings.ToUpper(strings.TrimSpace(item.EventType)) != eventType {
+			continue
+		}
+		if receiverID != "" && strings.TrimSpace(item.ReceiverID) != receiverID {
+			continue
+		}
+		switch isRead {
+		case "true", "1", "yes":
+			if !item.IsRead {
+				continue
+			}
+		case "false", "0", "no":
+			if item.IsRead {
+				continue
+			}
+		}
+		items = append(items, item)
 	}
-	return items, len(items), nil
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt == items[j].CreatedAt {
+			return items[i].ID > items[j].ID
+		}
+		return items[i].CreatedAt > items[j].CreatedAt
+	})
+
+	total := len(items)
+	if pageSize <= 0 {
+		pageSize = total
+	}
+	if page <= 0 {
+		page = 1
+	}
+	start := (page - 1) * pageSize
+	if start >= total {
+		return []model.WorkflowMessage{}, total, nil
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]model.WorkflowMessage(nil), items[start:end]...), total, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminCountUnreadWorkflowMessages(module string, eventType string, receiverID string) (int, error) {
-	return 1, nil
+	items, _, err := r.AdminListWorkflowMessages(module, eventType, "false", receiverID, 1, 100000)
+	if err != nil {
+		return 0, err
+	}
+	return len(items), nil
 }
 
 func (r *InMemoryGrowthRepo) AdminUpdateWorkflowMessageRead(id string, isRead bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	item, ok := r.workflowMessages[strings.TrimSpace(id)]
+	if !ok {
+		return nil
+	}
+	item.IsRead = isRead
+	if isRead {
+		item.ReadAt = time.Now().Format(time.RFC3339)
+	} else {
+		item.ReadAt = ""
+	}
+	r.workflowMessages[item.ID] = item
 	return nil
 }
 
 func (r *InMemoryGrowthRepo) AdminBulkReadWorkflowMessages(module string, eventType string, receiverID string) (int64, error) {
-	return 1, nil
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	module = strings.ToUpper(strings.TrimSpace(module))
+	eventType = strings.ToUpper(strings.TrimSpace(eventType))
+	receiverID = strings.TrimSpace(receiverID)
+
+	var affected int64
+	now := time.Now().Format(time.RFC3339)
+	for id, item := range r.workflowMessages {
+		if module != "" && strings.ToUpper(strings.TrimSpace(item.Module)) != module {
+			continue
+		}
+		if eventType != "" && strings.ToUpper(strings.TrimSpace(item.EventType)) != eventType {
+			continue
+		}
+		if receiverID != "" && strings.TrimSpace(item.ReceiverID) != receiverID {
+			continue
+		}
+		if item.IsRead {
+			continue
+		}
+		item.IsRead = true
+		item.ReadAt = now
+		r.workflowMessages[id] = item
+		affected++
+	}
+	return affected, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminCreateWorkflowMessage(reviewID string, targetID string, module string, receiverID string, senderID string, eventType string, title string, content string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	reviewID = strings.TrimSpace(reviewID)
+	targetID = strings.TrimSpace(targetID)
+	module = strings.ToUpper(strings.TrimSpace(module))
+	receiverID = strings.TrimSpace(receiverID)
+	senderID = strings.TrimSpace(senderID)
+	eventType = strings.ToUpper(strings.TrimSpace(eventType))
+	title = strings.TrimSpace(title)
+	content = strings.TrimSpace(content)
+
+	for id, item := range r.workflowMessages {
+		if item.ReviewID == reviewID &&
+			item.TargetID == targetID &&
+			strings.ToUpper(strings.TrimSpace(item.Module)) == module &&
+			strings.TrimSpace(item.ReceiverID) == receiverID &&
+			strings.ToUpper(strings.TrimSpace(item.EventType)) == eventType {
+			item.Title = title
+			item.Content = content
+			item.SenderID = senderID
+			r.workflowMessages[id] = item
+			return nil
+		}
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	id := fmt.Sprintf("wm_%03d", len(r.workflowMessages)+1)
+	r.workflowMessages[id] = model.WorkflowMessage{
+		ID:         id,
+		ReviewID:   reviewID,
+		TargetID:   targetID,
+		Module:     module,
+		ReceiverID: receiverID,
+		SenderID:   senderID,
+		EventType:  eventType,
+		Title:      title,
+		Content:    content,
+		IsRead:     false,
+		CreatedAt:  now,
+	}
 	return nil
 }
 

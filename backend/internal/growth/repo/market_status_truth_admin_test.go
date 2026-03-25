@@ -361,6 +361,37 @@ func TestAdminGetMarketProviderGovernanceOverviewCombinesQualitySummaryAndProvid
 			"upstream timeout",
 			latestErrorAt,
 		))
+	mock.ExpectQuery(`SELECT MAX\(trade_date\)\s+FROM market_daily_bar_truth`).
+		WithArgs("STOCK").
+		WillReturnRows(sqlmock.NewRows([]string{"max_trade_date"}).AddRow(latestTradeDate))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM market_instruments\s+WHERE asset_class = \? AND status = 'ACTIVE'`).
+		WithArgs("STOCK").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4821))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM market_instruments\s+WHERE asset_class = \? AND status = 'ACTIVE' AND \(display_name IS NULL OR TRIM\(display_name\) = '' OR display_name = instrument_key\)`).
+		WithArgs("STOCK").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(8))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM market_instruments\s+WHERE asset_class = \? AND status = 'ACTIVE' AND list_date IS NULL`).
+		WithArgs("STOCK").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(21))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM market_instruments\s+WHERE asset_class = \? AND status = 'ACTIVE' AND instrument_key NOT LIKE '%%\.%%'`).
+		WithArgs("STOCK").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT instrument_key\)\s+FROM market_daily_bar_truth`).
+		WithArgs("STOCK", "2026-03-22").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4789))
+	mock.ExpectQuery(`SELECT COALESCE\(selected_source_key, ''\), COUNT\(\*\)\s+FROM market_daily_bar_truth`).
+		WithArgs("STOCK", "2026-03-22").
+		WillReturnRows(sqlmock.NewRows([]string{"selected_source_key", "count"}).
+			AddRow("TUSHARE", 4620).
+			AddRow("MYSELF", 121).
+			AddRow("AKSHARE", 48))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT symbol\) FROM stock_daily_basic WHERE trade_date = \(SELECT MAX\(trade_date\) FROM stock_daily_basic\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4703))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT symbol\) FROM stock_moneyflow_daily WHERE trade_date = \(SELECT MAX\(trade_date\) FROM stock_moneyflow_daily\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4688))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT symbol\) FROM stock_news_raw WHERE published_at >= \?`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1264))
 
 	mock.ExpectQuery(marketProviderCapabilityListQueryPattern).
 		WithArgs("STOCK", "DAILY_BARS").

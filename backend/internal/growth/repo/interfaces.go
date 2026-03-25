@@ -243,10 +243,6 @@ type GrowthRepo interface {
 	AdminCreateDataSource(item model.DataSource) (string, error)
 	AdminUpdateDataSource(sourceKey string, item model.DataSource) error
 	AdminDeleteDataSource(sourceKey string) error
-	AdminGetMarketProviderGovernanceOverview() (model.MarketProviderGovernanceOverview, error)
-	AdminListMarketProviderCapabilities(providerKey string, assetClass string, dataKind string) ([]model.MarketProviderCapability, error)
-	AdminListMarketProviderRoutingPolicies(assetClass string, dataKind string) ([]model.MarketProviderRoutingPolicy, error)
-	AdminUpsertMarketProviderRoutingPolicy(item model.MarketProviderRoutingPolicy) (model.MarketProviderRoutingPolicy, error)
 	AdminCheckDataSourceHealth(sourceKey string) (model.DataSourceHealthCheck, error)
 	AdminBatchCheckDataSourceHealth(sourceKeys []string) ([]model.DataSourceHealthCheck, error)
 	AdminListDataSourceHealthLogs(sourceKey string, page int, pageSize int) ([]model.DataSourceHealthLog, int, error)
