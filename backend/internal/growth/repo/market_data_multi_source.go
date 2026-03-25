@@ -648,6 +648,12 @@ func (r *MySQLGrowthRepo) AdminSyncMarketNews(sourceKey string, symbols []string
 				failures = append(failures, fmt.Sprintf("%s: %v", resolvedSourceKey, err))
 			} else {
 				totalNews += newsCount
+				draftCount, draftErr := r.upsertDraftStockEventClustersFromMarketNews(items)
+				if draftErr != nil {
+					message = fmt.Sprintf("ok; stock event drafting failed: %v", draftErr)
+				} else if draftCount > 0 {
+					message = fmt.Sprintf("ok; drafted %d stock events", draftCount)
+				}
 			}
 		}
 
@@ -3331,6 +3337,274 @@ func marshalJSONSilently(value interface{}) string {
 		return ""
 	}
 	return string(payload)
+}
+
+func (r *MySQLGrowthRepo) upsertDraftStockEventClustersFromMarketNews(items []model.MarketNewsItem) (int, error) {
+	clusters := buildDraftStockEventClustersFromMarketNews(items)
+	if len(clusters) == 0 {
+		return 0, nil
+	}
+
+	affected := 0
+	for _, cluster := range clusters {
+		stored, err := r.AdminUpsertStockEventCluster(cluster)
+		if err != nil {
+			return affected, err
+		}
+		if err := r.ensureHighPriorityStockEventReviewTask(stored); err != nil {
+			return affected, err
+		}
+		affected++
+	}
+	return affected, nil
+}
+
+func buildDraftStockEventClustersFromMarketNews(items []model.MarketNewsItem) []model.StockEventCluster {
+	clusterMap := make(map[string]*model.StockEventCluster)
+	clusterOrder := make([]string, 0, len(items))
+	for _, item := range items {
+		title := strings.TrimSpace(item.Title)
+		if title == "" {
+			continue
+		}
+		symbols := normalizeStockSymbolList(append([]string{item.PrimarySymbol}, item.Symbols...))
+		if len(symbols) == 0 {
+			continue
+		}
+		primarySymbol := strings.ToUpper(strings.TrimSpace(item.PrimarySymbol))
+		if primarySymbol == "" {
+			primarySymbol = symbols[0]
+		}
+		eventType := inferStockEventTypeFromNews(item)
+		clusterGroupKey := buildDraftStockEventGroupKey(item, primarySymbol, eventType)
+		cluster, exists := clusterMap[clusterGroupKey]
+		if !exists {
+			clusterID := newID("sec")
+			confidence := draftStockEventConfidence(item, symbols)
+			reviewPriority, reviewReasonCodes := buildDraftStockEventReviewPriority(eventType, confidence)
+			cluster = &model.StockEventCluster{
+				ID:            clusterID,
+				ClusterKey:    clusterGroupKey,
+				EventType:     eventType,
+				Title:         title,
+				Summary:       strings.TrimSpace(item.Summary),
+				Source:        strings.ToUpper(strings.TrimSpace(item.SourceKey)),
+				PrimarySymbol: primarySymbol,
+				Status:        "CLUSTERED",
+				ReviewStatus:  "PENDING",
+				Confidence:    confidence,
+				Metadata: map[string]any{
+					"draft_source":        "market_news_sync",
+					"news_type":           coalesceUpper(item.NewsType, "MARKET"),
+					"cluster_title_key":   normalizeStockEventClusterTitle(title),
+					"review_priority":     reviewPriority,
+					"review_reason_codes": reviewReasonCodes,
+				},
+			}
+			clusterMap[clusterGroupKey] = cluster
+			clusterOrder = append(clusterOrder, clusterGroupKey)
+		}
+
+		memberConfidence := draftStockEventConfidence(item, symbols)
+		member := model.StockEventItem{
+			ID:            newID("sei"),
+			ClusterID:     cluster.ID,
+			SourceKey:     strings.ToUpper(strings.TrimSpace(item.SourceKey)),
+			SourceItemID:  strings.TrimSpace(item.ExternalID),
+			Title:         title,
+			Summary:       strings.TrimSpace(item.Summary),
+			PrimarySymbol: primarySymbol,
+			Symbols:       symbols,
+			PublishedAt:   strings.TrimSpace(item.PublishedAt),
+		}
+		appendDraftStockEventMember(cluster, member, memberConfidence)
+	}
+
+	clusters := make([]model.StockEventCluster, 0, len(clusterOrder))
+	for _, key := range clusterOrder {
+		cluster := clusterMap[key]
+		cluster.NewsCount = len(cluster.Items)
+		cluster.Entities = buildDraftStockEventEntities(cluster.ID, collectDraftStockEventSymbols(cluster.Items))
+		clusters = append(clusters, *cluster)
+	}
+	return clusters
+}
+
+func buildDraftStockEventEntities(clusterID string, symbols []string) []model.StockEventEntity {
+	if len(symbols) == 0 {
+		return nil
+	}
+	entities := make([]model.StockEventEntity, 0, len(symbols))
+	for _, symbol := range symbols {
+		entities = append(entities, model.StockEventEntity{
+			ID:         newID("see"),
+			ClusterID:  clusterID,
+			EntityType: "COMPANY",
+			EntityKey:  "company:" + symbol,
+			Label:      symbol,
+			Symbol:     symbol,
+			Confidence: 0.9,
+		})
+	}
+	return entities
+}
+
+func buildDraftStockEventGroupKey(item model.MarketNewsItem, primarySymbol string, eventType string) string {
+	seed := primarySymbol + "|" + eventType + "|" + normalizeStockEventClusterTitle(item.Title)
+	sum := sha1.Sum([]byte(seed))
+	return "draft:" + hex.EncodeToString(sum[:8])
+}
+
+func normalizeStockEventClusterTitle(title string) string {
+	var builder strings.Builder
+	for _, ch := range strings.ToUpper(strings.TrimSpace(title)) {
+		switch {
+		case ch >= 'A' && ch <= 'Z':
+			builder.WriteRune(ch)
+		case ch >= '0' && ch <= '9':
+			builder.WriteRune(ch)
+		case ch >= 0x4e00 && ch <= 0x9fff:
+			builder.WriteRune(ch)
+		}
+	}
+	return builder.String()
+}
+
+func inferStockEventTypeFromNews(item model.MarketNewsItem) string {
+	switch coalesceUpper(item.NewsType, "MARKET") {
+	case "ANNOUNCEMENT":
+		return "ANNOUNCEMENT"
+	case "POLICY":
+		return "POLICY"
+	case "EARNINGS":
+		return "EARNINGS"
+	case "INDUSTRY_THEME":
+		return "INDUSTRY_THEME"
+	case "SUPPLY_CHAIN_EVENT":
+		return "SUPPLY_CHAIN_EVENT"
+	case "NEWS", "MARKET":
+		// fall through to keyword inference
+	default:
+		return "NEWS"
+	}
+
+	title := strings.ToUpper(strings.TrimSpace(item.Title + " " + item.Summary))
+	switch {
+	case strings.Contains(title, "季报"), strings.Contains(title, "年报"), strings.Contains(title, "业绩"), strings.Contains(title, "财报"):
+		return "EARNINGS"
+	case strings.Contains(title, "公告"):
+		return "ANNOUNCEMENT"
+	case strings.Contains(title, "政策"), strings.Contains(title, "国务院"), strings.Contains(title, "发改委"), strings.Contains(title, "工信部"):
+		return "POLICY"
+	case strings.Contains(title, "主题"), strings.Contains(title, "板块"), strings.Contains(title, "赛道"):
+		return "INDUSTRY_THEME"
+	case strings.Contains(title, "供应"), strings.Contains(title, "产能"), strings.Contains(title, "库存"), strings.Contains(title, "涨价"):
+		return "SUPPLY_CHAIN_EVENT"
+	default:
+		return "NEWS"
+	}
+}
+
+func draftStockEventConfidence(item model.MarketNewsItem, symbols []string) float64 {
+	confidence := 0.55
+	if strings.TrimSpace(item.PrimarySymbol) != "" {
+		confidence += 0.2
+	}
+	if len(symbols) > 1 {
+		confidence += 0.05
+	}
+	if strings.TrimSpace(item.Summary) != "" {
+		confidence += 0.05
+	}
+	return confidence
+}
+
+func buildDraftStockEventReviewPriority(eventType string, confidence float64) (string, []string) {
+	reasonCodes := make([]string, 0, 2)
+	if confidence < 0.70 {
+		reasonCodes = append(reasonCodes, "LOW_CONFIDENCE")
+	}
+	if strings.ToUpper(strings.TrimSpace(eventType)) == "NEWS" {
+		reasonCodes = append(reasonCodes, "GENERIC_EVENT_TYPE")
+	}
+	if len(reasonCodes) > 0 {
+		return "HIGH", reasonCodes
+	}
+	return "NORMAL", []string{}
+}
+
+func (r *MySQLGrowthRepo) ensureHighPriorityStockEventReviewTask(cluster model.StockEventCluster) error {
+	if strings.ToUpper(strings.TrimSpace(cluster.ReviewStatus)) != "PENDING" {
+		return nil
+	}
+	priority, _ := cluster.Metadata["review_priority"].(string)
+	if strings.ToUpper(strings.TrimSpace(priority)) != "HIGH" {
+		return nil
+	}
+	tasks, _, err := r.AdminListReviewTasks("STOCK_EVENT", "PENDING", "", "", 1, 10000)
+	if err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if strings.TrimSpace(task.TargetID) == cluster.ID {
+			return nil
+		}
+	}
+	_, err = r.AdminSubmitReviewTask("STOCK_EVENT", cluster.ID, "system", "", "高优先级股票事件待审核")
+	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "pending review task already exists") {
+		return err
+	}
+	return nil
+}
+
+func appendDraftStockEventMember(cluster *model.StockEventCluster, member model.StockEventItem, memberConfidence float64) {
+	memberKey := strings.ToUpper(strings.TrimSpace(member.SourceKey)) + "|" + strings.TrimSpace(member.SourceItemID)
+	if strings.TrimSpace(member.SourceItemID) == "" {
+		memberKey = normalizeStockEventClusterTitle(member.Title) + "|" + member.PublishedAt
+	}
+	for _, existing := range cluster.Items {
+		existingKey := strings.ToUpper(strings.TrimSpace(existing.SourceKey)) + "|" + strings.TrimSpace(existing.SourceItemID)
+		if strings.TrimSpace(existing.SourceItemID) == "" {
+			existingKey = normalizeStockEventClusterTitle(existing.Title) + "|" + existing.PublishedAt
+		}
+		if existingKey == memberKey {
+			return
+		}
+	}
+
+	cluster.Items = append(cluster.Items, member)
+	if strings.TrimSpace(cluster.Summary) == "" && strings.TrimSpace(member.Summary) != "" {
+		cluster.Summary = strings.TrimSpace(member.Summary)
+	}
+	if memberConfidence > cluster.Confidence {
+		cluster.Confidence = memberConfidence
+	}
+	cluster.Source = mergeDraftStockEventSource(cluster.Source, member.SourceKey)
+	cluster.Metadata["review_priority"], cluster.Metadata["review_reason_codes"] = buildDraftStockEventReviewPriority(cluster.EventType, cluster.Confidence)
+}
+
+func mergeDraftStockEventSource(current string, next string) string {
+	current = strings.ToUpper(strings.TrimSpace(current))
+	next = strings.ToUpper(strings.TrimSpace(next))
+	switch {
+	case current == "":
+		return next
+	case next == "", next == current:
+		return current
+	default:
+		return "MULTI_SOURCE"
+	}
+}
+
+func collectDraftStockEventSymbols(items []model.StockEventItem) []string {
+	symbols := make([]string, 0, len(items))
+	for _, item := range items {
+		symbols = append(symbols, item.Symbols...)
+		if item.PrimarySymbol != "" {
+			symbols = append(symbols, item.PrimarySymbol)
+		}
+	}
+	return normalizeStockSymbolList(symbols)
 }
 
 func performAkshareDataSourceHealthCheckAttempt(config map[string]interface{}, timeoutMS int) model.DataSourceHealthCheck {

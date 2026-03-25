@@ -65,6 +65,52 @@ const selectedEvidence = computed(() =>
 const selectedEvaluations = computed(() =>
   evaluationRecords.value.filter((item) => item.contract === selectedCandidate.value?.contract)
 );
+const selectedSupplyChainCards = computed(() => {
+  const titles = new Set(["库存画像", "结构联动", "商品链"]);
+  return selectedEvidence.value
+    .flatMap((item) => (Array.isArray(item.evidence_cards_json) ? item.evidence_cards_json : []))
+    .filter((card) => titles.has(String(card?.title || "").trim()));
+});
+const selectedSupplyChainEntities = computed(() => {
+  const allowed = new Set(["Commodity", "SupplyChainNode", "SpreadPair", "Index", "DeliveryPlace", "Warehouse", "Brand", "Grade"]);
+  const seen = new Set();
+  return selectedEvidence.value
+    .flatMap((item) => (Array.isArray(item.related_entities_json) ? item.related_entities_json : []))
+    .map((item) => ({
+      entityType: String(item?.entity_type || "").trim(),
+      label: String(item?.label || item?.entity_key || "").trim()
+    }))
+    .filter((item) => item.entityType && item.label && allowed.has(item.entityType))
+    .filter((item) => {
+      const key = `${item.entityType}:${item.label}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+});
+const selectedInventorySummary = computed(() => {
+  const matched = selectedSupplyChainCards.value.find((item) => String(item?.title || "").trim() === "库存画像");
+  if (matched?.note) {
+    return matched.note;
+  }
+  const depth = selectedCandidate.value?.factor_breakdown_json?.inventory_depth;
+  return depth == null ? "-" : `库存深度 ${depth}`;
+});
+const selectedStructureSummary = computed(() => {
+  const matched = selectedSupplyChainCards.value.find((item) => String(item?.title || "").trim() === "结构联动");
+  if (matched?.note) {
+    return matched.note;
+  }
+  const basisTerm = selectedCandidate.value?.factor_breakdown_json?.basis_term;
+  const depth = selectedCandidate.value?.factor_breakdown_json?.structure_depth;
+  if (basisTerm != null && depth != null) {
+    return `结构深度 ${depth} / 基差结构 ${basisTerm}`;
+  }
+  if (depth != null) {
+    return `结构深度 ${depth}`;
+  }
+  return "-";
+});
 const reviewWarningMessages = computed(() =>
   Array.isArray(runDetail.value?.warning_messages) ? runDetail.value.warning_messages : []
 );
@@ -428,20 +474,17 @@ onMounted(async () => {
         <el-descriptions-item label="趋势">
           {{ selectedCandidate.factor_breakdown_json?.trend ?? "-" }}
         </el-descriptions-item>
-        <el-descriptions-item label="基差">
-          {{ selectedCandidate.factor_breakdown_json?.basis ?? "-" }}
+        <el-descriptions-item label="库存深度">
+          {{ selectedCandidate.factor_breakdown_json?.inventory_depth ?? "-" }}
         </el-descriptions-item>
-        <el-descriptions-item label="库存/结构">
-          {{ selectedCandidate.factor_breakdown_json?.inventory ?? selectedCandidate.factor_breakdown_json?.structure ?? "-" }}
+        <el-descriptions-item label="结构深度">
+          {{ selectedCandidate.factor_breakdown_json?.structure_depth ?? "-" }}
         </el-descriptions-item>
-        <el-descriptions-item label="政策">
-          {{ selectedCandidate.factor_breakdown_json?.policy ?? "-" }}
-        </el-descriptions-item>
-        <el-descriptions-item label="商品联动">
-          {{ selectedCandidate.factor_breakdown_json?.commodity_linkage ?? "-" }}
+        <el-descriptions-item label="基差结构">
+          {{ selectedCandidate.factor_breakdown_json?.basis_term ?? selectedCandidate.factor_breakdown_json?.basis ?? "-" }}
         </el-descriptions-item>
         <el-descriptions-item label="总分">
-          {{ selectedCandidate.factor_breakdown_json?.total ?? selectedCandidate.factor_breakdown_json?.total_score ?? selectedCandidate.score ?? "-" }}
+          {{ selectedCandidate.factor_breakdown_json?.total_score ?? selectedCandidate.factor_breakdown_json?.total ?? selectedCandidate.score ?? "-" }}
         </el-descriptions-item>
         <el-descriptions-item label="摘要" :span="3">
           {{ selectedCandidate.reason_summary || "-" }}
@@ -458,6 +501,38 @@ onMounted(async () => {
       </el-descriptions>
 
       <div class="detail-grid">
+        <div>
+          <div class="sub-title">商品链证据</div>
+          <el-card class="mini-card" shadow="never">
+            <div class="mini-list"><strong>结构联动摘要：</strong>{{ selectedStructureSummary }}</div>
+            <div class="mini-list"><strong>库存画像摘要：</strong>{{ selectedInventorySummary }}</div>
+            <div class="mini-list">
+              <strong>商品链实体：</strong>
+              {{ selectedSupplyChainEntities.map((item) => item.label).join("、") || "-" }}
+            </div>
+            <div class="tag-wrap" v-if="selectedSupplyChainEntities.length" style="margin-top: 8px">
+              <el-tag
+                v-for="item in selectedSupplyChainEntities"
+                :key="`${item.entityType}-${item.label}`"
+                type="success"
+                effect="light"
+              >
+                {{ item.entityType }} / {{ item.label }}
+              </el-tag>
+            </div>
+          </el-card>
+          <el-card
+            v-for="card in selectedSupplyChainCards"
+            :key="`${card.title}-${card.value}-${card.note}`"
+            class="mini-card"
+            shadow="never"
+          >
+            <div class="mini-card-title">{{ card.title || "商品链证据" }}</div>
+            <div class="muted" style="margin-bottom: 8px">{{ card.value || "-" }}</div>
+            <div class="mini-list">{{ card.note || "-" }}</div>
+          </el-card>
+        </div>
+
         <div>
           <div class="sub-title">证据卡片</div>
           <el-card

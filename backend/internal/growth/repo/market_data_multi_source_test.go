@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+
+	"sercherai/backend/internal/growth/model"
 )
 
 func TestSplitSourcePriorityList(t *testing.T) {
@@ -368,5 +370,249 @@ func TestBuildMarketSourceRoutingSummaryKeepsExplicitSourceDecision(t *testing.T
 	}
 	if summary.DecisionReason != "explicit_source" {
 		t.Fatalf("expected explicit source decision reason, got %s", summary.DecisionReason)
+	}
+}
+
+func TestBuildDraftStockEventClustersFromMarketNewsCreatesPendingDrafts(t *testing.T) {
+	items := buildDraftStockEventClustersFromMarketNews([]model.MarketNewsItem{
+		{
+			SourceKey:     "TUSHARE",
+			ExternalID:    "news_001",
+			NewsType:      "announcement",
+			Title:         "贵州茅台公告一季报超预期",
+			Summary:       "利润释放超预期",
+			PrimarySymbol: "600519.sh",
+			Symbols:       []string{"600519.SH", "000858.sz"},
+			PublishedAt:   "2026-03-23T09:00:00+08:00",
+		},
+	})
+
+	if len(items) != 1 {
+		t.Fatalf("expected 1 draft cluster, got %d", len(items))
+	}
+	cluster := items[0]
+	if cluster.EventType != "ANNOUNCEMENT" {
+		t.Fatalf("expected ANNOUNCEMENT event type, got %s", cluster.EventType)
+	}
+	if cluster.Status != "CLUSTERED" || cluster.ReviewStatus != "PENDING" {
+		t.Fatalf("expected clustered/pending draft cluster, got status=%s review=%s", cluster.Status, cluster.ReviewStatus)
+	}
+	if cluster.PrimarySymbol != "600519.SH" || cluster.NewsCount != 1 {
+		t.Fatalf("unexpected cluster identity: %+v", cluster)
+	}
+	if len(cluster.Items) != 1 || cluster.Items[0].SourceItemID != "news_001" {
+		t.Fatalf("unexpected draft item payload: %+v", cluster.Items)
+	}
+	if len(cluster.Entities) != 2 {
+		t.Fatalf("expected company entities for both symbols, got %+v", cluster.Entities)
+	}
+	if cluster.Confidence <= 0 {
+		t.Fatalf("expected positive confidence, got %+v", cluster)
+	}
+	if cluster.Metadata["review_priority"] != "NORMAL" {
+		t.Fatalf("expected normal review priority, got %+v", cluster.Metadata)
+	}
+	if cluster.Metadata["draft_source"] != "market_news_sync" {
+		t.Fatalf("expected draft_source metadata, got %+v", cluster.Metadata)
+	}
+	if cluster.Metadata["cluster_title_key"] == "" {
+		t.Fatalf("expected cluster_title_key metadata, got %+v", cluster.Metadata)
+	}
+	reasonCodes, ok := cluster.Metadata["review_reason_codes"].([]string)
+	if !ok {
+		t.Fatalf("expected review_reason_codes string slice, got %+v", cluster.Metadata["review_reason_codes"])
+	}
+	if len(reasonCodes) != 0 {
+		t.Fatalf("expected no review reason codes for normal priority, got %+v", reasonCodes)
+	}
+}
+
+func TestBuildDraftStockEventClustersFromMarketNewsInfersEarningsAndSkipsEmptyTitles(t *testing.T) {
+	items := buildDraftStockEventClustersFromMarketNews([]model.MarketNewsItem{
+		{
+			SourceKey:     "DOCFAST",
+			ExternalID:    "news_earnings",
+			NewsType:      "market",
+			Title:         "宁德时代季报业绩超预期",
+			PrimarySymbol: "300750.SZ",
+			PublishedAt:   "2026-03-23T10:00:00+08:00",
+		},
+		{
+			SourceKey:     "DOCFAST",
+			ExternalID:    "news_empty",
+			NewsType:      "market",
+			Title:         "   ",
+			PrimarySymbol: "300750.SZ",
+			PublishedAt:   "2026-03-23T11:00:00+08:00",
+		},
+	})
+
+	if len(items) != 1 {
+		t.Fatalf("expected only 1 valid draft cluster, got %d", len(items))
+	}
+	if items[0].EventType != "EARNINGS" {
+		t.Fatalf("expected title keyword to infer EARNINGS, got %s", items[0].EventType)
+	}
+}
+
+func TestBuildDraftStockEventClustersFromMarketNewsMarksHighPriorityForLowConfidenceAndGenericNews(t *testing.T) {
+	items := buildDraftStockEventClustersFromMarketNews([]model.MarketNewsItem{
+		{
+			SourceKey:   "DOCFAST",
+			ExternalID:  "news_low_conf",
+			NewsType:    "market",
+			Title:       "公司回应最新市场传闻",
+			Symbols:     []string{"300750.SZ"},
+			PublishedAt: "2026-03-23T10:00:00+08:00",
+		},
+		{
+			SourceKey:     "DOCFAST",
+			ExternalID:    "news_generic",
+			NewsType:      "market",
+			Title:         "公司动态更新",
+			PrimarySymbol: "600519.SH",
+			Summary:       "简短更新",
+			PublishedAt:   "2026-03-23T11:00:00+08:00",
+		},
+	})
+
+	if len(items) != 2 {
+		t.Fatalf("expected 2 draft clusters, got %d", len(items))
+	}
+
+	lowConfidence := items[0]
+	if lowConfidence.Metadata["review_priority"] != "HIGH" {
+		t.Fatalf("expected low-confidence cluster to be high priority, got %+v", lowConfidence.Metadata)
+	}
+	if codes, ok := lowConfidence.Metadata["review_reason_codes"].([]string); !ok || len(codes) != 2 || codes[0] != "LOW_CONFIDENCE" || codes[1] != "GENERIC_EVENT_TYPE" {
+		t.Fatalf("expected low-confidence/generic review reason codes, got %+v", lowConfidence.Metadata["review_reason_codes"])
+	}
+
+	generic := items[1]
+	if generic.EventType != "NEWS" {
+		t.Fatalf("expected generic event type NEWS, got %s", generic.EventType)
+	}
+	if generic.Metadata["review_priority"] != "HIGH" {
+		t.Fatalf("expected generic NEWS cluster to be high priority, got %+v", generic.Metadata)
+	}
+}
+
+func TestBuildDraftStockEventClustersFromMarketNewsClustersSameThemeAndDedupesMembers(t *testing.T) {
+	items := buildDraftStockEventClustersFromMarketNews([]model.MarketNewsItem{
+		{
+			SourceKey:     "TUSHARE",
+			ExternalID:    "theme_001",
+			NewsType:      "market",
+			Title:         "机器人板块持续活跃",
+			Summary:       "龙头继续放量",
+			PrimarySymbol: "300024.SZ",
+			Symbols:       []string{"300024.SZ", "002747.SZ"},
+			PublishedAt:   "2026-03-23T09:00:00+08:00",
+		},
+		{
+			SourceKey:     "DOCFAST",
+			ExternalID:    "theme_002",
+			NewsType:      "market",
+			Title:         "机器人 板块持续活跃！",
+			Summary:       "主题热度继续扩散",
+			PrimarySymbol: "300024.SZ",
+			Symbols:       []string{"300024.SZ", "002747.SZ", "688017.SH"},
+			PublishedAt:   "2026-03-23T09:10:00+08:00",
+		},
+		{
+			SourceKey:     "DOCFAST",
+			ExternalID:    "theme_002",
+			NewsType:      "market",
+			Title:         "机器人 板块持续活跃！",
+			Summary:       "重复稿件",
+			PrimarySymbol: "300024.SZ",
+			Symbols:       []string{"300024.SZ"},
+			PublishedAt:   "2026-03-23T09:10:00+08:00",
+		},
+	})
+
+	if len(items) != 1 {
+		t.Fatalf("expected same-theme news to cluster into 1 item, got %d", len(items))
+	}
+	cluster := items[0]
+	if cluster.EventType != "INDUSTRY_THEME" {
+		t.Fatalf("expected clustered event type INDUSTRY_THEME, got %s", cluster.EventType)
+	}
+	if cluster.NewsCount != 2 || len(cluster.Items) != 2 {
+		t.Fatalf("expected 2 unique clustered members, got news_count=%d items=%d", cluster.NewsCount, len(cluster.Items))
+	}
+	if cluster.Source != "MULTI_SOURCE" {
+		t.Fatalf("expected MULTI_SOURCE cluster source, got %s", cluster.Source)
+	}
+	if len(cluster.Entities) != 3 {
+		t.Fatalf("expected deduped entity union across clustered items, got %+v", cluster.Entities)
+	}
+}
+
+func TestUpsertDraftStockEventClustersFromMarketNewsPersistsDrafts(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(stockEventClusterUpsertPattern).
+		WithArgs(
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			"INDUSTRY_THEME",
+			"行业主题持续活跃",
+			"",
+			"TUSHARE",
+			"600519.SH",
+			"",
+			"",
+			"CLUSTERED",
+			"PENDING",
+			1,
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+		).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(stockEventItemDeletePattern).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(stockEventItemInsertPattern).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "TUSHARE", "news_sync_001", "行业主题持续活跃", "", "600519.SH", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(stockEventEntityDeletePattern).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(stockEventEntityInsertPattern).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "COMPANY", "company:600519.SH", "600519.SH", "600519.SH", "", "", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(stockEventEdgeDeletePattern).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	count, err := repo.upsertDraftStockEventClustersFromMarketNews([]model.MarketNewsItem{
+		{
+			SourceKey:     "TUSHARE",
+			ExternalID:    "news_sync_001",
+			NewsType:      "market",
+			Title:         "行业主题持续活跃",
+			PrimarySymbol: "600519.SH",
+			PublishedAt:   "2026-03-23T09:00:00+08:00",
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert draft stock events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected draft count 1, got %d", count)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }

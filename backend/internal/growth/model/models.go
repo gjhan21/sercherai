@@ -259,6 +259,8 @@ type FuturesReview struct {
 	ReviewDate  string  `json:"review_date"`
 }
 
+// MarketEvent keeps the legacy lightweight event feed model.
+// Topic B reviewed event truth source lives in stock_event_truth.go.
 type MarketEvent struct {
 	ID          string `json:"id"`
 	EventType   string `json:"event_type"`

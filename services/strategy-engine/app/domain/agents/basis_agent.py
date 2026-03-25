@@ -22,9 +22,12 @@ class BasisAgent:
         inventory_brand_share = float(context.get("inventory_brand_share", 0))
         inventory_place_share = float(context.get("inventory_place_share", 0))
         inventory_grade_share = float(context.get("inventory_grade_share", 0))
+        basis_term_alignment = float(context.get("basis_term_alignment", 0))
+        cross_contract_linkage = float(context.get("cross_contract_linkage", 0))
+        structure_signal_summary = str(context.get("structure_signal_summary", "")).strip()
         spread_pressure = float(context.get("spread_pressure", 0))
         pe_ttm = float(context.get("pe_ttm", 0))
-        if basis_pct or carry_pct or term_structure_pct or curve_slope_pct or inventory_pressure or spread_pressure:
+        if basis_pct or carry_pct or term_structure_pct or curve_slope_pct or inventory_pressure or spread_pressure or basis_term_alignment or cross_contract_linkage:
             inventory_focus_share = max(
                 inventory_area_share,
                 inventory_warehouse_share,
@@ -39,6 +42,11 @@ class BasisAgent:
                 or inventory_focus_place
                 or inventory_focus_grade
             )
+            if basis_term_alignment >= 0.5 and cross_contract_linkage <= -0.12:
+                summary = structure_signal_summary or "期限结构与跨期价差形成结构联动，当前合约位于受益腿。"
+                if "结构联动" not in summary:
+                    summary = f"结构联动：{summary}"
+                return AgentOpinion(agent=self.name, stance="POSITIVE", confidence=74, summary=summary)
             if ((carry_pct > 0 and term_structure_pct >= 0 and curve_slope_pct >= 0) or basis_pct < 0) and spread_pressure > -0.12 and inventory_pressure >= -0.1:
                 summary = "期限结构、仓单变化与价差压力共同对当前方向形成确认。"
                 if inventory_focus_label and inventory_focus_share >= 0.35:

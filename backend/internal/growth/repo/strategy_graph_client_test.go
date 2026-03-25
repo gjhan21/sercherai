@@ -2,6 +2,7 @@ package repo
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -119,5 +120,50 @@ func TestStrategyGraphClientGetSnapshotReturnsNotFound(t *testing.T) {
 	}
 	if err != sql.ErrNoRows {
 		t.Fatalf("expected sql.ErrNoRows, got %v", err)
+	}
+}
+
+func TestStrategyGraphClientWriteReviewedEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internal/v1/graph/reviewed-events" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		var payload model.StrategyGraphReviewedEventWriteRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if payload.ClusterID != "sec_demo_001" || !payload.Approved {
+			t.Fatalf("unexpected payload: %+v", payload)
+		}
+		_, _ = w.Write([]byte(`{
+			"snapshot_id":"reviewed-event-sec_demo_001",
+			"cluster_id":"sec_demo_001",
+			"node_count":3,
+			"relation_count":2,
+			"backend":"test"
+		}`))
+	}))
+	defer server.Close()
+
+	client := newStrategyGraphClient(config.Config{
+		StrategyGraphBaseURL:   server.URL,
+		StrategyGraphTimeoutMS: 3000,
+	})
+
+	item, err := client.writeReviewedEvent(model.StrategyGraphReviewedEventWriteRequest{
+		ClusterID: "sec_demo_001",
+		Approved:  true,
+		Entities: []model.StrategyGraphEntity{
+			{EntityType: "StockEvent", EntityKey: "sec_demo_001", Label: "白酒景气事件"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("writeReviewedEvent returned error: %v", err)
+	}
+	if item.ClusterID != "sec_demo_001" || item.NodeCount != 3 || item.RelationCount != 2 {
+		t.Fatalf("unexpected reviewed event response: %+v", item)
 	}
 }

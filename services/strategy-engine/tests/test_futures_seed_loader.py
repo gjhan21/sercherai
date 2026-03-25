@@ -67,6 +67,13 @@ def test_futures_seed_loader_reads_go_backend_context(monkeypatch) -> None:
                     "inventory_brand_share": 0.67,
                     "inventory_place_share": 0.67,
                     "inventory_grade_share": 0.67,
+                    "inventory_concentration": 1.0,
+                    "inventory_warehouse_shift": 0.11,
+                    "inventory_persistence_days": 3,
+                    "inventory_brand_grade_summary": "品牌央企品牌A / 等级标准品占比 67%，已连续3日去库",
+                    "basis_term_alignment": 0.86,
+                    "cross_contract_linkage": -0.22,
+                    "structure_signal_summary": "期限结构顺价差联动，当前合约位于受益腿",
                     "spread_pressure": 0.22,
                     "spread_percentile": 0.81,
                     "spread_pair": "IF2606/IF2609",
@@ -106,6 +113,13 @@ def test_futures_seed_loader_reads_go_backend_context(monkeypatch) -> None:
     assert result.seeds[0].inventory_focus_grade == "标准品"
     assert result.seeds[0].inventory_warehouse_share == 0.67
     assert result.seeds[0].inventory_place_share == 0.67
+    assert result.seeds[0].inventory_concentration == 1.0
+    assert result.seeds[0].inventory_warehouse_shift == 0.11
+    assert result.seeds[0].inventory_persistence_days == 3
+    assert "央企品牌A" in result.seeds[0].inventory_brand_grade_summary
+    assert result.seeds[0].basis_term_alignment == 0.86
+    assert result.seeds[0].cross_contract_linkage == -0.22
+    assert "价差联动" in result.seeds[0].structure_signal_summary
     assert result.seeds[0].spread_pressure == 0.22
     assert result.seeds[0].spread_pair == "IF2606/IF2609"
     assert result.meta["selected_trade_date"] == "2026-03-18"

@@ -1,6 +1,14 @@
 package service
 
-import "sercherai/backend/internal/growth/model"
+import (
+	"strings"
+
+	"sercherai/backend/internal/growth/model"
+)
+
+type stockEventGraphSyncer interface {
+	SyncReviewedStockEventGraph(cluster model.StockEventCluster) error
+}
 
 func (s *growthService) AdminGetStockSelectionOverview() (model.AdminStockSelectionOverview, error) {
 	return s.repo.AdminGetStockSelectionOverview()
@@ -92,4 +100,46 @@ func (s *growthService) AdminApproveStockSelectionReview(runID string, operator 
 
 func (s *growthService) AdminRejectStockSelectionReview(runID string, operator string, reviewNote string) (model.StockSelectionPublishReview, error) {
 	return s.repo.AdminRejectStockSelectionReview(runID, operator, reviewNote)
+}
+
+func (s *growthService) AdminListStockEventClusters(query model.StockEventQuery) ([]model.StockEventCluster, int, error) {
+	return s.repo.AdminListStockEventClusters(query)
+}
+
+func (s *growthService) AdminGetStockEventCluster(id string) (model.StockEventCluster, error) {
+	return s.repo.AdminGetStockEventCluster(id)
+}
+
+func (s *growthService) AdminReviewStockEventCluster(id string, review model.StockEventReview) (model.StockEventCluster, error) {
+	review.ClusterID = strings.TrimSpace(id)
+	if _, err := s.repo.AdminCreateStockEventReview(review); err != nil {
+		return model.StockEventCluster{}, err
+	}
+
+	tasks, _, err := s.repo.AdminListReviewTasks("STOCK_EVENT", "PENDING", "", "", 1, 10000)
+	if err == nil {
+		for _, task := range tasks {
+			if strings.TrimSpace(task.TargetID) != review.ClusterID {
+				continue
+			}
+			_ = s.repo.AdminReviewTaskDecision(task.ID, review.ReviewStatus, review.Reviewer, review.ReviewNote)
+			break
+		}
+	}
+
+	cluster, err := s.repo.AdminGetStockEventCluster(review.ClusterID)
+	if err != nil {
+		return model.StockEventCluster{}, err
+	}
+	if syncer, ok := s.repo.(stockEventGraphSyncer); ok {
+		if err := syncer.SyncReviewedStockEventGraph(cluster); err != nil {
+			if cluster.Metadata == nil {
+				cluster.Metadata = map[string]any{}
+			}
+			cluster.Metadata["graph_sync_warning"] = err.Error()
+		} else if cluster.Metadata != nil {
+			delete(cluster.Metadata, "graph_sync_warning")
+		}
+	}
+	return cluster, nil
 }

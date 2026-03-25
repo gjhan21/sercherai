@@ -146,3 +146,56 @@ def test_graph_subgraph_query_filters_by_entity_asset_domain() -> None:
     assert payload["entity"]["asset_domain"] == "cross"
     assert payload["matched_snapshot_ids"]
     assert len(payload["relations"]) == 1
+
+
+def test_reviewed_event_write_roundtrip_and_subgraph() -> None:
+    app = build_app(repo=InMemoryGraphRepository())
+    client = TestClient(app)
+
+    write = client.post(
+        "/internal/v1/graph/reviewed-events",
+        json={
+            "cluster_id": "sec_demo_001",
+            "approved": True,
+            "trade_date": "2026-03-23",
+            "summary": "白酒景气 reviewed event",
+            "entities": [
+                {"entity_type": "StockEvent", "entity_key": "sec_demo_001", "label": "白酒景气事件", "asset_domain": "stock"},
+                {"entity_type": "Stock", "entity_key": "600519.SH", "label": "贵州茅台", "asset_domain": "stock"},
+                {"entity_type": "Topic", "entity_key": "topic:白酒", "label": "白酒", "asset_domain": "stock"},
+            ],
+            "relations": [
+                {
+                    "relation_type": "AFFECTS",
+                    "source_type": "StockEvent",
+                    "source_key": "sec_demo_001",
+                    "target_type": "Stock",
+                    "target_key": "600519.SH",
+                    "strength": 0.9,
+                },
+                {
+                    "relation_type": "BELONGS_TO_TOPIC",
+                    "source_type": "StockEvent",
+                    "source_key": "sec_demo_001",
+                    "target_type": "Topic",
+                    "target_key": "topic:白酒",
+                    "strength": 0.82,
+                },
+            ],
+        },
+    )
+    assert write.status_code == 200
+    payload = write.json()
+    assert payload["cluster_id"] == "sec_demo_001"
+    assert payload["node_count"] == 3
+    assert payload["relation_count"] == 2
+
+    subgraph = client.get(
+        "/internal/v1/graph/subgraph",
+        params={"entity_type": "StockEvent", "entity_key": "sec_demo_001", "depth": 1},
+    )
+    assert subgraph.status_code == 200
+    subgraph_payload = subgraph.json()
+    assert subgraph_payload["entity"]["entity_key"] == "sec_demo_001"
+    assert len(subgraph_payload["entities"]) >= 3
+    assert len(subgraph_payload["relations"]) == 2

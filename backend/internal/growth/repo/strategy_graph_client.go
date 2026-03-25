@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -93,6 +94,31 @@ func (c *strategyGraphClient) querySubgraph(query model.StrategyGraphSubgraphQue
 	var item model.StrategyGraphSubgraph
 	if err := json.NewDecoder(resp.Body).Decode(&item); err != nil {
 		return model.StrategyGraphSubgraph{}, err
+	}
+	return item, nil
+}
+
+func (c *strategyGraphClient) writeReviewedEvent(payload model.StrategyGraphReviewedEventWriteRequest) (model.StrategyGraphReviewedEventWriteResponse, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return model.StrategyGraphReviewedEventWriteResponse{}, err
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, c.baseURL+"/internal/v1/graph/reviewed-events", bytes.NewReader(body))
+	if err != nil {
+		return model.StrategyGraphReviewedEventWriteResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return model.StrategyGraphReviewedEventWriteResponse{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return model.StrategyGraphReviewedEventWriteResponse{}, fmt.Errorf("strategy-graph returned %d when writing reviewed event: %s", resp.StatusCode, readBodyText(resp.Body))
+	}
+	var item model.StrategyGraphReviewedEventWriteResponse
+	if err := json.NewDecoder(resp.Body).Decode(&item); err != nil {
+		return model.StrategyGraphReviewedEventWriteResponse{}, err
 	}
 	return item, nil
 }

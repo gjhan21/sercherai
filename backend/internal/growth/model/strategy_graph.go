@@ -47,3 +47,21 @@ type StrategyGraphSubgraphQuery struct {
 	Depth       int    `json:"depth"`
 	AssetDomain string `json:"asset_domain"`
 }
+
+type StrategyGraphReviewedEventWriteRequest struct {
+	ClusterID string                  `json:"cluster_id"`
+	Approved  bool                    `json:"approved"`
+	TradeDate string                  `json:"trade_date,omitempty"`
+	Summary   string                  `json:"summary,omitempty"`
+	Entities  []StrategyGraphEntity   `json:"entities,omitempty"`
+	Relations []StrategyGraphRelation `json:"relations,omitempty"`
+	Meta      map[string]any          `json:"meta,omitempty"`
+}
+
+type StrategyGraphReviewedEventWriteResponse struct {
+	SnapshotID    string `json:"snapshot_id"`
+	ClusterID     string `json:"cluster_id"`
+	NodeCount     int    `json:"node_count"`
+	RelationCount int    `json:"relation_count"`
+	Backend       string `json:"backend,omitempty"`
+}

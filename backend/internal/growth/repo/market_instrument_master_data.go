@@ -206,6 +206,11 @@ func (r *MySQLGrowthRepo) syncMarketInstrumentMasterData(assetClass string, requ
 		}
 		return err
 	}
+	if assetClass == marketAssetClassFutures {
+		if err := r.rebuildFuturesInstrumentProfiles(instrumentKeys); err != nil && !isTableNotFoundError(err) && !isMarketInstrumentSchemaCompatError(err) {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -788,6 +793,153 @@ WHERE asset_class = ? AND instrument_key = ?`,
 		}
 	}
 	return nil
+}
+
+func (r *MySQLGrowthRepo) rebuildFuturesInstrumentProfiles(instrumentKeys []string) error {
+	productKeys, truthsByProduct, err := r.loadFuturesInstrumentTruthByProduct(instrumentKeys)
+	if err != nil {
+		return err
+	}
+	if len(productKeys) == 0 {
+		return nil
+	}
+	inventoryRowsByProduct, err := r.loadLatestFuturesInventoryRowsByProduct(productKeys)
+	if err != nil {
+		return err
+	}
+	for _, productKey := range productKeys {
+		profile := buildFuturesInstrumentProfileSnapshot(productKey, truthsByProduct[productKey], inventoryRowsByProduct[productKey])
+		if _, err := r.AdminUpsertFuturesInstrumentProfile(profile); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) loadFuturesInstrumentTruthByProduct(instrumentKeys []string) ([]string, map[string][]marketInstrumentTruth, error) {
+	normalizedKeys := normalizeUpperStringList(instrumentKeys)
+	result := make(map[string][]marketInstrumentTruth, len(normalizedKeys))
+	if len(normalizedKeys) == 0 {
+		return nil, result, nil
+	}
+	holders := strings.TrimSuffix(strings.Repeat("?,", len(normalizedKeys)), ",")
+	args := make([]any, 0, len(normalizedKeys)+1)
+	args = append(args, marketAssetClassFutures)
+	for _, item := range normalizedKeys {
+		args = append(args, item)
+	}
+	rows, err := r.db.Query(`
+SELECT asset_class, instrument_key, display_name, exchange_code, product_key, DATE_FORMAT(list_date, '%Y-%m-%d'), DATE_FORMAT(delist_date, '%Y-%m-%d'),
+       status, metadata_json, selected_source_key, quality_score, source_updated_at
+FROM market_instruments
+WHERE asset_class = ? AND instrument_key IN (`+holders+`)
+ORDER BY product_key ASC, instrument_key ASC`, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	order := make([]string, 0, len(normalizedKeys))
+	seen := make(map[string]struct{}, len(normalizedKeys))
+	for rows.Next() {
+		var item marketInstrumentTruth
+		var (
+			displayName       sql.NullString
+			exchangeCode      sql.NullString
+			productKey        sql.NullString
+			listDate          sql.NullString
+			delistDate        sql.NullString
+			status            sql.NullString
+			metadataJSON      sql.NullString
+			selectedSourceKey sql.NullString
+			qualityScore      sql.NullFloat64
+			sourceUpdatedAt   sql.NullTime
+		)
+		if err := rows.Scan(
+			&item.AssetClass,
+			&item.InstrumentKey,
+			&displayName,
+			&exchangeCode,
+			&productKey,
+			&listDate,
+			&delistDate,
+			&status,
+			&metadataJSON,
+			&selectedSourceKey,
+			&qualityScore,
+			&sourceUpdatedAt,
+		); err != nil {
+			return nil, nil, err
+		}
+		item.DisplayName = strings.TrimSpace(displayName.String)
+		item.ExchangeCode = strings.ToUpper(strings.TrimSpace(exchangeCode.String))
+		item.ProductKey = strings.ToUpper(strings.TrimSpace(productKey.String))
+		item.ListDate = strings.TrimSpace(listDate.String)
+		item.DelistDate = strings.TrimSpace(delistDate.String)
+		item.Status = strings.ToUpper(strings.TrimSpace(status.String))
+		item.MetadataJSON = strings.TrimSpace(metadataJSON.String)
+		item.SelectedSourceKey = strings.ToUpper(strings.TrimSpace(selectedSourceKey.String))
+		item.QualityScore = qualityScore.Float64
+		if sourceUpdatedAt.Valid {
+			item.SourceUpdatedAt = sourceUpdatedAt.Time
+		}
+		if item.ProductKey == "" {
+			continue
+		}
+		if _, exists := seen[item.ProductKey]; !exists {
+			seen[item.ProductKey] = struct{}{}
+			order = append(order, item.ProductKey)
+		}
+		result[item.ProductKey] = append(result[item.ProductKey], item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return order, result, nil
+}
+
+func (r *MySQLGrowthRepo) loadLatestFuturesInventoryRowsByProduct(productKeys []string) (map[string][]futuresInstrumentInventoryProfileRow, error) {
+	result := make(map[string][]futuresInstrumentInventoryProfileRow, len(productKeys))
+	normalizedKeys := normalizeUpperStringList(productKeys)
+	if len(normalizedKeys) == 0 {
+		return result, nil
+	}
+	holders := strings.TrimSuffix(strings.Repeat("?,", len(normalizedKeys)), ",")
+	args := make([]any, 0, len(normalizedKeys)*2)
+	for _, item := range normalizedKeys {
+		args = append(args, item)
+	}
+	for _, item := range normalizedKeys {
+		args = append(args, item)
+	}
+	query := `
+SELECT t.symbol, COALESCE(t.place, ''), COALESCE(t.warehouse, ''), COALESCE(t.brand, ''), COALESCE(t.grade, '')
+FROM futures_inventory_snapshots t
+INNER JOIN (
+  SELECT symbol, MAX(trade_date) AS latest_trade_date
+  FROM futures_inventory_snapshots
+  WHERE symbol IN (` + holders + `)
+  GROUP BY symbol
+) latest ON latest.symbol = t.symbol AND latest.latest_trade_date = t.trade_date
+WHERE t.symbol IN (` + holders + `)
+ORDER BY t.symbol ASC, t.warehouse ASC, t.brand ASC, t.place ASC, t.grade ASC`
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return result, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item futuresInstrumentInventoryProfileRow
+		if err := rows.Scan(&item.Symbol, &item.Place, &item.Warehouse, &item.Brand, &item.Grade); err != nil {
+			return nil, err
+		}
+		item.Symbol = strings.ToUpper(strings.TrimSpace(item.Symbol))
+		result[item.Symbol] = append(result[item.Symbol], item)
+	}
+	return result, rows.Err()
 }
 
 func (r *MySQLGrowthRepo) loadMarketInstrumentSourceFacts(assetClass string, instrumentKeys []string) (map[string][]marketInstrumentSourceFact, error) {

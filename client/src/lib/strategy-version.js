@@ -99,6 +99,22 @@ function firstEvidenceNote(explanation) {
   );
 }
 
+function firstEventEvidenceNote(explanation) {
+  if (!Array.isArray(explanation?.event_evidence_cards)) {
+    return "";
+  }
+  return firstMeaningfulStrategyText(
+    explanation.event_evidence_cards.flatMap((item) => [item?.note, item?.value, item?.title]).filter(Boolean)
+  );
+}
+
+function firstSupplyChainNote(explanation) {
+  if (!Array.isArray(explanation?.supply_chain_notes)) {
+    return "";
+  }
+  return firstMeaningfulStrategyText(explanation.supply_chain_notes);
+}
+
 export function buildStrategyRelatedEntities(explanation, options = {}) {
   const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 4;
   if (!Array.isArray(explanation?.related_entities)) {
@@ -128,8 +144,15 @@ export function buildStrategyMemoryFeedbackText(explanation, fallback = "") {
 export function buildStrategyProofSourceText(explanation, fallback = "") {
   const relatedEntities = buildStrategyRelatedEntities(explanation, { limit: 3 });
   const relatedText = relatedEntities.length ? `关联 ${relatedEntities.join(" / ")}` : "";
+  const relatedEventCount = Array.isArray(explanation?.related_events) ? explanation.related_events.length : 0;
+  const eventText = relatedEventCount > 0 ? `审核事件 ${relatedEventCount} 条` : "";
   return firstMeaningfulStrategyText([
+    explanation?.structure_factor_summary,
+    explanation?.inventory_factor_summary,
+    firstSupplyChainNote(explanation),
     firstEvidenceNote(explanation),
+    firstEventEvidenceNote(explanation),
+    eventText,
     relatedText,
     explanation?.consensus_summary,
     explanation?.graph_summary,
@@ -289,6 +312,7 @@ export function buildStrategyProofTags(explanation, options = {}) {
   const portfolioRoleText = formatStrategyPortfolioRole(explanation.portfolio_role);
   const themeText = firstMeaningfulStrategyText(explanation.theme_tags);
   const relatedEntityText = firstMeaningfulStrategyText(buildStrategyRelatedEntities(explanation, { limit: 1 }));
+  const relatedEventCount = Array.isArray(explanation?.related_events) ? explanation.related_events.length : 0;
   const evaluationText = buildStrategyEvaluationText(explanation);
 
   if (includeSeedCount && Number.isFinite(seedCount) && seedCount > 0) {
@@ -315,6 +339,9 @@ export function buildStrategyProofTags(explanation, options = {}) {
   if (relatedEntityText) {
     tags.push(`关联 ${truncateStrategyText(relatedEntityText, 10)}`);
   }
+  if (relatedEventCount > 0) {
+    tags.push(`事件 ${relatedEventCount} 条`);
+  }
   if (evaluationText) {
     tags.push(evaluationText);
   }
@@ -323,6 +350,23 @@ export function buildStrategyProofTags(explanation, options = {}) {
   }
 
   return tags.slice(0, limit);
+}
+
+export function buildStrategyEventEvidenceCards(explanation, options = {}) {
+  if (!explanation) {
+    return [];
+  }
+  const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 3;
+  const cards = Array.isArray(explanation.event_evidence_cards) ? explanation.event_evidence_cards : [];
+  return cards
+    .map((item, index) => ({
+      key: `${toText(item?.title)}-${toText(item?.value)}-${index}`,
+      title: toText(item?.title) || "事件证据",
+      value: toText(item?.value) || "系统已记录事件证据",
+      note: toText(item?.note) || "已进入 reviewed event 审核证据层"
+    }))
+    .filter((item) => item.value)
+    .slice(0, limit);
 }
 
 export function buildStrategySnapshotCard(recommendation, explanation, formatDateTime) {

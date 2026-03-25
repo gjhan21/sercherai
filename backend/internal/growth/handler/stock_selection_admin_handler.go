@@ -65,6 +65,13 @@ type adminStockSelectionRejectRequest struct {
 	ReviewNote string `json:"review_note"`
 }
 
+type adminStockEventReviewRequest struct {
+	ReviewStatus   string         `json:"review_status"`
+	ReviewNote     string         `json:"review_note"`
+	Reviewer       string         `json:"reviewer"`
+	ReviewMetadata map[string]any `json:"review_metadata"`
+}
+
 func (h *AdminGrowthHandler) GetStockSelectionOverview(c *gin.Context) {
 	data, err := h.service.AdminGetStockSelectionOverview()
 	if err != nil {
@@ -72,6 +79,66 @@ func (h *AdminGrowthHandler) GetStockSelectionOverview(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(data))
+}
+
+func (h *AdminGrowthHandler) ListStockEventClusters(c *gin.Context) {
+	page, pageSize := parsePage(c)
+	items, total, err := h.service.AdminListStockEventClusters(model.StockEventQuery{
+		ReviewStatus:   c.Query("review_status"),
+		EventType:      c.Query("event_type"),
+		ReviewPriority: c.Query("review_priority"),
+		Symbol:         c.Query("symbol"),
+		Sector:         c.Query("sector"),
+		Topic:          c.Query("topic"),
+		Page:           page,
+		PageSize:       pageSize,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *AdminGrowthHandler) GetStockEventCluster(c *gin.Context) {
+	item, err := h.service.AdminGetStockEventCluster(c.Param("id"))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "stock event cluster not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminGrowthHandler) ReviewStockEventCluster(c *gin.Context) {
+	var req adminStockEventReviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	reviewer := strings.TrimSpace(req.Reviewer)
+	if reviewer == "" {
+		reviewer = currentAdminOperator(c)
+	}
+	item, err := h.service.AdminReviewStockEventCluster(c.Param("id"), model.StockEventReview{
+		ReviewStatus:   req.ReviewStatus,
+		Reviewer:       reviewer,
+		ReviewNote:     req.ReviewNote,
+		ReviewMetadata: req.ReviewMetadata,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "stock event cluster not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
 }
 
 func (h *AdminGrowthHandler) ListStockSelectionRuns(c *gin.Context) {

@@ -21,6 +21,7 @@ const tabs = [
   { label: "运行中心", to: "/stock-selection/runs" },
   { label: "策略设计", to: "/stock-selection/profiles" },
   { label: "候选与审核发布", to: "/stock-selection/candidates" },
+  { label: "事件审核", to: "/stock-selection/events" },
   { label: "评估复盘", to: "/stock-selection/evaluation" }
 ];
 

@@ -626,6 +626,18 @@ export function rejectStockSelectionReview(runID, payload) {
   return http.post(`/admin/stock-selection/reviews/${encodeURIComponent(runID)}/reject`, payload);
 }
 
+export function listStockEventClusters(params) {
+  return http.get("/admin/stock-selection/events", { params: buildParams(params) });
+}
+
+export function getStockEventCluster(id) {
+  return http.get(`/admin/stock-selection/events/${encodeURIComponent(id)}`);
+}
+
+export function reviewStockEventCluster(id, payload) {
+  return http.post(`/admin/stock-selection/events/${encodeURIComponent(id)}/review`, payload);
+}
+
 export function getStrategyGraphSnapshot(snapshotID) {
   return http.get(`/admin/strategy-graph/snapshots/${encodeURIComponent(snapshotID)}`);
 }
@@ -633,6 +645,15 @@ export function getStrategyGraphSnapshot(snapshotID) {
 export function queryStrategyGraphSubgraph(params) {
   return http.get("/admin/strategy-graph/subgraph", {
     params: buildParams(params)
+  });
+}
+
+export function queryStockEventSubgraph(clusterID, params = {}) {
+  return queryStrategyGraphSubgraph({
+    entity_type: "StockEvent",
+    entity_key: clusterID,
+    depth: 2,
+    ...params
   });
 }
 

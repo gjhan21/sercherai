@@ -28,6 +28,7 @@ const StockSelectionTemplatesView = () => import("../views/stock-selection/Stock
 const StockSelectionProfilesView = () => import("../views/stock-selection/StockSelectionProfilesView.vue");
 const StockSelectionFactorsView = () => import("../views/stock-selection/StockSelectionFactorsView.vue");
 const StockSelectionCandidatesView = () => import("../views/stock-selection/StockSelectionCandidatesView.vue");
+const StockSelectionEventsView = () => import("../views/stock-selection/StockSelectionEventsView.vue");
 const StockSelectionEvaluationView = () => import("../views/stock-selection/StockSelectionEvaluationView.vue");
 const FuturesSelectionOverviewView = () => import("../views/futures-selection/FuturesSelectionOverviewView.vue");
 const FuturesSelectionRunsView = () => import("../views/futures-selection/FuturesSelectionRunsView.vue");
@@ -177,6 +178,12 @@ const routes = [
         path: "stock-selection/candidates",
         name: "stock-selection-candidates",
         component: StockSelectionCandidatesView,
+        meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
+      },
+      {
+        path: "stock-selection/events",
+        name: "stock-selection-events",
+        component: StockSelectionEventsView,
         meta: { permission: "stock_selection.view", navKey: "/stock-selection/overview" }
       },
       {

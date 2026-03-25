@@ -66,6 +66,24 @@ class GraphSubgraphResponse(BaseModel):
     backend: str
 
 
+class ReviewedEventWriteRequest(BaseModel):
+    cluster_id: str
+    approved: bool = True
+    trade_date: str = ""
+    summary: str = ""
+    entities: list[GraphEntity] = Field(default_factory=list)
+    relations: list[GraphRelation] = Field(default_factory=list)
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReviewedEventWriteResponse(BaseModel):
+    snapshot_id: str
+    cluster_id: str
+    node_count: int
+    relation_count: int
+    backend: str
+
+
 class HealthResponse(BaseModel):
     service: str
     environment: str

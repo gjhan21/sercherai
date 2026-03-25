@@ -16,6 +16,7 @@ import (
 
 const (
 	localAssetContextQueryPattern          = `(?s)SELECT\s+r\.job_id,\s+COALESCE\(CAST\(r\.payload_snapshot AS CHAR\), ''\),\s+COALESCE\(DATE_FORMAT\(r\.remote_created_at, '%Y-%m-%dT%H:%i:%sZ'\), ''\),\s+COALESCE\(DATE_FORMAT\(r\.trade_date, '%Y-%m-%d'\), ''\),\s+COALESCE\(CAST\(a\.report_snapshot AS CHAR\), ''\),\s+COALESCE\(j\.publish_id, ''\),\s+COALESCE\(j\.publish_version, 0\),\s+COALESCE\(DATE_FORMAT\(j\.created_at, '%Y-%m-%dT%H:%i:%sZ'\), ''\),\s+COALESCE\(CAST\(j\.replay_snapshot AS CHAR\), ''\)\s+FROM strategy_job_runs r`
+	stockEventEvidenceQueryPattern         = `(?s)SELECT\s+c\.id,\s+c\.title,\s+c\.event_type,.*FROM stock_event_clusters c`
 	stockRecommendationVersionQueryPattern = `(?s)SELECT id, symbol, valid_from, reason_summary, strategy_version\s+FROM stock_recommendations\s+WHERE id = \?`
 	stockRecommendationDetailQueryPattern  = `(?s)SELECT d\.reco_id, d\.tech_score, d\.fund_score, d\.sentiment_score, d\.money_flow_score, d\.take_profit, d\.stop_loss, d\.risk_note\s+FROM stock_reco_details d`
 	futuresStrategyDetailQueryPattern      = `(?s)SELECT id, contract, name, direction, risk_level, position_range, valid_from, valid_to, status, reason_summary\s+FROM futures_strategies\s+WHERE id = \?`
@@ -74,6 +75,10 @@ func TestBuildStockStrategyExplanationUsesLocalSnapshotWithoutRemoteFetch(t *tes
 	mock.ExpectQuery(localAssetContextQueryPattern).
 		WithArgs("stock-selection").
 		WillReturnRows(newLocalAssetContextRows(buildStrategyEngineAssetContextFixture(record, record.AssetKeys)))
+	mock.ExpectQuery(stockEventEvidenceQueryPattern).
+		WithArgs("600519.SH", "600519.SH", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "event_type", "primary_symbol", "topic_label", "sector_label", "review_priority", "review_note", "published_at"}).
+			AddRow("sec_demo_001", "白酒景气事件", "INDUSTRY_THEME", "600519.SH", "白酒", "消费", "HIGH", "事件与龙头走势一致", time.Date(2026, 3, 17, 9, 30, 0, 0, time.UTC)))
 
 	explanation := repo.buildStockStrategyExplanation(
 		model.StockRecommendation{
@@ -113,6 +118,12 @@ func TestBuildStockStrategyExplanationUsesLocalSnapshotWithoutRemoteFetch(t *tes
 	if len(explanation.Simulations) != 1 || len(explanation.AgentOpinions) != 1 {
 		t.Fatalf("expected explanation simulation and agent opinions, got %+v", explanation)
 	}
+	if len(explanation.RelatedEvents) != 1 || explanation.RelatedEvents[0].ClusterID != "sec_demo_001" {
+		t.Fatalf("expected related reviewed events, got %+v", explanation.RelatedEvents)
+	}
+	if len(explanation.EventEvidenceCards) != 1 || explanation.EventEvidenceCards[0].Value != "白酒景气事件" {
+		t.Fatalf("expected event evidence cards, got %+v", explanation.EventEvidenceCards)
+	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)
@@ -151,6 +162,9 @@ func TestBuildStockStrategyExplanationIncludesRealContextSummary(t *testing.T) {
 	mock.ExpectQuery(localAssetContextQueryPattern).
 		WithArgs("stock-selection").
 		WillReturnRows(newLocalAssetContextRows(buildStrategyEngineAssetContextFixture(record, record.AssetKeys)))
+	mock.ExpectQuery(stockEventEvidenceQueryPattern).
+		WithArgs("600519.SH", "600519.SH", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "event_type", "primary_symbol", "topic_label", "sector_label", "review_priority", "review_note", "published_at"}))
 
 	explanation := repo.buildStockStrategyExplanation(
 		model.StockRecommendation{
@@ -171,6 +185,38 @@ func TestBuildStockStrategyExplanationIncludesRealContextSummary(t *testing.T) {
 	}
 	if !strings.Contains(explanation.SeedSummary, "近 14 天资讯") {
 		t.Fatalf("expected seed summary to include news window, got %+v", explanation)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestListReviewedStockEventEvidenceIncludesEntitySymbolMatches(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+	mock.ExpectQuery(stockEventEvidenceQueryPattern).
+		WithArgs("600519.SH", "600519.SH", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "event_type", "primary_symbol", "topic_label", "sector_label", "review_priority", "review_note", "published_at"}).
+			AddRow("sec_demo_002", "白酒板块联动事件", "INDUSTRY_THEME", "000858.SZ", "白酒", "消费", "NORMAL", "与次级关联股票同步受益", time.Date(2026, 3, 17, 9, 30, 0, 0, time.UTC)))
+
+	relatedEvents, eventCards, err := repo.listReviewedStockEventEvidence("600519.SH", "2026-03-18T09:35:00Z")
+	if err != nil {
+		t.Fatalf("list reviewed stock event evidence: %v", err)
+	}
+	if len(relatedEvents) != 1 {
+		t.Fatalf("expected entity-matched related events, got %+v", relatedEvents)
+	}
+	if relatedEvents[0].PrimarySymbol != "000858.SZ" {
+		t.Fatalf("expected event to survive when primary_symbol differs, got %+v", relatedEvents[0])
+	}
+	if len(eventCards) != 1 || eventCards[0].Value != "白酒板块联动事件" {
+		t.Fatalf("expected event evidence cards for entity-matched symbol, got %+v", eventCards)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -258,6 +304,9 @@ func TestBuildStockStrategyExplanationBackfillsFromRemotePublishRecordUsingLocal
 	mock.ExpectQuery(jobSnapshotQueryPattern).
 		WithArgs(record.JobID).
 		WillReturnRows(newJobSnapshotRows(record))
+	mock.ExpectQuery(stockEventEvidenceQueryPattern).
+		WithArgs("600519.SH", "600519.SH", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "event_type", "primary_symbol", "topic_label", "sector_label", "review_priority", "review_note", "published_at"}))
 
 	explanation := repo.buildStockStrategyExplanation(
 		model.StockRecommendation{
@@ -632,6 +681,132 @@ func TestBuildFuturesStrategyExplanationUsesLocalSnapshotWithoutRemoteFetch(t *t
 	}
 	if len(explanation.Simulations) != 1 || len(explanation.AgentOpinions) != 1 {
 		t.Fatalf("expected futures explanation simulation and agent opinions, got %+v", explanation)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestBuildFuturesStrategyExplanationSurfacesSupplyChainContext(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	record := buildFuturesExplanationPublishRecordDetail(
+		"publish_local_futures_supply_chain_001",
+		"job_local_futures_supply_chain_001",
+		23,
+		"2026-03-18",
+		[]string{"RB2609", "HC2609"},
+		"期货图谱显示黑色链条与交割资源联动增强。",
+		"多角色认为库存去化与结构联动同时强化。",
+		"黑色链条主线继续强化",
+		"futures-supply-v1",
+		[]string{"跌破 3220 则失效"},
+		[]string{"库存口径存在一日延迟"},
+		[]string{},
+		[]string{"关注主仓迁移节奏"},
+	)
+	record.ReportSnapshot["related_entities"] = []map[string]any{
+		{
+			"entity_type":  "Commodity",
+			"entity_key":   "RB",
+			"label":        "螺纹钢",
+			"asset_domain": "futures",
+		},
+	}
+	strategies := record.ReportSnapshot["strategies"].([]map[string]any)
+	strategies[0]["inventory_factor_summary"] = "央企品牌A库存占比提升；连续3日去库"
+	strategies[0]["structure_factor_summary"] = "价差联动强化主方向；期限结构保持同向"
+	strategies[0]["related_entities"] = []map[string]any{
+		{
+			"entity_type":  "SupplyChainNode",
+			"entity_key":   "RB_SUPPLY_CHAIN:BLAST_FURNACE",
+			"label":        "高炉链条",
+			"asset_domain": "futures",
+		},
+		{
+			"entity_type":  "Warehouse",
+			"entity_key":   "WAREHOUSE:SH",
+			"label":        "上海主仓",
+			"asset_domain": "futures",
+		},
+		{
+			"entity_type":  "Brand",
+			"entity_key":   "BRAND:央企品牌A",
+			"label":        "央企品牌A",
+			"asset_domain": "futures",
+		},
+		{
+			"entity_type":  "Grade",
+			"entity_key":   "GRADE:一级品",
+			"label":        "一级品",
+			"asset_domain": "futures",
+		},
+		{
+			"entity_type":  "SpreadPair",
+			"entity_key":   "SPREAD:RB-HC",
+			"label":        "RB-HC 价差对",
+			"asset_domain": "futures",
+		},
+	}
+	strategies[0]["evidence_cards"] = []map[string]any{
+		{
+			"title": "库存画像",
+			"value": "库存深度 78.4",
+			"note":  "央企品牌A库存占比提升；连续3日去库",
+		},
+		{
+			"title": "结构联动",
+			"value": "结构深度 74.2",
+			"note":  "价差联动强化主方向；期限结构保持同向",
+		},
+	}
+
+	repo := &MySQLGrowthRepo{db: db}
+	mock.ExpectQuery(localAssetContextQueryPattern).
+		WithArgs("futures-strategy").
+		WillReturnRows(newLocalAssetContextRows(buildStrategyEngineAssetContextFixture(record, record.AssetKeys)))
+
+	explanation := repo.buildFuturesStrategyExplanation(
+		model.FuturesStrategy{
+			ID:            "futures_supply_chain_001",
+			Contract:      "RB2609",
+			ValidFrom:     "2026-03-18T09:35:00Z",
+			ReasonSummary: "基础期货理由",
+		},
+		model.FuturesGuidance{
+			Contract:         "RB2609",
+			RiskLevel:        "MEDIUM",
+			InvalidCondition: "跌破 3220 则失效",
+		},
+	)
+
+	payload, err := json.Marshal(explanation)
+	if err != nil {
+		t.Fatalf("marshal explanation: %v", err)
+	}
+	raw := map[string]any{}
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		t.Fatalf("unmarshal explanation: %v", err)
+	}
+
+	if strings.TrimSpace(asString(raw["inventory_factor_summary"])) == "" {
+		t.Fatalf("expected inventory_factor_summary to be populated, got %+v", raw)
+	}
+	if strings.TrimSpace(asString(raw["structure_factor_summary"])) == "" {
+		t.Fatalf("expected structure_factor_summary to be populated, got %+v", raw)
+	}
+	supplyChainNotes := stringSlice(raw["supply_chain_notes"])
+	if len(supplyChainNotes) < 3 {
+		t.Fatalf("expected supply_chain_notes to surface supply-chain entity notes, got %+v", raw["supply_chain_notes"])
+	}
+	relatedEntities := sliceOfMaps(raw["related_entities"])
+	if len(relatedEntities) < 5 {
+		t.Fatalf("expected futures explanation to merge asset and report related entities, got %+v", raw["related_entities"])
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

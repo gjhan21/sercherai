@@ -16,6 +16,10 @@ class FuturesFeatureFactory:
                 item.inventory_place_share,
                 item.inventory_grade_share,
             )
+            inventory_depth_score = _inventory_depth_score(item)
+            inventory_depth_edge = (inventory_depth_score - 50) / 50 if inventory_depth_score else 0.0
+            structure_depth_score = _structure_depth_score(item)
+            structure_depth_edge = (structure_depth_score - 50) / 50 if structure_depth_score else 0.0
             trend_score = _clamp(55 + item.trend_strength * 16 - item.volatility14 * 3, 0, 100)
             flow_score = _clamp(
                 52
@@ -24,6 +28,8 @@ class FuturesFeatureFactory:
                 + item.volume_ratio * 6
                 + (item.turnover_ratio - 1) * 10
                 + item.inventory_pressure * (9 + inventory_structure_share * 6)
+                + inventory_depth_edge * 8
+                + structure_depth_edge * 7
                 + item.spread_pressure * 12,
                 0,
                 100,
@@ -34,6 +40,8 @@ class FuturesFeatureFactory:
                 + item.term_structure_pct * 9
                 + item.curve_slope_pct * 5
                 + item.inventory_pressure * (8 + inventory_structure_share * 5)
+                + inventory_depth_edge * 6
+                + structure_depth_edge * 12
                 + item.spread_pressure * 10
                 - abs(item.basis_pct) * 12
                 + structure_alignment * 5
@@ -48,9 +56,20 @@ class FuturesFeatureFactory:
                 + item.carry_pct * 0.12
                 + item.news_bias * 0.08
                 + item.inventory_pressure * (0.10 + inventory_structure_share * 0.08)
+                + inventory_depth_edge * 0.12
+                + structure_depth_edge * 0.10
                 + item.spread_pressure * 0.14
             )
-            conviction_score = _clamp(trend_score * 0.35 + flow_score * 0.30 + carry_score * 0.15 + news_score * 0.20, 0, 100)
+            conviction_score = _clamp(
+                trend_score * 0.30
+                + flow_score * 0.25
+                + carry_score * 0.15
+                + structure_depth_score * 0.15
+                + news_score * 0.15
+                + inventory_depth_score * 0.10,
+                0,
+                100,
+            )
 
             direction = "NEUTRAL"
             if directional_edge >= 0.18 or item.regime in {"TREND", "DEFENSIVE"}:
@@ -100,20 +119,65 @@ class FuturesFeatureFactory:
                 inventory_brand_share=round(item.inventory_brand_share, 2),
                 inventory_place_share=round(item.inventory_place_share, 2),
                 inventory_grade_share=round(item.inventory_grade_share, 2),
+                inventory_concentration=round(item.inventory_concentration, 2),
+                inventory_warehouse_shift=round(item.inventory_warehouse_shift, 2),
+                inventory_persistence_days=item.inventory_persistence_days,
+                inventory_brand_grade_bias=round(item.inventory_brand_grade_bias, 2),
+                inventory_brand_grade_summary=item.inventory_brand_grade_summary,
+                inventory_depth_score=round(inventory_depth_score, 2),
+                basis_term_alignment=round(item.basis_term_alignment, 2),
+                cross_contract_linkage=round(item.cross_contract_linkage, 2),
+                structure_signal_summary=item.structure_signal_summary,
+                structure_depth_score=round(structure_depth_score, 2),
                 spread_pressure=round(item.spread_pressure, 2),
                 spread_percentile=round(item.spread_percentile, 2),
                 spread_pair=item.spread_pair,
             )
+            feature.inventory_factor_summary = _build_inventory_factor_summary(feature)
+            feature.structure_factor_summary = _build_structure_factor_summary(feature)
             feature.reasons = _build_reasons(feature)
             feature.positive_reasons = list(feature.reasons[:4])
             feature.veto_reasons = _build_veto_reasons(feature)
             feature.evidence_cards = _build_evidence_cards(feature)
-            feature.evidence_summary = "；".join((feature.positive_reasons or feature.reasons)[:2])
+            summary_parts = []
+            if feature.structure_factor_summary:
+                summary_parts.append(feature.structure_factor_summary)
+            if feature.inventory_factor_summary:
+                summary_parts.append(feature.inventory_factor_summary)
+            summary_parts.extend((feature.positive_reasons or feature.reasons)[:2])
+            feature.evidence_summary = "；".join(summary_parts[:3])
             feature.risk_flags = _build_risk_flags(feature)
             feature.related_entities = _build_related_entities(feature)
             feature.reason_summary = "；".join(feature.reasons[:3])
             features.append(feature)
         return features
+
+
+def _inventory_depth_score(item: FuturesSeed) -> float:
+    persistence_edge = min(max(item.inventory_persistence_days, 0), 5) * (1 if item.inventory_pressure >= 0 else -1) * 4
+    return _clamp(
+        50
+        + item.inventory_pressure * 20
+        + item.inventory_concentration * 18
+        + item.inventory_warehouse_shift * 60
+        + item.inventory_brand_grade_bias * 14
+        + persistence_edge,
+        0,
+        100,
+    )
+
+
+def _structure_depth_score(item: FuturesSeed) -> float:
+    return _clamp(
+        50
+        + item.basis_term_alignment * 24
+        - item.cross_contract_linkage * 18
+        + abs(item.term_structure_pct) * 5
+        + abs(item.curve_slope_pct) * 3
+        - abs(item.basis_pct) * 4,
+        0,
+        100,
+    )
 
 
 def _classify_futures_risk(volatility14: float, volume_ratio: float, basis_pct: float) -> str:
@@ -149,6 +213,20 @@ def _build_reasons(item: FuturesFeature) -> list[str]:
     inventory_structure = _inventory_structure_text(item)
     if inventory_structure:
         reasons.append(inventory_structure)
+    if item.inventory_concentration >= 0.55:
+        reasons.append(f"库存集中度{item.inventory_concentration:.0%}，结构博弈更聚焦")
+    if abs(item.inventory_warehouse_shift) >= 0.05 and item.inventory_focus_warehouse:
+        shift_text = "仓库迁移至主仓" if item.inventory_warehouse_shift > 0 else "仓库分散至其他库点"
+        reasons.append(
+            f"仓库迁移：{item.inventory_focus_warehouse}份额变动{item.inventory_warehouse_shift:+.0%}，{shift_text}"
+        )
+    if item.inventory_persistence_days >= 2:
+        persistence_text = "去库" if item.inventory_pressure >= 0 else "累库"
+        reasons.append(f"库存趋势已连续{item.inventory_persistence_days}日{persistence_text}")
+    if item.inventory_brand_grade_summary:
+        reasons.append(item.inventory_brand_grade_summary)
+    if item.structure_signal_summary:
+        reasons.append(f"结构联动：{item.structure_signal_summary}")
     if item.oi_change_pct > 0:
         reasons.append(f"持仓变化{item.oi_change_pct:.2f}%，增仓配合方向信号")
     if item.volume_ratio >= 1.15:
@@ -166,7 +244,7 @@ def _build_reasons(item: FuturesFeature) -> list[str]:
     if item.news_bias != 0:
         bias_text = "偏多" if item.news_bias > 0 else "偏空"
         reasons.append(f"资讯情绪{bias_text}，新闻偏置{item.news_bias:.2f}")
-    return reasons[:8]
+    return reasons[:14]
 
 
 def _inventory_structure_text(item: FuturesFeature) -> str:
@@ -184,6 +262,31 @@ def _inventory_structure_text(item: FuturesFeature) -> str:
     if not parts:
         return ""
     return "仓单结构：" + "，".join(parts[:5])
+
+
+def _build_inventory_factor_summary(item: FuturesFeature) -> str:
+    parts: list[str] = []
+    if item.inventory_brand_grade_summary:
+        parts.append(item.inventory_brand_grade_summary)
+    if item.inventory_focus_warehouse and abs(item.inventory_warehouse_shift) >= 0.05:
+        parts.append(f"主仓{item.inventory_focus_warehouse}份额{item.inventory_warehouse_shift:+.0%}")
+    if item.inventory_concentration >= 0.55:
+        parts.append(f"集中度{item.inventory_concentration:.0%}")
+    if item.inventory_persistence_days >= 2:
+        persistence_text = "去库" if item.inventory_pressure >= 0 else "累库"
+        parts.append(f"连续{item.inventory_persistence_days}日{persistence_text}")
+    return "；".join(parts[:3])
+
+
+def _build_structure_factor_summary(item: FuturesFeature) -> str:
+    parts: list[str] = []
+    if item.structure_signal_summary:
+        parts.append(item.structure_signal_summary)
+    if item.basis_term_alignment:
+        parts.append(f"结构对齐{item.basis_term_alignment:.2f}")
+    if item.spread_pair and item.cross_contract_linkage:
+        parts.append(f"{item.spread_pair}联动{item.cross_contract_linkage:.2f}")
+    return "；".join(parts[:3])
 
 
 def _structure_alignment(carry_pct: float, term_structure_pct: float) -> float:
@@ -255,6 +358,22 @@ def _build_evidence_cards(item: FuturesFeature) -> list[dict[str, str]]:
             "note": f"资讯偏置 {item.news_bias:.2f} / 库存压力 {item.inventory_pressure:.2f}",
         },
     ]
+    if item.inventory_factor_summary:
+        cards.append(
+            {
+                "title": "库存画像",
+                "value": f"{item.inventory_depth_score:.1f}",
+                "note": item.inventory_factor_summary,
+            }
+        )
+    if item.structure_factor_summary:
+        cards.append(
+            {
+                "title": "结构联动",
+                "value": f"{item.structure_depth_score:.1f}",
+                "note": item.structure_factor_summary,
+            }
+        )
     if item.spread_pair:
         cards.append(
             {

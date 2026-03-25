@@ -48,6 +48,8 @@ class FuturesStrategyCandidate(BaseModel):
     reason_summary: str
     invalidations: list[str] = Field(default_factory=list)
     evidence_summary: str = ""
+    inventory_factor_summary: str = ""
+    structure_factor_summary: str = ""
     portfolio_role: str = "SATELLITE"
     risk_summary: str = ""
     evidence_cards: list[dict[str, Any]] = Field(default_factory=list)
@@ -109,6 +111,8 @@ class FuturesCandidateSnapshot(BaseModel):
     direction: Direction = "NEUTRAL"
     reason_summary: str = ""
     evidence_summary: str = ""
+    inventory_factor_summary: str = ""
+    structure_factor_summary: str = ""
     portfolio_role: str = ""
     risk_summary: str = ""
     factor_breakdown_json: dict[str, Any] = Field(default_factory=dict)
@@ -124,6 +128,8 @@ class FuturesPortfolioEntry(BaseModel):
     position_range: str = ""
     reason_summary: str = ""
     evidence_summary: str = ""
+    inventory_factor_summary: str = ""
+    structure_factor_summary: str = ""
     portfolio_role: str = "SATELLITE"
     risk_summary: str = ""
     evidence_cards: list[dict[str, Any]] = Field(default_factory=list)
@@ -141,6 +147,8 @@ class FuturesEvidenceRecord(BaseModel):
     stage: str
     portfolio_role: str = ""
     evidence_summary: str = ""
+    inventory_factor_summary: str = ""
+    structure_factor_summary: str = ""
     evidence_cards: list[dict[str, Any]] = Field(default_factory=list)
     positive_reasons: list[str] = Field(default_factory=list)
     veto_reasons: list[str] = Field(default_factory=list)

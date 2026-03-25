@@ -129,6 +129,14 @@ class FuturesSeed:
     inventory_brand_share: float = 0.0
     inventory_place_share: float = 0.0
     inventory_grade_share: float = 0.0
+    inventory_concentration: float = 0.0
+    inventory_warehouse_shift: float = 0.0
+    inventory_persistence_days: int = 0
+    inventory_brand_grade_bias: float = 0.0
+    inventory_brand_grade_summary: str = ""
+    basis_term_alignment: float = 0.0
+    cross_contract_linkage: float = 0.0
+    structure_signal_summary: str = ""
     spread_pressure: float = 0.0
     spread_percentile: float = 0.0
     spread_pair: str = ""
@@ -184,6 +192,18 @@ class FuturesFeature:
     inventory_brand_share: float = 0.0
     inventory_place_share: float = 0.0
     inventory_grade_share: float = 0.0
+    inventory_concentration: float = 0.0
+    inventory_warehouse_shift: float = 0.0
+    inventory_persistence_days: int = 0
+    inventory_brand_grade_bias: float = 0.0
+    inventory_brand_grade_summary: str = ""
+    inventory_depth_score: float = 0.0
+    inventory_factor_summary: str = ""
+    basis_term_alignment: float = 0.0
+    cross_contract_linkage: float = 0.0
+    structure_signal_summary: str = ""
+    structure_depth_score: float = 0.0
+    structure_factor_summary: str = ""
     spread_pressure: float = 0.0
     spread_percentile: float = 0.0
     spread_pair: str = ""
@@ -202,6 +222,8 @@ class FuturesFeature:
             "trend": round(self.trend_score, 2),
             "money_flow": round(self.flow_score, 2),
             "basis_term": round(self.carry_score, 2),
+            "inventory_depth": round(self.inventory_depth_score, 2),
+            "structure_depth": round(self.structure_depth_score, 2),
             "event": round(self.news_score, 2),
             "conviction": round(self.conviction_score, 2),
             "total_score": round(self.conviction_score, 2),

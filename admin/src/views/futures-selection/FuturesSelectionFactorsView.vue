@@ -51,24 +51,26 @@ const factorRows = computed(() => [
 
 const factorSummary = computed(() => [
   { label: "平均趋势", value: averageFuturesSelectionMetric(candidateRows.value, (item) => item.factor_breakdown_json?.trend) },
-  { label: "平均基差", value: averageFuturesSelectionMetric(candidateRows.value, (item) => item.factor_breakdown_json?.basis) },
   {
-    label: "平均结构/库存",
+    label: "平均库存深度",
+    value: averageFuturesSelectionMetric(candidateRows.value, (item) => item.factor_breakdown_json?.inventory_depth)
+  },
+  {
+    label: "平均结构联动",
+    value: averageFuturesSelectionMetric(candidateRows.value, (item) => item.factor_breakdown_json?.structure_depth)
+  },
+  {
+    label: "平均基差结构",
     value: averageFuturesSelectionMetric(
       candidateRows.value,
-      (item) => item.factor_breakdown_json?.inventory ?? item.factor_breakdown_json?.structure
+      (item) => item.factor_breakdown_json?.basis_term ?? item.factor_breakdown_json?.basis
     )
-  },
-  { label: "平均政策", value: averageFuturesSelectionMetric(candidateRows.value, (item) => item.factor_breakdown_json?.policy) },
-  {
-    label: "平均商品联动",
-    value: averageFuturesSelectionMetric(candidateRows.value, (item) => item.factor_breakdown_json?.commodity_linkage)
   },
   {
     label: "平均总分",
     value: averageFuturesSelectionMetric(
       candidateRows.value,
-      (item) => item.factor_breakdown_json?.total ?? item.factor_breakdown_json?.total_score ?? item.score
+      (item) => item.factor_breakdown_json?.total_score ?? item.factor_breakdown_json?.total ?? item.score
     )
   }
 ]);
@@ -212,20 +214,17 @@ onMounted(async () => {
         <el-table-column label="趋势" min-width="90">
           <template #default="{ row }">{{ row.factor_breakdown_json?.trend ?? "-" }}</template>
         </el-table-column>
-        <el-table-column label="基差" min-width="90">
-          <template #default="{ row }">{{ row.factor_breakdown_json?.basis ?? "-" }}</template>
+        <el-table-column label="库存深度" min-width="98">
+          <template #default="{ row }">{{ row.factor_breakdown_json?.inventory_depth ?? "-" }}</template>
         </el-table-column>
-        <el-table-column label="结构/库存" min-width="96">
-          <template #default="{ row }">{{ row.factor_breakdown_json?.inventory ?? row.factor_breakdown_json?.structure ?? "-" }}</template>
+        <el-table-column label="结构深度" min-width="98">
+          <template #default="{ row }">{{ row.factor_breakdown_json?.structure_depth ?? "-" }}</template>
         </el-table-column>
-        <el-table-column label="政策" min-width="90">
-          <template #default="{ row }">{{ row.factor_breakdown_json?.policy ?? "-" }}</template>
-        </el-table-column>
-        <el-table-column label="商品联动" min-width="96">
-          <template #default="{ row }">{{ row.factor_breakdown_json?.commodity_linkage ?? "-" }}</template>
+        <el-table-column label="基差结构" min-width="98">
+          <template #default="{ row }">{{ row.factor_breakdown_json?.basis_term ?? row.factor_breakdown_json?.basis ?? "-" }}</template>
         </el-table-column>
         <el-table-column label="总分" min-width="90">
-          <template #default="{ row }">{{ row.factor_breakdown_json?.total ?? row.factor_breakdown_json?.total_score ?? row.score ?? "-" }}</template>
+          <template #default="{ row }">{{ row.factor_breakdown_json?.total_score ?? row.factor_breakdown_json?.total ?? row.score ?? "-" }}</template>
         </el-table-column>
       </el-table>
     </div>

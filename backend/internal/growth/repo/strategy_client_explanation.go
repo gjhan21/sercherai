@@ -1,9 +1,11 @@
 package repo
 
 import (
+	"database/sql"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"sercherai/backend/internal/growth/model"
 )
@@ -60,6 +62,10 @@ func (r *MySQLGrowthRepo) buildStockStrategyExplanation(item model.StockRecommen
 	))
 	if summary, summaryErr := r.loadStockSelectionEvaluationSummaryByContext(*ctx, item.Symbol); summaryErr == nil {
 		enrichStockSelectionEvaluationMetaFromSummary(&explanation, summary)
+	}
+	if relatedEvents, eventCards, eventErr := r.listReviewedStockEventEvidence(item.Symbol, item.ValidFrom); eventErr == nil {
+		explanation.RelatedEvents = relatedEvents
+		explanation.EventEvidenceCards = eventCards
 	}
 	return explanation
 }
@@ -385,6 +391,19 @@ func buildStrategyExplanationFromContext(
 ) model.StrategyClientExplanation {
 	report := ctx.record.ReportSnapshot
 	seedHighlights := extractSeedHighlights(ctx.job.Payload)
+	evidenceCards := buildExplanationEvidenceCards(sliceOfMaps(ctx.asset["evidence_cards"]))
+	relatedEntities := mergeExplanationRelatedEntities(
+		buildExplanationRelatedEntities(sliceOfMaps(report["related_entities"])),
+		buildExplanationRelatedEntities(sliceOfMaps(ctx.asset["related_entities"])),
+	)
+	structureSummary := firstNonEmpty(
+		asString(ctx.asset["structure_factor_summary"]),
+		evidenceCardNoteByTitle(evidenceCards, "结构联动"),
+	)
+	inventorySummary := firstNonEmpty(
+		asString(ctx.asset["inventory_factor_summary"]),
+		evidenceCardNoteByTitle(evidenceCards, "库存画像"),
+	)
 	simulation := model.StrategyExplanationSimulation{
 		AssetKey:        assetKey,
 		AssetType:       asString(ctx.simulation["asset_type"]),
@@ -414,12 +433,15 @@ func buildStrategyExplanationFromContext(
 		Invalidations:    compactStrings(stringSlice(ctx.asset["invalidations"])),
 		ConfidenceReason: confidenceReason,
 		MarketRegime:     asString(report["market_regime"]),
-		EvidenceCards:    buildExplanationEvidenceCards(sliceOfMaps(ctx.asset["evidence_cards"])),
+		EvidenceCards:    evidenceCards,
 		PortfolioRole:    asString(ctx.asset["portfolio_role"]),
 		RiskBoundary:     firstNonEmpty(asString(ctx.asset["risk_summary"]), asString(report["risk_summary"])),
 		ThemeTags:        stringSlice(ctx.asset["theme_tags"]),
 		SectorTags:       stringSlice(ctx.asset["sector_tags"]),
-		RelatedEntities:  buildExplanationRelatedEntities(sliceOfMaps(report["related_entities"])),
+		SupplyChainNotes: buildFuturesSupplyChainNotes(relatedEntities, evidenceCards, inventorySummary, structureSummary),
+		StructureSummary: structureSummary,
+		InventorySummary: inventorySummary,
+		RelatedEntities:  relatedEntities,
 		MemoryFeedback:   buildExplanationMemoryFeedback(mapValue(report["memory_feedback"])),
 		EvaluationMeta:   mapValue(report["evaluation_summary"]),
 		WorkloadSummary: model.StrategyWorkloadSummary{
@@ -430,7 +452,7 @@ func buildStrategyExplanationFromContext(
 			ScenarioCount:  len(simulation.Scenarios),
 			FilterSteps:    filterSteps,
 		},
-		StrategyVersion: strategyVersion,
+		StrategyVersion: firstNonEmpty(asString(ctx.asset["strategy_version"]), strategyVersion),
 		PublishID:       ctx.record.PublishID,
 		JobID:           ctx.record.JobID,
 		TradeDate:       ctx.record.TradeDate,
@@ -559,8 +581,23 @@ func mergeStrategyExplanation(base model.StrategyClientExplanation, live model.S
 	if len(live.SectorTags) > 0 {
 		base.SectorTags = live.SectorTags
 	}
+	if len(live.SupplyChainNotes) > 0 {
+		base.SupplyChainNotes = live.SupplyChainNotes
+	}
+	if live.StructureSummary != "" {
+		base.StructureSummary = live.StructureSummary
+	}
+	if live.InventorySummary != "" {
+		base.InventorySummary = live.InventorySummary
+	}
 	if len(live.RelatedEntities) > 0 {
 		base.RelatedEntities = live.RelatedEntities
+	}
+	if len(live.RelatedEvents) > 0 {
+		base.RelatedEvents = live.RelatedEvents
+	}
+	if len(live.EventEvidenceCards) > 0 {
+		base.EventEvidenceCards = live.EventEvidenceCards
 	}
 	if live.MemoryFeedback.Summary != "" || len(live.MemoryFeedback.Items) > 0 {
 		base.MemoryFeedback = live.MemoryFeedback
@@ -591,6 +628,101 @@ func mergeStrategyExplanation(base model.StrategyClientExplanation, live model.S
 		base.GeneratedAt = live.GeneratedAt
 	}
 	return base
+}
+
+func (r *MySQLGrowthRepo) listReviewedStockEventEvidence(symbol string, anchorTime string) ([]model.StrategyExplanationRelatedEvent, []model.StrategyExplanationEvidenceCard, error) {
+	if r.db == nil {
+		return nil, nil, nil
+	}
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if symbol == "" {
+		return nil, nil, nil
+	}
+	endAt := time.Now()
+	if parsed, ok := parseRFC3339(anchorTime); ok {
+		endAt = parsed
+	}
+	startAt := endAt.AddDate(0, 0, -14)
+
+	rows, err := r.db.Query(`
+SELECT
+  c.id,
+  c.title,
+  c.event_type,
+  COALESCE(c.primary_symbol, ''),
+  COALESCE(c.topic_label, ''),
+  COALESCE(c.sector_label, ''),
+  COALESCE(JSON_UNQUOTE(JSON_EXTRACT(c.metadata_json, '$.review_priority')), ''),
+  COALESCE(lr.review_note, ''),
+  c.published_at
+FROM stock_event_clusters c
+LEFT JOIN (
+  SELECT r1.*
+  FROM stock_event_reviews r1
+  INNER JOIN (
+    SELECT cluster_id, MAX(created_at) AS latest_created_at
+    FROM stock_event_reviews
+    GROUP BY cluster_id
+  ) latest ON latest.cluster_id = r1.cluster_id AND latest.latest_created_at = r1.created_at
+) lr ON lr.cluster_id = c.id
+WHERE c.review_status = 'APPROVED'
+  AND (
+    c.primary_symbol = ?
+    OR EXISTS (
+      SELECT 1 FROM stock_event_entities se
+      WHERE se.cluster_id = c.id AND se.symbol = ?
+    )
+  )
+  AND COALESCE(c.published_at, c.updated_at) >= ?
+  AND COALESCE(c.published_at, c.updated_at) <= ?
+ORDER BY CASE COALESCE(JSON_UNQUOTE(JSON_EXTRACT(c.metadata_json, '$.review_priority')), '') WHEN 'HIGH' THEN 0 ELSE 1 END ASC,
+         COALESCE(c.published_at, c.updated_at) DESC,
+         c.id DESC
+LIMIT 3`, symbol, symbol, startAt, endAt)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	events := make([]model.StrategyExplanationRelatedEvent, 0, 3)
+	cards := make([]model.StrategyExplanationEvidenceCard, 0, 3)
+	for rows.Next() {
+		var event model.StrategyExplanationRelatedEvent
+		var reviewNote sql.NullString
+		var publishedAt sql.NullTime
+		if err := rows.Scan(
+			&event.ClusterID,
+			&event.Title,
+			&event.EventType,
+			&event.PrimarySymbol,
+			&event.TopicLabel,
+			&event.SectorLabel,
+			&event.ReviewPriority,
+			&reviewNote,
+			&publishedAt,
+		); err != nil {
+			return nil, nil, err
+		}
+		event.ReviewNote = strings.TrimSpace(reviewNote.String)
+		event.PublishedAt = formatNullTime(publishedAt)
+		event.Tags = compactStrings([]string{event.EventType, event.TopicLabel, event.SectorLabel, event.ReviewPriority})
+		events = append(events, event)
+
+		noteParts := compactStrings([]string{
+			event.ReviewNote,
+			firstNonEmpty(event.TopicLabel, event.SectorLabel),
+			event.PublishedAt,
+		})
+		cards = append(cards, model.StrategyExplanationEvidenceCard{
+			Title: firstNonEmpty(event.EventType, "EVENT"),
+			Value: event.Title,
+			Note:  strings.Join(noteParts, " · "),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return events, cards, nil
 }
 
 type strategyVersionDiffAsset struct {
@@ -848,6 +980,86 @@ func buildExplanationRelatedEntities(items []map[string]any) []model.StrategyExp
 		result = append(result, entity)
 	}
 	return result
+}
+
+func mergeExplanationRelatedEntities(groups ...[]model.StrategyExplanationRelatedEntity) []model.StrategyExplanationRelatedEntity {
+	result := make([]model.StrategyExplanationRelatedEntity, 0)
+	seen := make(map[string]struct{})
+	for _, group := range groups {
+		for _, item := range group {
+			key := strings.TrimSpace(strings.Join([]string{item.EntityType, item.EntityKey, item.Label}, "|"))
+			if key == "||" {
+				continue
+			}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func evidenceCardNoteByTitle(cards []model.StrategyExplanationEvidenceCard, title string) string {
+	want := strings.TrimSpace(title)
+	for _, card := range cards {
+		if strings.TrimSpace(card.Title) == want {
+			return firstNonEmpty(card.Note, card.Value)
+		}
+	}
+	return ""
+}
+
+func buildFuturesSupplyChainNotes(
+	relatedEntities []model.StrategyExplanationRelatedEntity,
+	evidenceCards []model.StrategyExplanationEvidenceCard,
+	inventorySummary string,
+	structureSummary string,
+) []string {
+	notes := make([]string, 0, 6)
+	seen := make(map[string]struct{})
+	appendNote := func(text string) {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return
+		}
+		if _, ok := seen[text]; ok {
+			return
+		}
+		seen[text] = struct{}{}
+		notes = append(notes, text)
+	}
+
+	for _, entity := range relatedEntities {
+		label := firstNonEmpty(entity.Label, entity.EntityKey)
+		switch strings.TrimSpace(entity.EntityType) {
+		case "Commodity":
+			appendNote("商品：" + label)
+		case "SupplyChainNode":
+			appendNote("商品链节点：" + label)
+		case "SpreadPair", "Index":
+			appendNote("结构联动：" + label)
+		case "DeliveryPlace":
+			appendNote("交割地：" + label)
+		case "Warehouse":
+			appendNote("仓库：" + label)
+		case "Brand":
+			appendNote("品牌：" + label)
+		case "Grade":
+			appendNote("等级：" + label)
+		}
+	}
+	if len(notes) == 0 {
+		appendNote(inventorySummary)
+		appendNote(structureSummary)
+		appendNote(evidenceCardNoteByTitle(evidenceCards, "库存画像"))
+		appendNote(evidenceCardNoteByTitle(evidenceCards, "结构联动"))
+	}
+	if len(notes) > 6 {
+		return notes[:6]
+	}
+	return notes
 }
 
 func buildExplanationMemoryFeedback(item map[string]any) model.StrategyExplanationMemoryFeedback {

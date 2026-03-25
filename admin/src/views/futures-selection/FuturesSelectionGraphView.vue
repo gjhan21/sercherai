@@ -33,6 +33,16 @@ const graphDepthOptions = [
   { label: "一跳关系", value: 1 },
   { label: "两跳关系", value: 2 }
 ];
+const supplyChainEntityTypes = new Set([
+  "Commodity",
+  "SupplyChainNode",
+  "SpreadPair",
+  "Index",
+  "DeliveryPlace",
+  "Warehouse",
+  "Brand",
+  "Grade"
+]);
 
 const loading = ref(false);
 const runs = ref([]);
@@ -83,10 +93,10 @@ function getSnapshotEntityTags(items = []) {
     .slice(0, 18)
     .map((item, index) => ({
       key: String(item?.entity_key || item?.label || "").trim() || `snapshot-entity-${index}`,
-      entityType: String(item?.entity_type || "").trim(),
-      entityKey: String(item?.entity_key || item?.label || "").trim(),
+      entityType: String(item?.entity_type || item?.entityType || "").trim(),
+      entityKey: String(item?.entity_key || item?.entityKey || item?.label || "").trim(),
       label: String(item?.label || item?.entity_key || "").trim(),
-      assetDomain: String(item?.asset_domain || "").trim()
+      assetDomain: String(item?.asset_domain || item?.assetDomain || "").trim()
     }))
     .filter((item) => item.entityType && item.entityKey);
 }
@@ -96,6 +106,10 @@ function getRelationTags(items = []) {
     key: `${item?.source_key || "source"}-${item?.relation_type || "relation"}-${item?.target_key || "target"}-${index}`,
     label: `${formatFuturesSelectionGraphEntityKey(item?.source_key)} ${formatFuturesSelectionGraphRelationType(item?.relation_type)} ${formatFuturesSelectionGraphEntityKey(item?.target_key)}`
   }));
+}
+
+function getSupplyChainEntityTags(items = []) {
+  return getSnapshotEntityTags(items).filter((item) => supplyChainEntityTypes.has(item.entityType));
 }
 
 async function fetchRuns() {
@@ -288,6 +302,21 @@ onMounted(fetchRuns);
             </el-tag>
           </div>
 
+          <template v-if="getSupplyChainEntityTags(selectedRunRelatedEntities).length">
+            <div class="section-subtitle" style="margin-top: 14px">商品链相关实体</div>
+            <div class="chip-wrap">
+              <el-tag
+                v-for="item in getSupplyChainEntityTags(selectedRunRelatedEntities)"
+                :key="`supply-run-${item.key}`"
+                type="warning"
+                class="clickable-chip"
+                @click="handleUseEntity(item)"
+              >
+                {{ item.label }} / {{ formatFuturesSelectionGraphEntityType(item.entityType) }}
+              </el-tag>
+            </div>
+          </template>
+
           <template v-if="snapshot">
             <div class="section-subtitle" style="margin-top: 14px">快照节点</div>
             <div class="chip-wrap">
@@ -301,6 +330,21 @@ onMounted(fetchRuns);
                 {{ item.label }} / {{ formatFuturesSelectionGraphEntityType(item.entityType) }}
               </el-tag>
             </div>
+
+            <template v-if="getSupplyChainEntityTags(snapshot.entities).length">
+              <div class="section-subtitle" style="margin-top: 14px">快照中的商品链实体</div>
+              <div class="chip-wrap">
+                <el-tag
+                  v-for="item in getSupplyChainEntityTags(snapshot.entities)"
+                  :key="`supply-snapshot-${item.key}`"
+                  type="danger"
+                  class="clickable-chip"
+                  @click="handleUseEntity(item)"
+                >
+                  {{ item.label }} / {{ formatFuturesSelectionGraphEntityType(item.entityType) }}
+                </el-tag>
+              </div>
+            </template>
 
             <div class="section-subtitle" style="margin-top: 14px">快照关系</div>
             <div class="chip-wrap">
@@ -395,6 +439,21 @@ onMounted(fetchRuns);
               {{ item.label }} / {{ formatFuturesSelectionGraphEntityType(item.entityType) }}
             </el-tag>
           </div>
+
+          <template v-if="getSupplyChainEntityTags(subgraph.entities).length">
+            <div class="section-subtitle" style="margin-top: 14px">子图中的商品链实体</div>
+            <div class="chip-wrap">
+              <el-tag
+                v-for="item in getSupplyChainEntityTags(subgraph.entities)"
+                :key="`supply-subgraph-${item.key}`"
+                type="danger"
+                class="clickable-chip"
+                @click="handleUseEntity(item)"
+              >
+                {{ item.label }} / {{ formatFuturesSelectionGraphEntityType(item.entityType) }}
+              </el-tag>
+            </div>
+          </template>
 
           <div class="section-subtitle" style="margin-top: 14px">关联关系</div>
           <div class="chip-wrap">

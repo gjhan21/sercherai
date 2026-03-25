@@ -430,3 +430,53 @@ func TestBuildMarketInstrumentSourceFactsFromUniverseItems(t *testing.T) {
 		t.Fatalf("expected fetched at %s, got %s", fetchedAt, facts[0].SourceUpdatedAt)
 	}
 }
+
+func TestBuildFuturesInstrumentProfileSnapshotAggregatesContractChainAndInventoryDimensions(t *testing.T) {
+	profile := buildFuturesInstrumentProfileSnapshot(
+		"AU",
+		[]marketInstrumentTruth{
+			{
+				AssetClass:      marketAssetClassFutures,
+				InstrumentKey:   "AU2506.SHF",
+				DisplayName:     "沪金2506",
+				ExchangeCode:    "SHF",
+				ProductKey:      "AU",
+				SourceUpdatedAt: time.Date(2026, 3, 24, 9, 0, 0, 0, time.Local),
+			},
+			{
+				AssetClass:      marketAssetClassFutures,
+				InstrumentKey:   "AU2508.SHF",
+				DisplayName:     "沪金2508",
+				ExchangeCode:    "SHF",
+				ProductKey:      "AU",
+				SourceUpdatedAt: time.Date(2026, 3, 24, 9, 10, 0, 0, time.Local),
+			},
+		},
+		[]futuresInstrumentInventoryProfileRow{
+			{Symbol: "AU", Place: "上海", Warehouse: "上期所一库", Brand: "国标一号", Grade: "标准品"},
+			{Symbol: "AU", Place: "深圳", Warehouse: "上期所二库", Brand: "国标一号", Grade: "标准品"},
+		},
+	)
+
+	if profile.ProductKey != "AU" {
+		t.Fatalf("expected product key AU, got %s", profile.ProductKey)
+	}
+	if profile.ExchangeCode != "SHF" {
+		t.Fatalf("expected exchange code SHF, got %s", profile.ExchangeCode)
+	}
+	if len(profile.ContractChain) != 2 || profile.ContractChain[0] != "AU2506.SHF" {
+		t.Fatalf("unexpected contract chain: %+v", profile.ContractChain)
+	}
+	if len(profile.DeliveryPlaces) != 2 || profile.DeliveryPlaces[0] != "上海" {
+		t.Fatalf("unexpected delivery places: %+v", profile.DeliveryPlaces)
+	}
+	if len(profile.Warehouses) != 2 || len(profile.Brands) != 1 || len(profile.Grades) != 1 {
+		t.Fatalf("unexpected profile dimensions: %+v", profile)
+	}
+	if len(profile.InventoryMetricKeys) != 3 {
+		t.Fatalf("expected inventory metric keys, got %+v", profile.InventoryMetricKeys)
+	}
+	if profile.Metadata["contract_count"] != float64(2) {
+		t.Fatalf("expected contract_count metadata, got %+v", profile.Metadata)
+	}
+}

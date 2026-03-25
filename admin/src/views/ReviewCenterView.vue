@@ -91,7 +91,7 @@ const detailForm = reactive({
   decision_note: ""
 });
 
-const moduleOptions = ["NEWS"];
+const moduleOptions = ["NEWS", "STOCK_EVENT"];
 const decisionOptions = ["APPROVED", "REJECTED"];
 const slaWarnHours = 24;
 const slaDangerHours = 48;
@@ -945,6 +945,27 @@ function reviewerHint(task) {
   return `当前任务分配给 ${reviewerID}`;
 }
 
+function resolveTaskTargetRoute(task) {
+  if ((task?.module || "").toUpperCase() === "STOCK_EVENT" && task?.target_id) {
+    return {
+      name: "stock-selection-events",
+      query: {
+        event_id: task.target_id,
+        review_id: task.id || ""
+      }
+    };
+  }
+  return null;
+}
+
+function jumpToTaskTarget(task) {
+  const targetRoute = resolveTaskTargetRoute(task);
+  if (!targetRoute) {
+    return;
+  }
+  router.push(targetRoute);
+}
+
 function parseTaskDateTime(value) {
   const raw = (value || "").trim();
   if (!raw) {
@@ -1282,7 +1303,22 @@ onBeforeUnmount(() => {
         <el-table-column v-if="canEditReview" type="selection" width="52" reserve-selection />
         <el-table-column prop="id" label="ID" min-width="130" />
         <el-table-column prop="module" label="模块" min-width="100" />
-        <el-table-column prop="target_id" label="目标ID" min-width="130" />
+        <el-table-column prop="target_id" label="目标ID" min-width="170">
+          <template #default="{ row }">
+            <div class="target-cell">
+              <span>{{ row.target_id }}</span>
+              <el-button
+                v-if="resolveTaskTargetRoute(row)"
+                link
+                type="primary"
+                size="small"
+                @click="jumpToTaskTarget(row)"
+              >
+                打开对象
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="submitter_id" label="提交人" min-width="130" />
         <el-table-column label="审核人" min-width="130">
           <template #default="{ row }">
@@ -1486,6 +1522,9 @@ onBeforeUnmount(() => {
           <el-descriptions-item label="任务ID">{{ currentTask.id }}</el-descriptions-item>
           <el-descriptions-item label="模块">{{ currentTask.module }}</el-descriptions-item>
           <el-descriptions-item label="目标ID">{{ currentTask.target_id }}</el-descriptions-item>
+          <el-descriptions-item v-if="resolveTaskTargetRoute(currentTask)" label="跳转">
+            <el-button link type="primary" @click="jumpToTaskTarget(currentTask)">打开业务详情</el-button>
+          </el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="statusTagType(currentTask.status)">{{ currentTask.status }}</el-tag>
           </el-descriptions-item>
@@ -1622,6 +1661,13 @@ onBeforeUnmount(() => {
   margin-top: 6px;
   font-size: 12px;
   color: #6b7280;
+}
+
+.target-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .detail-section {

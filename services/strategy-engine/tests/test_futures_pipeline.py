@@ -97,6 +97,13 @@ def test_futures_feature_factory_uses_term_structure_and_turnover_confirmation()
                 inventory_brand_share=0.67,
                 inventory_place_share=0.67,
                 inventory_grade_share=0.67,
+                inventory_concentration=0.67,
+                inventory_warehouse_shift=0.08,
+                inventory_persistence_days=3,
+                inventory_brand_grade_summary="品牌央企品牌A / 等级标准品占比 67%，已连续3日去库",
+                basis_term_alignment=0.84,
+                cross_contract_linkage=-0.24,
+                structure_signal_summary="期限结构顺价差联动，当前合约位于受益腿",
                 spread_pressure=0.21,
                 spread_percentile=0.82,
                 spread_pair="IF2606/IF2609",
@@ -110,10 +117,21 @@ def test_futures_feature_factory_uses_term_structure_and_turnover_confirmation()
     assert feature.inventory_pressure == 0.13
     assert feature.spread_pressure == 0.21
     assert feature.carry_score > 50
+    assert feature.inventory_depth_score > 50
+    assert feature.structure_depth_score > 50
+    assert feature.factor_breakdown()["inventory_depth"] == round(feature.inventory_depth_score, 2)
+    assert feature.factor_breakdown()["structure_depth"] == round(feature.structure_depth_score, 2)
+    assert "央企品牌A" in feature.inventory_factor_summary
+    assert "价差联动" in feature.structure_factor_summary
     assert any("成交额比" in reason for reason in feature.reasons)
     assert any("近远月斜率" in reason for reason in feature.reasons)
     assert any("全曲线斜率" in reason for reason in feature.reasons)
     assert any("仓单库存" in reason for reason in feature.reasons)
     assert any("仓单结构" in reason for reason in feature.reasons)
+    assert any("结构联动" in reason for reason in feature.reasons)
+    assert any("仓库迁移" in reason for reason in feature.reasons)
+    assert any("连续3日去库" in reason for reason in feature.reasons)
     assert any("产地上海" in reason or "等级标准品" in reason for reason in feature.reasons)
     assert any("关联价差" in reason for reason in feature.reasons)
+    assert any(card["title"] == "库存画像" and "连续3日去库" in card["note"] for card in feature.evidence_cards)
+    assert any(card["title"] == "结构联动" and "价差联动" in card["note"] for card in feature.evidence_cards)

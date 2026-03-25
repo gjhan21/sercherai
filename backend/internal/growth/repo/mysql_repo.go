@@ -10733,6 +10733,21 @@ func (r *MySQLGrowthRepo) applyModuleTargetStatus(execer sqlExecer, module strin
 	case "FUTURES":
 		query = "UPDATE futures_strategies SET status = ? WHERE id = ?"
 		args = []interface{}{status, targetID}
+	case "STOCK_EVENT":
+		query = `UPDATE stock_event_clusters
+SET cluster_status = ?, review_status = ?, updated_at = ?
+WHERE id = ?`
+		clusterStatus := "CLUSTERED"
+		reviewStatus := "PENDING"
+		switch strings.ToUpper(strings.TrimSpace(status)) {
+		case "PUBLISHED":
+			clusterStatus = "REVIEWED"
+			reviewStatus = "APPROVED"
+		case "DRAFT":
+			clusterStatus = "REJECTED"
+			reviewStatus = "REJECTED"
+		}
+		args = []interface{}{clusterStatus, reviewStatus, time.Now(), targetID}
 	default:
 		return errors.New("unsupported module")
 	}

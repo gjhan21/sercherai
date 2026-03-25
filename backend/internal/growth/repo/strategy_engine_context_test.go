@@ -587,6 +587,18 @@ func TestBuildStrategyEngineFuturesStrategyContextUsesTruthBarsAndNews(t *testin
 	if ctx.Seeds[0].InventoryPlaceShare <= 0.6 || ctx.Seeds[0].InventoryGradeShare <= 0.6 {
 		t.Fatalf("expected IF place/grade concentration shares, got %+v", ctx.Seeds[0])
 	}
+	if ctx.Seeds[0].InventoryConcentration <= 0.65 {
+		t.Fatalf("expected IF inventory concentration factor, got %+v", ctx.Seeds[0])
+	}
+	if ctx.Seeds[0].InventoryWarehouseShift <= 0.05 {
+		t.Fatalf("expected IF warehouse shift factor, got %+v", ctx.Seeds[0])
+	}
+	if ctx.Seeds[0].InventoryPersistenceDays < 2 {
+		t.Fatalf("expected IF inventory persistence days, got %+v", ctx.Seeds[0])
+	}
+	if !strings.Contains(ctx.Seeds[0].InventoryBrandGradeSummary, "央企品牌A") || !strings.Contains(ctx.Seeds[0].InventoryBrandGradeSummary, "标准品") {
+		t.Fatalf("expected IF brand/grade summary enrichment, got %+v", ctx.Seeds[0])
+	}
 	if ctx.Seeds[0].TermStructurePct <= 0 || ctx.Seeds[0].TurnoverRatio <= 0 {
 		t.Fatalf("expected term structure and turnover ratios, got %+v", ctx.Seeds[0])
 	}
@@ -595,6 +607,12 @@ func TestBuildStrategyEngineFuturesStrategyContextUsesTruthBarsAndNews(t *testin
 	}
 	if ctx.Seeds[0].InventoryPressure <= 0 || ctx.Seeds[1].InventoryPressure >= 0 {
 		t.Fatalf("expected inventory pressure enrichment, got %+v / %+v", ctx.Seeds[0], ctx.Seeds[1])
+	}
+	if ctx.Seeds[0].BasisTermAlignment <= 0.5 || ctx.Seeds[0].CrossContractLinkage >= -0.1 {
+		t.Fatalf("expected IF structure alignment and favorable linkage, got %+v", ctx.Seeds[0])
+	}
+	if !strings.Contains(ctx.Seeds[0].StructureSignalSummary, "期限结构") || !strings.Contains(ctx.Seeds[0].StructureSignalSummary, "价差") {
+		t.Fatalf("expected IF structure signal summary, got %+v", ctx.Seeds[0])
 	}
 	if ctx.Seeds[1].SpreadPressure <= 0 {
 		t.Fatalf("expected AU seed to receive positive spread pressure, got %+v", ctx.Seeds[1])

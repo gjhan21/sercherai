@@ -18,6 +18,9 @@ type InMemoryGrowthRepo struct {
 	marketBackfillRunDetails map[string][]model.MarketBackfillRunDetail
 	marketUniverseSnapshots  map[string]model.MarketUniverseSnapshot
 	marketUniverseItems      map[string][]model.MarketUniverseSnapshotItem
+	stockEventClusters map[string]model.StockEventCluster
+	futuresInstrumentProfiles map[string]model.FuturesInstrumentProfile
+	reviewTasks        map[string]model.ReviewTask
 }
 
 func NewInMemoryGrowthRepo() *InMemoryGrowthRepo {
@@ -85,6 +88,9 @@ func NewInMemoryGrowthRepo() *InMemoryGrowthRepo {
 				{ID: "musi_demo_003", SnapshotID: snapshot.ID, AssetType: "INDEX", InstrumentKey: "000300.SH", ExternalSymbol: "000300.SH", DisplayName: "沪深300", ExchangeCode: "SH", Status: "ACTIVE", CreatedAt: now},
 			},
 		},
+		stockEventClusters: make(map[string]model.StockEventCluster),
+		futuresInstrumentProfiles: make(map[string]model.FuturesInstrumentProfile),
+		reviewTasks:        make(map[string]model.ReviewTask),
 	}
 }
 
@@ -93,6 +99,32 @@ func (r *InMemoryGrowthRepo) ListBrowseHistory(userID string, contentType string
 		{ID: "h_001", ContentType: "NEWS", ContentID: "news_001", Title: "政策观察", SourcePage: "/news", ViewedAt: "2026-02-24T10:00:00+08:00"},
 	}
 	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminUpsertFuturesInstrumentProfile(item model.FuturesInstrumentProfile) (model.FuturesInstrumentProfile, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	item = normalizeFuturesInstrumentProfile(item)
+	now := time.Now().Format(time.RFC3339)
+	if item.CreatedAt == "" {
+		item.CreatedAt = now
+	}
+	item.UpdatedAt = now
+	r.futuresInstrumentProfiles[item.ProductKey] = item
+	return item, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetFuturesInstrumentProfile(productKey string) (model.FuturesInstrumentProfile, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	productKey = strings.ToUpper(strings.TrimSpace(productKey))
+	item, ok := r.futuresInstrumentProfiles[productKey]
+	if !ok {
+		return model.FuturesInstrumentProfile{}, sql.ErrNoRows
+	}
+	return item, nil
 }
 
 func (r *InMemoryGrowthRepo) DeleteBrowseHistoryItem(userID string, id string) error {
@@ -886,6 +918,101 @@ func (r *InMemoryGrowthRepo) AdminCreateMarketEvent(item model.MarketEvent) (str
 
 func (r *InMemoryGrowthRepo) AdminUpdateMarketEvent(id string, item model.MarketEvent) error {
 	return nil
+}
+
+func (r *InMemoryGrowthRepo) AdminListStockEventClusters(query model.StockEventQuery) ([]model.StockEventCluster, int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	query = normalizeStockEventQuery(query)
+	items := make([]model.StockEventCluster, 0, len(r.stockEventClusters))
+	for _, item := range r.stockEventClusters {
+		if query.ReviewStatus != "" && item.ReviewStatus != query.ReviewStatus {
+			continue
+		}
+		if query.EventType != "" && item.EventType != query.EventType {
+			continue
+		}
+		if query.ReviewPriority != "" {
+			priority, _ := item.Metadata["review_priority"].(string)
+			if strings.ToUpper(strings.TrimSpace(priority)) != query.ReviewPriority {
+				continue
+			}
+		}
+		if query.Symbol != "" && item.PrimarySymbol != query.Symbol {
+			continue
+		}
+		if query.Sector != "" && item.SectorLabel != query.Sector {
+			continue
+		}
+		if query.Topic != "" && item.TopicLabel != query.Topic {
+			continue
+		}
+		items = append(items, item)
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetStockEventCluster(id string) (model.StockEventCluster, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	item, ok := r.stockEventClusters[strings.TrimSpace(id)]
+	if !ok {
+		return model.StockEventCluster{}, sql.ErrNoRows
+	}
+	return item, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminUpsertStockEventCluster(cluster model.StockEventCluster) (model.StockEventCluster, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	cluster = normalizeStockEventCluster(cluster)
+	now := time.Now().Format(time.RFC3339)
+	if cluster.CreatedAt == "" {
+		cluster.CreatedAt = now
+	}
+	cluster.UpdatedAt = now
+	for index := range cluster.Items {
+		cluster.Items[index] = normalizeStockEventItem(cluster.Items[index], cluster.ID)
+		cluster.Items[index].CreatedAt = now
+		cluster.Items[index].UpdatedAt = now
+	}
+	for index := range cluster.Entities {
+		cluster.Entities[index] = normalizeStockEventEntity(cluster.Entities[index], cluster.ID)
+		cluster.Entities[index].CreatedAt = now
+		cluster.Entities[index].UpdatedAt = now
+	}
+	for index := range cluster.Edges {
+		cluster.Edges[index] = normalizeStockEventEdge(cluster.Edges[index], cluster.ID)
+		cluster.Edges[index].CreatedAt = now
+		cluster.Edges[index].UpdatedAt = now
+	}
+	r.stockEventClusters[cluster.ID] = cluster
+	r.ensureHighPriorityStockEventTaskLocked(cluster)
+	return cluster, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminCreateStockEventReview(review model.StockEventReview) (model.StockEventReview, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	review = normalizeStockEventReview(review)
+	cluster, ok := r.stockEventClusters[review.ClusterID]
+	if !ok {
+		return model.StockEventReview{}, sql.ErrNoRows
+	}
+	now := time.Now().Format(time.RFC3339)
+	review.ReviewedAt = now
+	review.CreatedAt = now
+	review.UpdatedAt = now
+	cluster.Status = stockEventClusterStatusFromReview(review.ReviewStatus)
+	cluster.ReviewStatus = review.ReviewStatus
+	cluster.LatestReview = &review
+	cluster.UpdatedAt = now
+	r.stockEventClusters[cluster.ID] = cluster
+	return review, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListMarketRhythmTasks(taskDate string) ([]model.MarketRhythmTask, error) {
@@ -2116,8 +2243,29 @@ func (r *InMemoryGrowthRepo) AdminUpsertSystemConfig(configKey string, configVal
 }
 
 func (r *InMemoryGrowthRepo) AdminListReviewTasks(module string, status string, submitterID string, reviewerID string, page int, pageSize int) ([]model.ReviewTask, int, error) {
-	items := []model.ReviewTask{
-		{
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	upperModule := strings.ToUpper(strings.TrimSpace(module))
+	upperStatus := strings.ToUpper(strings.TrimSpace(status))
+	items := make([]model.ReviewTask, 0, len(r.reviewTasks))
+	for _, item := range r.reviewTasks {
+		if upperModule != "" && strings.ToUpper(item.Module) != upperModule {
+			continue
+		}
+		if upperStatus != "" && strings.ToUpper(item.Status) != upperStatus {
+			continue
+		}
+		if submitterID != "" && item.SubmitterID != submitterID {
+			continue
+		}
+		if reviewerID != "" && item.ReviewerID != reviewerID {
+			continue
+		}
+		items = append(items, item)
+	}
+	if len(items) == 0 && upperModule == "" && upperStatus == "" && submitterID == "" && reviewerID == "" {
+		items = append(items, model.ReviewTask{
 			ID:          "rt_001",
 			Module:      "STOCK",
 			TargetID:    "sr_demo_001",
@@ -2125,20 +2273,126 @@ func (r *InMemoryGrowthRepo) AdminListReviewTasks(module string, status string, 
 			Status:      "PENDING",
 			SubmitNote:  "请审核今日策略",
 			SubmittedAt: "2026-02-25T09:00:00+08:00",
-		},
+		})
 	}
 	return items, len(items), nil
 }
 
 func (r *InMemoryGrowthRepo) AdminSubmitReviewTask(module string, targetID string, submitterID string, reviewerID string, submitNote string) (string, error) {
-	return "rt_new_001", nil
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	module = strings.ToUpper(strings.TrimSpace(module))
+	for _, item := range r.reviewTasks {
+		if item.Module == module && item.TargetID == strings.TrimSpace(targetID) && item.Status == "PENDING" {
+			return "", errors.New("pending review task already exists")
+		}
+	}
+	if err := r.applyModuleTargetStatusLocked(module, targetID, "REVIEWING"); err != nil {
+		return "", err
+	}
+	now := time.Now().Format(time.RFC3339)
+	item := model.ReviewTask{
+		ID:          newID("rt"),
+		Module:      module,
+		TargetID:    strings.TrimSpace(targetID),
+		SubmitterID: strings.TrimSpace(submitterID),
+		ReviewerID:  strings.TrimSpace(reviewerID),
+		Status:      "PENDING",
+		SubmitNote:  strings.TrimSpace(submitNote),
+		SubmittedAt: now,
+	}
+	r.reviewTasks[item.ID] = item
+	return item.ID, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminAssignReviewTask(reviewID string, reviewerID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	item, ok := r.reviewTasks[strings.TrimSpace(reviewID)]
+	if !ok {
+		return sql.ErrNoRows
+	}
+	item.ReviewerID = strings.TrimSpace(reviewerID)
+	r.reviewTasks[item.ID] = item
 	return nil
 }
 
 func (r *InMemoryGrowthRepo) AdminReviewTaskDecision(reviewID string, status string, reviewerID string, reviewNote string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	item, ok := r.reviewTasks[strings.TrimSpace(reviewID)]
+	if !ok {
+		return sql.ErrNoRows
+	}
+	if item.Status != "PENDING" {
+		return errors.New("review task is not pending")
+	}
+	if item.ReviewerID != "" && item.ReviewerID != strings.TrimSpace(reviewerID) {
+		return errors.New("reviewer mismatch")
+	}
+	item.Status = strings.ToUpper(strings.TrimSpace(status))
+	item.ReviewerID = strings.TrimSpace(reviewerID)
+	item.ReviewNote = strings.TrimSpace(reviewNote)
+	item.ReviewedAt = time.Now().Format(time.RFC3339)
+	r.reviewTasks[item.ID] = item
+
+	targetStatus := "DRAFT"
+	if item.Status == "APPROVED" {
+		targetStatus = "PUBLISHED"
+	}
+	return r.applyModuleTargetStatusLocked(item.Module, item.TargetID, targetStatus)
+}
+
+func (r *InMemoryGrowthRepo) ensureHighPriorityStockEventTaskLocked(cluster model.StockEventCluster) {
+	priority, _ := cluster.Metadata["review_priority"].(string)
+	if strings.ToUpper(strings.TrimSpace(priority)) != "HIGH" || strings.ToUpper(strings.TrimSpace(cluster.ReviewStatus)) != "PENDING" {
+		return
+	}
+	for _, item := range r.reviewTasks {
+		if item.Module == "STOCK_EVENT" && item.TargetID == cluster.ID && item.Status == "PENDING" {
+			return
+		}
+	}
+	now := time.Now().Format(time.RFC3339)
+	item := model.ReviewTask{
+		ID:          newID("rt"),
+		Module:      "STOCK_EVENT",
+		TargetID:    cluster.ID,
+		SubmitterID: "system",
+		Status:      "PENDING",
+		SubmitNote:  "高优先级股票事件待审核",
+		SubmittedAt: now,
+	}
+	r.reviewTasks[item.ID] = item
+}
+
+func (r *InMemoryGrowthRepo) applyModuleTargetStatusLocked(module string, targetID string, status string) error {
+	switch strings.ToUpper(strings.TrimSpace(module)) {
+	case "STOCK_EVENT":
+		cluster, ok := r.stockEventClusters[strings.TrimSpace(targetID)]
+		if !ok {
+			return errors.New("target not found")
+		}
+		switch strings.ToUpper(strings.TrimSpace(status)) {
+		case "PUBLISHED":
+			cluster.Status = "REVIEWED"
+			cluster.ReviewStatus = "APPROVED"
+		case "DRAFT":
+			cluster.Status = "REJECTED"
+			cluster.ReviewStatus = "REJECTED"
+		default:
+			cluster.Status = "CLUSTERED"
+			cluster.ReviewStatus = "PENDING"
+		}
+		cluster.UpdatedAt = time.Now().Format(time.RFC3339)
+		r.stockEventClusters[cluster.ID] = cluster
+		return nil
+	default:
+		return nil
+	}
 	return nil
 }
 

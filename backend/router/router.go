@@ -355,6 +355,9 @@ func Register(r *gin.Engine) {
 			adminStockSelection.GET("/reviews", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.ListStockSelectionReviews)
 			adminStockSelection.POST("/reviews/:run_id/approve", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.ApproveStockSelectionReview)
 			adminStockSelection.POST("/reviews/:run_id/reject", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.RejectStockSelectionReview)
+			adminStockSelection.GET("/events", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.ListStockEventClusters)
+			adminStockSelection.GET("/events/:id", middleware.PermissionRequired(db, "stock_selection.view"), adminGrowthHandler.GetStockEventCluster)
+			adminStockSelection.POST("/events/:id/review", middleware.PermissionRequired(db, "stock_selection.manage"), adminGrowthHandler.ReviewStockEventCluster)
 		}
 
 		adminFuturesSelection := v1.Group("/admin/futures-selection")

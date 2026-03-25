@@ -369,6 +369,25 @@
             <div v-else class="empty-inline finance-empty-inline">暂无可匹配的资讯数据</div>
           </div>
 
+          <div class="stock-news-box finance-card-surface">
+            <div class="stock-news-head">
+              <p>事件证据卡</p>
+              <span>{{ activeStockEventEvidenceCards.length }} 条</span>
+            </div>
+            <div v-if="activeStockEventEvidenceCards.length > 0" class="stock-news-list">
+              <article
+                v-for="item in activeStockEventEvidenceCards"
+                :key="item.key"
+                class="stock-news-item finance-list-card finance-list-card-panel"
+              >
+                <h4>{{ item.value }}</h4>
+                <p class="stock-news-meta">{{ item.title }}</p>
+                <p class="stock-news-summary">{{ item.note }}</p>
+              </article>
+            </div>
+            <div v-else class="empty-inline finance-empty-inline">暂无已审核事件证据</div>
+          </div>
+
           <div class="stock-performance-box finance-card-surface">
             <div class="stock-performance-head">
               <p>历史推荐业绩</p>
@@ -981,6 +1000,25 @@
             <div v-else class="empty-inline finance-empty-inline">暂无可匹配的资讯数据</div>
           </div>
 
+          <div class="stock-news-box finance-card-surface">
+            <div class="stock-news-head">
+              <p>事件证据卡</p>
+              <span>{{ activeStockEventEvidenceCards.length }} 条</span>
+            </div>
+            <div v-if="activeStockEventEvidenceCards.length > 0" class="stock-news-list">
+              <article
+                v-for="item in activeStockEventEvidenceCards"
+                :key="`dialog-${item.key}`"
+                class="stock-news-item finance-list-card finance-list-card-panel"
+              >
+                <h4>{{ item.value }}</h4>
+                <p class="stock-news-meta">{{ item.title }}</p>
+                <p class="stock-news-summary">{{ item.note }}</p>
+              </article>
+            </div>
+            <div v-else class="empty-inline finance-empty-inline">暂无已审核事件证据</div>
+          </div>
+
           <div class="stock-performance-box finance-card-surface">
             <div class="stock-performance-head">
               <p>历史推荐业绩</p>
@@ -1215,6 +1253,44 @@
 
             <section class="strategy-explanation-box finance-card-pale">
               <div class="stock-news-head">
+                <p>商品链证据</p>
+                <span>{{ activeFuturesSupplyChainEntities.length }} 个实体</span>
+              </div>
+              <div class="reason-support-grid">
+                <article
+                  v-for="item in activeFuturesSupplyChainSummaryCards"
+                  :key="`fut-supply-${item.label}`"
+                  class="finance-list-card finance-list-card-panel"
+                >
+                  <p>{{ item.label }}</p>
+                  <strong>{{ item.value }}</strong>
+                  <span>{{ item.note }}</span>
+                </article>
+              </div>
+              <div v-if="activeFuturesSupplyChainEntities.length" class="chip-group">
+                <span
+                  v-for="item in activeFuturesSupplyChainEntities"
+                  :key="`fut-supply-entity-${item.key}`"
+                  class="finance-pill finance-pill-compact finance-pill-accent"
+                >
+                  {{ item.typeLabel }} · {{ item.label }}
+                </span>
+              </div>
+              <div v-if="activeFuturesSupplyChainEvidenceCards.length" class="stock-news-list" style="margin-top: 16px">
+                <article
+                  v-for="item in activeFuturesSupplyChainEvidenceCards"
+                  :key="`fut-supply-card-${item.key}`"
+                  class="stock-news-item finance-list-card finance-list-card-panel"
+                >
+                  <h4>{{ item.value }}</h4>
+                  <p class="stock-news-meta">{{ item.title }}</p>
+                  <p class="stock-news-summary">{{ item.note }}</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="strategy-explanation-box finance-card-pale">
+              <div class="stock-news-head">
                 <p>多场景推演</p>
                 <span>{{ activeFuturesScenarioCards.length }} 个场景</span>
               </div>
@@ -1378,6 +1454,7 @@ import { getExperimentVariant } from "../lib/growth-experiments";
 import { shouldUseDemoFallback } from "../lib/fallback-policy";
 import {
   buildFallbackStrategyVersionHistory,
+  buildStrategyEventEvidenceCards,
   buildStrategyHistoryCompareState,
   buildStrategyBatchText,
   buildStrategyInsightSections,
@@ -1989,6 +2066,89 @@ const activeFuturesExplanationCards = computed(() => {
   ];
 });
 
+const activeFuturesSupplyChainEntities = computed(() => {
+  const explanation = activeFuturesExplanation.value || {};
+  const allowed = new Set(["Commodity", "SupplyChainNode", "SpreadPair", "Index", "DeliveryPlace", "Warehouse", "Brand", "Grade"]);
+  const typeLabels = {
+    Commodity: "商品",
+    SupplyChainNode: "商品链节点",
+    SpreadPair: "价差对",
+    Index: "指数",
+    DeliveryPlace: "交割地",
+    Warehouse: "仓库",
+    Brand: "品牌",
+    Grade: "等级"
+  };
+  const seen = new Set();
+  return (Array.isArray(explanation.related_entities) ? explanation.related_entities : [])
+    .map((item, index) => ({
+      key: String(item?.entity_key || item?.label || `entity-${index}`),
+      entityType: String(item?.entity_type || "").trim(),
+      label: String(item?.label || item?.entity_key || "").trim()
+    }))
+    .filter((item) => item.entityType && item.label && allowed.has(item.entityType))
+    .filter((item) => {
+      const dedupeKey = `${item.entityType}:${item.label}`;
+      if (seen.has(dedupeKey)) {
+        return false;
+      }
+      seen.add(dedupeKey);
+      return true;
+    })
+    .map((item) => ({
+      ...item,
+      typeLabel: typeLabels[item.entityType] || item.entityType
+    }));
+});
+const activeFuturesSupplyChainNotes = computed(() => {
+  const explanation = activeFuturesExplanation.value || {};
+  const notes = Array.isArray(explanation.supply_chain_notes) ? explanation.supply_chain_notes : [];
+  const deduped = [];
+  const seen = new Set();
+  notes.forEach((item) => {
+    const text = String(item || "").trim();
+    if (!text || seen.has(text)) {
+      return;
+    }
+    seen.add(text);
+    deduped.push(text);
+  });
+  return deduped.slice(0, 4);
+});
+const activeFuturesSupplyChainEvidenceCards = computed(() => {
+  const cards = Array.isArray(activeFuturesExplanation.value?.evidence_cards) ? activeFuturesExplanation.value.evidence_cards : [];
+  return cards
+    .filter((item) => ["库存画像", "结构联动", "商品链"].includes(String(item?.title || "").trim()))
+    .map((item, index) => ({
+      key: `${item?.title || "card"}-${item?.value || index}`,
+      title: item?.title || "证据",
+      value: item?.value || "-",
+      note: item?.note || "-"
+    }));
+});
+const activeFuturesSupplyChainSummaryCards = computed(() => {
+  const explanation = activeFuturesExplanation.value || {};
+  const entities = activeFuturesSupplyChainEntities.value;
+  const notes = activeFuturesSupplyChainNotes.value;
+  return [
+    {
+      label: "结构联动摘要",
+      value: explanation.structure_factor_summary || "待同步",
+      note: notes[0] || "优先查看期限结构、价差与商品链的联动方向。"
+    },
+    {
+      label: "库存画像摘要",
+      value: explanation.inventory_factor_summary || "待同步",
+      note: notes[1] || "结合仓库、品牌、等级与连续去库/累库节奏判断。"
+    },
+    {
+      label: "商品链节点",
+      value: entities.length ? entities.slice(0, 4).map((item) => item.label).join(" / ") : "待同步",
+      note: notes[2] || "当前会把商品、仓库、品牌、等级和价差对一起纳入解释。"
+    }
+  ];
+});
+
 const activeFuturesProofTags = computed(() => buildListProofTags(activeFuturesExplanation.value, { limit: 4 }));
 const activeFuturesSeedHighlights = computed(() => activeFuturesExplanation.value?.seed_highlights || []);
 const activeFuturesScenarioCards = computed(() => activeFuturesExplanation.value?.simulations?.[0]?.scenarios || []);
@@ -2166,6 +2326,15 @@ const activeStockRelatedNews = computed(() => {
   return items;
 });
 
+const activeStockRelatedEvents = computed(() => {
+  const items = activeStockExplanation.value?.related_events;
+  return Array.isArray(items) ? items : [];
+});
+
+const activeStockEventEvidenceCards = computed(() =>
+  buildStrategyEventEvidenceCards(activeStockExplanation.value, { limit: 3 })
+);
+
 const activeStockReasonSupports = computed(() => {
   const stock = activeStockBase.value;
   if (!stock?.id) {
@@ -2238,6 +2407,14 @@ const activeStockReasonSupports = computed(() => {
       label: "资讯支撑",
       value: `${activeStockRelatedNews.value.length} 条`,
       note: `最近一条：${latestNews.title || "资讯"}（${latestNews.source || "资讯中心"}）`
+    });
+  }
+  if (activeStockRelatedEvents.value.length > 0) {
+    const latestEvent = activeStockRelatedEvents.value[0];
+    result.push({
+      label: "事件证据",
+      value: `${activeStockRelatedEvents.value.length} 条`,
+      note: `最近一条：${latestEvent.title || latestEvent.event_type || "审核事件"}`
     });
   }
 

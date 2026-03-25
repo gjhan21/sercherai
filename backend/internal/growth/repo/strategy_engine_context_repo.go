@@ -485,19 +485,36 @@ type futuresSpreadSignal struct {
 }
 
 type futuresInventorySignal struct {
-	Level          float64
-	ChangePct      float64
-	Pressure       float64
-	FocusArea      string
-	FocusWarehouse string
-	FocusBrand     string
-	FocusPlace     string
-	FocusGrade     string
-	AreaShare      float64
-	WarehouseShare float64
-	BrandShare     float64
-	PlaceShare     float64
-	GradeShare     float64
+	Level             float64
+	ChangePct         float64
+	Pressure          float64
+	FocusArea         string
+	FocusWarehouse    string
+	FocusBrand        string
+	FocusPlace        string
+	FocusGrade        string
+	AreaShare         float64
+	WarehouseShare    float64
+	BrandShare        float64
+	PlaceShare        float64
+	GradeShare        float64
+	Concentration     float64
+	WarehouseShift    float64
+	PersistenceDays   int
+	BrandGradeBias    float64
+	BrandGradeSummary string
+}
+
+type futuresInventoryRow struct {
+	TradeDate      time.Time
+	Warehouse      string
+	Area           string
+	Brand          string
+	Place          string
+	Grade          string
+	ReceiptVolume  float64
+	PreviousVolume float64
+	ChangeVolume   float64
 }
 
 type futuresTermStructureQuote struct {
@@ -1526,18 +1543,7 @@ ORDER BY symbol ASC, trade_date ASC`, placeholders)
 	}
 	defer rows.Close()
 
-	type inventoryRow struct {
-		TradeDate      time.Time
-		Warehouse      string
-		Area           string
-		Brand          string
-		Place          string
-		Grade          string
-		ReceiptVolume  float64
-		PreviousVolume float64
-		ChangeVolume   float64
-	}
-	grouped := make(map[string][]inventoryRow, len(roots))
+	grouped := make(map[string][]futuresInventoryRow, len(roots))
 	for rows.Next() {
 		var symbol string
 		var tradeDate time.Time
@@ -1556,7 +1562,7 @@ ORDER BY symbol ASC, trade_date ASC`, placeholders)
 		if symbol == "" {
 			continue
 		}
-		grouped[symbol] = append(grouped[symbol], inventoryRow{
+		grouped[symbol] = append(grouped[symbol], futuresInventoryRow{
 			TradeDate:      tradeDate,
 			Warehouse:      strings.TrimSpace(warehouse.String),
 			Area:           strings.TrimSpace(area.String),
@@ -1580,7 +1586,8 @@ ORDER BY symbol ASC, trade_date ASC`, placeholders)
 		latestTradeDate := items[len(items)-1].TradeDate
 		level := 0.0
 		previous := 0.0
-		latestRows := make([]inventoryRow, 0, 4)
+		latestRows := make([]futuresInventoryRow, 0, 4)
+		previousRows := make([]futuresInventoryRow, 0, 4)
 		for _, item := range items {
 			if !sameDay(item.TradeDate, latestTradeDate) {
 				continue
@@ -1589,8 +1596,8 @@ ORDER BY symbol ASC, trade_date ASC`, placeholders)
 			previous += item.PreviousVolume
 			latestRows = append(latestRows, item)
 		}
+		previousTradeDate := time.Time{}
 		if previous <= 0 && len(items) >= len(latestRows)+1 {
-			previousTradeDate := time.Time{}
 			fallbackPrevious := 0.0
 			for idx := len(items) - len(latestRows) - 1; idx >= 0; idx-- {
 				if previousTradeDate.IsZero() {
@@ -1600,8 +1607,20 @@ ORDER BY symbol ASC, trade_date ASC`, placeholders)
 					break
 				}
 				fallbackPrevious += items[idx].ReceiptVolume
+				previousRows = append(previousRows, items[idx])
 			}
 			previous = fallbackPrevious
+		}
+		if previousTradeDate.IsZero() && len(items) >= len(latestRows)+1 {
+			for idx := len(items) - len(latestRows) - 1; idx >= 0; idx-- {
+				if previousTradeDate.IsZero() {
+					previousTradeDate = items[idx].TradeDate
+				}
+				if !sameDay(items[idx].TradeDate, previousTradeDate) {
+					break
+				}
+				previousRows = append(previousRows, items[idx])
+			}
 		}
 		if previous <= 0 {
 			for _, item := range latestRows {
@@ -1614,30 +1633,38 @@ ORDER BY symbol ASC, trade_date ASC`, placeholders)
 		if previous > 0 && level >= 0 {
 			changePct = (level/previous - 1) * 100
 		}
-		areaName, areaShare := dominantInventoryBucket(latestRows, func(item inventoryRow) string { return item.Area }, func(item inventoryRow) float64 { return item.ReceiptVolume }, level)
-		warehouseName, warehouseShare := dominantInventoryBucket(latestRows, func(item inventoryRow) string { return item.Warehouse }, func(item inventoryRow) float64 { return item.ReceiptVolume }, level)
-		brandName, brandShare := dominantInventoryBucket(latestRows, func(item inventoryRow) string { return item.Brand }, func(item inventoryRow) float64 { return item.ReceiptVolume }, level)
-		placeName, placeShare := dominantInventoryBucket(latestRows, func(item inventoryRow) string { return item.Place }, func(item inventoryRow) float64 { return item.ReceiptVolume }, level)
-		gradeName, gradeShare := dominantInventoryBucket(latestRows, func(item inventoryRow) string { return item.Grade }, func(item inventoryRow) float64 { return item.ReceiptVolume }, level)
+		areaName, areaShare := dominantInventoryBucket(latestRows, func(item futuresInventoryRow) string { return item.Area }, func(item futuresInventoryRow) float64 { return item.ReceiptVolume }, level)
+		warehouseName, warehouseShare := dominantInventoryBucket(latestRows, func(item futuresInventoryRow) string { return item.Warehouse }, func(item futuresInventoryRow) float64 { return item.ReceiptVolume }, level)
+		brandName, brandShare := dominantInventoryBucket(latestRows, func(item futuresInventoryRow) string { return item.Brand }, func(item futuresInventoryRow) float64 { return item.ReceiptVolume }, level)
+		placeName, placeShare := dominantInventoryBucket(latestRows, func(item futuresInventoryRow) string { return item.Place }, func(item futuresInventoryRow) float64 { return item.ReceiptVolume }, level)
+		gradeName, gradeShare := dominantInventoryBucket(latestRows, func(item futuresInventoryRow) string { return item.Grade }, func(item futuresInventoryRow) float64 { return item.ReceiptVolume }, level)
 		pressure := clampFloat(-changePct/20, -1, 1)
 		structureShare := math.Max(areaShare, math.Max(warehouseShare, math.Max(brandShare, math.Max(placeShare, gradeShare))))
 		if structureShare > 0 && pressure != 0 {
 			pressure = clampFloat(pressure*(1+structureShare*0.35), -1, 1)
 		}
+		warehouseShift := warehouseShare - inventoryBucketShare(previousRows, func(item futuresInventoryRow) string { return item.Warehouse }, func(item futuresInventoryRow) float64 { return item.ReceiptVolume }, warehouseName)
+		persistenceDays := inventoryPersistenceDays(items, latestTradeDate, changePct)
+		brandGradeBias := clampFloat(((brandShare+gradeShare)/2)*pressure, -1, 1)
 		signal := futuresInventorySignal{
-			Level:          roundTo(level, 4),
-			ChangePct:      roundTo(changePct, 4),
-			Pressure:       roundTo(pressure, 4),
-			FocusArea:      areaName,
-			FocusWarehouse: warehouseName,
-			FocusBrand:     brandName,
-			FocusPlace:     placeName,
-			FocusGrade:     gradeName,
-			AreaShare:      roundTo(areaShare, 4),
-			WarehouseShare: roundTo(warehouseShare, 4),
-			BrandShare:     roundTo(brandShare, 4),
-			PlaceShare:     roundTo(placeShare, 4),
-			GradeShare:     roundTo(gradeShare, 4),
+			Level:             roundTo(level, 4),
+			ChangePct:         roundTo(changePct, 4),
+			Pressure:          roundTo(pressure, 4),
+			FocusArea:         areaName,
+			FocusWarehouse:    warehouseName,
+			FocusBrand:        brandName,
+			FocusPlace:        placeName,
+			FocusGrade:        gradeName,
+			AreaShare:         roundTo(areaShare, 4),
+			WarehouseShare:    roundTo(warehouseShare, 4),
+			BrandShare:        roundTo(brandShare, 4),
+			PlaceShare:        roundTo(placeShare, 4),
+			GradeShare:        roundTo(gradeShare, 4),
+			Concentration:     roundTo(structureShare, 4),
+			WarehouseShift:    roundTo(warehouseShift, 4),
+			PersistenceDays:   persistenceDays,
+			BrandGradeBias:    roundTo(brandGradeBias, 4),
+			BrandGradeSummary: summarizeInventoryBrandGradeSignal(brandName, brandShare, gradeName, gradeShare, pressure, persistenceDays),
 		}
 		for _, contract := range rootToContracts[root] {
 			result[contract] = signal
@@ -1756,6 +1783,161 @@ func dominantInventoryBucket[T any](items []T, keyFn func(T) string, volumeFn fu
 		return "", 0
 	}
 	return bestKey, clampFloat(bestValue/total, 0, 1)
+}
+
+func inventoryBucketShare[T any](items []T, keyFn func(T) string, volumeFn func(T) float64, target string) float64 {
+	target = strings.TrimSpace(target)
+	if target == "" || len(items) == 0 {
+		return 0
+	}
+	total := 0.0
+	match := 0.0
+	for _, item := range items {
+		value := math.Max(volumeFn(item), 0)
+		total += value
+		if strings.EqualFold(strings.TrimSpace(keyFn(item)), target) {
+			match += value
+		}
+	}
+	if total <= 0 || match <= 0 {
+		return 0
+	}
+	return clampFloat(match/total, 0, 1)
+}
+
+func inventoryPersistenceDays(items []futuresInventoryRow, latestTradeDate time.Time, latestChangePct float64) int {
+	sign := 0
+	switch {
+	case latestChangePct > 0:
+		sign = 1
+	case latestChangePct < 0:
+		sign = -1
+	}
+	if sign == 0 {
+		return 0
+	}
+	type dailyLevel struct {
+		TradeDate time.Time
+		Level     float64
+	}
+	daily := make([]dailyLevel, 0, 8)
+	for _, item := range items {
+		if len(daily) == 0 || !sameDay(daily[len(daily)-1].TradeDate, item.TradeDate) {
+			daily = append(daily, dailyLevel{TradeDate: item.TradeDate})
+		}
+		daily[len(daily)-1].Level += math.Max(item.ReceiptVolume, 0)
+	}
+	if len(daily) == 0 {
+		return 0
+	}
+	persistence := 1
+	for idx := len(daily) - 1; idx >= 1; idx-- {
+		if !sameDay(daily[idx].TradeDate, latestTradeDate) && idx == len(daily)-1 {
+			continue
+		}
+		prevLevel := daily[idx-1].Level
+		currLevel := daily[idx].Level
+		if prevLevel <= 0 || currLevel <= 0 {
+			break
+		}
+		changePct := currLevel/prevLevel - 1
+		currentSign := 0
+		switch {
+		case changePct > 0:
+			currentSign = 1
+		case changePct < 0:
+			currentSign = -1
+		}
+		if currentSign != sign {
+			break
+		}
+		persistence++
+	}
+	return persistence
+}
+
+func summarizeInventoryBrandGradeSignal(brandName string, brandShare float64, gradeName string, gradeShare float64, pressure float64, persistenceDays int) string {
+	parts := make([]string, 0, 2)
+	if strings.TrimSpace(brandName) != "" {
+		parts = append(parts, "品牌"+strings.TrimSpace(brandName))
+	}
+	if strings.TrimSpace(gradeName) != "" {
+		parts = append(parts, "等级"+strings.TrimSpace(gradeName))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	summary := strings.Join(parts, " / ") + fmt.Sprintf("占比 %.0f%%", math.Max(brandShare, gradeShare)*100)
+	if persistenceDays >= 2 {
+		switch {
+		case pressure > 0:
+			summary += fmt.Sprintf("，已连续%d日去库", persistenceDays)
+		case pressure < 0:
+			summary += fmt.Sprintf("，已连续%d日累库", persistenceDays)
+		}
+	}
+	return summary
+}
+
+func futuresBasisTermAlignment(basisPct float64, carryPct float64, termStructurePct float64, curveSlopePct float64) float64 {
+	alignment := 0.0
+	if carryPct != 0 && termStructurePct != 0 {
+		if hasSameDirection(carryPct, termStructurePct) {
+			alignment += 0.4
+		} else {
+			alignment -= 0.25
+		}
+	}
+	if carryPct != 0 && curveSlopePct != 0 {
+		if hasSameDirection(carryPct, curveSlopePct) {
+			alignment += 0.3
+		} else {
+			alignment -= 0.2
+		}
+	}
+	if basisPct != 0 && carryPct != 0 {
+		if hasSameDirection(basisPct, carryPct) {
+			alignment -= 0.1
+		} else {
+			alignment += 0.3
+		}
+	}
+	return clampFloat(alignment, -1, 1)
+}
+
+func futuresCrossContractLinkage(signal futuresSpreadSignal) float64 {
+	if signal.Pair == "" {
+		return 0
+	}
+	linkage := signal.Pressure
+	if signal.Percentile != 0 {
+		linkage += clampFloat(0.5-signal.Percentile, -0.35, 0.35) * 0.2
+	}
+	return clampFloat(linkage, -1, 1)
+}
+
+func summarizeFuturesStructureSignal(carryPct float64, termStructurePct float64, curveSlopePct float64, crossContractLinkage float64, spreadPair string) string {
+	parts := make([]string, 0, 3)
+	if carryPct != 0 || termStructurePct != 0 || curveSlopePct != 0 {
+		label := "期限结构分歧"
+		if carryPct > 0 && termStructurePct >= 0 && curveSlopePct >= 0 {
+			label = "期限结构顺"
+		} else if carryPct < 0 && termStructurePct <= 0 && curveSlopePct <= 0 {
+			label = "期限结构逆"
+		}
+		parts = append(parts, label)
+	}
+	if spreadPair != "" {
+		linkageText := "价差中性"
+		switch {
+		case crossContractLinkage <= -0.12:
+			linkageText = "价差联动，当前合约位于受益腿"
+		case crossContractLinkage >= 0.12:
+			linkageText = "价差联动，当前合约承压"
+		}
+		parts = append(parts, linkageText)
+	}
+	return strings.Join(parts, "，")
 }
 
 func sameDay(left time.Time, right time.Time) bool {
@@ -2272,42 +2454,53 @@ func buildFuturesContextSeed(candidate strategyFuturesContextCandidate, quotes [
 	}
 	inventorySupport := inventorySignal.Pressure * 0.3
 	spreadSupport := spreadSignal.Pressure * 0.4
+	basisTermAlignment := futuresBasisTermAlignment(basisPct, carryPct, curveMetrics.TermStructurePct, curveMetrics.CurveSlopePct)
+	crossContractLinkage := futuresCrossContractLinkage(spreadSignal)
+	structureSignalSummary := summarizeFuturesStructureSignal(carryPct, curveMetrics.TermStructurePct, curveMetrics.CurveSlopePct, crossContractLinkage, spreadSignal.Pair)
 	flowBias := clampFloat(priceChangePct*0.1+oiChangePct*0.08+(volumeRatio-1)*0.35+(turnoverRatio-1)*0.35+carryPct*0.04+structureSupport+curveSupport+inventorySupport+spreadSupport, -1, 1)
 	regime := classifyFuturesRegime(trendStrength, volatility14, flowBias, carryPct, newsSignal.Bias, turnoverRatio, curveMetrics.TermStructurePct, curveMetrics.CurveSlopePct, inventorySignal.Pressure, spreadSignal.Pressure)
 
 	return model.StrategyEngineFuturesSeed{
-		Contract:                candidate.Contract,
-		Name:                    candidate.Name,
-		TradeDate:               latest.TradeDate.Format("2006-01-02"),
-		LastPrice:               roundTo(latest.ClosePrice, 4),
-		BasisPct:                roundTo(basisPct, 4),
-		Volatility14:            roundTo(volatility14, 4),
-		TrendStrength:           roundTo(trendStrength, 4),
-		OIChangePct:             roundTo(oiChangePct, 4),
-		VolumeRatio:             roundTo(volumeRatio, 4),
-		TurnoverRatio:           roundTo(turnoverRatio, 4),
-		FlowBias:                roundTo(flowBias, 4),
-		CarryPct:                roundTo(carryPct, 4),
-		TermStructurePct:        roundTo(curveMetrics.TermStructurePct, 4),
-		CurveSlopePct:           roundTo(curveMetrics.CurveSlopePct, 4),
-		InventoryLevel:          roundTo(inventorySignal.Level, 4),
-		InventoryChangePct:      roundTo(inventorySignal.ChangePct, 4),
-		InventoryPressure:       roundTo(inventorySignal.Pressure, 4),
-		InventoryFocusArea:      inventorySignal.FocusArea,
-		InventoryFocusWarehouse: inventorySignal.FocusWarehouse,
-		InventoryFocusBrand:     inventorySignal.FocusBrand,
-		InventoryFocusPlace:     inventorySignal.FocusPlace,
-		InventoryFocusGrade:     inventorySignal.FocusGrade,
-		InventoryAreaShare:      roundTo(inventorySignal.AreaShare, 4),
-		InventoryWarehouseShare: roundTo(inventorySignal.WarehouseShare, 4),
-		InventoryBrandShare:     roundTo(inventorySignal.BrandShare, 4),
-		InventoryPlaceShare:     roundTo(inventorySignal.PlaceShare, 4),
-		InventoryGradeShare:     roundTo(inventorySignal.GradeShare, 4),
-		SpreadPressure:          roundTo(spreadSignal.Pressure, 4),
-		SpreadPercentile:        roundTo(spreadSignal.Percentile, 4),
-		SpreadPair:              spreadSignal.Pair,
-		NewsBias:                roundTo(newsSignal.Bias, 4),
-		Regime:                  regime,
+		Contract:                   candidate.Contract,
+		Name:                       candidate.Name,
+		TradeDate:                  latest.TradeDate.Format("2006-01-02"),
+		LastPrice:                  roundTo(latest.ClosePrice, 4),
+		BasisPct:                   roundTo(basisPct, 4),
+		Volatility14:               roundTo(volatility14, 4),
+		TrendStrength:              roundTo(trendStrength, 4),
+		OIChangePct:                roundTo(oiChangePct, 4),
+		VolumeRatio:                roundTo(volumeRatio, 4),
+		TurnoverRatio:              roundTo(turnoverRatio, 4),
+		FlowBias:                   roundTo(flowBias, 4),
+		CarryPct:                   roundTo(carryPct, 4),
+		TermStructurePct:           roundTo(curveMetrics.TermStructurePct, 4),
+		CurveSlopePct:              roundTo(curveMetrics.CurveSlopePct, 4),
+		InventoryLevel:             roundTo(inventorySignal.Level, 4),
+		InventoryChangePct:         roundTo(inventorySignal.ChangePct, 4),
+		InventoryPressure:          roundTo(inventorySignal.Pressure, 4),
+		InventoryFocusArea:         inventorySignal.FocusArea,
+		InventoryFocusWarehouse:    inventorySignal.FocusWarehouse,
+		InventoryFocusBrand:        inventorySignal.FocusBrand,
+		InventoryFocusPlace:        inventorySignal.FocusPlace,
+		InventoryFocusGrade:        inventorySignal.FocusGrade,
+		InventoryAreaShare:         roundTo(inventorySignal.AreaShare, 4),
+		InventoryWarehouseShare:    roundTo(inventorySignal.WarehouseShare, 4),
+		InventoryBrandShare:        roundTo(inventorySignal.BrandShare, 4),
+		InventoryPlaceShare:        roundTo(inventorySignal.PlaceShare, 4),
+		InventoryGradeShare:        roundTo(inventorySignal.GradeShare, 4),
+		InventoryConcentration:     roundTo(inventorySignal.Concentration, 4),
+		InventoryWarehouseShift:    roundTo(inventorySignal.WarehouseShift, 4),
+		InventoryPersistenceDays:   inventorySignal.PersistenceDays,
+		InventoryBrandGradeBias:    roundTo(inventorySignal.BrandGradeBias, 4),
+		InventoryBrandGradeSummary: inventorySignal.BrandGradeSummary,
+		BasisTermAlignment:         roundTo(basisTermAlignment, 4),
+		CrossContractLinkage:       roundTo(crossContractLinkage, 4),
+		StructureSignalSummary:     structureSignalSummary,
+		SpreadPressure:             roundTo(spreadSignal.Pressure, 4),
+		SpreadPercentile:           roundTo(spreadSignal.Percentile, 4),
+		SpreadPair:                 spreadSignal.Pair,
+		NewsBias:                   roundTo(newsSignal.Bias, 4),
+		Regime:                     regime,
 	}, true
 }
 

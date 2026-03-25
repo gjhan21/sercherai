@@ -5,6 +5,8 @@ from app.schemas.graph import (
     GraphSnapshotWriteRequest,
     GraphSnapshotWriteResponse,
     GraphSubgraphResponse,
+    ReviewedEventWriteRequest,
+    ReviewedEventWriteResponse,
 )
 
 router = APIRouter(prefix="/internal/v1/graph", tags=["graph"])
@@ -45,4 +47,38 @@ def get_subgraph(
         entity_key=entity_key,
         depth=depth,
         asset_domain=asset_domain,
+    )
+
+
+@router.post("/reviewed-events", response_model=ReviewedEventWriteResponse)
+def write_reviewed_event(
+    request: Request, payload: ReviewedEventWriteRequest
+) -> ReviewedEventWriteResponse:
+    repo = request.app.state.repo
+    snapshot = repo.write_snapshot(
+        GraphSnapshotWriteRequest(
+            snapshot_id=f"reviewed-event-{payload.cluster_id.strip()}",
+            run_id=payload.cluster_id.strip(),
+            asset_domain="stock",
+            trade_date=payload.trade_date,
+            summary=payload.summary,
+            related_entities=payload.entities[: min(len(payload.entities), 12)]
+            if payload.approved
+            else [],
+            entities=payload.entities if payload.approved else [],
+            relations=payload.relations if payload.approved else [],
+            meta={
+                **payload.meta,
+                "cluster_id": payload.cluster_id.strip(),
+                "source_kind": "reviewed_event",
+                "approved": payload.approved,
+            },
+        )
+    )
+    return ReviewedEventWriteResponse(
+        snapshot_id=snapshot.snapshot_id,
+        cluster_id=payload.cluster_id.strip(),
+        node_count=len(snapshot.entities),
+        relation_count=len(snapshot.relations),
+        backend=repo.backend_name(),
     )
