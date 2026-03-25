@@ -41,6 +41,43 @@ const MARKET_BACKFILL_STAGE_LABELS = {
   COVERAGE_SUMMARY: "覆盖率汇总"
 };
 
+function normalizeBackfillStageList(values = []) {
+  const seen = new Set();
+  return (Array.isArray(values) ? values : [])
+    .map((item) => String(item || "").trim().toUpperCase())
+    .filter((item) => {
+      if (!item || seen.has(item)) {
+        return false;
+      }
+      seen.add(item);
+      return true;
+    });
+}
+
+function parseBackfillDateValue(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return null;
+  }
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+  return parsed;
+}
+
 export function normalizeMarketQualityLookbackHours(value, fallback = DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS) {
   const hours = Number(value);
   if (Number.isFinite(hours) && hours > 0) {
@@ -82,6 +119,49 @@ export function formatMarketBackfillRunTypeLabel(value) {
 export function formatMarketBackfillStageLabel(value) {
   const key = String(value || "").trim().toUpperCase();
   return MARKET_BACKFILL_STAGE_LABELS[key] || key || "-";
+}
+
+export function getMarketBackfillDateSpanDays(from, to) {
+  const fromDate = parseBackfillDateValue(from);
+  const toDate = parseBackfillDateValue(to);
+  if (!fromDate || !toDate) {
+    return 0;
+  }
+  const diff = toDate.getTime() - fromDate.getTime();
+  if (diff < 0) {
+    return -1;
+  }
+  return Math.floor(diff / 86400000) + 1;
+}
+
+export function validateMarketBackfillLongHistoryInput(payload = {}) {
+  const spanDays = getMarketBackfillDateSpanDays(payload?.trade_date_from, payload?.trade_date_to);
+  if (spanDays <= 365) {
+    return "";
+  }
+  const assetScope = Array.from(
+    new Set(
+      (Array.isArray(payload?.asset_scope) ? payload.asset_scope : [])
+        .map((item) => String(item || "").trim().toUpperCase())
+        .filter(Boolean)
+    )
+  );
+  if (assetScope.length !== 1 || assetScope[0] !== "STOCK") {
+    return "超过 365 天的长历史回补目前只支持单一 STOCK 资产范围";
+  }
+  const sourceKey = String(payload?.source_key || "").trim().toUpperCase() || "TUSHARE";
+  if (sourceKey !== "TUSHARE") {
+    return "超过 365 天的股票长历史回补当前仅支持 TUSHARE 数据源";
+  }
+  const runType = String(payload?.run_type || "").trim().toUpperCase() || "FULL";
+  if (runType !== "FULL") {
+    return "超过 365 天的股票长历史回补当前只允许 FULL 运行类型";
+  }
+  const stages = normalizeBackfillStageList(payload?.stages);
+  if (stages.length > 0 && !stages.includes("QUOTES")) {
+    return "长历史股票回补的阶段范围必须包含 QUOTES";
+  }
+  return "";
 }
 
 export function marketBackfillStatusTagType(value) {

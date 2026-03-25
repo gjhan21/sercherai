@@ -7,6 +7,7 @@ import {
   buildMarketCoverageAssetRows,
   buildMarketCoverageOverviewCards,
   buildMarketQualityDrillQuery,
+  validateMarketBackfillLongHistoryInput,
   buildUniverseSnapshotDigest,
   DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS,
   MARKET_QUALITY_LOOKBACK_OPTIONS,
@@ -152,6 +153,54 @@ test("marketBackfillDetailStatusTagType maps run detail status to element tag ty
   assert.equal(marketBackfillDetailStatusTagType("failed"), "danger");
   assert.equal(marketBackfillDetailStatusTagType("skipped"), "info");
   assert.equal(marketBackfillDetailStatusTagType("unknown"), "info");
+});
+
+test("validateMarketBackfillLongHistoryInput rejects unsupported long history combinations", () => {
+  assert.equal(
+    validateMarketBackfillLongHistoryInput({
+      run_type: "FULL",
+      asset_scope: ["STOCK"],
+      source_key: "AKSHARE",
+      trade_date_from: "2024-01-01",
+      trade_date_to: "2025-01-05"
+    }),
+    "超过 365 天的股票长历史回补当前仅支持 TUSHARE 数据源"
+  );
+
+  assert.equal(
+    validateMarketBackfillLongHistoryInput({
+      run_type: "INCREMENTAL",
+      asset_scope: ["STOCK"],
+      source_key: "TUSHARE",
+      trade_date_from: "2024-01-01",
+      trade_date_to: "2025-01-05"
+    }),
+    "超过 365 天的股票长历史回补当前只允许 FULL 运行类型"
+  );
+
+  assert.equal(
+    validateMarketBackfillLongHistoryInput({
+      run_type: "FULL",
+      asset_scope: ["STOCK"],
+      source_key: "TUSHARE",
+      trade_date_from: "2024-01-01",
+      trade_date_to: "2025-01-05",
+      stages: ["MASTER", "TRUTH"]
+    }),
+    "长历史股票回补的阶段范围必须包含 QUOTES"
+  );
+
+  assert.equal(
+    validateMarketBackfillLongHistoryInput({
+      run_type: "FULL",
+      asset_scope: ["STOCK"],
+      source_key: "TUSHARE",
+      trade_date_from: "2024-01-01",
+      trade_date_to: "2025-01-05",
+      stages: ["QUOTES", "TRUTH"]
+    }),
+    ""
+  );
 });
 
 test("market center route helpers normalize tab and quality state", () => {

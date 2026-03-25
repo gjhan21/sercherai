@@ -12,6 +12,47 @@ import (
 
 var allowedMarketBackfillAssetTypes = []string{"STOCK", "INDEX", "ETF", "LOF", "CBOND"}
 
+const marketBackfillLongHistoryChunkDays = 180
+
+type marketBackfillBadRequestError struct {
+	message string
+}
+
+func (e *marketBackfillBadRequestError) Error() string {
+	return e.message
+}
+
+func (e *marketBackfillBadRequestError) BadRequest() bool {
+	return true
+}
+
+type marketBackfillDateRange struct {
+	FromText string
+	ToText   string
+	FromTime time.Time
+	ToTime   time.Time
+	Days     int
+}
+
+type marketBackfillLongHistoryOptions struct {
+	Enabled   bool
+	DateRange marketBackfillDateRange
+	ChunkDays int
+}
+
+type marketBackfillDateChunk struct {
+	FromText string
+	ToText   string
+	FromTime time.Time
+	ToTime   time.Time
+	Index    int
+	Total    int
+}
+
+func newMarketBackfillBadRequestError(message string) error {
+	return &marketBackfillBadRequestError{message: strings.TrimSpace(message)}
+}
+
 func normalizeMarketBackfillAssetType(value string) string {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
 	case "STOCK":
@@ -76,6 +117,23 @@ func normalizeMarketBackfillStage(value string) string {
 	default:
 		return ""
 	}
+}
+
+func normalizeMarketBackfillStages(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	items := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := normalizeMarketBackfillStage(value)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		items = append(items, normalized)
+	}
+	return items
 }
 
 func normalizeMarketBackfillRetryMode(value string) string {
@@ -179,6 +237,185 @@ func parseNullableString(value sql.NullString) string {
 	return value.String
 }
 
+func parseMarketBackfillDateInput(value string, fieldName string) (time.Time, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return time.Time{}, nil
+	}
+	parsed, err := time.ParseInLocation("2006-01-02", trimmed, time.Local)
+	if err != nil {
+		return time.Time{}, newMarketBackfillBadRequestError(fmt.Sprintf("%s 必须是 YYYY-MM-DD 格式", fieldName))
+	}
+	return parsed, nil
+}
+
+func parseMarketBackfillDateRange(tradeDateFrom string, tradeDateTo string) (marketBackfillDateRange, error) {
+	fromText := strings.TrimSpace(tradeDateFrom)
+	toText := strings.TrimSpace(tradeDateTo)
+	fromTime, err := parseMarketBackfillDateInput(fromText, "trade_date_from")
+	if err != nil {
+		return marketBackfillDateRange{}, err
+	}
+	toTime, err := parseMarketBackfillDateInput(toText, "trade_date_to")
+	if err != nil {
+		return marketBackfillDateRange{}, err
+	}
+	if fromText == "" || toText == "" {
+		return marketBackfillDateRange{
+			FromText: fromText,
+			ToText:   toText,
+			FromTime: fromTime,
+			ToTime:   toTime,
+		}, nil
+	}
+	if toTime.Before(fromTime) {
+		return marketBackfillDateRange{}, newMarketBackfillBadRequestError("trade_date_from 不能晚于 trade_date_to")
+	}
+	return marketBackfillDateRange{
+		FromText: fromText,
+		ToText:   toText,
+		FromTime: fromTime,
+		ToTime:   toTime,
+		Days:     int(toTime.Sub(fromTime).Hours()/24) + 1,
+	}, nil
+}
+
+func splitMarketBackfillDateChunks(dateRange marketBackfillDateRange, chunkDays int) []marketBackfillDateChunk {
+	if dateRange.Days <= 0 {
+		return nil
+	}
+	if chunkDays <= 0 {
+		chunkDays = marketBackfillLongHistoryChunkDays
+	}
+	chunks := make([]marketBackfillDateChunk, 0, (dateRange.Days+chunkDays-1)/chunkDays)
+	current := dateRange.FromTime
+	for !current.After(dateRange.ToTime) {
+		end := current.AddDate(0, 0, chunkDays-1)
+		if end.After(dateRange.ToTime) {
+			end = dateRange.ToTime
+		}
+		chunks = append(chunks, marketBackfillDateChunk{
+			FromText: current.Format("2006-01-02"),
+			ToText:   end.Format("2006-01-02"),
+			FromTime: current,
+			ToTime:   end,
+		})
+		current = end.AddDate(0, 0, 1)
+	}
+	total := len(chunks)
+	for idx := range chunks {
+		chunks[idx].Index = idx + 1
+		chunks[idx].Total = total
+	}
+	return chunks
+}
+
+func resolveMarketBackfillLongHistoryOptions(runType string, assetScope []string, sourceKey string, tradeDateFrom string, tradeDateTo string, stages []string) (marketBackfillLongHistoryOptions, error) {
+	dateRange, err := parseMarketBackfillDateRange(tradeDateFrom, tradeDateTo)
+	if err != nil {
+		return marketBackfillLongHistoryOptions{}, err
+	}
+	options := marketBackfillLongHistoryOptions{
+		DateRange: dateRange,
+		ChunkDays: marketBackfillLongHistoryChunkDays,
+	}
+	if dateRange.Days <= 365 {
+		return options, nil
+	}
+	if len(assetScope) != 1 || assetScope[0] != "STOCK" {
+		return marketBackfillLongHistoryOptions{}, newMarketBackfillBadRequestError("超过 365 天的长历史回补目前只支持单一 STOCK 资产范围")
+	}
+	resolvedSourceKey := strings.ToUpper(strings.TrimSpace(sourceKey))
+	if resolvedSourceKey == "" {
+		resolvedSourceKey = "TUSHARE"
+	}
+	if resolvedSourceKey != "TUSHARE" {
+		return marketBackfillLongHistoryOptions{}, newMarketBackfillBadRequestError("超过 365 天的股票长历史回补当前仅支持 TUSHARE 数据源")
+	}
+	if normalizeMarketBackfillRunType(runType) != "FULL" {
+		return marketBackfillLongHistoryOptions{}, newMarketBackfillBadRequestError("超过 365 天的股票长历史回补当前只允许 FULL 运行类型")
+	}
+	normalizedStages := normalizeMarketBackfillStages(stages)
+	if len(normalizedStages) > 0 {
+		hasQuotes := false
+		for _, stage := range normalizedStages {
+			if stage == "QUOTES" {
+				hasQuotes = true
+				break
+			}
+		}
+		if !hasQuotes {
+			return marketBackfillLongHistoryOptions{}, newMarketBackfillBadRequestError("长历史股票回补的阶段范围必须包含 QUOTES")
+		}
+	}
+	options.Enabled = true
+	return options, nil
+}
+
+func resolveMarketBackfillLongHistoryOptionsFromRun(run model.MarketBackfillRun) marketBackfillLongHistoryOptions {
+	options, _ := resolveMarketBackfillLongHistoryOptions(run.RunType, normalizeMarketBackfillAssetScope(run.AssetScope), run.SourceKey, run.TradeDateFrom, run.TradeDateTo, nil)
+	if summaryChunkDays := marketBackfillSummaryInt(run.Summary, "long_history_chunk_days", 0); summaryChunkDays > 0 {
+		options.ChunkDays = summaryChunkDays
+	}
+	if run.Summary != nil {
+		if enabled, ok := run.Summary["long_history_mode"].(bool); ok {
+			options.Enabled = enabled
+		}
+	}
+	return options
+}
+
+func marketBackfillSummaryInt(summary map[string]any, key string, fallback int) int {
+	if summary == nil {
+		return fallback
+	}
+	switch value := summary[key].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return fallback
+	}
+}
+
+func buildMarketBackfillSummary(input model.MarketBackfillCreateInput, assetScope []string, snapshotItems []model.MarketUniverseSnapshotItem, longHistory marketBackfillLongHistoryOptions) map[string]any {
+	summary := map[string]any{
+		"requested_stages":         normalizeMarketBackfillStages(input.Stages),
+		"asset_scope":              assetScope,
+		"universe_item_count":      len(snapshotItems),
+		"rebuild_truth_after_sync": input.RebuildTruthAfterSync,
+		"long_history_mode":        longHistory.Enabled,
+	}
+	if longHistory.DateRange.FromText != "" {
+		summary["requested_trade_date_from"] = longHistory.DateRange.FromText
+	}
+	if longHistory.DateRange.ToText != "" {
+		summary["requested_trade_date_to"] = longHistory.DateRange.ToText
+	}
+	if longHistory.Enabled {
+		chunks := splitMarketBackfillDateChunks(longHistory.DateRange, longHistory.ChunkDays)
+		summary["long_history_chunk_days"] = longHistory.ChunkDays
+		summary["long_history_chunk_count"] = len(chunks)
+	}
+	return summary
+}
+
+func shouldSkipTruthRebuildForLongHistory(run model.MarketBackfillRun) bool {
+	longHistory := resolveMarketBackfillLongHistoryOptionsFromRun(run)
+	if !longHistory.Enabled || run.Summary == nil {
+		return false
+	}
+	value, ok := run.Summary["rebuild_truth_after_sync"]
+	if !ok {
+		return false
+	}
+	flag, ok := value.(bool)
+	return ok && !flag
+}
+
 func defaultMarketBackfillStageProgress() []model.MarketBackfillStageProgress {
 	return []model.MarketBackfillStageProgress{
 		{Stage: "UNIVERSE", Status: "RUNNING", TotalBatches: 1},
@@ -252,6 +489,10 @@ func (r *MySQLGrowthRepo) AdminCreateMarketDataBackfillRun(input model.MarketBac
 	if batchSize <= 0 {
 		batchSize = 200
 	}
+	longHistory, err := resolveMarketBackfillLongHistoryOptions(runType, assetScope, input.SourceKey, input.TradeDateFrom, input.TradeDateTo, input.Stages)
+	if err != nil {
+		return model.MarketBackfillRun{}, err
+	}
 	now := time.Now()
 	snapshot, snapshotItems, err := r.AdminBuildMarketUniverseSnapshot(input.SourceKey, assetScope, operator)
 	if err != nil {
@@ -264,11 +505,7 @@ func (r *MySQLGrowthRepo) AdminCreateMarketDataBackfillRun(input model.MarketBac
 
 	runID := newID("mbr")
 	stageProgress := buildMarketBackfillStageProgressAfterUniverse(assetScope)
-	summary := map[string]any{
-		"requested_stages":    input.Stages,
-		"asset_scope":         assetScope,
-		"universe_item_count": len(snapshotItems),
-	}
+	summary := buildMarketBackfillSummary(input, assetScope, snapshotItems, longHistory)
 	if _, err := r.db.Exec(`
 INSERT INTO market_backfill_runs (
 	id, scheduler_run_id, run_type, asset_scope, trade_date_from, trade_date_to, source_key, batch_size,
@@ -756,6 +993,10 @@ func (r *InMemoryGrowthRepo) AdminCreateMarketDataBackfillRun(input model.Market
 	if len(assetScope) == 0 {
 		return model.MarketBackfillRun{}, fmt.Errorf("asset_scope is required")
 	}
+	longHistory, err := resolveMarketBackfillLongHistoryOptions(input.RunType, assetScope, input.SourceKey, input.TradeDateFrom, input.TradeDateTo, input.Stages)
+	if err != nil {
+		return model.MarketBackfillRun{}, err
+	}
 	if operator == "" {
 		operator = "system"
 	}
@@ -782,11 +1023,7 @@ func (r *InMemoryGrowthRepo) AdminCreateMarketDataBackfillRun(input model.Market
 		Status:             "RUNNING",
 		CurrentStage:       "MASTER",
 		StageProgress:      buildMarketBackfillStageProgressAfterUniverse(assetScope),
-		Summary: map[string]any{
-			"requested_stages":    input.Stages,
-			"asset_scope":         assetScope,
-			"universe_item_count": len(snapshotItems),
-		},
+		Summary:    buildMarketBackfillSummary(input, assetScope, snapshotItems, longHistory),
 		CreatedBy:  operator,
 		CreatedAt:  nowText,
 		UpdatedAt:  nowText,

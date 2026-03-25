@@ -43,8 +43,10 @@ import {
   formatMarketBackfillRunTypeLabel,
   formatMarketBackfillStageLabel,
   formatMarketBackfillStatusLabel,
+  getMarketBackfillDateSpanDays,
   marketBackfillDetailStatusTagType,
-  marketBackfillStatusTagType
+  marketBackfillStatusTagType,
+  validateMarketBackfillLongHistoryInput
 } from "../lib/market-data-admin";
 import { getAccessToken, hasPermission } from "../lib/session";
 
@@ -472,6 +474,19 @@ const marketBackfillOverviewCards = computed(() =>
 const marketBackfillGuideCards = computed(() =>
   buildMarketBackfillGuideCards({ canEditSystemJobs })
 );
+
+const marketBackfillLongHistoryHint = computed(() => {
+  const payload = buildMarketBackfillPayload();
+  const spanDays = getMarketBackfillDateSpanDays(payload.trade_date_from, payload.trade_date_to);
+  if (spanDays <= 365) {
+    return "";
+  }
+  const validationMessage = validateMarketBackfillLongHistoryInput(payload);
+  if (validationMessage) {
+    return validationMessage;
+  }
+  return `当前会按股票长历史模式执行：区间 ${payload.trade_date_from} 至 ${payload.trade_date_to}，行情阶段按 180 天切片，daily_basic / moneyflow 自动跳过。`;
+});
 
 function clampInteger(value, minValue, maxValue, fallback) {
   const parsed = Number.parseInt(String(value), 10);
@@ -1255,6 +1270,11 @@ async function handleCreateMarketBackfillRun() {
     errorMessage.value = "运行类型和资产范围不能为空";
     return;
   }
+  const longHistoryValidationMessage = validateMarketBackfillLongHistoryInput(payload);
+  if (longHistoryValidationMessage) {
+    errorMessage.value = longHistoryValidationMessage;
+    return;
+  }
   marketBackfillCreating.value = true;
   errorMessage.value = "";
   message.value = "";
@@ -1427,6 +1447,10 @@ function formatMarketBackfillTimeRange(row) {
     return `${from} -> ${to}`;
   }
   return from || to || "-";
+}
+
+function isLongHistoryBackfillRun(item) {
+  return !!item?.summary?.long_history_mode;
 }
 
 function formatMarketStageProgressSummary(item) {
@@ -2519,10 +2543,19 @@ onMounted(() => {
           </el-form>
 
           <el-alert
-            title="股票支持行情、daily_basic、moneyflow 和 truth；其他资产当前先走 universe、master、quotes 与 truth。"
+            title="股票支持行情、daily_basic、moneyflow 和 truth；其他资产当前先走 universe、master、quotes 与 truth。超过 365 天的股票长历史回补目前只支持 STOCK + TUSHARE + FULL，且会自动跳过 daily_basic / moneyflow。"
             type="info"
             :closable="false"
             show-icon
+          />
+
+          <el-alert
+            v-if="marketBackfillLongHistoryHint"
+            :title="marketBackfillLongHistoryHint"
+            type="warning"
+            :closable="false"
+            show-icon
+            style="margin-top: 10px"
           />
 
           <div class="toolbar" style="margin-top: 10px">
@@ -2610,7 +2643,12 @@ onMounted(() => {
             <el-table-column prop="id" label="总单ID" min-width="180" />
             <el-table-column label="运行类型" min-width="110">
               <template #default="{ row }">
-                {{ formatMarketBackfillRunTypeLabel(row.run_type) }}
+                <div class="stack-inline">
+                  <span>{{ formatMarketBackfillRunTypeLabel(row.run_type) }}</span>
+                  <el-tag v-if="isLongHistoryBackfillRun(row)" size="small" type="warning">
+                    股票长历史
+                  </el-tag>
+                </div>
               </template>
             </el-table-column>
             <el-table-column label="资产范围" min-width="180">
@@ -3303,7 +3341,12 @@ onMounted(() => {
             {{ currentMarketBackfillRun.scheduler_run_id || "-" }}
           </el-descriptions-item>
           <el-descriptions-item label="运行类型">
-            {{ formatMarketBackfillRunTypeLabel(currentMarketBackfillRun.run_type) }}
+            <div class="stack-inline">
+              <span>{{ formatMarketBackfillRunTypeLabel(currentMarketBackfillRun.run_type) }}</span>
+              <el-tag v-if="isLongHistoryBackfillRun(currentMarketBackfillRun)" size="small" type="warning">
+                股票长历史
+              </el-tag>
+            </div>
           </el-descriptions-item>
           <el-descriptions-item label="来源">
             {{ currentMarketBackfillRun.source_key || "-" }}
@@ -4243,6 +4286,13 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stack-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   flex-wrap: wrap;
 }
 

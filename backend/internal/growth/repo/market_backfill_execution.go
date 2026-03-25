@@ -93,6 +93,35 @@ func normalizeMarketBackfillWindowDays(tradeDateFrom string, tradeDateTo string)
 	return days
 }
 
+func splitMarketBackfillItemsByBatchSize(items []model.MarketUniverseSnapshotItem, batchSize int) [][]model.MarketUniverseSnapshotItem {
+	if len(items) == 0 {
+		return nil
+	}
+	if batchSize <= 0 || batchSize >= len(items) {
+		return [][]model.MarketUniverseSnapshotItem{append([]model.MarketUniverseSnapshotItem(nil), items...)}
+	}
+	batches := make([][]model.MarketUniverseSnapshotItem, 0, (len(items)+batchSize-1)/batchSize)
+	for start := 0; start < len(items); start += batchSize {
+		end := start + batchSize
+		if end > len(items) {
+			end = len(items)
+		}
+		batches = append(batches, append([]model.MarketUniverseSnapshotItem(nil), items[start:end]...))
+	}
+	return batches
+}
+
+func newLongHistoryQuoteBackfillDetail(run model.MarketBackfillRun, assetType string, sourceKey string, items []model.MarketUniverseSnapshotItem, chunk marketBackfillDateChunk, batchIndex int, fetchedCount int, upsertedCount int, status string, nowText string, message string) model.MarketBackfillRunDetail {
+	detail := newBackfillStageDetail(run, "QUOTES", assetType, sourceKey, items, fetchedCount, upsertedCount, 0, status, nowText, message)
+	detail.BatchKey = fmt.Sprintf("QUOTES-%s-C%03d-B%03d", assetType, chunk.Index, batchIndex)
+	detail.TradeDateFrom = chunk.FromText
+	detail.TradeDateTo = chunk.ToText
+	if status == "SKIPPED" {
+		detail.WarningText = message
+	}
+	return detail
+}
+
 func (r *MySQLGrowthRepo) AdminSyncMarketMasterDetailed(assetType string, sourceKey string, instrumentKeys []string) (model.MarketSyncResult, error) {
 	normalizedAssetType := normalizeMarketStageSyncAssetType(assetType)
 	if normalizedAssetType == "" {
@@ -673,6 +702,10 @@ func (r *MySQLGrowthRepo) runMarketMasterStage(run model.MarketBackfillRun, byAs
 }
 
 func (r *MySQLGrowthRepo) runMarketQuotesStage(run model.MarketBackfillRun, byAsset map[string][]model.MarketUniverseSnapshotItem, assetScope []string, windowDays int, nowText string) ([]model.MarketBackfillRunDetail, map[string]int, map[string]map[string]marketTouchedBarKey, error) {
+	longHistory := resolveMarketBackfillLongHistoryOptionsFromRun(run)
+	if longHistory.Enabled {
+		return r.runMarketLongHistoryQuotesStage(run, byAsset, assetScope, longHistory, nowText)
+	}
 	details := make([]model.MarketBackfillRunDetail, 0, len(assetScope))
 	truthCounts := make(map[string]int, len(assetScope))
 	touchedByAsset := make(map[string]map[string]marketTouchedBarKey, len(assetScope))
@@ -724,6 +757,60 @@ func (r *MySQLGrowthRepo) runMarketQuotesStage(run model.MarketBackfillRun, byAs
 	return details, truthCounts, touchedByAsset, nil
 }
 
+func (r *MySQLGrowthRepo) runMarketLongHistoryQuotesStage(run model.MarketBackfillRun, byAsset map[string][]model.MarketUniverseSnapshotItem, assetScope []string, longHistory marketBackfillLongHistoryOptions, nowText string) ([]model.MarketBackfillRunDetail, map[string]int, map[string]map[string]marketTouchedBarKey, error) {
+	details := make([]model.MarketBackfillRunDetail, 0, len(assetScope))
+	truthCounts := make(map[string]int, len(assetScope))
+	touchedByAsset := make(map[string]map[string]marketTouchedBarKey, len(assetScope))
+	chunks := splitMarketBackfillDateChunks(longHistory.DateRange, longHistory.ChunkDays)
+	for _, assetType := range assetScope {
+		assetItems := byAsset[assetType]
+		batches := splitMarketBackfillItemsByBatchSize(assetItems, run.BatchSize)
+		for _, chunk := range chunks {
+			for batchIndex, batchItems := range batches {
+				instrumentKeys := universeItemsToInstrumentKeys(batchItems)
+				syncResult, touched, err := r.syncStockMarketDailyBarsByDateRange(run.SourceKey, instrumentKeys, chunk.FromText, chunk.ToText, false)
+				status := "SUCCESS"
+				message := "quotes synchronized"
+				if len(syncResult.Results) > 0 {
+					if strings.TrimSpace(syncResult.Results[0].Status) != "" {
+						status = syncResult.Results[0].Status
+					}
+					if strings.TrimSpace(syncResult.Results[0].Message) != "" {
+						message = syncResult.Results[0].Message
+					}
+				}
+				if err != nil {
+					status = "FAILED"
+					if len(syncResult.Results) == 0 || strings.TrimSpace(syncResult.Results[0].Message) == "" {
+						message = err.Error()
+					}
+				}
+				detail := newLongHistoryQuoteBackfillDetail(run, assetType, run.SourceKey, batchItems, chunk, batchIndex+1, syncResult.BarCount, syncResult.BarCount, status, nowText, message)
+				if status == "FAILED" {
+					detail.ErrorText = message
+					detail.WarningText = ""
+				}
+				if err := r.insertMarketBackfillRunDetail(detail); err != nil {
+					return nil, nil, nil, err
+				}
+				details = append(details, detail)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				if len(touched) > 0 {
+					if touchedByAsset[assetType] == nil {
+						touchedByAsset[assetType] = make(map[string]marketTouchedBarKey, len(touched))
+					}
+					for key, value := range touched {
+						touchedByAsset[assetType][key] = value
+					}
+				}
+			}
+		}
+	}
+	return details, truthCounts, touchedByAsset, nil
+}
+
 func (r *MySQLGrowthRepo) runMarketDailyBasicStage(run model.MarketBackfillRun, byAsset map[string][]model.MarketUniverseSnapshotItem, assetScope []string, windowDays int, nowText string) ([]model.MarketBackfillRunDetail, error) {
 	return r.runMarketEnhancementStage(run, byAsset, assetScope, windowDays, nowText, marketDataKindDailyBasic)
 }
@@ -738,8 +825,20 @@ func (r *MySQLGrowthRepo) runMarketEnhancementStage(run model.MarketBackfillRun,
 	if normalizedSource == "" {
 		normalizedSource = "MOCK"
 	}
+	longHistory := resolveMarketBackfillLongHistoryOptionsFromRun(run)
 	for _, assetType := range assetScope {
 		items := byAsset[assetType]
+		if longHistory.Enabled && assetType == "STOCK" {
+			detail := newBackfillStageDetail(run, dataKind, assetType, normalizedSource, items, 0, 0, 0, "SKIPPED", nowText, fmt.Sprintf("股票长历史模式暂不支持 %s 回补，已自动跳过", strings.ToLower(dataKind)))
+			detail.TradeDateFrom = longHistory.DateRange.FromText
+			detail.TradeDateTo = longHistory.DateRange.ToText
+			detail.BatchKey = fmt.Sprintf("%s-%s-LONG-HISTORY-SKIP", dataKind, assetType)
+			if err := r.insertMarketBackfillRunDetail(detail); err != nil {
+				return nil, err
+			}
+			details = append(details, detail)
+			continue
+		}
 		instrumentKeys := universeItemsToInstrumentKeys(items)
 		dailyBasicSupported, moneyflowSupported := marketAssetEnhancementSupport(assetType)
 		supported := (dataKind == marketDataKindDailyBasic && dailyBasicSupported) || (dataKind == marketDataKindMoneyflow && moneyflowSupported)
@@ -794,6 +893,17 @@ func (r *MySQLGrowthRepo) runMarketTruthStage(run model.MarketBackfillRun, byAss
 	normalizedSource := strings.ToUpper(strings.TrimSpace(run.SourceKey))
 	if normalizedSource == "" {
 		normalizedSource = "MOCK"
+	}
+	if shouldSkipTruthRebuildForLongHistory(run) {
+		for _, assetType := range assetScope {
+			items := byAsset[assetType]
+			detail := newBackfillStageDetail(run, "TRUTH", assetType, normalizedSource, items, 0, 0, 0, "SKIPPED", nowText, "已按请求跳过 Truth 重建")
+			if err := r.insertMarketBackfillRunDetail(detail); err != nil {
+				return nil, err
+			}
+			details = append(details, detail)
+		}
+		return details, nil
 	}
 	for _, assetType := range assetScope {
 		items := byAsset[assetType]
@@ -1190,6 +1300,7 @@ func (r *InMemoryGrowthRepo) executeMarketDataBackfillRun(runID string) (model.M
 	nowText := now.Format(time.RFC3339)
 	windowDays := normalizeMarketBackfillWindowDays(run.TradeDateFrom, run.TradeDateTo)
 	assetScope := normalizeMarketBackfillAssetScope(run.AssetScope)
+	longHistory := resolveMarketBackfillLongHistoryOptionsFromRun(run)
 	if len(assetScope) == 0 {
 		assetScope = orderedMarketUniverseAssets(byAsset)
 	}
@@ -1208,17 +1319,37 @@ func (r *InMemoryGrowthRepo) executeMarketDataBackfillRun(runID string) (model.M
 	quotesDetails := make([]model.MarketBackfillRunDetail, 0, len(assetScope))
 	for _, assetType := range assetScope {
 		items := byAsset[assetType]
+		if longHistory.Enabled && assetType == "STOCK" {
+			chunks := splitMarketBackfillDateChunks(longHistory.DateRange, longHistory.ChunkDays)
+			batches := splitMarketBackfillItemsByBatchSize(items, run.BatchSize)
+			for _, chunk := range chunks {
+				for batchIndex, batchItems := range batches {
+					quotesCount := len(batchItems) * (int(chunk.ToTime.Sub(chunk.FromTime).Hours()/24) + 1)
+					quotesDetails = append(quotesDetails, newLongHistoryQuoteBackfillDetail(run, assetType, run.SourceKey, batchItems, chunk, batchIndex+1, quotesCount, quotesCount, "SUCCESS", nowText, "quotes synchronized"))
+				}
+			}
+			continue
+		}
 		quotesCount := len(items) * windowDays
 		quotesDetails = append(quotesDetails, newBackfillStageDetail(run, "QUOTES", assetType, run.SourceKey, items, quotesCount, quotesCount, quotesCount, "SUCCESS", nowText, "quotes synchronized"))
 	}
 	details = append(details, quotesDetails...)
-	progress = updateMarketBackfillStageProgress(progress, "QUOTES", "SUCCESS", len(assetScope), len(assetScope), 0, 0)
+	progress = updateMarketBackfillStageProgress(progress, "QUOTES", "SUCCESS", len(quotesDetails), len(quotesDetails), 0, 0)
 
 	dailyBasicDetails := make([]model.MarketBackfillRunDetail, 0, len(assetScope))
 	dailyBasicCompleted := 0
 	dailyBasicSkipped := 0
 	for _, assetType := range assetScope {
 		items := byAsset[assetType]
+		if longHistory.Enabled && assetType == "STOCK" {
+			detail := newBackfillStageDetail(run, "DAILY_BASIC", assetType, run.SourceKey, items, 0, 0, 0, "SKIPPED", nowText, "股票长历史模式暂不支持 daily_basic 回补，已自动跳过")
+			detail.TradeDateFrom = longHistory.DateRange.FromText
+			detail.TradeDateTo = longHistory.DateRange.ToText
+			detail.BatchKey = "DAILY_BASIC-STOCK-LONG-HISTORY-SKIP"
+			dailyBasicDetails = append(dailyBasicDetails, detail)
+			dailyBasicSkipped++
+			continue
+		}
 		syncResult := buildInMemoryMarketEnhancementSyncResult(assetType, run.SourceKey, universeItemsToInstrumentKeys(items), windowDays, marketDataKindDailyBasic)
 		status := syncResult.Results[0].Status
 		if status == "SUCCESS" {
@@ -1237,6 +1368,15 @@ func (r *InMemoryGrowthRepo) executeMarketDataBackfillRun(runID string) (model.M
 	moneyflowSkipped := 0
 	for _, assetType := range assetScope {
 		items := byAsset[assetType]
+		if longHistory.Enabled && assetType == "STOCK" {
+			detail := newBackfillStageDetail(run, "MONEYFLOW", assetType, run.SourceKey, items, 0, 0, 0, "SKIPPED", nowText, "股票长历史模式暂不支持 moneyflow 回补，已自动跳过")
+			detail.TradeDateFrom = longHistory.DateRange.FromText
+			detail.TradeDateTo = longHistory.DateRange.ToText
+			detail.BatchKey = "MONEYFLOW-STOCK-LONG-HISTORY-SKIP"
+			moneyflowDetails = append(moneyflowDetails, detail)
+			moneyflowSkipped++
+			continue
+		}
 		syncResult := buildInMemoryMarketEnhancementSyncResult(assetType, run.SourceKey, universeItemsToInstrumentKeys(items), windowDays, marketDataKindMoneyflow)
 		status := syncResult.Results[0].Status
 		if status == "SUCCESS" {
@@ -1253,11 +1393,27 @@ func (r *InMemoryGrowthRepo) executeMarketDataBackfillRun(runID string) (model.M
 	truthDetails := make([]model.MarketBackfillRunDetail, 0, len(assetScope))
 	for _, assetType := range assetScope {
 		items := byAsset[assetType]
+		if shouldSkipTruthRebuildForLongHistory(run) {
+			truthDetails = append(truthDetails, newBackfillStageDetail(run, "TRUTH", assetType, run.SourceKey, items, 0, 0, 0, "SKIPPED", nowText, "已按请求跳过 Truth 重建"))
+			continue
+		}
 		truthCount := len(items) * windowDays
+		if longHistory.Enabled && assetType == "STOCK" {
+			truthCount = 0
+			for _, quoteDetail := range quotesDetails {
+				if quoteDetail.AssetType == assetType && quoteDetail.Stage == "QUOTES" {
+					truthCount += quoteDetail.UpsertedCount
+				}
+			}
+		}
 		truthDetails = append(truthDetails, newBackfillStageDetail(run, "TRUTH", assetType, run.SourceKey, items, 0, 0, truthCount, "SUCCESS", nowText, "truth rebuilt"))
 	}
 	details = append(details, truthDetails...)
-	progress = updateMarketBackfillStageProgress(progress, "TRUTH", "SUCCESS", len(assetScope), len(assetScope), 0, 0)
+	if shouldSkipTruthRebuildForLongHistory(run) {
+		progress = updateMarketBackfillStageProgress(progress, "TRUTH", "SUCCESS", len(assetScope), 0, 0, len(assetScope))
+	} else {
+		progress = updateMarketBackfillStageProgress(progress, "TRUTH", "SUCCESS", len(assetScope), len(assetScope), 0, 0)
+	}
 
 	details = append(details, model.MarketBackfillRunDetail{
 		ID:             "mbd_" + strings.ToLower(strings.ReplaceAll(newID("detail"), "_", "")),

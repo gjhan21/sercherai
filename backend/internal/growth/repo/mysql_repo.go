@@ -11547,6 +11547,107 @@ func fetchStockQuotesFromEndpoint(endpoint string, sourceKey string, symbols []s
 	return result, nil
 }
 
+var tushareAPIEndpoint = "https://api.tushare.pro"
+
+func normalizeTushareTradeDateValue(value string, fieldName string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", fmt.Errorf("%s is required", fieldName)
+	}
+	if strings.Contains(trimmed, "-") {
+		parsed, err := time.ParseInLocation("2006-01-02", trimmed, time.Local)
+		if err != nil {
+			return "", fmt.Errorf("%s must be YYYY-MM-DD or YYYYMMDD", fieldName)
+		}
+		return parsed.Format("20060102"), nil
+	}
+	parsed, err := time.ParseInLocation("20060102", trimmed, time.Local)
+	if err != nil {
+		return "", fmt.Errorf("%s must be YYYY-MM-DD or YYYYMMDD", fieldName)
+	}
+	return parsed.Format("20060102"), nil
+}
+
+func parseStockQuotesFromTushareResponse(sourceKey string, symbols []string, parsed tushareStdResponse) []model.StockMarketQuote {
+	if len(parsed.Data.Fields) == 0 || len(parsed.Data.Items) == 0 {
+		return nil
+	}
+	symbolFilter := make(map[string]struct{}, len(symbols))
+	for _, symbol := range symbols {
+		symbolFilter[strings.ToUpper(strings.TrimSpace(symbol))] = struct{}{}
+	}
+	fieldIndex := make(map[string]int, len(parsed.Data.Fields))
+	for idx, field := range parsed.Data.Fields {
+		fieldIndex[strings.TrimSpace(field)] = idx
+	}
+	result := make([]model.StockMarketQuote, 0, len(parsed.Data.Items))
+	for _, row := range parsed.Data.Items {
+		tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+		if !ok {
+			continue
+		}
+		tsCode = strings.ToUpper(strings.TrimSpace(tsCode))
+		if len(symbolFilter) > 0 {
+			if _, exists := symbolFilter[tsCode]; !exists {
+				continue
+			}
+		}
+		tradeDateRaw, ok := tushareGetString(row, fieldIndex, "trade_date")
+		if !ok {
+			continue
+		}
+		tradeDate, err := time.ParseInLocation("20060102", strings.TrimSpace(tradeDateRaw), time.Local)
+		if err != nil {
+			continue
+		}
+
+		openPrice, ok := tushareGetFloat(row, fieldIndex, "open")
+		if !ok {
+			continue
+		}
+		highPrice, ok := tushareGetFloat(row, fieldIndex, "high")
+		if !ok {
+			continue
+		}
+		lowPrice, ok := tushareGetFloat(row, fieldIndex, "low")
+		if !ok {
+			continue
+		}
+		closePrice, ok := tushareGetFloat(row, fieldIndex, "close")
+		if !ok || closePrice <= 0 {
+			continue
+		}
+		prevClose, ok := tushareGetFloat(row, fieldIndex, "pre_close")
+		if !ok || prevClose <= 0 {
+			prevClose = openPrice
+		}
+		volLot, _ := tushareGetFloat(row, fieldIndex, "vol")
+		amountK, _ := tushareGetFloat(row, fieldIndex, "amount")
+		volumeShares := int64(math.Round(volLot * 100))
+		if volumeShares < 0 {
+			volumeShares = 0
+		}
+		turnover := amountK * 1000
+		if turnover <= 0 && volumeShares > 0 {
+			turnover = closePrice * float64(volumeShares)
+		}
+
+		result = append(result, model.StockMarketQuote{
+			Symbol:         tsCode,
+			TradeDate:      tradeDate.Format("2006-01-02"),
+			OpenPrice:      roundTo(openPrice, 4),
+			HighPrice:      roundTo(highPrice, 4),
+			LowPrice:       roundTo(lowPrice, 4),
+			ClosePrice:     roundTo(closePrice, 4),
+			PrevClosePrice: roundTo(prevClose, 4),
+			Volume:         volumeShares,
+			Turnover:       roundTo(turnover, 2),
+			SourceKey:      sourceKey,
+		})
+	}
+	return result
+}
+
 func fetchStockQuotesFromTushare(token string, sourceKey string, symbols []string, days int, timeoutMS int) ([]model.StockMarketQuote, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -11555,127 +11656,43 @@ func fetchStockQuotesFromTushare(token string, sourceKey string, symbols []strin
 	if timeoutMS <= 0 {
 		timeoutMS = 12000
 	}
+	if days <= 0 {
+		days = 120
+	}
 	startDate := time.Now().AddDate(0, 0, -(days + 20)).Format("20060102")
 	endDate := time.Now().Format("20060102")
+	return fetchStockQuotesFromTushareDateRange(token, sourceKey, symbols, startDate, endDate, timeoutMS)
+}
+
+func fetchStockQuotesFromTushareDateRange(token string, sourceKey string, symbols []string, startDate string, endDate string, timeoutMS int) ([]model.StockMarketQuote, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, errors.New("tushare token not configured")
+	}
+	if timeoutMS <= 0 {
+		timeoutMS = 12000
+	}
+	normalizedStartDate, err := normalizeTushareTradeDateValue(startDate, "start_date")
+	if err != nil {
+		return nil, err
+	}
+	normalizedEndDate, err := normalizeTushareTradeDateValue(endDate, "end_date")
+	if err != nil {
+		return nil, err
+	}
 	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
-	result := make([]model.StockMarketQuote, 0, len(symbols)*days)
+	result := make([]model.StockMarketQuote, 0, len(symbols))
 
 	for _, symbol := range symbols {
-		reqBody := map[string]interface{}{
-			"api_name": "daily",
-			"token":    token,
-			"params": map[string]string{
-				"ts_code":    symbol,
-				"start_date": startDate,
-				"end_date":   endDate,
-			},
-			"fields": "ts_code,trade_date,open,high,low,close,pre_close,vol,amount",
-		}
-		payload, err := json.Marshal(reqBody)
+		parsed, err := callTushareAPI(client, token, "daily", map[string]string{
+			"ts_code":    strings.TrimSpace(symbol),
+			"start_date": normalizedStartDate,
+			"end_date":   normalizedEndDate,
+		}, "ts_code,trade_date,open,high,low,close,pre_close,vol,amount")
 		if err != nil {
 			return nil, err
 		}
-		req, err := http.NewRequest(http.MethodPost, "https://api.tushare.pro", bytes.NewReader(payload))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-
-		body, readErr := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		if readErr != nil {
-			return nil, readErr
-		}
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return nil, fmt.Errorf("tushare status: %s", resp.Status)
-		}
-
-		parsed := struct {
-			Code int    `json:"code"`
-			Msg  string `json:"msg"`
-			Data struct {
-				Fields []string        `json:"fields"`
-				Items  [][]interface{} `json:"items"`
-			} `json:"data"`
-		}{}
-		if err := json.Unmarshal(body, &parsed); err != nil {
-			return nil, err
-		}
-		if parsed.Code != 0 {
-			return nil, fmt.Errorf("tushare error(%s): %s", symbol, strings.TrimSpace(parsed.Msg))
-		}
-		if len(parsed.Data.Fields) == 0 || len(parsed.Data.Items) == 0 {
-			continue
-		}
-
-		fieldIndex := make(map[string]int, len(parsed.Data.Fields))
-		for idx, field := range parsed.Data.Fields {
-			fieldIndex[strings.TrimSpace(field)] = idx
-		}
-
-		for _, row := range parsed.Data.Items {
-			tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
-			if !ok {
-				continue
-			}
-			tradeDateRaw, ok := tushareGetString(row, fieldIndex, "trade_date")
-			if !ok {
-				continue
-			}
-			tradeDate, err := time.ParseInLocation("20060102", strings.TrimSpace(tradeDateRaw), time.Local)
-			if err != nil {
-				continue
-			}
-
-			openPrice, ok := tushareGetFloat(row, fieldIndex, "open")
-			if !ok {
-				continue
-			}
-			highPrice, ok := tushareGetFloat(row, fieldIndex, "high")
-			if !ok {
-				continue
-			}
-			lowPrice, ok := tushareGetFloat(row, fieldIndex, "low")
-			if !ok {
-				continue
-			}
-			closePrice, ok := tushareGetFloat(row, fieldIndex, "close")
-			if !ok || closePrice <= 0 {
-				continue
-			}
-			prevClose, ok := tushareGetFloat(row, fieldIndex, "pre_close")
-			if !ok || prevClose <= 0 {
-				prevClose = openPrice
-			}
-			volLot, _ := tushareGetFloat(row, fieldIndex, "vol")
-			amountK, _ := tushareGetFloat(row, fieldIndex, "amount")
-			volumeShares := int64(math.Round(volLot * 100))
-			if volumeShares < 0 {
-				volumeShares = 0
-			}
-			turnover := amountK * 1000
-			if turnover <= 0 && volumeShares > 0 {
-				turnover = closePrice * float64(volumeShares)
-			}
-
-			result = append(result, model.StockMarketQuote{
-				Symbol:         strings.ToUpper(strings.TrimSpace(tsCode)),
-				TradeDate:      tradeDate.Format("2006-01-02"),
-				OpenPrice:      roundTo(openPrice, 4),
-				HighPrice:      roundTo(highPrice, 4),
-				LowPrice:       roundTo(lowPrice, 4),
-				ClosePrice:     roundTo(closePrice, 4),
-				PrevClosePrice: roundTo(prevClose, 4),
-				Volume:         volumeShares,
-				Turnover:       roundTo(turnover, 2),
-				SourceKey:      sourceKey,
-			})
-		}
+		result = append(result, parseStockQuotesFromTushareResponse(sourceKey, []string{symbol}, parsed)...)
 	}
 	return result, nil
 }
@@ -11700,7 +11717,7 @@ func callTushareAPI(client *http.Client, token string, apiName string, params ma
 	if err != nil {
 		return tushareStdResponse{}, err
 	}
-	req, err := http.NewRequest(http.MethodPost, "https://api.tushare.pro", bytes.NewReader(payload))
+	req, err := http.NewRequest(http.MethodPost, tushareAPIEndpoint, bytes.NewReader(payload))
 	if err != nil {
 		return tushareStdResponse{}, err
 	}

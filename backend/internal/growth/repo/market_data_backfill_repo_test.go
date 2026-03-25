@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -228,6 +229,165 @@ func TestAdminCreateMarketDataBackfillRunExecutesImmediately(t *testing.T) {
 	}
 	if run.CurrentStage != "COVERAGE_SUMMARY" {
 		t.Fatalf("expected final stage COVERAGE_SUMMARY, got %s", run.CurrentStage)
+	}
+}
+
+func TestAdminCreateMarketDataBackfillRunRejectsLongHistoryWithNonTushareSource(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+
+	_, err := repo.AdminCreateMarketDataBackfillRun(model.MarketBackfillCreateInput{
+		RunType:       "FULL",
+		AssetScope:    []string{"STOCK"},
+		SourceKey:     "AKSHARE",
+		TradeDateFrom: "2024-01-01",
+		TradeDateTo:   "2025-01-05",
+		BatchSize:     100,
+	}, "tester")
+	if err == nil {
+		t.Fatal("expected long-history validation error")
+	}
+	if !strings.Contains(err.Error(), "当前仅支持 TUSHARE") {
+		t.Fatalf("expected tushare-only validation, got %v", err)
+	}
+}
+
+func TestAdminCreateMarketDataBackfillRunRejectsLongHistoryWithoutQuotesStage(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+
+	_, err := repo.AdminCreateMarketDataBackfillRun(model.MarketBackfillCreateInput{
+		RunType:       "FULL",
+		AssetScope:    []string{"STOCK"},
+		SourceKey:     "TUSHARE",
+		TradeDateFrom: "2024-01-01",
+		TradeDateTo:   "2025-01-05",
+		BatchSize:     100,
+		Stages:        []string{"MASTER", "TRUTH"},
+	}, "tester")
+	if err == nil {
+		t.Fatal("expected missing quotes validation error")
+	}
+	if !strings.Contains(err.Error(), "必须包含 QUOTES") {
+		t.Fatalf("expected quotes-stage validation, got %v", err)
+	}
+}
+
+func TestExecuteMarketDataBackfillRunSplitsLongHistoryStockQuotesAndSkipsUnsupportedStages(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+
+	run, err := repo.AdminCreateMarketDataBackfillRun(model.MarketBackfillCreateInput{
+		RunType:               "FULL",
+		AssetScope:            []string{"STOCK"},
+		SourceKey:             "TUSHARE",
+		TradeDateFrom:         "2024-01-01",
+		TradeDateTo:           "2025-01-05",
+		BatchSize:             1,
+		RebuildTruthAfterSync: false,
+	}, "tester")
+	if err != nil {
+		t.Fatalf("AdminCreateMarketDataBackfillRun returned error: %v", err)
+	}
+
+	longHistoryMode, ok := run.Summary["long_history_mode"].(bool)
+	if !ok || !longHistoryMode {
+		t.Fatalf("expected long_history_mode=true in summary, got %+v", run.Summary)
+	}
+	if run.CurrentStage != "COVERAGE_SUMMARY" {
+		t.Fatalf("expected final stage COVERAGE_SUMMARY, got %s", run.CurrentStage)
+	}
+
+	quotesDetails, total, err := repo.AdminListMarketDataBackfillRunDetails(run.ID, "QUOTES", "STOCK", "", 1, 20)
+	if err != nil {
+		t.Fatalf("AdminListMarketDataBackfillRunDetails returned error: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("expected 3 long-history quote chunks, got %d", total)
+	}
+	for _, detail := range quotesDetails {
+		if detail.TradeDateFrom == "" || detail.TradeDateTo == "" {
+			t.Fatalf("expected quote chunk date range, got %+v", detail)
+		}
+		if detail.SymbolCount != 1 {
+			t.Fatalf("expected stock batch size 1, got %+v", detail)
+		}
+		if detail.Status != "SUCCESS" {
+			t.Fatalf("expected quote chunk success, got %+v", detail)
+		}
+	}
+
+	dailyBasicDetails, total, err := repo.AdminListMarketDataBackfillRunDetails(run.ID, "DAILY_BASIC", "STOCK", "", 1, 10)
+	if err != nil {
+		t.Fatalf("AdminListMarketDataBackfillRunDetails daily basic returned error: %v", err)
+	}
+	if total != 1 || len(dailyBasicDetails) != 1 {
+		t.Fatalf("expected 1 daily basic detail, got total=%d items=%+v", total, dailyBasicDetails)
+	}
+	if dailyBasicDetails[0].Status != "SKIPPED" || !strings.Contains(dailyBasicDetails[0].WarningText, "长历史") {
+		t.Fatalf("expected long-history daily basic skip, got %+v", dailyBasicDetails[0])
+	}
+
+	moneyflowDetails, total, err := repo.AdminListMarketDataBackfillRunDetails(run.ID, "MONEYFLOW", "STOCK", "", 1, 10)
+	if err != nil {
+		t.Fatalf("AdminListMarketDataBackfillRunDetails moneyflow returned error: %v", err)
+	}
+	if total != 1 || len(moneyflowDetails) != 1 {
+		t.Fatalf("expected 1 moneyflow detail, got total=%d items=%+v", total, moneyflowDetails)
+	}
+	if moneyflowDetails[0].Status != "SKIPPED" || !strings.Contains(moneyflowDetails[0].WarningText, "长历史") {
+		t.Fatalf("expected long-history moneyflow skip, got %+v", moneyflowDetails[0])
+	}
+
+	truthDetails, total, err := repo.AdminListMarketDataBackfillRunDetails(run.ID, "TRUTH", "STOCK", "", 1, 10)
+	if err != nil {
+		t.Fatalf("AdminListMarketDataBackfillRunDetails truth returned error: %v", err)
+	}
+	if total != 1 || len(truthDetails) != 1 {
+		t.Fatalf("expected 1 truth detail, got total=%d items=%+v", total, truthDetails)
+	}
+	if truthDetails[0].Status != "SKIPPED" {
+		t.Fatalf("expected truth skipped when rebuild_truth_after_sync=false, got %+v", truthDetails[0])
+	}
+}
+
+func TestExecuteMarketDataBackfillRunLongHistoryRebuildsTruthFromQuoteChunksWhenRequested(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+
+	run, err := repo.AdminCreateMarketDataBackfillRun(model.MarketBackfillCreateInput{
+		RunType:               "FULL",
+		AssetScope:            []string{"STOCK"},
+		SourceKey:             "TUSHARE",
+		TradeDateFrom:         "2024-01-01",
+		TradeDateTo:           "2025-01-05",
+		BatchSize:             1,
+		RebuildTruthAfterSync: true,
+	}, "tester")
+	if err != nil {
+		t.Fatalf("AdminCreateMarketDataBackfillRun returned error: %v", err)
+	}
+
+	quotesDetails, total, err := repo.AdminListMarketDataBackfillRunDetails(run.ID, "QUOTES", "STOCK", "", 1, 20)
+	if err != nil {
+		t.Fatalf("AdminListMarketDataBackfillRunDetails quotes returned error: %v", err)
+	}
+	if total != 3 || len(quotesDetails) != 3 {
+		t.Fatalf("expected 3 long-history quote details, got total=%d items=%+v", total, quotesDetails)
+	}
+	expectedTruthCount := 0
+	for _, detail := range quotesDetails {
+		expectedTruthCount += detail.UpsertedCount
+	}
+
+	truthDetails, total, err := repo.AdminListMarketDataBackfillRunDetails(run.ID, "TRUTH", "STOCK", "", 1, 10)
+	if err != nil {
+		t.Fatalf("AdminListMarketDataBackfillRunDetails truth returned error: %v", err)
+	}
+	if total != 1 || len(truthDetails) != 1 {
+		t.Fatalf("expected 1 truth detail, got total=%d items=%+v", total, truthDetails)
+	}
+	if truthDetails[0].Status != "SUCCESS" {
+		t.Fatalf("expected truth success when rebuild_truth_after_sync=true, got %+v", truthDetails[0])
+	}
+	if truthDetails[0].TruthCount != expectedTruthCount {
+		t.Fatalf("expected truth count %d from quote chunks, got %+v", expectedTruthCount, truthDetails[0])
 	}
 }
 

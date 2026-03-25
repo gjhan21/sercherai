@@ -301,6 +301,33 @@ func TestCreateMarketDataBackfillRunRejectsMissingAssetScope(t *testing.T) {
 	}
 }
 
+func TestCreateMarketDataBackfillRunRejectsUnsupportedLongHistorySource(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/admin/market-data/backfill",
+		strings.NewReader(`{"run_type":"FULL","asset_scope":["STOCK"],"source_key":"AKSHARE","trade_date_from":"2024-01-01","trade_date_to":"2025-01-05","batch_size":100}`),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handler.CreateMarketDataBackfillRun(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if message, _ := payload["message"].(string); !strings.Contains(message, "当前仅支持 TUSHARE") {
+		t.Fatalf("unexpected message: %#v", payload["message"])
+	}
+}
+
 func TestGetMarketCoverageSummary(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := newStockSelectionTestHandler()

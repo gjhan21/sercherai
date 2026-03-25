@@ -485,6 +485,112 @@ func (r *MySQLGrowthRepo) syncMarketDailyBars(assetClass string, sourceKey strin
 	return result, nil
 }
 
+func (r *MySQLGrowthRepo) syncStockMarketDailyBarsByDateRange(sourceKey string, instrumentKeys []string, tradeDateFrom string, tradeDateTo string, rebuildTruth bool) (model.MarketSyncResult, map[string]marketTouchedBarKey, error) {
+	resolvedSourceKey := strings.ToUpper(strings.TrimSpace(sourceKey))
+	if resolvedSourceKey == "" {
+		resolvedSourceKey = "TUSHARE"
+	}
+	result := model.MarketSyncResult{
+		AssetClass:         marketAssetClassStock,
+		DataKind:           marketDataKindDailyBars,
+		RequestedSourceKey: resolvedSourceKey,
+		ResolvedSourceKeys: []string{resolvedSourceKey},
+		Results:            make([]model.MarketSourceSyncItemResult, 0, 1),
+	}
+	touched := make(map[string]marketTouchedBarKey)
+	if len(instrumentKeys) == 0 {
+		return result, touched, errors.New("instrument list is empty")
+	}
+	if err := r.syncMarketInstrumentMasterData(marketAssetClassStock, resolvedSourceKey, instrumentKeys); err != nil {
+		return result, touched, err
+	}
+
+	sourceItem, err := r.getDataSourceBySourceKey(resolvedSourceKey)
+	if err != nil {
+		return result, touched, err
+	}
+	externalSymbols, err := r.resolveMarketExternalSymbols(resolvedSourceKey, marketAssetClassStock, instrumentKeys)
+	if err != nil {
+		r.insertMarketDataQualityLog(marketAssetClassStock, marketDataKindDailyBars, "", "", resolvedSourceKey, "ERROR", "SYMBOL_ALIAS_RESOLVE_FAILED", err.Error(), "")
+		return result, touched, err
+	}
+
+	bars, payload, err := r.fetchMarketDailyBarsForSourceDateRange(sourceItem, marketAssetClassStock, instrumentKeys, externalSymbols, tradeDateFrom, tradeDateTo)
+	status := "SUCCESS"
+	message := "ok"
+	barCount := 0
+	if err != nil {
+		status = "FAILED"
+		message = err.Error()
+		r.insertMarketDataQualityLog(marketAssetClassStock, marketDataKindDailyBars, "", "", resolvedSourceKey, "ERROR", "SOURCE_FETCH_FAILED", err.Error(), "")
+	} else {
+		barCount, err = r.upsertMarketDailyBars(bars)
+		if err != nil {
+			status = "FAILED"
+			message = err.Error()
+			r.insertMarketDataQualityLog(marketAssetClassStock, marketDataKindDailyBars, "", "", resolvedSourceKey, "ERROR", "BAR_UPSERT_FAILED", err.Error(), "")
+		} else {
+			result.BarCount = barCount
+		}
+	}
+
+	if payload == "" && len(bars) > 0 {
+		payload = marshalJSONSilently(map[string]interface{}{
+			"source_key":      resolvedSourceKey,
+			"asset_class":     marketAssetClassStock,
+			"data_kind":       marketDataKindDailyBars,
+			"trade_date_from": tradeDateFrom,
+			"trade_date_to":   tradeDateTo,
+			"instrument_n":    len(instrumentKeys),
+			"items":           bars,
+		})
+	}
+	if status == "SUCCESS" {
+		touched = buildTouchedBarKeysFromBars(bars)
+		if rebuildTruth && len(touched) > 0 {
+			truthBars, truthErr := r.rebuildMarketDailyBarTruth(marketAssetClassStock, touched, []string{resolvedSourceKey})
+			if truthErr != nil {
+				return result, touched, truthErr
+			}
+			result.TruthCount = len(truthBars)
+			if len(truthBars) > 0 {
+				if _, truthErr := r.rebuildStockStatusTruth(truthBars); truthErr != nil && !isMarketStatusSchemaCompatError(truthErr) {
+					return result, touched, truthErr
+				}
+				if truthErr := r.syncLegacyStockQuotesFromTruthBars(truthBars); truthErr != nil {
+					return result, touched, truthErr
+				}
+			}
+		}
+	}
+
+	if snapshotErr := r.insertMarketSourceSnapshot(
+		resolvedSourceKey,
+		marketAssetClassStock,
+		marketDataKindDailyBars,
+		"",
+		"",
+		status,
+		message,
+		payload,
+		time.Now(),
+	); snapshotErr == nil {
+		result.SnapshotCount = 1
+	}
+	result.Results = append(result.Results, model.MarketSourceSyncItemResult{
+		SourceKey:     resolvedSourceKey,
+		Status:        status,
+		BarCount:      result.BarCount,
+		SnapshotCount: result.SnapshotCount,
+		TruthCount:    result.TruthCount,
+		Message:       message,
+	})
+	if status == "FAILED" {
+		return result, touched, errors.New(message)
+	}
+	return result, touched, nil
+}
+
 func normalizeFuturesContractList(contracts []string) []string {
 	seen := make(map[string]struct{}, len(contracts))
 	items := make([]string, 0, len(contracts))
@@ -928,6 +1034,24 @@ func (r *MySQLGrowthRepo) fetchMarketDailyBarsForSource(item model.DataSource, a
 		}
 		return nil, "", fmt.Errorf("unsupported provider: %s", provider)
 	}
+}
+
+func (r *MySQLGrowthRepo) fetchMarketDailyBarsForSourceDateRange(item model.DataSource, assetClass string, instrumentKeys []string, externalSymbols map[string]string, tradeDateFrom string, tradeDateTo string) ([]model.MarketDailyBar, string, error) {
+	sourceKey := strings.ToUpper(strings.TrimSpace(item.SourceKey))
+	provider := strings.ToUpper(parseDataSourceStringConfig(item.Config, "provider", "vendor"))
+	if provider == "" {
+		provider = sourceKey
+	}
+	sourceKey = canonicalMarketSourceKey(sourceKey, provider)
+	if assetClass == marketAssetClassStock && provider == "TUSHARE" {
+		token := parseDataSourceStringConfig(item.Config, "token", "api_token", "tushare_token")
+		if strings.TrimSpace(token) == "" {
+			token = strings.TrimSpace(os.Getenv("TUSHARE_TOKEN"))
+		}
+		timeoutMS := parseDataSourceTimeoutMS(item.Config)
+		return fetchStockMarketBarsFromTushareDateRange(token, sourceKey, instrumentKeys, externalSymbols, tradeDateFrom, tradeDateTo, timeoutMS)
+	}
+	return nil, "", fmt.Errorf("long history quote backfill only supports STOCK + TUSHARE")
 }
 
 func (r *MySQLGrowthRepo) fetchFuturesInventoryForSource(item model.DataSource, symbols []string, days int) ([]model.FuturesInventorySnapshot, string, error) {
@@ -1669,6 +1793,31 @@ func fetchStockMarketBarsFromTushare(token string, sourceKey string, instrumentK
 		return nil, "", err
 	}
 	return convertStockQuotesToMarketBars(quotes, instrumentKeys, externalSymbols), "", nil
+}
+
+func fetchStockMarketBarsFromTushareDateRange(token string, sourceKey string, instrumentKeys []string, externalSymbols map[string]string, tradeDateFrom string, tradeDateTo string, timeoutMS int) ([]model.MarketDailyBar, string, error) {
+	items := make([]string, 0, len(instrumentKeys))
+	for _, instrumentKey := range instrumentKeys {
+		external := strings.TrimSpace(externalSymbols[instrumentKey])
+		if external == "" {
+			external = instrumentKey
+		}
+		items = append(items, external)
+	}
+	startDate := strings.ReplaceAll(strings.TrimSpace(tradeDateFrom), "-", "")
+	endDate := strings.ReplaceAll(strings.TrimSpace(tradeDateTo), "-", "")
+	quotes, err := fetchStockQuotesFromTushareDateRange(token, sourceKey, items, startDate, endDate, timeoutMS)
+	if err != nil {
+		return nil, "", err
+	}
+	return convertStockQuotesToMarketBars(quotes, instrumentKeys, externalSymbols), marshalJSONSilently(map[string]interface{}{
+		"source_key":      sourceKey,
+		"provider":        "TUSHARE",
+		"asset":           marketAssetClassStock,
+		"trade_date_from": strings.TrimSpace(tradeDateFrom),
+		"trade_date_to":   strings.TrimSpace(tradeDateTo),
+		"symbols":         items,
+	}), nil
 }
 
 func fetchFuturesMarketBarsFromTushare(token string, sourceKey string, instrumentKeys []string, externalSymbols map[string]string, days int, timeoutMS int) ([]model.MarketDailyBar, string, error) {

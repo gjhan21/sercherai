@@ -143,6 +143,11 @@ func (h *AdminGrowthHandler) CreateMarketDataBackfillRun(c *gin.Context) {
 		RebuildTruthAfterSync: req.RebuildTruthAfterSync,
 	}, operator)
 	if err != nil {
+		var badRequest interface{ BadRequest() bool }
+		if errors.As(err, &badRequest) && badRequest.BadRequest() {
+			c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}

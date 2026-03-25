@@ -2,6 +2,10 @@ package repo
 
 import (
 	"errors"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -181,6 +185,45 @@ func TestMyselfStockAPISymbol(t *testing.T) {
 	}
 	if got := myselfStockAPISymbol("000001.SZ", ""); got != "sz000001" {
 		t.Fatalf("expected sz000001, got %s", got)
+	}
+}
+
+func TestFetchStockQuotesFromTushareDateRangeUsesExplicitDates(t *testing.T) {
+	var requestPayload struct {
+		APIName string            `json:"api_name"`
+		Params  map[string]string `json:"params"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		if err := json.Unmarshal(body, &requestPayload); err != nil {
+			t.Fatalf("decode request payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","open","high","low","close","pre_close","vol","amount"],"items":[["600519.SH","20240105",10,11,9,10.5,10,100,1000]]}}`)
+	}))
+	defer server.Close()
+
+	previousEndpoint := tushareAPIEndpoint
+	tushareAPIEndpoint = server.URL
+	defer func() {
+		tushareAPIEndpoint = previousEndpoint
+	}()
+
+	items, err := fetchStockQuotesFromTushareDateRange("token", "TUSHARE", []string{"600519.SH"}, "20240101", "20240131", 500)
+	if err != nil {
+		t.Fatalf("fetchStockQuotesFromTushareDateRange returned error: %v", err)
+	}
+	if requestPayload.APIName != "daily" {
+		t.Fatalf("expected daily api_name, got %+v", requestPayload)
+	}
+	if requestPayload.Params["start_date"] != "20240101" || requestPayload.Params["end_date"] != "20240131" {
+		t.Fatalf("expected explicit tushare date range, got %+v", requestPayload.Params)
+	}
+	if len(items) != 1 || items[0].TradeDate != "2024-01-05" {
+		t.Fatalf("unexpected quote items: %+v", items)
 	}
 }
 
