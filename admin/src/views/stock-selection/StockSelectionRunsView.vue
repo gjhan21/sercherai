@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import StockSelectionModuleShell from "../../components/StockSelectionModuleShell.vue";
@@ -132,6 +132,29 @@ function getRunMemoryFeedback(run) {
       : []
   };
 }
+
+function formatGovernanceValue(value, fallback = "-") {
+  const text = String(value || "").trim();
+  return text || fallback;
+}
+
+function formatGovernanceChain(items) {
+  if (!Array.isArray(items)) {
+    return "-";
+  }
+  const values = items.map((item) => String(item || "").trim()).filter(Boolean);
+  return values.length ? values.join(" -> ") : "-";
+}
+
+const detailGovernanceRows = computed(() => {
+  const context = getRunContext(selectedRun.value);
+  return [
+    { label: "路由主源", value: formatGovernanceValue(context?.selected_source || context?.price_source) },
+    { label: "回退链路", value: formatGovernanceChain(context?.fallback_chain) },
+    { label: "决策原因", value: formatGovernanceValue(context?.decision_reason) },
+    { label: "策略键", value: formatGovernanceValue(context?.policy_key) }
+  ];
+});
 
 function resetGraphSnapshot() {
   graphLoading.value = false;
@@ -507,6 +530,19 @@ onMounted(async () => {
               </el-descriptions-item>
               <el-descriptions-item label="20日均成交额下限">
                 {{ selectedRun.context_meta?.universe_filters?.min_avg_turnover ?? "-" }}
+              </el-descriptions-item>
+            </el-descriptions>
+          </div>
+
+          <div class="card" style="margin-top: 12px" v-if="selectedRun.context_meta">
+            <div class="card-title">治理路由摘要</div>
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item
+                v-for="item in detailGovernanceRows"
+                :key="item.label"
+                :label="item.label"
+              >
+                {{ item.value }}
               </el-descriptions-item>
             </el-descriptions>
           </div>

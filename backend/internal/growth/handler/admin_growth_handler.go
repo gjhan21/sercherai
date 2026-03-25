@@ -2126,6 +2126,35 @@ func (h *AdminGrowthHandler) ListOperationLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
+func (h *AdminGrowthHandler) ListAuditEvents(c *gin.Context) {
+	page, pageSize := parsePage(c)
+	filter := model.AdminAuditEventFilter{
+		EventDomain: c.Query("event_domain"),
+		EventType:   c.Query("event_type"),
+		Level:       c.Query("level"),
+		Module:      c.Query("module"),
+		ObjectType:  c.Query("object_type"),
+		ObjectID:    c.Query("object_id"),
+		ActorUserID: c.Query("actor_user_id"),
+		Status:      c.Query("status"),
+	}
+	items, total, err := h.service.AdminListAuditEvents(filter, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *AdminGrowthHandler) GetAuditEventSummary(c *gin.Context) {
+	summary, err := h.service.AdminGetAuditEventSummary()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(summary))
+}
+
 func (h *AdminGrowthHandler) ExportOperationLogsCSV(c *gin.Context) {
 	module := c.Query("module")
 	action := c.Query("action")
@@ -3266,6 +3295,19 @@ func (h *AdminGrowthHandler) writeOperationLog(c *gin.Context, module string, ac
 		operator = "admin_unknown"
 	}
 	_ = h.service.AdminCreateOperationLog(module, action, targetType, targetID, operator, beforeValue, afterValue, reason)
+}
+
+func (h *AdminGrowthHandler) writeAuditEvent(c *gin.Context, item model.AdminAuditEvent) {
+	operatorVal, _ := c.Get("user_id")
+	operator, _ := operatorVal.(string)
+	operator = strings.TrimSpace(operator)
+	if operator == "" {
+		operator = "admin_unknown"
+	}
+	if strings.TrimSpace(item.ActorUserID) == "" {
+		item.ActorUserID = operator
+	}
+	_ = h.service.AdminCreateAuditEvent(item)
 }
 
 type schedulerJobExecutionResult struct {

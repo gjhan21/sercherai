@@ -269,6 +269,10 @@ func Register(r *gin.Engine) {
 		adminDataSources.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("ADMIN"))
 		{
 			adminDataSources.GET("", middleware.PermissionRequired(db, "data_source.view"), adminGrowthHandler.ListDataSources)
+			adminDataSources.GET("/governance/overview", middleware.PermissionRequired(db, "data_source.view"), adminGrowthHandler.GetMarketProviderGovernanceOverview)
+			adminDataSources.GET("/governance/capabilities", middleware.PermissionRequired(db, "data_source.view"), adminGrowthHandler.ListMarketProviderCapabilities)
+			adminDataSources.GET("/governance/routing-policies", middleware.PermissionRequired(db, "data_source.view"), adminGrowthHandler.ListMarketProviderRoutingPolicies)
+			adminDataSources.PUT("/governance/routing-policies/:policy_key", middleware.PermissionRequired(db, "data_source.edit"), adminGrowthHandler.UpsertMarketProviderRoutingPolicy)
 			adminDataSources.GET("/market-quality-logs", middleware.PermissionRequired(db, "data_source.view"), adminGrowthHandler.ListMarketDataQualityLogs)
 			adminDataSources.GET("/market-quality-summary", middleware.PermissionRequired(db, "data_source.view"), adminGrowthHandler.GetMarketDataQualitySummary)
 			adminDataSources.GET("/market-derived-truth-summary", middleware.PermissionRequired(db, "data_source.view"), adminGrowthHandler.GetMarketDerivedTruthSummary)
@@ -461,6 +465,8 @@ func Register(r *gin.Engine) {
 		adminAudit := v1.Group("/admin/audit")
 		adminAudit.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("ADMIN"))
 		{
+			adminAudit.GET("/events/summary", middleware.PermissionRequired(db, "audit.view"), adminGrowthHandler.GetAuditEventSummary)
+			adminAudit.GET("/events", middleware.PermissionRequired(db, "audit.view"), adminGrowthHandler.ListAuditEvents)
 			adminAudit.GET("/operation-logs", middleware.PermissionRequired(db, "audit.view"), adminGrowthHandler.ListOperationLogs)
 			adminAudit.GET("/operation-logs/export.csv", middleware.PermissionRequired(db, "audit.view"), adminGrowthHandler.ExportOperationLogsCSV)
 		}

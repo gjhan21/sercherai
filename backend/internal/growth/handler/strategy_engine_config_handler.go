@@ -372,5 +372,35 @@ func (h *AdminGrowthHandler) PublishStrategyEngineJob(c *gin.Context) {
 		action = "OVERRIDE_PUBLISH_STRATEGY_ENGINE_JOB"
 	}
 	h.writeOperationLog(c, "MARKET", action, "STRATEGY_JOB", jobID, "", record.PublishID, strings.TrimSpace(req.OverrideReason))
+	eventType := "STRATEGY_JOB_PUBLISHED"
+	level := "INFO"
+	title := "策略发布完成"
+	if req.Force {
+		eventType = "STRATEGY_JOB_FORCE_PUBLISHED"
+		level = "WARNING"
+		title = "策略人工覆盖发布"
+	}
+	h.writeAuditEvent(c, model.AdminAuditEvent{
+		EventDomain: "PUBLISH",
+		EventType:   eventType,
+		Level:       level,
+		Module:      "STRATEGY_ENGINE",
+		ObjectType:  "STRATEGY_JOB",
+		ObjectID:    jobID,
+		Title:       title,
+		Summary:     "策略作业 " + jobID + " 已生成发布记录 " + record.PublishID,
+		Detail:      strings.TrimSpace(req.OverrideReason),
+		Status:      "OPEN",
+		Metadata: map[string]any{
+			"publish_id":       record.PublishID,
+			"job_type":         record.JobType,
+			"publish_version":  record.Version,
+			"force_publish":    req.Force,
+			"override_reason":  strings.TrimSpace(req.OverrideReason),
+			"selected_count":   record.SelectedCount,
+			"warning_count":    record.Replay.WarningCount,
+			"storage_source":   record.Replay.StorageSource,
+		},
+	})
 	c.JSON(http.StatusOK, dto.OK(record))
 }

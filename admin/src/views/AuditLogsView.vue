@@ -1,8 +1,11 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
-import { listOperationLogs } from "../api/admin";
+import { useRouter } from "vue-router";
+import { getAuditEventSummary, listAuditEvents, listOperationLogs } from "../api/admin";
 import { getAccessToken } from "../lib/session";
 
+const router = useRouter();
+const activeTab = ref("audit-events");
 const loading = ref(false);
 const exportingFiltered = ref(false);
 const copyingDetail = ref(false);
@@ -10,27 +13,44 @@ const copyingDetail = ref(false);
 const errorMessage = ref("");
 const message = ref("");
 
-const filters = reactive({
+const operationFilters = reactive({
   module: "",
   action: "",
   operator_user_id: ""
 });
 
+const auditFilters = reactive({
+  event_domain: "",
+  event_type: "",
+  level: "",
+  module: "",
+  object_type: "",
+  status: ""
+});
+
 const page = ref(1);
 const pageSize = ref(20);
 const total = ref(0);
-const items = ref([]);
+const operationItems = ref([]);
+const auditItems = ref([]);
+const auditSummary = ref(null);
 
 const detailVisible = ref(false);
-const currentLog = ref(null);
+const currentRecord = ref(null);
 
-const moduleOptions = ["USER", "NEWS", "WORKFLOW", "MEMBERSHIP", "SYSTEM", "STOCK", "FUTURES", "RISK"];
+const moduleOptions = ["USER", "NEWS", "WORKFLOW", "MEMBERSHIP", "SYSTEM", "STOCK", "FUTURES", "RISK", "STRATEGY_ENGINE"];
+const auditDomainOptions = ["RESEARCH", "DATA", "PUBLISH", "SYSTEM"];
+const auditLevelOptions = ["INFO", "WARNING", "CRITICAL"];
+const auditStatusOptions = ["OPEN", "RESOLVED"];
+const auditObjectTypeOptions = ["REVIEW_TASK", "SCHEDULER_JOB", "DATA_SOURCE", "STRATEGY_JOB", "STRATEGY_PUBLISH_POLICY"];
 
-const pageSummary = computed(() => {
+const currentItems = computed(() => (activeTab.value === "audit-events" ? auditItems.value : operationItems.value));
+
+const operationPageSummary = computed(() => {
   const modules = new Set();
   const actions = new Set();
   let withReason = 0;
-  items.value.forEach((item) => {
+  operationItems.value.forEach((item) => {
     if (item.module) {
       modules.add(item.module);
     }
@@ -45,7 +65,34 @@ const pageSummary = computed(() => {
     modules: modules.size,
     actions: actions.size,
     withReason,
-    withoutReason: Math.max(0, items.value.length - withReason)
+    withoutReason: Math.max(0, operationItems.value.length - withReason)
+  };
+});
+
+const auditPageSummary = computed(() => {
+  const domains = new Set();
+  const eventTypes = new Set();
+  let warningCount = 0;
+  let openCount = 0;
+  auditItems.value.forEach((item) => {
+    if (item.event_domain) {
+      domains.add(item.event_domain);
+    }
+    if (item.event_type) {
+      eventTypes.add(item.event_type);
+    }
+    if (item.level === "WARNING" || item.level === "CRITICAL") {
+      warningCount += 1;
+    }
+    if (item.status === "OPEN") {
+      openCount += 1;
+    }
+  });
+  return {
+    domains: domains.size,
+    eventTypes: eventTypes.size,
+    warningCount,
+    openCount
   };
 });
 
@@ -53,7 +100,89 @@ function normalizeErrorMessage(error, fallback) {
   return error?.message || fallback || "操作失败";
 }
 
-async function fetchLogs(options = {}) {
+function resolvedAuditCount(summary) {
+  const totalCount = Number(summary?.total_count) || 0;
+  const openCount = Number(summary?.open_count) || 0;
+  return Math.max(0, totalCount - openCount);
+}
+
+function normalizeAuditRouteToken(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
+function resolveAuditObjectRoute(item) {
+  const objectType = normalizeAuditRouteToken(item?.object_type);
+  const module = normalizeAuditRouteToken(item?.module);
+  const metadata = item?.metadata || {};
+  const objectID = String(item?.object_id || metadata?.review_id || metadata?.run_id || metadata?.source_key || "").trim();
+  const jobName = String(metadata?.job_name || "").trim();
+  const publishID = String(metadata?.publish_id || "").trim();
+  const policyID = String(metadata?.policy_id || objectID).trim();
+  const jobType = normalizeAuditRouteToken(metadata?.job_type);
+  const marketTab = jobType.includes("FUTURES") ? "futures" : "stocks";
+
+  if (objectType === "REVIEW_TASK" || module === "WORKFLOW") {
+    return objectID ? { name: "review-center", query: { review_id: objectID } } : { name: "review-center" };
+  }
+  if (objectType === "SCHEDULER_JOB" || module === "SYSTEM") {
+    if (objectID) {
+      return jobName
+        ? { name: "system-jobs", query: { run_id: objectID, job_name: jobName } }
+        : { name: "system-jobs", query: { run_id: objectID } };
+    }
+    return { name: "system-jobs" };
+  }
+  if (objectType === "DATA_SOURCE" || module === "DATA") {
+    return objectID
+      ? { name: "data-sources", query: { source_key: objectID, action: "logs" } }
+      : { name: "data-sources" };
+  }
+  if (objectType === "STRATEGY_PUBLISH_POLICY") {
+    return policyID
+      ? { name: "market-center", query: { tab: "engine-config", policy_id: policyID } }
+      : { name: "market-center", query: { tab: "engine-config" } };
+  }
+  if (objectType === "STRATEGY_JOB") {
+    if (publishID) {
+      return {
+        name: "market-center",
+        query: {
+          tab: marketTab,
+          publish_id: publishID,
+          view: "detail",
+          job_type: jobType || undefined
+        }
+      };
+    }
+    return objectID
+      ? { name: "system-jobs", query: { run_id: objectID, job_name: jobName || jobType } }
+      : { name: "system-jobs" };
+  }
+  if (module === "STOCK") {
+    return objectID
+      ? { name: "stock-selection-runs", query: { run_id: objectID } }
+      : { name: "stock-selection-runs" };
+  }
+  if (module === "FUTURES") {
+    return objectID
+      ? { name: "futures-selection-runs", query: { run_id: objectID } }
+      : { name: "futures-selection-runs" };
+  }
+  return "";
+}
+
+function openAuditObject(item) {
+  const route = resolveAuditObjectRoute(item);
+  if (!route) {
+    errorMessage.value = "当前事件暂未配置对象跳转页";
+    return;
+  }
+  router.push(route);
+}
+
+async function fetchOperationLogs(options = {}) {
   const { keepMessage = false } = options;
   loading.value = true;
   errorMessage.value = "";
@@ -63,13 +192,13 @@ async function fetchLogs(options = {}) {
 
   try {
     const data = await listOperationLogs({
-      module: filters.module.trim(),
-      action: filters.action.trim(),
-      operator_user_id: filters.operator_user_id.trim(),
+      module: operationFilters.module.trim(),
+      action: operationFilters.action.trim(),
+      operator_user_id: operationFilters.operator_user_id.trim(),
       page: page.value,
       page_size: pageSize.value
     });
-    items.value = data.items || [];
+    operationItems.value = data.items || [];
     total.value = data.total || 0;
   } catch (error) {
     errorMessage.value = normalizeErrorMessage(error, "加载操作日志失败");
@@ -78,17 +207,80 @@ async function fetchLogs(options = {}) {
   }
 }
 
+async function fetchAuditSummary(options = {}) {
+  const { keepMessage = true } = options;
+  if (!keepMessage) {
+    message.value = "";
+  }
+  try {
+    auditSummary.value = await getAuditEventSummary();
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "加载审计摘要失败");
+  }
+}
+
+async function fetchAuditEvents(options = {}) {
+  const { keepMessage = false } = options;
+  loading.value = true;
+  errorMessage.value = "";
+  if (!keepMessage) {
+    message.value = "";
+  }
+
+  try {
+    await fetchAuditSummary({ keepMessage: true });
+    const data = await listAuditEvents({
+      event_domain: auditFilters.event_domain.trim(),
+      event_type: auditFilters.event_type.trim(),
+      level: auditFilters.level.trim(),
+      module: auditFilters.module.trim(),
+      object_type: auditFilters.object_type.trim(),
+      status: auditFilters.status.trim(),
+      page: page.value,
+      page_size: pageSize.value
+    });
+    auditItems.value = data.items || [];
+    total.value = data.total || 0;
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "加载统一审计事件失败");
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function fetchCurrentTab(options = {}) {
+  if (activeTab.value === "audit-events") {
+    await fetchAuditEvents(options);
+    return;
+  }
+  await fetchOperationLogs(options);
+}
+
+function handleTabChange() {
+  page.value = 1;
+  fetchCurrentTab();
+}
+
 function applyFilters() {
   page.value = 1;
-  fetchLogs();
+  fetchCurrentTab();
 }
 
 function resetFilters() {
-  filters.module = "";
-  filters.action = "";
-  filters.operator_user_id = "";
+  if (activeTab.value === "audit-events") {
+    auditFilters.event_domain = "";
+    auditFilters.event_type = "";
+    auditFilters.level = "";
+    auditFilters.module = "";
+    auditFilters.object_type = "";
+    auditFilters.status = "";
+  } else {
+    operationFilters.module = "";
+    operationFilters.action = "";
+    operationFilters.operator_user_id = "";
+  }
   page.value = 1;
-  fetchLogs();
+  fetchCurrentTab();
 }
 
 function handlePageChange(nextPage) {
@@ -96,7 +288,7 @@ function handlePageChange(nextPage) {
     return;
   }
   page.value = nextPage;
-  fetchLogs();
+  fetchCurrentTab();
 }
 
 function csvEscape(value) {
@@ -119,7 +311,7 @@ function triggerCSVDownload(content, fileName) {
   URL.revokeObjectURL(url);
 }
 
-function buildCSVRows(logs) {
+function buildOperationCSVRows(logs) {
   const header = [
     "id",
     "module",
@@ -148,22 +340,28 @@ function buildCSVRows(logs) {
 }
 
 function exportCurrentPageCSV() {
-  const csv = buildCSVRows(items.value);
+  if (activeTab.value !== "operation-logs") {
+    return;
+  }
+  const csv = buildOperationCSVRows(operationItems.value);
   const fileName = `admin_operation_logs_page_${new Date().toISOString().slice(0, 10)}.csv`;
   triggerCSVDownload(csv, fileName);
-  message.value = `已导出当前页 CSV，共 ${items.value.length} 条`;
+  message.value = `已导出当前页 CSV，共 ${operationItems.value.length} 条`;
 }
 
 async function exportFilteredCSV() {
+  if (activeTab.value !== "operation-logs") {
+    return;
+  }
   exportingFiltered.value = true;
   errorMessage.value = "";
   message.value = "";
 
   try {
     const params = new URLSearchParams();
-    if (filters.module.trim()) params.set("module", filters.module.trim());
-    if (filters.action.trim()) params.set("action", filters.action.trim());
-    if (filters.operator_user_id.trim()) params.set("operator_user_id", filters.operator_user_id.trim());
+    if (operationFilters.module.trim()) params.set("module", operationFilters.module.trim());
+    if (operationFilters.action.trim()) params.set("action", operationFilters.action.trim());
+    if (operationFilters.operator_user_id.trim()) params.set("operator_user_id", operationFilters.operator_user_id.trim());
 
     const baseURL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "");
     const query = params.toString();
@@ -212,8 +410,23 @@ function previewText(value, maxLength = 26) {
 }
 
 function openDetail(row) {
-  currentLog.value = row;
+  currentRecord.value = row;
   detailVisible.value = true;
+}
+
+function goToMessageCenter() {
+  router.push("/workflow-messages");
+}
+
+function formatJsonBlock(value) {
+  if (!value || typeof value !== "object") {
+    return "-";
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "-";
+  }
 }
 
 async function copyDetailText(text, label) {
@@ -247,17 +460,20 @@ async function copyDetailText(text, label) {
   }
 }
 
-onMounted(fetchLogs);
+onMounted(fetchCurrentTab);
 </script>
 
 <template>
   <div class="page">
     <div class="page-header">
       <div>
-        <h1 class="page-title">操作日志</h1>
-        <p class="muted">追踪后台关键变更，支持筛选和导出</p>
+        <h1 class="page-title">审计与操作日志</h1>
+        <p class="muted">统一审计事件优先作为真相源，旧操作日志继续保留兼容导出能力</p>
       </div>
-      <el-button :loading="loading" @click="fetchLogs">刷新</el-button>
+      <div class="toolbar" style="margin-bottom: 0">
+        <el-button @click="goToMessageCenter">返回消息中心</el-button>
+        <el-button :loading="loading" @click="fetchCurrentTab">刷新</el-button>
+      </div>
     </div>
 
     <el-alert
@@ -276,30 +492,78 @@ onMounted(fetchLogs);
     />
 
     <div class="card" style="margin-bottom: 12px">
+      <el-tabs v-model="activeTab" @tab-change="handleTabChange">
+        <el-tab-pane label="统一审计事件" name="audit-events" />
+        <el-tab-pane label="旧操作日志" name="operation-logs" />
+      </el-tabs>
+    </div>
+
+    <div v-if="activeTab === 'audit-events'" class="card" style="margin-bottom: 12px">
+      <div class="grid grid-4">
+        <div class="metric-item">
+          <div class="metric-label">事件总数</div>
+          <div class="metric-value">{{ auditSummary?.total_count ?? auditItems.length }}</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">开放事件</div>
+          <div class="metric-value">{{ auditSummary?.open_count ?? auditPageSummary.openCount }}</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">告警等级</div>
+          <div class="metric-value">{{ auditSummary?.warning_count ?? auditPageSummary.warningCount }}</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">已关闭事件</div>
+          <div class="metric-value">{{ resolvedAuditCount(auditSummary) }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div v-else class="card" style="margin-bottom: 12px">
       <div class="grid grid-4">
         <div class="metric-item">
           <div class="metric-label">当前页记录数</div>
-          <div class="metric-value">{{ items.length }}</div>
+          <div class="metric-value">{{ operationItems.length }}</div>
         </div>
         <div class="metric-item">
           <div class="metric-label">涉及模块数</div>
-          <div class="metric-value">{{ pageSummary.modules }}</div>
+          <div class="metric-value">{{ operationPageSummary.modules }}</div>
         </div>
         <div class="metric-item">
           <div class="metric-label">涉及动作数</div>
-          <div class="metric-value">{{ pageSummary.actions }}</div>
+          <div class="metric-value">{{ operationPageSummary.actions }}</div>
         </div>
         <div class="metric-item">
           <div class="metric-label">有备注 / 无备注</div>
-          <div class="metric-value">{{ pageSummary.withReason }} / {{ pageSummary.withoutReason }}</div>
+          <div class="metric-value">{{ operationPageSummary.withReason }} / {{ operationPageSummary.withoutReason }}</div>
         </div>
       </div>
     </div>
 
     <div class="card" style="margin-bottom: 12px">
-      <div class="toolbar" style="margin-bottom: 0">
+      <div v-if="activeTab === 'audit-events'" class="toolbar" style="margin-bottom: 0">
+        <el-select v-model="auditFilters.event_domain" clearable placeholder="事件域" style="width: 150px">
+          <el-option v-for="item in auditDomainOptions" :key="item" :label="item" :value="item" />
+        </el-select>
+        <el-input v-model="auditFilters.event_type" clearable placeholder="事件类型" style="width: 220px" />
+        <el-select v-model="auditFilters.level" clearable placeholder="告警等级" style="width: 150px">
+          <el-option v-for="item in auditLevelOptions" :key="item" :label="item" :value="item" />
+        </el-select>
+        <el-select v-model="auditFilters.module" clearable filterable allow-create default-first-option placeholder="模块" style="width: 160px">
+          <el-option v-for="item in moduleOptions" :key="item" :label="item" :value="item" />
+        </el-select>
+        <el-select v-model="auditFilters.object_type" clearable filterable allow-create default-first-option placeholder="对象类型" style="width: 170px">
+          <el-option v-for="item in auditObjectTypeOptions" :key="item" :label="item" :value="item" />
+        </el-select>
+        <el-select v-model="auditFilters.status" clearable placeholder="状态" style="width: 150px">
+          <el-option v-for="item in auditStatusOptions" :key="item" :label="item" :value="item" />
+        </el-select>
+        <el-button type="primary" plain @click="applyFilters">查询</el-button>
+        <el-button @click="resetFilters">重置</el-button>
+      </div>
+      <div v-else class="toolbar" style="margin-bottom: 0">
         <el-select
-          v-model="filters.module"
+          v-model="operationFilters.module"
           clearable
           filterable
           allow-create
@@ -309,9 +573,9 @@ onMounted(fetchLogs);
         >
           <el-option v-for="item in moduleOptions" :key="item" :label="item" :value="item" />
         </el-select>
-        <el-input v-model="filters.action" clearable placeholder="动作（如 UPDATE_STATUS）" style="width: 200px" />
+        <el-input v-model="operationFilters.action" clearable placeholder="动作（如 UPDATE_STATUS）" style="width: 200px" />
         <el-input
-          v-model="filters.operator_user_id"
+          v-model="operationFilters.operator_user_id"
           clearable
           placeholder="操作人ID（可选）"
           style="width: 200px"
@@ -324,7 +588,32 @@ onMounted(fetchLogs);
     </div>
 
     <div class="card">
-      <el-table :data="items" border stripe v-loading="loading" empty-text="暂无操作日志">
+      <el-table v-if="activeTab === 'audit-events'" :data="auditItems" border stripe v-loading="loading" empty-text="暂无统一审计事件">
+        <el-table-column prop="id" label="事件ID" min-width="150" />
+        <el-table-column prop="event_domain" label="事件域" min-width="110" />
+        <el-table-column prop="event_type" label="事件类型" min-width="200" />
+        <el-table-column prop="level" label="告警等级" min-width="110" />
+        <el-table-column prop="module" label="模块" min-width="120" />
+        <el-table-column prop="object_type" label="对象类型" min-width="130" />
+        <el-table-column prop="object_id" label="对象ID" min-width="150" />
+        <el-table-column prop="status" label="状态" min-width="100" />
+        <el-table-column label="摘要" min-width="220">
+          <template #default="{ row }">
+            <div class="cell-preview">{{ previewText(row.summary || row.title, 40) }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="时间" min-width="180" />
+        <el-table-column label="操作" align="right" min-width="100">
+          <template #default="{ row }">
+            <div class="inline-actions">
+              <el-button size="small" @click="openDetail(row)">详情</el-button>
+              <el-button size="small" :disabled="!resolveAuditObjectRoute(row)" @click="openAuditObject(row)">跳转对象页</el-button>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-table v-else :data="operationItems" border stripe v-loading="loading" empty-text="暂无操作日志">
         <el-table-column prop="id" label="日志ID" min-width="140" />
         <el-table-column prop="module" label="模块" min-width="100" />
         <el-table-column prop="action" label="动作" min-width="160" />
@@ -369,67 +658,117 @@ onMounted(fetchLogs);
 
     <el-drawer v-model="detailVisible" size="620px" destroy-on-close>
       <template #header>
-        <div class="drawer-title">操作日志详情</div>
+        <div class="drawer-title">{{ activeTab === 'audit-events' ? '审计事件详情' : '操作日志详情' }}</div>
       </template>
 
-      <template v-if="currentLog">
-        <el-descriptions :column="1" border size="small">
-          <el-descriptions-item label="日志ID">{{ currentLog.id || "-" }}</el-descriptions-item>
-          <el-descriptions-item label="模块">{{ currentLog.module || "-" }}</el-descriptions-item>
-          <el-descriptions-item label="动作">{{ currentLog.action || "-" }}</el-descriptions-item>
-          <el-descriptions-item label="目标类型">{{ currentLog.target_type || "-" }}</el-descriptions-item>
-          <el-descriptions-item label="目标ID">{{ currentLog.target_id || "-" }}</el-descriptions-item>
-          <el-descriptions-item label="操作人">{{ currentLog.operator_user_id || "-" }}</el-descriptions-item>
-          <el-descriptions-item label="时间">{{ currentLog.created_at || "-" }}</el-descriptions-item>
+      <template v-if="currentRecord">
+        <el-descriptions v-if="activeTab === 'audit-events'" :column="1" border size="small">
+          <el-descriptions-item label="事件ID">{{ currentRecord.id || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="事件域">{{ currentRecord.event_domain || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="事件类型">{{ currentRecord.event_type || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="告警等级">{{ currentRecord.level || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="模块">{{ currentRecord.module || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="对象类型">{{ currentRecord.object_type || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="对象ID">{{ currentRecord.object_id || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="操作人">{{ currentRecord.actor_user_id || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="状态">{{ currentRecord.status || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="时间">{{ currentRecord.created_at || '-' }}</el-descriptions-item>
         </el-descriptions>
 
-        <div class="detail-block-wrap">
+        <el-descriptions v-else :column="1" border size="small">
+          <el-descriptions-item label="日志ID">{{ currentRecord.id || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="模块">{{ currentRecord.module || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="动作">{{ currentRecord.action || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="目标类型">{{ currentRecord.target_type || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="目标ID">{{ currentRecord.target_id || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="操作人">{{ currentRecord.operator_user_id || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="时间">{{ currentRecord.created_at || '-' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div v-if="activeTab === 'audit-events'" class="detail-block-wrap">
           <div class="detail-title-row">
-            <h4>变更前</h4>
+            <h4>摘要</h4>
             <el-button
               link
               type="primary"
-              :disabled="!(currentLog.before_value || '').trim()"
+              :disabled="!(currentRecord.summary || currentRecord.title || '').trim()"
               :loading="copyingDetail"
-              @click="copyDetailText(currentLog.before_value, '变更前内容')"
+              @click="copyDetailText(currentRecord.summary || currentRecord.title, '摘要')"
             >
               复制
             </el-button>
+            <el-button link type="primary" :disabled="!resolveAuditObjectRoute(currentRecord)" @click="openAuditObject(currentRecord)">
+              跳转对象页
+            </el-button>
           </div>
-          <pre class="detail-block">{{ currentLog.before_value || "-" }}</pre>
+          <pre class="detail-block">{{ currentRecord.summary || currentRecord.title || '-' }}</pre>
         </div>
 
         <div class="detail-block-wrap">
           <div class="detail-title-row">
-            <h4>变更后</h4>
+            <h4>{{ activeTab === 'audit-events' ? '详情' : '变更前' }}</h4>
             <el-button
               link
               type="primary"
-              :disabled="!(currentLog.after_value || '').trim()"
+              :disabled="!(activeTab === 'audit-events' ? currentRecord.detail : currentRecord.before_value || '').trim()"
               :loading="copyingDetail"
-              @click="copyDetailText(currentLog.after_value, '变更后内容')"
+              @click="copyDetailText(activeTab === 'audit-events' ? currentRecord.detail : currentRecord.before_value, activeTab === 'audit-events' ? '详情' : '变更前内容')"
             >
               复制
             </el-button>
           </div>
-          <pre class="detail-block">{{ currentLog.after_value || "-" }}</pre>
+          <pre class="detail-block">{{ activeTab === 'audit-events' ? currentRecord.detail || '-' : currentRecord.before_value || '-' }}</pre>
         </div>
 
-        <div class="detail-block-wrap">
+        <div v-if="activeTab === 'audit-events'" class="detail-block-wrap">
           <div class="detail-title-row">
-            <h4>备注</h4>
+            <h4>metadata</h4>
             <el-button
               link
               type="primary"
-              :disabled="!(currentLog.reason || '').trim()"
+              :disabled="formatJsonBlock(currentRecord.metadata) === '-'"
               :loading="copyingDetail"
-              @click="copyDetailText(currentLog.reason, '备注')"
+              @click="copyDetailText(formatJsonBlock(currentRecord.metadata), 'metadata')"
             >
               复制
             </el-button>
           </div>
-          <pre class="detail-block">{{ currentLog.reason || "-" }}</pre>
+          <pre class="detail-block">{{ formatJsonBlock(currentRecord.metadata) }}</pre>
         </div>
+
+        <template v-else>
+          <div class="detail-block-wrap">
+            <div class="detail-title-row">
+              <h4>变更后</h4>
+              <el-button
+                link
+                type="primary"
+                :disabled="!(currentRecord.after_value || '').trim()"
+                :loading="copyingDetail"
+                @click="copyDetailText(currentRecord.after_value, '变更后内容')"
+              >
+                复制
+              </el-button>
+            </div>
+            <pre class="detail-block">{{ currentRecord.after_value || '-' }}</pre>
+          </div>
+
+          <div class="detail-block-wrap">
+            <div class="detail-title-row">
+              <h4>备注</h4>
+              <el-button
+                link
+                type="primary"
+                :disabled="!(currentRecord.reason || '').trim()"
+                :loading="copyingDetail"
+                @click="copyDetailText(currentRecord.reason, '备注')"
+              >
+                复制
+              </el-button>
+            </div>
+            <pre class="detail-block">{{ currentRecord.reason || '-' }}</pre>
+          </div>
+        </template>
       </template>
     </el-drawer>
   </div>

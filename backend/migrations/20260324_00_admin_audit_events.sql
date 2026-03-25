@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS admin_audit_events (
+  id VARCHAR(64) NOT NULL PRIMARY KEY,
+  event_domain VARCHAR(32) NOT NULL,
+  event_type VARCHAR(64) NOT NULL,
+  level VARCHAR(16) NOT NULL,
+  module VARCHAR(32) NOT NULL DEFAULT '',
+  object_type VARCHAR(64) NOT NULL DEFAULT '',
+  object_id VARCHAR(128) NOT NULL DEFAULT '',
+  actor_user_id VARCHAR(64) NOT NULL DEFAULT '',
+  title VARCHAR(128) NOT NULL,
+  summary VARCHAR(512) NOT NULL DEFAULT '',
+  detail TEXT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'OPEN',
+  metadata_json TEXT NULL,
+  dedupe_key VARCHAR(191) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_admin_audit_events_created_at (created_at),
+  KEY idx_admin_audit_events_domain_level (event_domain, level, created_at),
+  KEY idx_admin_audit_events_type_status (event_type, status, created_at),
+  KEY idx_admin_audit_events_object (object_type, object_id, created_at),
+  KEY idx_admin_audit_events_actor (actor_user_id, created_at),
+  KEY idx_admin_audit_events_dedupe_key (dedupe_key)
+);

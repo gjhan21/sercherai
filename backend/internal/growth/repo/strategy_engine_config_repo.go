@@ -391,6 +391,9 @@ INSERT INTO system_configs (id, config_key, config_value, description, updated_b
 VALUES (?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), description = VALUES(description), updated_by = VALUES(updated_by), updated_at = VALUES(updated_at)`,
 		newID("cfg"), configKey, string(body), strings.TrimSpace(description), strings.TrimSpace(operator), time.Now())
+	if err == nil && strings.TrimSpace(operator) == strategyBuiltInPolicyOperator {
+		r.recordStrategyConfigBootstrapAuditEvent(configKey, description, operator)
+	}
 	return err
 }
 

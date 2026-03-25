@@ -118,6 +118,18 @@ const detailSelectedCount = computed(() => {
 const detailConsensusSummary = computed(() =>
   String(detailReport.value?.consensus_summary || detail.value?.result_summary || detail.value?.result?.summary || "").trim()
 );
+function formatGovernanceValue(value) {
+  return String(value || "").trim() || "-";
+}
+
+function formatGovernanceChain(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return "-";
+  }
+  const values = items.map((item) => String(item || "").trim()).filter(Boolean);
+  return values.length ? values.join(" -> ") : "-";
+}
+
 const detailContextRows = computed(() => [
   { label: "行情交易日", value: detailContextMeta.value?.selected_trade_date || "-" },
   { label: "行情来源", value: detailContextMeta.value?.price_source || "-" },
@@ -127,6 +139,12 @@ const detailContextRows = computed(() => [
       ? `${detailContextMeta.value.news_window_days} 天`
       : "-"
   }
+]);
+const detailGovernanceRows = computed(() => [
+  { label: "路由主源", value: formatGovernanceValue(detailContextMeta.value?.selected_source || detailContextMeta.value?.price_source) },
+  { label: "回退链路", value: formatGovernanceChain(detailContextMeta.value?.fallback_chain) },
+  { label: "决策原因", value: formatGovernanceValue(detailContextMeta.value?.decision_reason) },
+  { label: "策略键", value: formatGovernanceValue(detailContextMeta.value?.policy_key) }
 ]);
 const detailConfigRefs = computed(() => {
   const refs = detailPayload.value?.config_refs;
@@ -649,6 +667,15 @@ defineExpose({ refreshJobs });
                 <p class="detail-card__label">真实数据上下文</p>
                 <div class="inline-grid">
                   <article v-for="item in detailContextRows" :key="item.label">
+                    <p>{{ item.label }}</p>
+                    <strong>{{ item.value }}</strong>
+                  </article>
+                </div>
+              </div>
+              <div class="detail-card">
+                <p class="detail-card__label">治理路由摘要</p>
+                <div class="inline-grid">
+                  <article v-for="item in detailGovernanceRows" :key="item.label">
                     <p>{{ item.label }}</p>
                     <strong>{{ item.value }}</strong>
                   </article>

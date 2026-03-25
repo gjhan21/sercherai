@@ -206,6 +206,9 @@ type GrowthService interface {
 	AdminDashboardOverview() (model.AdminDashboardOverview, error)
 	AdminCreateOperationLog(module string, action string, targetType string, targetID string, operatorUserID string, beforeValue string, afterValue string, reason string) error
 	AdminListOperationLogs(module string, action string, operatorUserID string, page int, pageSize int) ([]model.AdminOperationLog, int, error)
+	AdminCreateAuditEvent(item model.AdminAuditEvent) error
+	AdminListAuditEvents(filter model.AdminAuditEventFilter, page int, pageSize int) ([]model.AdminAuditEvent, int, error)
+	AdminGetAuditEventSummary() (model.AdminAuditEventSummary, error)
 	AdminListMembershipProducts(status string, page int, pageSize int) ([]model.MembershipProduct, int, error)
 	AdminCreateMembershipProduct(name string, price float64, status string, memberLevel string, durationDays int) (string, error)
 	AdminUpdateMembershipProduct(id string, name string, price float64, status string, memberLevel string, durationDays int) error
@@ -290,6 +293,18 @@ func (s *growthService) BuildStrategyEngineStockSelectionContext(input model.Str
 
 func (s *growthService) BuildStrategyEngineFuturesStrategyContext(input model.StrategyEngineFuturesStrategyContextRequest) (model.StrategyEngineFuturesStrategyContextResponse, error) {
 	return s.repo.BuildStrategyEngineFuturesStrategyContext(input)
+}
+
+func (s *growthService) AdminCreateAuditEvent(item model.AdminAuditEvent) error {
+	return s.repo.AdminCreateAuditEvent(item)
+}
+
+func (s *growthService) AdminListAuditEvents(filter model.AdminAuditEventFilter, page int, pageSize int) ([]model.AdminAuditEvent, int, error) {
+	return s.repo.AdminListAuditEvents(filter, page, pageSize)
+}
+
+func (s *growthService) AdminGetAuditEventSummary() (model.AdminAuditEventSummary, error) {
+	return s.repo.AdminGetAuditEventSummary()
 }
 
 func (s *growthService) ListRechargeRecords(userID string, status string, page int, pageSize int) ([]model.RechargeRecord, int, error) {

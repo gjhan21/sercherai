@@ -67,6 +67,14 @@ export function listOperationLogs(params) {
   return http.get("/admin/audit/operation-logs", { params: buildParams(params) });
 }
 
+export function listAuditEvents(params) {
+  return http.get("/admin/audit/events", { params: buildParams(params) });
+}
+
+export function getAuditEventSummary() {
+  return http.get("/admin/audit/events/summary");
+}
+
 export function listUsers(params) {
   return http.get("/admin/users", { params: buildParams(params) });
 }
@@ -218,6 +226,29 @@ export function listMarketDataQualityLogs(params) {
   return http.get("/admin/data-sources/market-quality-logs", {
     params: buildParams(params)
   });
+}
+
+export function getDataSourceGovernanceOverview() {
+  return http.get("/admin/data-sources/governance/overview");
+}
+
+export function listDataSourceGovernanceCapabilities(params) {
+  return http.get("/admin/data-sources/governance/capabilities", {
+    params: buildParams(params)
+  });
+}
+
+export function listDataSourceGovernanceRoutingPolicies(params) {
+  return http.get("/admin/data-sources/governance/routing-policies", {
+    params: buildParams(params)
+  });
+}
+
+export function updateDataSourceGovernanceRoutingPolicy(policyKey, payload) {
+  return http.put(
+    `/admin/data-sources/governance/routing-policies/${encodeURIComponent(policyKey)}`,
+    payload
+  );
 }
 
 export function getMarketDataQualitySummary(params) {

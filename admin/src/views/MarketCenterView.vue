@@ -3,7 +3,6 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import StrategyEngineConfigPanel from "../components/StrategyEngineConfigPanel.vue";
 import {
-  batchCheckDataSources,
   compareFuturesStrategyEnginePublishVersions,
   compareStockStrategyEnginePublishVersions,
   createMarketEvent,
@@ -12,31 +11,17 @@ import {
   ensureMarketRhythmTasks,
   generateDailyFuturesStrategies,
   generateDailyStockRecommendations,
-  getMarketDataQualitySummary,
-  getMarketDerivedTruthSummary,
   getFuturesStrategyEnginePublishRecord,
   getFuturesStrategyEnginePublishReplay,
   getStockStrategyEnginePublishRecord,
   getStockStrategyEnginePublishReplay,
-  listDataSources,
-  listMarketDataQualityLogs,
   listFuturesStrategyEnginePublishHistory,
   listMarketRhythmTasks,
   listNewsArticles,
-  listOperationLogs,
-  listQuantEvaluation,
-  listQuantTopStocks,
   listMarketEvents,
   listFuturesStrategies,
-  listSystemConfigs,
   listStockStrategyEnginePublishHistory,
   listStockRecommendations,
-  rebuildFuturesDerivedTruth,
-  rebuildStockDerivedTruth,
-  syncFuturesInventory,
-  syncFuturesQuotes,
-  syncMarketNewsSource,
-  syncStockQuotes,
   updateMarketEvent,
   updateMarketRhythmTask,
   updateMarketRhythmTaskStatus,
@@ -44,25 +29,14 @@ import {
   updateStockRecommendationStatus
 } from "../api/admin";
 import { sanitizeHTML } from "../lib/html";
-import {
-  buildMarketQualityDrillQuery,
-  DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS,
-  MARKET_QUALITY_LOOKBACK_OPTIONS,
-  buildMarketQualityDialogTitle,
-  collectMarketQualityIssueOptions,
-  formatMarketQualityLookbackLabel,
-  formatMarketQualityPayload,
-  formatTruthRebuildSuccessMessage,
-  marketQualitySeverityTagType,
-  normalizeMarketCenterRouteState,
-  normalizeMarketQualityLookbackHours
-} from "../lib/market-data-admin";
-import { getAccessToken, hasPermission } from "../lib/session";
+import { normalizeMarketCenterRouteState } from "../lib/market-data-admin";
+import { hasPermission } from "../lib/session";
 
 const route = useRoute();
 const router = useRouter();
 const activeTab = ref("stocks");
 const strategyConfigPanelRef = ref(null);
+const marketCenterRouteFocusKey = ref("");
 const errorMessage = ref("");
 const message = ref("");
 const refreshingAll = ref(false);
@@ -76,8 +50,6 @@ const rhythmTaskSavingMap = ref({});
 const canViewNewsRhythm = hasPermission("news.view");
 const canEditMarket = hasPermission("market.edit");
 const canEditMarketRhythm = canEditMarket;
-const canEditNews = hasPermission("news.edit");
-const canCheckDataSourceHealth = hasPermission("data_source.edit");
 
 const stockLoading = ref(false);
 const stockSubmitting = ref(false);
@@ -165,61 +137,6 @@ const stockForm = reactive({
   review_note: "",
   performance_label: "PENDING"
 });
-const stockQuantLoading = ref(false);
-const stockQuoteSyncing = ref(false);
-const stockSourceLoading = ref(false);
-const stockAutoFallback = ref(true);
-const stockQuantUpdatedAt = ref("");
-const stockQuantList = ref([]);
-const stockEvalLoading = ref(false);
-const stockEvalExporting = ref(false);
-const stockEvalList = ref([]);
-const stockEvalRiskList = ref([]);
-const stockEvalRotationList = ref([]);
-const stockEvalSummary = ref({
-  window_days: 60,
-  top_n: 10,
-  sample_days: 0,
-  sample_count: 0,
-  avg_return_5: 0,
-  hit_rate_5: 0,
-  max_drawdown_5: 0,
-  avg_return_10: 0,
-  hit_rate_10: 0,
-  max_drawdown_10: 0,
-  benchmark_avg_return_5: 0,
-  benchmark_avg_return_10: 0
-});
-const stockSourceOptions = ref([]);
-const stockSourceHealthMap = ref({});
-const stockQualityLogs = ref([]);
-const stockQualityIssueFilter = ref("");
-const stockQualitySummary = ref(null);
-const stockQualityLogsLoading = ref(false);
-const stockQualityLookbackHours = ref(DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS);
-const stockTruthRebuilding = ref(false);
-const stockTruthRebuildSummary = ref(null);
-const stockDefaultSourceLoading = ref(false);
-const stockDefaultSourceKey = ref("TUSHARE");
-const stockLastSyncResult = ref(null);
-const stockSyncLogsLoading = ref(false);
-const stockSyncLogsPage = ref(1);
-const stockSyncLogsPageSize = ref(10);
-const stockSyncLogsTotal = ref(0);
-const stockSyncLogs = ref([]);
-const stockQuoteSyncForm = reactive({
-  source_key: "TUSHARE",
-  symbols: "",
-  days: 120
-});
-const stockQuantQuery = reactive({
-  limit: 10,
-  lookback_days: 120
-});
-const stockEvalQuery = reactive({
-  days: 60,
-  top_n: 10
-});
 const stockPublishDetailHTML = computed(() => sanitizeHTML(stockPublishDetail.value?.html || "<p>暂无报告正文</p>"));
 
 const futuresLoading = ref(false);
@@ -291,34 +208,6 @@ const futuresFilters = reactive({
 });
 const futuresTradeDate = ref("");
 const futuresDraftStatusMap = ref({});
-const futuresQuoteSyncing = ref(false);
-const futuresInventorySyncing = ref(false);
-const futuresSourceLoading = ref(false);
-const futuresSourceOptions = ref([]);
-const futuresSourceHealthMap = ref({});
-const futuresQualityLogs = ref([]);
-const futuresQualityIssueFilter = ref("");
-const futuresQualitySummary = ref(null);
-const futuresQualityLogsLoading = ref(false);
-const futuresQualityLookbackHours = ref(DEFAULT_MARKET_QUALITY_LOOKBACK_HOURS);
-const futuresTruthRebuilding = ref(false);
-const futuresTruthRebuildSummary = ref(null);
-const marketQualityDetailDialogVisible = ref(false);
-const marketQualityDetailLog = ref(null);
-const futuresDefaultSourceLoading = ref(false);
-const futuresDefaultSourceKey = ref("TUSHARE");
-const futuresLastSyncResult = ref(null);
-const futuresInventoryLastSyncResult = ref(null);
-const futuresQuoteSyncForm = reactive({
-  source_key: "TUSHARE",
-  contracts: "",
-  days: 120
-});
-const futuresInventorySyncForm = reactive({
-  source_key: "TUSHARE",
-  symbols: "",
-  days: 30
-});
 const futuresDialogVisible = ref(false);
 const futuresForm = reactive({
   contract: "",
@@ -333,57 +222,6 @@ const futuresForm = reactive({
 });
 const futuresPublishDetailHTML = computed(() =>
   sanitizeHTML(futuresPublishDetail.value?.html || "<p>暂无报告正文</p>")
-);
-
-const marketNewsSyncing = ref(false);
-const marketNewsSourceLoading = ref(false);
-const marketNewsSourceOptions = ref([]);
-const marketNewsSourceHealthMap = ref({});
-const marketNewsDefaultSourceLoading = ref(false);
-const marketNewsDefaultSourceKey = ref("AKSHARE");
-const marketNewsLastSyncResult = ref(null);
-const marketNewsSyncForm = reactive({
-  source_key: "AKSHARE",
-  symbols: "",
-  days: 7,
-  limit: 50
-});
-const marketTruthRebuildForm = reactive({
-  trade_date: "",
-  days: 3
-});
-
-const marketQualityDetailTitle = computed(() =>
-  buildMarketQualityDialogTitle(marketQualityDetailLog.value || {})
-);
-const marketQualityDetailPayload = computed(() =>
-  formatMarketQualityPayload(marketQualityDetailLog.value?.payload || "")
-);
-const stockQualityIssueOptions = computed(() => collectMarketQualityIssueOptions(stockQualityLogs.value, 6));
-const futuresQualityIssueOptions = computed(() => collectMarketQualityIssueOptions(futuresQualityLogs.value, 6));
-const visibleStockQualityLogs = computed(() => {
-  const issueCode = String(stockQualityIssueFilter.value || "").trim().toUpperCase();
-  if (!issueCode) {
-    return stockQualityLogs.value;
-  }
-  return stockQualityLogs.value.filter(
-    (item) => String(item?.issue_code || "").trim().toUpperCase() === issueCode
-  );
-});
-const visibleFuturesQualityLogs = computed(() => {
-  const issueCode = String(futuresQualityIssueFilter.value || "").trim().toUpperCase();
-  if (!issueCode) {
-    return futuresQualityLogs.value;
-  }
-  return futuresQualityLogs.value.filter(
-    (item) => String(item?.issue_code || "").trim().toUpperCase() === issueCode
-  );
-});
-const stockQualityLookbackLabel = computed(() =>
-  formatMarketQualityLookbackLabel(stockQualityLookbackHours.value)
-);
-const futuresQualityLookbackLabel = computed(() =>
-  formatMarketQualityLookbackLabel(futuresQualityLookbackHours.value)
 );
 
 const eventsLoading = ref(false);
@@ -438,13 +276,6 @@ const riskLevelOptions = ["LOW", "MEDIUM", "HIGH"];
 const directionOptions = ["LONG", "SHORT", "NEUTRAL"];
 const marketEventTypeOptions = ["PRICE", "VOLUME", "VOLATILITY", "POLICY", "FLOW", "OTHER"];
 const rhythmTaskStatusOptions = ["TODO", "IN_PROGRESS", "DONE", "BLOCKED"];
-const STOCK_DEFAULT_SOURCE_CONFIG_KEY = "stock.quotes.default_source_key";
-const STOCK_DEFAULT_SOURCE_FALLBACK = "TUSHARE";
-const FUTURES_DEFAULT_SOURCE_CONFIG_KEY = "futures.quotes.default_source_key";
-const FUTURES_DEFAULT_SOURCE_FALLBACK = "TUSHARE";
-const MARKET_NEWS_DEFAULT_SOURCE_CONFIG_KEY = "market.news.default_source_key";
-const MARKET_NEWS_DEFAULT_SOURCE_FALLBACK = "AKSHARE";
-
 function normalizeErrorMessage(error, fallback) {
   return error?.message || fallback || "操作失败";
 }
@@ -478,16 +309,6 @@ function normalizeToRFC3339(value) {
     }
   }
   return "";
-}
-
-function splitSymbols(rawText) {
-  const set = new Set();
-  String(rawText || "")
-    .split(/[\s,，;\n]+/)
-    .map((item) => item.trim().toUpperCase())
-    .filter(Boolean)
-    .forEach((item) => set.add(item));
-  return Array.from(set);
 }
 
 function formatDateTime(value) {
@@ -646,99 +467,6 @@ function replaceRhythmTask(item) {
   };
 }
 
-function buildCurveModel(rows, mappings) {
-  const width = 760;
-  const height = 220;
-  const padding = 28;
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return {
-      width,
-      height,
-      minValue: 0,
-      maxValue: 0,
-      paths: mappings.map((mapping) => ({ ...mapping, d: "" }))
-    };
-  }
-  const values = [];
-  rows.forEach((row) => {
-    mappings.forEach((mapping) => {
-      const value = Number(mapping.selector(row));
-      if (Number.isFinite(value)) {
-        values.push(value);
-      }
-    });
-  });
-  let minValue = Math.min(0, ...values);
-  let maxValue = Math.max(0, ...values);
-  if (!Number.isFinite(minValue)) {
-    minValue = 0;
-  }
-  if (!Number.isFinite(maxValue)) {
-    maxValue = 0;
-  }
-  if (Math.abs(maxValue - minValue) < 1e-9) {
-    maxValue += 0.01;
-    minValue -= 0.01;
-  }
-  const innerWidth = width - padding * 2;
-  const innerHeight = height - padding * 2;
-  const toPoint = (index, value) => {
-    const x = padding + (rows.length <= 1 ? innerWidth / 2 : (innerWidth * index) / (rows.length - 1));
-    const ratio = (value - minValue) / (maxValue - minValue);
-    const y = padding + (1 - ratio) * innerHeight;
-    return [x, y];
-  };
-  const paths = mappings.map((mapping) => {
-    const points = rows
-      .map((row, index) => {
-        const value = Number(mapping.selector(row));
-        if (!Number.isFinite(value)) {
-          return null;
-        }
-        return toPoint(index, value);
-      })
-      .filter(Boolean);
-    const d = points
-      .map((point, index) => `${index === 0 ? "M" : "L"} ${point[0].toFixed(2)} ${point[1].toFixed(2)}`)
-      .join(" ");
-    return { ...mapping, d };
-  });
-  return { width, height, minValue, maxValue, paths };
-}
-
-const stockEvalCurve5 = computed(() =>
-  buildCurveModel(stockEvalList.value, [
-    { key: "strategy", label: "策略累计收益(5日)", color: "#0f766e", selector: (row) => row.cumulative_return_5 },
-    { key: "benchmark", label: "基准累计收益(5日)", color: "#9a3412", selector: (row) => row.cumulative_benchmark_5 },
-    { key: "excess", label: "超额收益(5日)", color: "#1d4ed8", selector: (row) => row.cumulative_excess_5 }
-  ])
-);
-
-const stockEvalCurve10 = computed(() =>
-  buildCurveModel(stockEvalList.value, [
-    { key: "strategy", label: "策略累计收益(10日)", color: "#047857", selector: (row) => row.cumulative_return_10 },
-    { key: "benchmark", label: "基准累计收益(10日)", color: "#b45309", selector: (row) => row.cumulative_benchmark_10 },
-    { key: "excess", label: "超额收益(10日)", color: "#2563eb", selector: (row) => row.cumulative_excess_10 }
-  ])
-);
-
-function curveZeroLineY(curve) {
-  const minValue = Number(curve?.minValue);
-  const maxValue = Number(curve?.maxValue);
-  const height = Number(curve?.height) || 220;
-  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue) || Math.abs(maxValue - minValue) < 1e-9) {
-    return height - 28;
-  }
-  const ratio = (maxValue - 0) / (maxValue - minValue);
-  return ratio * (height - 56) + 28;
-}
-
-function normalizeSourceKey(value) {
-  return String(value || "")
-    .trim()
-    .toUpperCase();
-}
-
 function statusTagType(status) {
   const normalized = (status || "").toUpperCase();
   if (["ACTIVE", "PUBLISHED", "TRACKING", "REVIEWED", "SUCCESS", "LOW", "WIN"].includes(normalized)) {
@@ -762,801 +490,74 @@ function getAllowedStockStatusOptions(currentStatus) {
   return Array.from(new Set([normalized, ...allowed].filter(Boolean)));
 }
 
-function resolveDataSourceProvider(item) {
-  return String(item?.config?.provider || item?.config?.vendor || "").trim().toUpperCase();
-}
-
-function supportsSyncKind(item, kind) {
-  const provider = resolveDataSourceProvider(item);
-  switch (kind) {
-    case "stock_quotes":
-      return ["TUSHARE", "AKSHARE", "TICKERMD", "MOCK", "MYSELF"].includes(provider);
-    case "futures_quotes":
-      return ["TUSHARE", "AKSHARE", "TICKERMD", "MOCK", "MYSELF"].includes(provider);
-    case "market_news":
-      return ["AKSHARE", "TUSHARE"].includes(provider);
-    default:
-      return false;
-  }
-}
-
-function normalizeSourceOption(item, healthMap = {}) {
-  const sourceKey = normalizeSourceKey(item?.source_key);
-  const name = String(item?.name || "").trim();
-  const provider = resolveDataSourceProvider(item);
-  const sourceType = String(item?.source_type || "").trim().toUpperCase();
-  const status = String(item?.status || "").trim().toUpperCase();
-  const healthItem = healthMap[sourceKey] || null;
-  const healthStatus = String(healthItem?.status || "").trim().toUpperCase();
-  const healthMessage = String(healthItem?.message || "").trim();
-  const tags = [];
-  if (provider) {
-    tags.push(provider);
-  }
-  if (sourceType) {
-    tags.push(sourceType);
-  }
-  if (status) {
-    tags.push(status);
-  }
-  if (healthStatus) {
-    tags.push(`HEALTH:${healthStatus}`);
-  }
-  const disabled = status !== "ACTIVE" || healthStatus === "UNHEALTHY";
-  return {
-    value: sourceKey,
-    label: `${sourceKey}${name ? ` · ${name}` : ""}${tags.length ? ` (${tags.join("/")})` : ""}`,
-    status,
-    source_type: sourceType,
-    health_status: healthStatus,
-    health_message: healthMessage,
-    disabled
-  };
-}
-
-function compareSourceOptions(left, right, preferredValues = []) {
-  const normalizedPreferred = preferredValues.map((item) => normalizeSourceKey(item));
-  for (const value of normalizedPreferred) {
-    if (left.value === value && right.value !== value) {
-      return -1;
-    }
-    if (left.value !== value && right.value === value) {
-      return 1;
-    }
-  }
-  return left.value.localeCompare(right.value);
-}
-
-function buildSyntheticSourceOption(value, label, extra = {}) {
-  return {
-    value: normalizeSourceKey(value),
-    label,
-    status: "ACTIVE",
-    source_type: "SYSTEM",
-    health_status: "",
-    health_message: "",
-    disabled: false,
-    synthetic: true,
-    ...extra
-  };
-}
-
-function buildAutoSourceOption(preferredValues = []) {
-  const routeText = preferredValues.filter(Boolean).join(" -> ");
-  return buildSyntheticSourceOption(
-    "AUTO",
-    `AUTO · 按优先级自动回退${routeText ? ` (${routeText})` : ""}`,
-    {
-      health_message: routeText ? `按系统优先级依次尝试：${routeText}` : "按系统优先级依次尝试多个数据源"
-    }
-  );
-}
-
-function isCompositeSourceKey(value) {
-  return /[,;| ]/.test(String(value || "").trim());
-}
-
-function buildCustomChainSourceOption(value) {
-  const normalized = normalizeSourceKey(value);
-  return buildSyntheticSourceOption(normalized, `${normalized} · 自定义回退链路`, {
-    health_message: "按输入顺序依次尝试多个数据源"
-  });
-}
-
-async function fetchDefaultSourceKey(configKey, fallback, targetRef, options = {}) {
-  const { keepMessage = false, loadingRef = null } = options;
-  if (loadingRef) {
-    loadingRef.value = true;
-  }
-  if (!keepMessage) {
-    errorMessage.value = "";
-    message.value = "";
-  }
-  try {
-    const data = await listSystemConfigs({
-      keyword: configKey,
-      page: 1,
-      page_size: 50
-    });
-    const rows = Array.isArray(data?.items) ? data.items : [];
-    const matched = rows.find(
-      (item) =>
-        normalizeSourceKey(item?.config_key) === normalizeSourceKey(configKey)
-    );
-    const parsed = normalizeSourceKey(matched?.config_value);
-    targetRef.value = parsed || fallback;
-  } catch (error) {
-    targetRef.value = fallback;
-    if (!keepMessage) {
-      errorMessage.value = normalizeErrorMessage(error, "加载默认行情源失败");
-    }
-  } finally {
-    if (loadingRef) {
-      loadingRef.value = false;
-    }
-  }
-}
-
-async function fetchSourceOptionsForKind(kind, options = {}) {
-  const { keepMessage = false } = options;
-  const sourceConfig =
-    kind === "stock_quotes"
-      ? {
-          loadingRef: stockSourceLoading,
-          optionsRef: stockSourceOptions,
-          healthMapRef: stockSourceHealthMap,
-          defaultKeyRef: stockDefaultSourceKey,
-          defaultConfigKey: STOCK_DEFAULT_SOURCE_CONFIG_KEY,
-          defaultFallback: STOCK_DEFAULT_SOURCE_FALLBACK,
-          form: stockQuoteSyncForm,
-          preferredValues: ["TUSHARE", "AKSHARE", "TICKERMD", "MOCK"],
-          errorLabel: "加载股票行情数据源失败"
-        }
-      : kind === "futures_quotes"
-        ? {
-            loadingRef: futuresSourceLoading,
-            optionsRef: futuresSourceOptions,
-            healthMapRef: futuresSourceHealthMap,
-            defaultKeyRef: futuresDefaultSourceKey,
-            defaultConfigKey: FUTURES_DEFAULT_SOURCE_CONFIG_KEY,
-            defaultFallback: FUTURES_DEFAULT_SOURCE_FALLBACK,
-            form: futuresQuoteSyncForm,
-            preferredValues: ["TUSHARE", "TICKERMD", "AKSHARE", "MOCK"],
-            errorLabel: "加载期货行情数据源失败"
-          }
-        : {
-            loadingRef: marketNewsSourceLoading,
-            optionsRef: marketNewsSourceOptions,
-            healthMapRef: marketNewsSourceHealthMap,
-            defaultKeyRef: marketNewsDefaultSourceKey,
-            defaultConfigKey: MARKET_NEWS_DEFAULT_SOURCE_CONFIG_KEY,
-            defaultFallback: MARKET_NEWS_DEFAULT_SOURCE_FALLBACK,
-            form: marketNewsSyncForm,
-            preferredValues: ["AKSHARE", "TUSHARE"],
-            errorLabel: "加载市场资讯数据源失败"
-          };
-  sourceConfig.loadingRef.value = true;
-  if (!keepMessage) {
-    errorMessage.value = "";
-    message.value = "";
-  }
-  try {
-    await fetchDefaultSourceKey(sourceConfig.defaultConfigKey, sourceConfig.defaultFallback, sourceConfig.defaultKeyRef, {
-      keepMessage: true
-    });
-    const data = await listDataSources({ page: 1, page_size: 200 });
-    const rows = Array.isArray(data?.items) ? data.items : [];
-    const filteredRows = rows.filter((item) => supportsSyncKind(item, kind));
-    const sourceKeys = filteredRows.map((item) => normalizeSourceKey(item?.source_key)).filter(Boolean);
-    sourceConfig.healthMapRef.value = {};
-    if (sourceKeys.length > 0 && canCheckDataSourceHealth) {
-      try {
-        const healthData = await batchCheckDataSources(sourceKeys);
-        const healthItems = Array.isArray(healthData?.items) ? healthData.items : [];
-        const healthMap = {};
-        healthItems.forEach((healthItem) => {
-          const key = normalizeSourceKey(healthItem?.source_key);
-          if (!key) {
-            return;
-          }
-          healthMap[key] = healthItem;
-        });
-        sourceConfig.healthMapRef.value = healthMap;
-      } catch (healthError) {
-        console.warn(`batch check ${kind} data sources failed:`, healthError?.message || healthError);
-      }
-    }
-    const normalized = filteredRows
-      .map((item) => normalizeSourceOption(item, sourceConfig.healthMapRef.value))
-      .filter((item) => item.value);
-    const currentSourceKey = normalizeSourceKey(sourceConfig.form.source_key);
-    const active = normalized.filter((item) => item.status === "ACTIVE");
-    const sortedOptions = (active.length > 0 ? active : normalized)
-      .reduce((acc, item) => {
-        if (!acc.some((existing) => existing.value === item.value)) {
-          acc.push(item);
-        }
-        return acc;
-      }, [])
-      .sort((left, right) => compareSourceOptions(left, right, sourceConfig.preferredValues));
-    const presetOptions = [buildAutoSourceOption(sourceConfig.preferredValues)];
-    if (currentSourceKey && isCompositeSourceKey(currentSourceKey)) {
-      presetOptions.push(buildCustomChainSourceOption(currentSourceKey));
-    }
-    const finalOptions = [...presetOptions, ...sortedOptions].reduce((acc, item) => {
-      if (!item?.value) {
-        return acc;
-      }
-      if (!acc.some((existing) => existing.value === item.value)) {
-        acc.push(item);
-      }
-      return acc;
-    }, []);
-    sourceConfig.optionsRef.value = finalOptions;
-
-    const hasCurrent = finalOptions.some((item) => item.value === currentSourceKey);
-    if (finalOptions.length > 0 && (!currentSourceKey || !hasCurrent)) {
-      const preferred =
-        finalOptions.find((item) => item.value === normalizeSourceKey(sourceConfig.defaultKeyRef.value)) ||
-        finalOptions.find((item) => sourceConfig.preferredValues.includes(item.value)) ||
-        finalOptions[0];
-      sourceConfig.form.source_key = preferred.value;
-    } else {
-      sourceConfig.form.source_key = currentSourceKey || sourceConfig.form.source_key;
-    }
-  } catch (error) {
-    if (!keepMessage) {
-      errorMessage.value = normalizeErrorMessage(error, sourceConfig.errorLabel);
-    }
-  } finally {
-    sourceConfig.loadingRef.value = false;
-  }
-}
-
-async function fetchStockSourceOptions(options = {}) {
-  await fetchSourceOptionsForKind("stock_quotes", options);
-}
-
-async function fetchFuturesSourceOptions(options = {}) {
-  await fetchSourceOptionsForKind("futures_quotes", options);
-}
-
-async function fetchMarketNewsSourceOptions(options = {}) {
-  await fetchSourceOptionsForKind("market_news", options);
-}
-
-function findCurrentSourceOption(optionsRef, currentValue) {
-  const currentKey = normalizeSourceKey(currentValue);
-  return optionsRef.value.find((item) => item.value === currentKey) || null;
-}
-
-const currentStockSourceOption = computed(() => {
-  return findCurrentSourceOption(stockSourceOptions, stockQuoteSyncForm.source_key);
-});
-
-const currentFuturesSourceOption = computed(() => {
-  return findCurrentSourceOption(futuresSourceOptions, futuresQuoteSyncForm.source_key);
-});
-
-const currentMarketNewsSourceOption = computed(() => {
-  return findCurrentSourceOption(marketNewsSourceOptions, marketNewsSyncForm.source_key);
-});
-
-function sourceHealthTagType(status) {
-  const normalized = String(status || "").trim().toUpperCase();
-  if (normalized === "HEALTHY") {
-    return "success";
-  }
-  if (normalized === "UNHEALTHY") {
-    return "danger";
-  }
-  return "info";
-}
-
-function parseSyncCount(afterValue) {
-  const text = String(afterValue || "");
-  const matched = text.match(/count\s*=\s*(\d+)/i);
-  if (!matched) {
-    return 0;
-  }
-  return Number(matched[1]) || 0;
-}
-
-function syncExecutionStatusTagType(status) {
-  const normalized = String(status || "").trim().toUpperCase();
-  if (["SUCCESS", "ACTIVE", "HEALTHY"].includes(normalized)) {
-    return "success";
-  }
-  if (["PARTIAL", "WARNING", "IN_PROGRESS"].includes(normalized)) {
-    return "warning";
-  }
-  if (["FAILED", "ERROR", "UNHEALTHY"].includes(normalized)) {
-    return "danger";
-  }
-  return "info";
-}
-
-function buildSyncMetricTags(result) {
-  const items = [];
-  const truthCount = Number(result?.truth_count) || 0;
-  const barCount = Number(result?.bar_count) || 0;
-  const newsCount = Number(result?.news_count) || 0;
-  const inventoryCount = Number(result?.inventory_count) || 0;
-  const snapshotCount = Number(result?.snapshot_count) || 0;
-  if (truthCount > 0) {
-    items.push({ key: "truth", label: `真相源 ${truthCount}`, type: "success" });
-  }
-  if (barCount > 0) {
-    items.push({ key: "bars", label: `原始K线 ${barCount}`, type: "info" });
-  }
-  if (newsCount > 0) {
-    items.push({ key: "news", label: `资讯 ${newsCount}`, type: "success" });
-  }
-  if (inventoryCount > 0) {
-    items.push({ key: "inventory", label: `仓单 ${inventoryCount}`, type: "success" });
-  }
-  if (snapshotCount > 0) {
-    items.push({ key: "snapshots", label: `快照 ${snapshotCount}`, type: "warning" });
-  }
-  return items;
-}
-
-function formatSyncResolvedSourceKeys(result, fallbackSourceKey = "") {
-  const values = Array.isArray(result?.resolved_source_keys)
-    ? result.resolved_source_keys.map((item) => normalizeSourceKey(item)).filter(Boolean)
-    : [];
-  if (values.length > 0) {
-    return values.join(" -> ");
-  }
-  return normalizeSourceKey(fallbackSourceKey) || "-";
-}
-
-function formatSyncItemMetrics(item) {
-  const parts = [];
-  const truthCount = Number(item?.truth_count) || 0;
-  const barCount = Number(item?.bar_count) || 0;
-  const newsCount = Number(item?.news_count) || 0;
-  const inventoryCount = Number(item?.inventory_count) || 0;
-  const snapshotCount = Number(item?.snapshot_count) || 0;
-  if (truthCount > 0) {
-    parts.push(`真相源 ${truthCount}`);
-  }
-  if (barCount > 0) {
-    parts.push(`K线 ${barCount}`);
-  }
-  if (newsCount > 0) {
-    parts.push(`资讯 ${newsCount}`);
-  }
-  if (inventoryCount > 0) {
-    parts.push(`仓单 ${inventoryCount}`);
-  }
-  if (snapshotCount > 0) {
-    parts.push(`快照 ${snapshotCount}`);
-  }
-  return parts.join(" · ") || "无新增计数";
-}
-
-function formatSyncRequestScope(items, emptyLabel = "默认池") {
-  const list = Array.isArray(items) ? items.filter(Boolean) : [];
-  if (list.length === 0) {
-    return emptyLabel;
-  }
-  const preview = list.slice(0, 4).join("、");
-  if (list.length > 4) {
-    return `${preview} 等 ${list.length} 个`;
-  }
-  return preview;
-}
-
-function formatRequestedSourceLabel(payload) {
-  return normalizeSourceKey(payload?.requested_source_key) || "DEFAULT";
-}
-
-function buildLastSyncResult(data) {
-  return {
-    count: Number(data?.count) || 0,
-    source_key: normalizeSourceKey(data?.source_key),
-    requested_source_key: normalizeSourceKey(data?.requested_source_key),
-    days: Number(data?.days) || 0,
-    limit: Number(data?.limit) || 0,
-    symbols: Array.isArray(data?.symbols) ? data.symbols : [],
-    contracts: Array.isArray(data?.contracts) ? data.contracts : [],
-    result: data?.result || null
-  };
-}
-
-async function fetchMarketQualityLogsForAsset(assetClass, options = {}) {
-  const { keepMessage = false } = options;
-  const normalizedAssetClass = normalizeSourceKey(assetClass);
-  const loadingRef =
-    normalizedAssetClass === "FUTURES" ? futuresQualityLogsLoading : stockQualityLogsLoading;
-  const targetRef = normalizedAssetClass === "FUTURES" ? futuresQualityLogs : stockQualityLogs;
-  loadingRef.value = true;
-  if (!keepMessage) {
-    errorMessage.value = "";
-  }
-  try {
-    const data = await listMarketDataQualityLogs({
-      asset_class: normalizedAssetClass,
-      hours: getMarketQualityLookbackHours(normalizedAssetClass),
-      page: 1,
-      page_size: 6
-    });
-    targetRef.value = Array.isArray(data?.items) ? data.items : [];
-  } catch (error) {
-    targetRef.value = [];
-    if (!keepMessage) {
-      errorMessage.value = normalizeErrorMessage(error, "加载市场数据质量日志失败");
-    }
-  } finally {
-    loadingRef.value = false;
-  }
-}
-
-function openMarketQualityLogDetail(item) {
-  marketQualityDetailLog.value = item || null;
-  marketQualityDetailDialogVisible.value = true;
-}
-
-function applyMarketQualityIssueFilter(assetClass, issueCode) {
-  const normalizedAssetClass = normalizeSourceKey(assetClass);
-  const normalizedIssueCode = String(issueCode || "").trim().toUpperCase();
-  if (normalizedAssetClass === "FUTURES") {
-    futuresQualityIssueFilter.value = normalizedIssueCode;
-    return;
-  }
-  stockQualityIssueFilter.value = normalizedIssueCode;
-}
-
-function clearMarketQualityIssueFilter(assetClass) {
-  applyMarketQualityIssueFilter(assetClass, "");
-}
-
-function getMarketQualityLookbackRef(assetClass) {
-  return normalizeSourceKey(assetClass) === "FUTURES"
-    ? futuresQualityLookbackHours
-    : stockQualityLookbackHours;
-}
-
-function getMarketQualityLookbackHours(assetClass) {
-  return normalizeMarketQualityLookbackHours(getMarketQualityLookbackRef(assetClass).value);
-}
-
-function resolveMarketQualityAssetClassByTab(tab) {
-  return tab === "futures" ? "FUTURES" : "STOCK";
-}
-
 function applyMarketCenterRouteState(query = route.query) {
   const state = normalizeMarketCenterRouteState(query);
   activeTab.value = state.tab;
-  const assetClass = resolveMarketQualityAssetClassByTab(state.tab);
-  getMarketQualityLookbackRef(assetClass).value = state.quality_hours;
-  applyMarketQualityIssueFilter(assetClass, state.issue_code);
+  return state;
 }
 
-function openDataSourcesWithMarketQuality(item) {
-  const assetClass = normalizeSourceKey(item?.asset_class || "");
-  router.push({
-    name: "data-sources",
-    query: buildMarketQualityDrillQuery({
-      return_tab: assetClass === "FUTURES" ? "futures" : "stocks",
-      asset_class: item?.asset_class || "",
-      data_kind: item?.data_kind || "",
-      issue_code: item?.issue_code || "",
-      hours: getMarketQualityLookbackHours(item?.asset_class || "")
-    })
-  });
+function buildMarketCenterRouteFocusKey(state = {}) {
+  return [state.tab, state.publish_id, state.view, state.job_type, state.policy_id].join("|");
 }
 
-function openDataSourcesWithQualitySummary(assetClass, summary, mode = "latest") {
-  const normalizedAssetClass = normalizeSourceKey(assetClass);
-  const issueCode =
-    mode === "error"
-      ? String(summary?.latest_error_issue_code || "").trim()
-      : String(summary?.latest_issue_code || "").trim();
-  if (!issueCode) {
+function findPublishHistoryRow(rows, publishID) {
+  return (Array.isArray(rows) ? rows : []).find((item) => String(item?.publish_id || "").trim() === publishID) || null;
+}
+
+async function applyMarketCenterObjectFocus(query = route.query, options = {}) {
+  const state = normalizeMarketCenterRouteState(query);
+  const focusKey = buildMarketCenterRouteFocusKey(state);
+  if (!state.publish_id && !state.policy_id) {
+    marketCenterRouteFocusKey.value = "";
     return;
   }
-  const severity =
-    mode === "error"
-      ? "ERROR"
-      : String(summary?.latest_severity || "").trim().toUpperCase();
-  router.push({
-    name: "data-sources",
-    query: buildMarketQualityDrillQuery({
-      return_tab: normalizedAssetClass === "FUTURES" ? "futures" : "stocks",
-      asset_class: normalizedAssetClass,
-      severity,
-      issue_code: issueCode,
-      hours: getMarketQualityLookbackHours(normalizedAssetClass)
-    })
-  });
-}
-
-function openDataSourcesWithQualityIssue(assetClass, issueCode) {
-  const normalizedAssetClass = normalizeSourceKey(assetClass);
-  const normalizedIssueCode = String(issueCode || "").trim().toUpperCase();
-  if (!normalizedIssueCode) {
+  if (!options.force && focusKey && focusKey === marketCenterRouteFocusKey.value) {
     return;
   }
-  router.push({
-    name: "data-sources",
-    query: buildMarketQualityDrillQuery({
-      return_tab: normalizedAssetClass === "FUTURES" ? "futures" : "stocks",
-      asset_class: normalizedAssetClass,
-      issue_code: normalizedIssueCode,
-      hours: getMarketQualityLookbackHours(normalizedAssetClass)
-    })
-  });
-}
 
-function formatQualitySummaryLatest(summary) {
-  if (!summary?.latest_issue_code) {
-    return "-";
-  }
-  return `${summary.latest_source_key || "-"} · ${summary.latest_severity || "-"} · ${summary.latest_issue_code}`;
-}
-
-function formatQualitySummaryLatestError(summary) {
-  if (!summary?.latest_error_issue_code) {
-    return "-";
-  }
-  return `${summary.latest_error_source_key || "-"} · ${summary.latest_error_issue_code}`;
-}
-
-async function fetchMarketQualitySummary(assetClass, options = {}) {
-  const { keepMessage = false } = options;
-  const normalizedAssetClass = normalizeSourceKey(assetClass);
-  const summaryRef = normalizedAssetClass === "FUTURES" ? futuresQualitySummary : stockQualitySummary;
-  if (!keepMessage) {
-    errorMessage.value = "";
-  }
-  try {
-    const data = await getMarketDataQualitySummary({
-      asset_class: normalizedAssetClass,
-      hours: getMarketQualityLookbackHours(normalizedAssetClass)
-    });
-    summaryRef.value = data || null;
-  } catch (error) {
-    summaryRef.value = null;
-    if (!keepMessage) {
-      errorMessage.value = normalizeErrorMessage(error, "加载质量概览失败");
-    }
-  }
-}
-
-async function fetchMarketQualityDashboardForAsset(assetClass, options = {}) {
-  await Promise.all([
-    fetchMarketQualitySummary(assetClass, options),
-    fetchMarketQualityLogsForAsset(assetClass, options)
-  ]);
-}
-
-async function fetchMarketDerivedTruthSummary(assetClass, options = {}) {
-  const { keepMessage = false, preserveCurrent = false } = options;
-  const normalizedAssetClass = normalizeSourceKey(assetClass);
-  const summaryRef =
-    normalizedAssetClass === "FUTURES" ? futuresTruthRebuildSummary : stockTruthRebuildSummary;
-  if (!keepMessage) {
-    errorMessage.value = "";
-  }
-  try {
-    const data = await getMarketDerivedTruthSummary({
-      asset_class: normalizedAssetClass
-    });
-    summaryRef.value = data || null;
-  } catch (error) {
-    if (!preserveCurrent) {
-      summaryRef.value = null;
-    }
-    if (!keepMessage) {
-      errorMessage.value = normalizeErrorMessage(error, "加载 truth 重建摘要失败");
-    }
-  }
-}
-
-async function handleRebuildMarketTruth(assetClass) {
-  if (!ensureCanEditMarket()) {
+  if (state.policy_id) {
+    activeTab.value = "engine-config";
+    await nextTick();
+    await strategyConfigPanelRef.value?.focusPublishPolicyByID?.(state.policy_id);
+    marketCenterRouteFocusKey.value = focusKey;
     return;
   }
-  const normalizedAssetClass = normalizeSourceKey(assetClass);
-  const loadingRef =
-    normalizedAssetClass === "FUTURES" ? futuresTruthRebuilding : stockTruthRebuilding;
-  const summaryRef =
-    normalizedAssetClass === "FUTURES" ? futuresTruthRebuildSummary : stockTruthRebuildSummary;
-  loadingRef.value = true;
-  clearMessages();
-  summaryRef.value = null;
-  try {
-    const payload = {
-      trade_date: String(marketTruthRebuildForm.trade_date || "").trim(),
-      days: Number(marketTruthRebuildForm.days) || 3
-    };
-    const data =
-      normalizedAssetClass === "FUTURES"
-        ? await rebuildFuturesDerivedTruth(payload)
-        : await rebuildStockDerivedTruth(payload);
-    summaryRef.value = data;
-    message.value = formatTruthRebuildSuccessMessage(normalizedAssetClass, data);
-    await Promise.all([
-      fetchMarketQualityDashboardForAsset(normalizedAssetClass, { keepMessage: true }),
-      fetchMarketDerivedTruthSummary(normalizedAssetClass, {
-        keepMessage: true,
-        preserveCurrent: true
-      })
-    ]);
-  } catch (error) {
-    errorMessage.value = normalizeErrorMessage(error, "执行 truth 派生重建失败");
-  } finally {
-    loadingRef.value = false;
-  }
-}
 
-async function fetchStockDefaultSourceKey(options = {}) {
-  await fetchDefaultSourceKey(STOCK_DEFAULT_SOURCE_CONFIG_KEY, STOCK_DEFAULT_SOURCE_FALLBACK, stockDefaultSourceKey, {
-    ...options,
-    loadingRef: stockDefaultSourceLoading
-  });
-}
+  const publishID = state.publish_id;
+  const view = state.view || "detail";
+  const targetTab = state.tab === "futures" || state.job_type.includes("FUTURES") ? "futures" : "stocks";
+  activeTab.value = targetTab;
 
-async function fetchFuturesDefaultSourceKey(options = {}) {
-  await fetchDefaultSourceKey(
-    FUTURES_DEFAULT_SOURCE_CONFIG_KEY,
-    FUTURES_DEFAULT_SOURCE_FALLBACK,
-    futuresDefaultSourceKey,
-    {
-      ...options,
-      loadingRef: futuresDefaultSourceLoading
+  if (targetTab === "futures") {
+    let row = findPublishHistoryRow(futuresPublishHistory.value, publishID);
+    if (!row) {
+      await fetchFuturesPublishHistory({ keepMessage: true });
+      row = findPublishHistoryRow(futuresPublishHistory.value, publishID);
     }
-  );
-}
-
-async function fetchMarketNewsDefaultSourceKey(options = {}) {
-  await fetchDefaultSourceKey(
-    MARKET_NEWS_DEFAULT_SOURCE_CONFIG_KEY,
-    MARKET_NEWS_DEFAULT_SOURCE_FALLBACK,
-    marketNewsDefaultSourceKey,
-    {
-      ...options,
-      loadingRef: marketNewsDefaultSourceLoading
+    if (row) {
+      if (view === "replay") {
+        await handleViewFuturesPublishReplay(row);
+      } else {
+        await handleViewFuturesPublishDetail(row);
+      }
+      marketCenterRouteFocusKey.value = focusKey;
     }
-  );
-}
-
-function applyStockDefaultSource() {
-  const nextSourceKey = normalizeSourceKey(stockDefaultSourceKey.value);
-  if (!nextSourceKey) {
     return;
   }
-  stockQuoteSyncForm.source_key = nextSourceKey;
-  message.value = `已应用默认行情源：${nextSourceKey}`;
-}
 
-function applyFuturesDefaultSource() {
-  const nextSourceKey = normalizeSourceKey(futuresDefaultSourceKey.value);
-  if (!nextSourceKey) {
-    return;
+  let row = findPublishHistoryRow(stockPublishHistory.value, publishID);
+  if (!row) {
+    await fetchStockPublishHistory({ keepMessage: true });
+    row = findPublishHistoryRow(stockPublishHistory.value, publishID);
   }
-  futuresQuoteSyncForm.source_key = nextSourceKey;
-  message.value = `已应用期货默认行情源：${nextSourceKey}`;
-}
-
-function applyMarketNewsDefaultSource() {
-  const nextSourceKey = normalizeSourceKey(marketNewsDefaultSourceKey.value);
-  if (!nextSourceKey) {
-    return;
-  }
-  marketNewsSyncForm.source_key = nextSourceKey;
-  message.value = `已应用资讯默认数据源：${nextSourceKey}`;
-}
-
-async function fetchStockSyncLogs(options = {}) {
-  const { keepMessage = false } = options;
-  stockSyncLogsLoading.value = true;
-  if (!keepMessage) {
-    errorMessage.value = "";
-    message.value = "";
-  }
-  try {
-    const data = await listOperationLogs({
-      module: "STOCK",
-      action: "SYNC_QUOTES",
-      page: stockSyncLogsPage.value,
-      page_size: stockSyncLogsPageSize.value
-    });
-    const rows = Array.isArray(data?.items) ? data.items : [];
-    stockSyncLogs.value = rows.map((item) => ({
-      ...item,
-      sync_count: parseSyncCount(item?.after_value)
-    }));
-    stockSyncLogsTotal.value = data?.total || 0;
-  } catch (error) {
-    if (!keepMessage) {
-      errorMessage.value = normalizeErrorMessage(error, "加载行情同步日志失败");
+  if (row) {
+    if (view === "replay") {
+      await handleViewStockPublishReplay(row);
+    } else {
+      await handleViewStockPublishDetail(row);
     }
-  } finally {
-    stockSyncLogsLoading.value = false;
+    marketCenterRouteFocusKey.value = focusKey;
   }
-}
-
-function handleStockSyncLogPageChange(nextPage) {
-  if (nextPage === stockSyncLogsPage.value) {
-    return;
-  }
-  stockSyncLogsPage.value = nextPage;
-  fetchStockSyncLogs({ keepMessage: true });
-}
-
-function buildSourceUnavailableReason(option) {
-  const reasons = [];
-  const status = String(option?.status || "").trim().toUpperCase();
-  const healthStatus = String(option?.health_status || "").trim().toUpperCase();
-  if (status && status !== "ACTIVE") {
-    reasons.push(`状态=${status}`);
-  }
-  if (healthStatus === "UNHEALTHY") {
-    const healthMessage = String(option?.health_message || "").trim();
-    reasons.push(`健康=${healthStatus}${healthMessage ? `(${healthMessage})` : ""}`);
-  }
-  if (reasons.length === 0) {
-    return "状态不可用";
-  }
-  return reasons.join("，");
-}
-
-async function refreshAfterStockSync() {
-  stockSyncLogsPage.value = 1;
-  await Promise.all([
-    fetchStockQuantTop({ keepMessage: true }),
-    fetchStockQuantEvaluation({ keepMessage: true }),
-    fetchStocks({ keepMessage: true }),
-    fetchStockSyncLogs({ keepMessage: true })
-  ]);
-}
-
-function listStockFallbackSourceKeys(sourceKey) {
-  if (!stockAutoFallback.value) {
-    return [];
-  }
-  const normalized = normalizeSourceKey(sourceKey);
-  const candidates = [];
-  if (normalized !== "AUTO") {
-    candidates.push("AUTO");
-  }
-  if (normalized !== "MOCK") {
-    candidates.push("MOCK");
-  }
-  return candidates.filter((item, index, items) => item && item !== normalized && items.indexOf(item) === index);
-}
-
-function formatFallbackSourceLabel(sourceKey) {
-  const normalized = normalizeSourceKey(sourceKey);
-  if (normalized === "AUTO") {
-    return "AUTO 优先级链路";
-  }
-  return normalized || "-";
-}
-
-async function trySyncStockQuotesFallback(payload, sourceKey, prefixText) {
-  const failures = [];
-  for (const fallbackSourceKey of listStockFallbackSourceKeys(sourceKey)) {
-    try {
-      const fallbackData = await syncStockQuotes({
-        ...payload,
-        source_key: fallbackSourceKey
-      });
-      stockLastSyncResult.value = buildLastSyncResult(fallbackData);
-      message.value = `${prefixText}，已回退 ${formatFallbackSourceLabel(fallbackSourceKey)}，处理 ${fallbackData.count || 0} 条`;
-      await refreshAfterStockSync();
-      return true;
-    } catch (fallbackError) {
-      failures.push(`${formatFallbackSourceLabel(fallbackSourceKey)}：${normalizeErrorMessage(fallbackError, "同步失败")}`);
-    }
-  }
-  if (failures.length > 0) {
-    errorMessage.value = `${prefixText}；${failures.join("；")}`;
-  }
-  return false;
 }
 
 function syncStockDrafts() {
@@ -1891,192 +892,6 @@ async function fetchStockPublishHistory(options = {}) {
     errorMessage.value = normalizeErrorMessage(error, "加载发布归档失败");
   } finally {
     stockPublishHistoryLoading.value = false;
-  }
-}
-
-async function fetchStockQuantTop(options = {}) {
-  const { keepMessage = false } = options;
-  stockQuantLoading.value = true;
-  errorMessage.value = "";
-  if (!keepMessage) {
-    message.value = "";
-  }
-  try {
-    const data = await listQuantTopStocks({
-      limit: Number(stockQuantQuery.limit) || 10,
-      lookback_days: Number(stockQuantQuery.lookback_days) || 120
-    });
-    stockQuantList.value = data.items || [];
-    stockQuantUpdatedAt.value = new Date().toISOString();
-  } catch (error) {
-    errorMessage.value = normalizeErrorMessage(error, "加载量化Top股票失败");
-  } finally {
-    stockQuantLoading.value = false;
-  }
-}
-
-async function fetchStockQuantEvaluation(options = {}) {
-  const { keepMessage = false } = options;
-  stockEvalLoading.value = true;
-  if (!keepMessage) {
-    errorMessage.value = "";
-    message.value = "";
-  }
-  try {
-    const data = await listQuantEvaluation({
-      days: Number(stockEvalQuery.days) || 60,
-      top_n: Number(stockEvalQuery.top_n) || 10
-    });
-    stockEvalList.value = Array.isArray(data?.items) ? data.items : [];
-    stockEvalRiskList.value = Array.isArray(data?.risk_items) ? data.risk_items : [];
-    stockEvalRotationList.value = Array.isArray(data?.rotation_items) ? data.rotation_items : [];
-    stockEvalSummary.value = data?.summary || stockEvalSummary.value;
-  } catch (error) {
-    if (!keepMessage) {
-      errorMessage.value = normalizeErrorMessage(error, "加载量化回测评估失败");
-    }
-  } finally {
-    stockEvalLoading.value = false;
-  }
-}
-
-async function handleSyncStockQuotes() {
-  if (!ensureCanEditMarket()) {
-    return;
-  }
-  const sourceKey =
-    normalizeSourceKey(stockQuoteSyncForm.source_key) ||
-    normalizeSourceKey(stockDefaultSourceKey.value) ||
-    "AUTO";
-  const payload = {
-    source_key: sourceKey,
-    symbols: splitSymbols(stockQuoteSyncForm.symbols),
-    days: Number(stockQuoteSyncForm.days) || 120
-  };
-  stockQuoteSyncing.value = true;
-  clearMessages();
-  try {
-    const selectedSourceOption = stockSourceOptions.value.find((item) => item.value === sourceKey) || null;
-    if (selectedSourceOption?.disabled) {
-      const reason = buildSourceUnavailableReason(selectedSourceOption);
-      const handled = await trySyncStockQuotesFallback(payload, sourceKey, `数据源 ${sourceKey} 当前不可用（${reason}）`);
-      if (handled) {
-        return;
-      }
-      errorMessage.value = `数据源 ${sourceKey} 当前不可用（${reason}），请切换可用数据源`;
-      return;
-    }
-
-    const data = await syncStockQuotes(payload);
-    stockLastSyncResult.value = buildLastSyncResult(data);
-    message.value = `行情同步完成，处理 ${data.count || 0} 条`;
-    await refreshAfterStockSync();
-  } catch (error) {
-    const primaryError = normalizeErrorMessage(error, "同步行情失败");
-    const handled = await trySyncStockQuotesFallback(payload, sourceKey, `主数据源 ${sourceKey} 同步失败（${primaryError}）`);
-    if (handled) {
-      return;
-    }
-    errorMessage.value = primaryError;
-  } finally {
-    stockQuoteSyncing.value = false;
-  }
-}
-
-async function handleSyncFuturesQuotes() {
-  if (!ensureCanEditMarket()) {
-    return;
-  }
-  const sourceKey =
-    normalizeSourceKey(futuresQuoteSyncForm.source_key) ||
-    normalizeSourceKey(futuresDefaultSourceKey.value) ||
-    "AUTO";
-  const payload = {
-    source_key: sourceKey,
-    contracts: splitSymbols(futuresQuoteSyncForm.contracts),
-    days: Number(futuresQuoteSyncForm.days) || 120
-  };
-  futuresQuoteSyncing.value = true;
-  clearMessages();
-  try {
-    const selectedSourceOption = futuresSourceOptions.value.find((item) => item.value === sourceKey) || null;
-    if (selectedSourceOption?.disabled) {
-      const reason = buildSourceUnavailableReason(selectedSourceOption);
-      errorMessage.value = `数据源 ${sourceKey} 当前不可用（${reason}），建议改用 AUTO 或其他可用源`;
-      return;
-    }
-    const data = await syncFuturesQuotes(payload);
-    futuresLastSyncResult.value = buildLastSyncResult(data);
-    message.value = `期货行情同步完成，处理 ${data.count || 0} 条`;
-  } catch (error) {
-    errorMessage.value = normalizeErrorMessage(error, "同步期货行情失败");
-  } finally {
-    futuresQuoteSyncing.value = false;
-  }
-}
-
-async function handleSyncFuturesInventory() {
-  if (!ensureCanEditMarket()) {
-    return;
-  }
-  const sourceKey =
-    normalizeSourceKey(futuresInventorySyncForm.source_key) ||
-    normalizeSourceKey(futuresDefaultSourceKey.value) ||
-    "AUTO";
-  const payload = {
-    source_key: sourceKey,
-    symbols: splitSymbols(futuresInventorySyncForm.symbols),
-    days: Number(futuresInventorySyncForm.days) || 30
-  };
-  futuresInventorySyncing.value = true;
-  clearMessages();
-  try {
-    const selectedSourceOption = futuresSourceOptions.value.find((item) => item.value === sourceKey) || null;
-    if (selectedSourceOption?.disabled) {
-      const reason = buildSourceUnavailableReason(selectedSourceOption);
-      errorMessage.value = `数据源 ${sourceKey} 当前不可用（${reason}），建议改用 AUTO 或其他可用源`;
-      return;
-    }
-    const data = await syncFuturesInventory(payload);
-    futuresInventoryLastSyncResult.value = buildLastSyncResult(data);
-    message.value = `期货仓单同步完成，处理 ${data.count || 0} 条`;
-  } catch (error) {
-    errorMessage.value = normalizeErrorMessage(error, "同步期货仓单失败");
-  } finally {
-    futuresInventorySyncing.value = false;
-  }
-}
-
-async function handleSyncMarketNews() {
-  if (!ensureCanEditMarket()) {
-    return;
-  }
-  const sourceKey =
-    normalizeSourceKey(marketNewsSyncForm.source_key) ||
-    normalizeSourceKey(marketNewsDefaultSourceKey.value) ||
-    "AUTO";
-  const payload = {
-    source_key: sourceKey,
-    symbols: splitSymbols(marketNewsSyncForm.symbols),
-    days: Number(marketNewsSyncForm.days) || 7,
-    limit: Number(marketNewsSyncForm.limit) || 50
-  };
-  marketNewsSyncing.value = true;
-  clearMessages();
-  try {
-    const selectedSourceOption = marketNewsSourceOptions.value.find((item) => item.value === sourceKey) || null;
-    if (selectedSourceOption?.disabled) {
-      const reason = buildSourceUnavailableReason(selectedSourceOption);
-      errorMessage.value = `数据源 ${sourceKey} 当前不可用（${reason}），建议改用 AUTO 或其他可用源`;
-      return;
-    }
-    const data = await syncMarketNewsSource(payload);
-    marketNewsLastSyncResult.value = buildLastSyncResult(data);
-    message.value = `市场资讯同步完成，处理 ${data.count || 0} 条`;
-  } catch (error) {
-    errorMessage.value = normalizeErrorMessage(error, "同步市场资讯失败");
-  } finally {
-    marketNewsSyncing.value = false;
   }
 }
 
@@ -2609,52 +1424,6 @@ async function handleCompareStockPublishVersions() {
   }
 }
 
-function refreshStockQuantTop() {
-  fetchStockQuantTop();
-}
-
-function refreshStockQuantEvaluation() {
-  fetchStockQuantEvaluation();
-}
-
-async function exportStockQuantEvaluationCSV() {
-  stockEvalExporting.value = true;
-  errorMessage.value = "";
-  message.value = "";
-  try {
-    const params = new URLSearchParams();
-    params.set("days", String(Number(stockEvalQuery.days) || 60));
-    params.set("top_n", String(Number(stockEvalQuery.top_n) || 10));
-    const baseURL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "");
-    const requestURL = `${baseURL}/admin/stocks/quant/evaluation/export.csv?${params.toString()}`;
-    const headers = {};
-    const token = getAccessToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-    const response = await fetch(requestURL, { method: "GET", headers });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `导出失败(${response.status})`);
-    }
-    const blob = await response.blob();
-    const blobURL = URL.createObjectURL(blob);
-    const fileName = `stock_quant_evaluation_${new Date().toISOString().slice(0, 10)}.csv`;
-    const anchor = document.createElement("a");
-    anchor.href = blobURL;
-    anchor.download = fileName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(blobURL);
-    message.value = "量化评估CSV已导出";
-  } catch (error) {
-    errorMessage.value = normalizeErrorMessage(error, "导出量化评估CSV失败");
-  } finally {
-    stockEvalExporting.value = false;
-  }
-}
-
 function applyStockFilters() {
   stockPage.value = 1;
   fetchStocks();
@@ -2718,23 +1487,13 @@ async function refreshCurrentTab() {
   if (activeTab.value === "stocks") {
     await Promise.all([
       fetchRhythmBoard({ keepMessage: true }),
-      fetchStockSourceOptions({ keepMessage: true }),
-      fetchMarketQualityDashboardForAsset("STOCK", { keepMessage: true }),
-      fetchMarketDerivedTruthSummary("STOCK", { keepMessage: true }),
-      fetchMarketNewsSourceOptions({ keepMessage: true }),
       fetchStocks(),
-      fetchStockPublishHistory({ keepMessage: true }),
-      fetchStockQuantTop(),
-      fetchStockQuantEvaluation({ keepMessage: true }),
-      fetchStockSyncLogs({ keepMessage: true })
+      fetchStockPublishHistory({ keepMessage: true })
     ]);
     return;
   }
   if (activeTab.value === "futures") {
     await Promise.all([
-      fetchFuturesSourceOptions({ keepMessage: true }),
-      fetchMarketQualityDashboardForAsset("FUTURES", { keepMessage: true }),
-      fetchMarketDerivedTruthSummary("FUTURES", { keepMessage: true }),
       fetchFutures(),
       fetchFuturesPublishHistory({ keepMessage: true })
     ]);
@@ -2754,18 +1513,8 @@ async function refreshAll(options = {}) {
   try {
     await Promise.all([
       fetchRhythmBoard({ keepMessage: true }),
-      fetchStockSourceOptions({ keepMessage: true }),
-      fetchFuturesSourceOptions({ keepMessage: true }),
-      fetchMarketQualityDashboardForAsset("STOCK", { keepMessage: true }),
-      fetchMarketQualityDashboardForAsset("FUTURES", { keepMessage: true }),
-      fetchMarketDerivedTruthSummary("STOCK", { keepMessage: true }),
-      fetchMarketDerivedTruthSummary("FUTURES", { keepMessage: true }),
-      fetchMarketNewsSourceOptions({ keepMessage: true }),
       fetchStocks({ keepMessage: true }),
       fetchStockPublishHistory({ keepMessage: true }),
-      fetchStockQuantTop({ keepMessage: true }),
-      fetchStockQuantEvaluation({ keepMessage: true }),
-      fetchStockSyncLogs({ keepMessage: true }),
       fetchFutures({ keepMessage: true }),
       fetchFuturesPublishHistory({ keepMessage: true }),
       fetchEvents({ keepMessage: true })
@@ -2778,9 +1527,10 @@ async function refreshAll(options = {}) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   applyMarketCenterRouteState();
-  refreshAll({ silentMessage: true });
+  await refreshAll({ silentMessage: true });
+  await applyMarketCenterObjectFocus(route.query, { force: true });
 });
 
 watch(activeTab, async (tab) => {
@@ -2790,6 +1540,14 @@ watch(activeTab, async (tab) => {
   await nextTick();
   await strategyConfigPanelRef.value?.refreshAll?.();
 });
+
+watch(
+  () => route.query,
+  async (query) => {
+    applyMarketCenterRouteState(query);
+    await applyMarketCenterObjectFocus(query);
+  }
+);
 </script>
 
 <template>
@@ -3571,45 +2329,6 @@ watch(activeTab, async (tab) => {
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog
-      v-model="marketQualityDetailDialogVisible"
-      :title="marketQualityDetailTitle"
-      width="760px"
-      destroy-on-close
-    >
-      <el-descriptions :column="2" border>
-        <el-descriptions-item label="资产">
-          {{ marketQualityDetailLog?.asset_class || "-" }}
-        </el-descriptions-item>
-        <el-descriptions-item label="来源">
-          {{ marketQualityDetailLog?.source_key || "-" }}
-        </el-descriptions-item>
-        <el-descriptions-item label="问题编码">
-          {{ marketQualityDetailLog?.issue_code || "-" }}
-        </el-descriptions-item>
-        <el-descriptions-item label="级别">
-          {{ marketQualityDetailLog?.severity || "-" }}
-        </el-descriptions-item>
-        <el-descriptions-item label="交易日">
-          {{ marketQualityDetailLog?.trade_date || "-" }}
-        </el-descriptions-item>
-        <el-descriptions-item label="创建时间">
-          {{ marketQualityDetailLog?.created_at || "-" }}
-        </el-descriptions-item>
-      </el-descriptions>
-
-      <div style="margin-top: 12px">
-        <div class="sync-result-card-title">问题说明</div>
-        <p class="quality-detail-message">{{ marketQualityDetailLog?.issue_message || "-" }}</p>
-      </div>
-
-      <div style="margin-top: 12px">
-        <div class="sync-result-card-title">payload</div>
-        <pre class="publish-detail-pre publish-detail-pre--compact">{{
-          marketQualityDetailPayload || "无 payload"
-        }}</pre>
-      </div>
-    </el-dialog>
 
     <el-dialog
       v-model="stockPublishDetailDialogVisible"

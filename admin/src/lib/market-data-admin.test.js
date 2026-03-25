@@ -32,8 +32,10 @@ import {
   marketBackfillDetailStatusTagType,
   marketBackfillStatusTagType,
   marketQualitySeverityTagType,
+  normalizeMarketCenterJobType,
   normalizeMarketCenterRouteState,
   normalizeMarketCenterTab,
+  normalizeMarketCenterView,
   normalizeMarketQualityLookbackHours,
   normalizeMarketQualityRouteContext,
   normalizeMarketQualityRouteFilters
@@ -260,6 +262,9 @@ test("validateMarketBackfillLongHistoryInput rejects unsupported long history co
 
 test("market center route helpers normalize tab and quality state", () => {
   assert.equal(normalizeMarketCenterTab("FUTURES"), "futures");
+  assert.equal(normalizeMarketCenterView("replay", true), "replay");
+  assert.equal(normalizeMarketCenterView("", true), "detail");
+  assert.equal(normalizeMarketCenterJobType(" futures_selection "), "FUTURES_SELECTION");
   assert.equal(normalizeMarketCenterTab("bad"), "stocks");
   assert.deepEqual(
     buildMarketCenterRouteQuery({
@@ -282,7 +287,11 @@ test("market center route helpers normalize tab and quality state", () => {
     {
       tab: "futures",
       quality_hours: 168,
-      issue_code: "BAR_UPSERT_FAILED"
+      issue_code: "BAR_UPSERT_FAILED",
+      publish_id: "",
+      view: "",
+      job_type: "",
+      policy_id: ""
     }
   );
 });
@@ -573,5 +582,41 @@ test("areMarketQualityFiltersEqual compares normalized route and form filters", 
       { asset_class: "FUTURES", issue_code: "SOURCE_FETCH_FAILED", hours: 72 }
     ),
     false
+  );
+});
+
+
+test("market center route helpers keep publish and policy deep-link state", () => {
+  assert.deepEqual(
+    buildMarketCenterRouteQuery({
+      tab: " futures ",
+      publish_id: " future-pub-001 ",
+      view: "replay",
+      job_type: " futures_selection "
+    }),
+    {
+      tab: "futures",
+      publish_id: "future-pub-001",
+      view: "replay",
+      job_type: "FUTURES_SELECTION"
+    }
+  );
+  assert.deepEqual(
+    normalizeMarketCenterRouteState({
+      tab: "engine-config",
+      policy_id: " policy_default_all ",
+      publish_id: " stock-pub-001 ",
+      view: "detail",
+      job_type: " stock_selection "
+    }),
+    {
+      tab: "engine-config",
+      quality_hours: 24,
+      issue_code: "",
+      publish_id: "stock-pub-001",
+      view: "detail",
+      job_type: "STOCK_SELECTION",
+      policy_id: "policy_default_all"
+    }
   );
 });

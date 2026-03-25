@@ -9166,27 +9166,48 @@ func (r *MySQLGrowthRepo) createDataSourceHealthWorkflowMessage(source model.Dat
 	switch strings.ToUpper(strings.TrimSpace(event)) {
 	case "UNHEALTHY":
 		threshold := parseDataSourceFailThreshold(source.Config)
-		_ = r.AdminCreateWorkflowMessage(
-			"",
-			source.SourceKey,
-			"SYSTEM",
-			receiverID,
-			"system",
-			"DATA_SOURCE_UNHEALTHY",
-			"数据源健康告警",
-			fmt.Sprintf("数据源 %s 连续失败 %d 次（阈值 %d），最近状态：%s", source.SourceKey, check.ConsecutiveFailures, threshold, check.Message),
-		)
+		_ = r.AdminCreateAuditEvent(model.AdminAuditEvent{
+			EventDomain: "DATA",
+			EventType:   "DATA_SOURCE_UNHEALTHY",
+			Level:       "WARNING",
+			Module:      "SYSTEM",
+			ObjectType:  "DATA_SOURCE",
+			ObjectID:    source.SourceKey,
+			ActorUserID: "system",
+			Title:       "数据源健康告警",
+			Summary:     fmt.Sprintf("数据源 %s 连续失败 %d 次（阈值 %d）", source.SourceKey, check.ConsecutiveFailures, threshold),
+			Detail:      truncateByRunes(normalizeUTF8Text(check.Message), 512),
+			Status:      "OPEN",
+			DedupeKey:   "data_source_health:" + source.SourceKey + ":unhealthy",
+			Metadata: map[string]any{
+				"source_key":            source.SourceKey,
+				"consecutive_failures":  check.ConsecutiveFailures,
+				"threshold":             threshold,
+				"status":                check.Status,
+				"receiver_id":           receiverID,
+				"provider_governance":   true,
+			},
+		})
 	case "RECOVERED":
-		_ = r.AdminCreateWorkflowMessage(
-			"",
-			source.SourceKey,
-			"SYSTEM",
-			receiverID,
-			"system",
-			"DATA_SOURCE_RECOVERED",
-			"数据源恢复通知",
-			fmt.Sprintf("数据源 %s 已恢复，最近耗时 %dms", source.SourceKey, check.LatencyMS),
-		)
+		_ = r.AdminCreateAuditEvent(model.AdminAuditEvent{
+			EventDomain: "DATA",
+			EventType:   "DATA_SOURCE_RECOVERED",
+			Level:       "INFO",
+			Module:      "SYSTEM",
+			ObjectType:  "DATA_SOURCE",
+			ObjectID:    source.SourceKey,
+			ActorUserID: "system",
+			Title:       "数据源恢复通知",
+			Summary:     fmt.Sprintf("数据源 %s 已恢复，最近耗时 %dms", source.SourceKey, check.LatencyMS),
+			Status:      "OPEN",
+			DedupeKey:   "data_source_health:" + source.SourceKey + ":recovered",
+			Metadata: map[string]any{
+				"source_key":  source.SourceKey,
+				"latency_ms":  check.LatencyMS,
+				"status":      check.Status,
+				"receiver_id": receiverID,
+			},
+		})
 	}
 }
 
@@ -9541,21 +9562,34 @@ WHERE id = ?`,
 	if err != nil {
 		return err
 	}
-	eventType := "REVIEW_REJECTED"
-	if status == "APPROVED" {
-		eventType = "REVIEW_APPROVED"
+	if err = tx.Commit(); err != nil {
+		return err
 	}
-	_ = r.AdminCreateWorkflowMessage(
-		reviewID,
-		targetID,
-		module,
-		submitterID,
-		reviewerID,
-		eventType,
-		"审核结果通知",
-		"审核结果为 "+status+"，目标 "+targetID,
-	)
-	return tx.Commit()
+	level := "INFO"
+	if status != "APPROVED" {
+		level = "WARNING"
+	}
+	_ = r.AdminCreateAuditEvent(model.AdminAuditEvent{
+		EventDomain: "RESEARCH",
+		EventType:   "REVIEW_" + status,
+		Level:       level,
+		Module:      strings.ToUpper(strings.TrimSpace(module)),
+		ObjectType:  "REVIEW_TASK",
+		ObjectID:    reviewID,
+		ActorUserID: strings.TrimSpace(reviewerID),
+		Title:       "审核结果通知",
+		Summary:     "审核结果为 " + status + "，目标 " + targetID,
+		Detail:      truncateByRunes(normalizeUTF8Text(reviewNote), 512),
+		Status:      "OPEN",
+		Metadata: map[string]any{
+			"review_id":    reviewID,
+			"target_id":    targetID,
+			"target_module": module,
+			"submitter_id": submitterID,
+			"review_status": status,
+		},
+	})
+	return nil
 }
 
 func (r *MySQLGrowthRepo) GetSchedulerJobNameByRunID(runID string) (string, error) {

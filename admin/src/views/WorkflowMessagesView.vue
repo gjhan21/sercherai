@@ -1,12 +1,17 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { useRouter } from "vue-router";
 import {
   bulkReadWorkflowMessages,
   countUnreadWorkflowMessages,
+  getAuditEventSummary,
+  listAuditEvents,
   listWorkflowMessages,
   updateWorkflowMessageRead
 } from "../api/admin";
 import { getAccessToken, hasPermission } from "../lib/session";
+
+const router = useRouter();
 
 const loading = ref(false);
 const batchUpdating = ref(false);
@@ -20,6 +25,9 @@ const page = ref(1);
 const pageSize = ref(20);
 const total = ref(0);
 const unreadCount = ref(0);
+const auditSummary = ref(null);
+const relatedAuditItems = ref([]);
+const messageCenterTab = ref("workflow");
 
 const items = ref([]);
 const tableRef = ref(null);
@@ -29,13 +37,23 @@ const autoRefreshEnabled = ref(true);
 const timerRef = ref(null);
 
 const detailVisible = ref(false);
+const detailMode = ref("workflow");
 const currentMessage = ref(null);
+const currentAuditItem = ref(null);
 const canEditWorkflow = hasPermission("workflow.edit");
 
 const filters = reactive({
   module: "",
   event_type: "",
   is_read: ""
+});
+const auditFilters = reactive({
+  event_domain: "",
+  event_type: "",
+  level: "",
+  module: "",
+  object_type: "",
+  status: "OPEN"
 });
 
 const unreadInPage = computed(() => items.value.filter((item) => !item.is_read).length);
@@ -44,6 +62,16 @@ const selectedUnreadCount = computed(() => selectedRows.value.filter((item) => !
 const selectedReadCount = computed(() => selectedRows.value.filter((item) => item.is_read).length);
 const canBatchMarkRead = computed(() => selectedUnreadCount.value > 0);
 const canBatchMarkUnread = computed(() => selectedReadCount.value > 0);
+const relatedAuditOpenCount = computed(() => auditSummary.value?.open_count ?? relatedAuditItems.value.length);
+const messageCenterTabOptions = [
+  { label: "流程待办", value: "workflow" },
+  { label: "开放事件", value: "audit" }
+];
+const auditDomainOptions = ["RESEARCH", "DATA", "PUBLISH", "SYSTEM"];
+const auditLevelOptions = ["INFO", "WARNING", "CRITICAL"];
+const auditStatusOptions = ["OPEN", "RESOLVED"];
+const auditObjectTypeOptions = ["REVIEW_TASK", "SCHEDULER_JOB", "DATA_SOURCE", "STRATEGY_JOB", "STRATEGY_PUBLISH_POLICY"];
+const detailTitle = computed(() => (detailMode.value === "audit" ? "审计事件详情" : "流程消息详情"));
 
 function ensureCanEditWorkflow() {
   if (canEditWorkflow) {
@@ -111,8 +139,34 @@ async function fetchMessages(options = {}) {
   }
 }
 
+async function fetchAuditSummary() {
+  try {
+    auditSummary.value = await getAuditEventSummary();
+  } catch {
+    auditSummary.value = null;
+  }
+}
+
+async function fetchRelatedAuditEvents() {
+  try {
+    const data = await listAuditEvents({
+      event_domain: auditFilters.event_domain,
+      event_type: auditFilters.event_type,
+      level: auditFilters.level,
+      module: auditFilters.module,
+      object_type: auditFilters.object_type,
+      status: auditFilters.status,
+      page: 1,
+      page_size: 5
+    });
+    relatedAuditItems.value = data.items || [];
+  } catch {
+    relatedAuditItems.value = [];
+  }
+}
+
 async function refreshAll(options = {}) {
-  await fetchMessages(options);
+  await Promise.all([fetchMessages(options), fetchAuditSummary(), fetchRelatedAuditEvents()]);
 }
 
 async function toggleRead(item, targetRead = null) {
@@ -188,7 +242,16 @@ async function batchMarkSelected(targetRead) {
 }
 
 function openMessageDetail(item) {
+  detailMode.value = "workflow";
   currentMessage.value = item;
+  currentAuditItem.value = null;
+  detailVisible.value = true;
+}
+
+function openAuditDetail(item) {
+  detailMode.value = "audit";
+  currentAuditItem.value = item;
+  currentMessage.value = null;
   detailVisible.value = true;
 }
 
@@ -221,6 +284,103 @@ async function copyContent() {
   } finally {
     copyingContent.value = false;
   }
+}
+
+function formatJsonBlock(value) {
+  if (!value || typeof value !== "object") {
+    return "-";
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "-";
+  }
+}
+
+function resolvedAuditCount(summary) {
+  const totalCount = Number(summary?.total_count) || 0;
+  const openCount = Number(summary?.open_count) || 0;
+  return Math.max(0, totalCount - openCount);
+}
+
+function normalizeAuditRouteToken(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
+function resolveAuditObjectRoute(item) {
+  const objectType = normalizeAuditRouteToken(item?.object_type);
+  const module = normalizeAuditRouteToken(item?.module);
+  const metadata = item?.metadata || {};
+  const objectID = String(item?.object_id || metadata?.review_id || metadata?.run_id || metadata?.source_key || "").trim();
+  const jobName = String(metadata?.job_name || "").trim();
+  const publishID = String(metadata?.publish_id || "").trim();
+  const policyID = String(metadata?.policy_id || objectID).trim();
+  const jobType = normalizeAuditRouteToken(metadata?.job_type);
+  const marketTab = jobType.includes("FUTURES") ? "futures" : "stocks";
+
+  if (objectType === "REVIEW_TASK" || module === "WORKFLOW") {
+    return objectID ? { name: "review-center", query: { review_id: objectID } } : { name: "review-center" };
+  }
+  if (objectType === "SCHEDULER_JOB" || module === "SYSTEM") {
+    if (objectID) {
+      return jobName
+        ? { name: "system-jobs", query: { run_id: objectID, job_name: jobName } }
+        : { name: "system-jobs", query: { run_id: objectID } };
+    }
+    return { name: "system-jobs" };
+  }
+  if (objectType === "DATA_SOURCE" || module === "DATA") {
+    return objectID
+      ? { name: "data-sources", query: { source_key: objectID, action: "logs" } }
+      : { name: "data-sources" };
+  }
+  if (objectType === "STRATEGY_PUBLISH_POLICY") {
+    return policyID
+      ? { name: "market-center", query: { tab: "engine-config", policy_id: policyID } }
+      : { name: "market-center", query: { tab: "engine-config" } };
+  }
+  if (objectType === "STRATEGY_JOB") {
+    if (publishID) {
+      return {
+        name: "market-center",
+        query: {
+          tab: marketTab,
+          publish_id: publishID,
+          view: "detail",
+          job_type: jobType || undefined
+        }
+      };
+    }
+    return objectID
+      ? { name: "system-jobs", query: { run_id: objectID, job_name: jobName || jobType } }
+      : { name: "system-jobs" };
+  }
+  if (module === "STOCK") {
+    return objectID
+      ? { name: "stock-selection-runs", query: { run_id: objectID } }
+      : { name: "stock-selection-runs" };
+  }
+  if (module === "FUTURES") {
+    return objectID
+      ? { name: "futures-selection-runs", query: { run_id: objectID } }
+      : { name: "futures-selection-runs" };
+  }
+  return "";
+}
+
+function openAuditObject(item) {
+  const route = resolveAuditObjectRoute(item);
+  if (!route) {
+    errorMessage.value = "当前事件暂未配置对象跳转页";
+    return;
+  }
+  router.push(route);
+}
+
+function goToAuditLogs() {
+  router.push("/audit-logs");
 }
 
 function csvEscape(value) {
@@ -330,12 +490,26 @@ function resetFilters() {
   filters.event_type = "";
   filters.is_read = "";
   page.value = 1;
-  fetchMessages();
+  refreshAll();
 }
 
 function applyFilters() {
   page.value = 1;
-  fetchMessages();
+  refreshAll();
+}
+
+function applyAuditFilters() {
+  fetchRelatedAuditEvents();
+}
+
+function resetAuditFilters() {
+  auditFilters.event_domain = "";
+  auditFilters.event_type = "";
+  auditFilters.level = "";
+  auditFilters.module = "";
+  auditFilters.object_type = "";
+  auditFilters.status = "OPEN";
+  fetchRelatedAuditEvents();
 }
 
 function handlePageChange(nextPage) {
@@ -343,7 +517,18 @@ function handlePageChange(nextPage) {
     return;
   }
   page.value = nextPage;
-  fetchMessages();
+  refreshAll();
+}
+
+function auditLevelTagType(level) {
+  switch ((level || "").toUpperCase()) {
+    case "CRITICAL":
+      return "danger";
+    case "WARNING":
+      return "warning";
+    default:
+      return "info";
+  }
 }
 
 function clearTimers() {
@@ -378,13 +563,14 @@ onBeforeUnmount(() => {
     <div class="page-header">
       <div>
         <h1 class="page-title">
-          流程消息
+          消息中心
           <el-badge :value="unreadCount" class="title-badge" />
         </h1>
-        <p class="muted">查看审核/任务/数据源告警消息，并处理已读状态</p>
+        <p class="muted">把流程待办与统一审计事件收口到一个入口里查看和处理</p>
       </div>
       <div class="toolbar" style="margin-bottom: 0">
         <el-switch v-model="autoRefreshEnabled" inline-prompt active-text="自动刷新" inactive-text="手动刷新" />
+        <el-button @click="goToAuditLogs">前往审计日志</el-button>
         <el-button :loading="loading" @click="refreshAll">刷新</el-button>
       </div>
     </div>
@@ -422,109 +608,193 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="card" style="margin-bottom: 12px">
-      <div class="toolbar">
-        <el-input v-model="filters.module" clearable placeholder="模块，如 SYSTEM / STOCK" style="width: 220px" />
-        <el-input
-          v-model="filters.event_type"
-          clearable
-          placeholder="事件，如 DATA_SOURCE_UNHEALTHY"
-          style="width: 260px"
-        />
-        <el-select v-model="filters.is_read" clearable placeholder="全部状态" style="width: 130px">
-          <el-option label="未读" value="false" />
-          <el-option label="已读" value="true" />
-        </el-select>
-        <el-button :loading="exportingFiltered" @click="exportFilteredCSV">导出筛选CSV</el-button>
-        <el-button @click="exportCurrentPageCSV">导出当前页CSV</el-button>
-        <el-button type="primary" plain @click="applyFilters">查询</el-button>
-        <el-button @click="resetFilters">重置</el-button>
+      <div class="section-header" style="margin-bottom: 0">
+        <h3 style="margin: 0">消息中心视图</h3>
+        <el-segmented v-model="messageCenterTab" :options="messageCenterTabOptions" />
       </div>
     </div>
 
-    <div v-if="canEditWorkflow" class="card" style="margin-bottom: 12px">
-      <div class="section-header">
-        <h3 style="margin: 0">批量处理</h3>
-        <el-text type="info">
-          已选 {{ selectedRows.length }} 条，未读 {{ selectedUnreadCount }} 条，已读 {{ selectedReadCount }} 条
-        </el-text>
+    <template v-if="messageCenterTab === 'audit'">
+      <div class="card" style="margin-bottom: 12px">
+        <div class="section-header">
+          <h3 style="margin: 0">统一事件摘要</h3>
+          <el-text type="info">流程消息开始回读统一审计事件主链</el-text>
+        </div>
+        <div class="metric-grid">
+          <div class="metric-card">
+            <div class="metric-label">开放事件</div>
+            <div class="metric-value">{{ relatedAuditOpenCount }}</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Warning</div>
+            <div class="metric-value">{{ auditSummary?.warning_count ?? 0 }}</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Critical</div>
+            <div class="metric-value">{{ auditSummary?.critical_count ?? 0 }}</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">已关闭事件</div>
+            <div class="metric-value">{{ resolvedAuditCount(auditSummary) }}</div>
+          </div>
+        </div>
       </div>
-      <div class="toolbar" style="margin-bottom: 0">
-        <el-button type="primary" :loading="batchUpdating" @click="markAllRead">筛选结果全部已读</el-button>
-        <el-button :disabled="!canBatchMarkRead" :loading="batchUpdating" @click="batchMarkSelected(true)">
-          选中标记已读
-        </el-button>
-        <el-button :disabled="!canBatchMarkUnread" :loading="batchUpdating" @click="batchMarkSelected(false)">
-          选中标记未读
-        </el-button>
-        <el-button @click="clearSelection">清空勾选</el-button>
-      </div>
-    </div>
 
-    <div class="card">
-      <el-table
-        ref="tableRef"
-        :data="items"
-        row-key="id"
-        border
-        stripe
-        v-loading="loading"
-        empty-text="暂无流程消息"
-        @selection-change="handleSelectionChange"
-      >
-        <el-table-column v-if="canEditWorkflow" type="selection" width="52" reserve-selection />
-        <el-table-column prop="event_type" label="事件" min-width="170" />
-        <el-table-column prop="module" label="模块" min-width="100" />
-        <el-table-column prop="title" label="标题" min-width="160" />
-        <el-table-column label="内容" min-width="260">
-          <template #default="{ row }">
-            <span class="content-preview">{{ row.content || "-" }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="接收人" min-width="140">
-          <template #default="{ row }">
-            {{ row.receiver_id || "-" }}
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" min-width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.is_read ? 'success' : 'warning'">
-              {{ row.is_read ? "已读" : "未读" }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" min-width="180" />
-        <el-table-column label="操作" min-width="210" align="right">
-          <template #default="{ row }">
-            <div class="inline-actions inline-actions--right">
-              <el-button size="small" @click="openMessageDetail(row)">详情</el-button>
-              <el-button v-if="canEditWorkflow" size="small" @click="toggleRead(row)">
-                {{ row.is_read ? "取消已读" : "标记已读" }}
-              </el-button>
-              <el-text v-else type="info">只读</el-text>
+      <div class="card" style="margin-bottom: 12px">
+        <div class="toolbar" style="margin-bottom: 0">
+          <el-select v-model="auditFilters.event_domain" clearable placeholder="事件域" style="width: 150px">
+            <el-option v-for="item in auditDomainOptions" :key="item" :label="item" :value="item" />
+          </el-select>
+          <el-input v-model="auditFilters.event_type" clearable placeholder="事件类型" style="width: 220px" />
+          <el-select v-model="auditFilters.level" clearable placeholder="告警等级" style="width: 150px">
+            <el-option v-for="item in auditLevelOptions" :key="item" :label="item" :value="item" />
+          </el-select>
+          <el-input v-model="auditFilters.module" clearable placeholder="模块" style="width: 140px" />
+          <el-select v-model="auditFilters.object_type" clearable filterable allow-create default-first-option placeholder="对象类型" style="width: 170px">
+            <el-option v-for="item in auditObjectTypeOptions" :key="item" :label="item" :value="item" />
+          </el-select>
+          <el-select v-model="auditFilters.status" clearable placeholder="状态" style="width: 150px">
+            <el-option v-for="item in auditStatusOptions" :key="item" :label="item" :value="item" />
+          </el-select>
+          <el-button type="primary" plain @click="applyAuditFilters">查询</el-button>
+          <el-button @click="resetAuditFilters">重置</el-button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom: 12px">
+        <div class="section-header">
+          <h3 style="margin: 0">待处理审计事件</h3>
+          <div class="inline-actions">
+            <el-text type="info">按当前模块/事件筛选回读最近 5 条 open audit events</el-text>
+            <el-button link type="primary" @click="goToAuditLogs">前往审计日志</el-button>
+          </div>
+        </div>
+        <div v-if="relatedAuditItems.length" class="audit-event-list">
+          <div v-for="item in relatedAuditItems" :key="item.id" class="audit-event-item">
+            <div class="audit-event-topline">
+              <el-tag size="small" :type="auditLevelTagType(item.level)">{{ item.level || "INFO" }}</el-tag>
+              <el-tag size="small" effect="plain">{{ item.event_domain || "SYSTEM" }}</el-tag>
+              <el-text type="info">{{ item.module || "-" }}</el-text>
+              <el-text type="info">{{ item.created_at || "-" }}</el-text>
             </div>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="pagination">
-        <el-text type="info">第 {{ page }} 页，共 {{ total }} 条</el-text>
-        <el-pagination
-          background
-          layout="prev, pager, next"
-          :current-page="page"
-          :page-size="pageSize"
-          :total="total"
-          @current-change="handlePageChange"
-        />
+            <div class="audit-event-title">{{ item.title || "-" }}</div>
+            <div class="audit-event-summary">{{ item.summary || item.detail || "-" }}</div>
+            <div class="inline-actions" style="margin-top: 8px">
+              <el-button size="small" @click="openAuditDetail(item)">详情</el-button>
+              <el-button size="small" :disabled="!resolveAuditObjectRoute(item)" @click="openAuditObject(item)">跳转对象页</el-button>
+            </div>
+          </div>
+        </div>
+        <el-empty v-else description="当前筛选下暂无 open audit events" />
       </div>
-    </div>
+    </template>
+
+    <template v-else>
+      <div class="card" style="margin-bottom: 12px">
+        <div class="toolbar">
+          <el-input v-model="filters.module" clearable placeholder="模块，如 SYSTEM / STOCK" style="width: 220px" />
+          <el-input
+            v-model="filters.event_type"
+            clearable
+            placeholder="事件，如 DATA_SOURCE_UNHEALTHY"
+            style="width: 260px"
+          />
+          <el-select v-model="filters.is_read" clearable placeholder="全部状态" style="width: 130px">
+            <el-option label="未读" value="false" />
+            <el-option label="已读" value="true" />
+          </el-select>
+          <el-button :loading="exportingFiltered" @click="exportFilteredCSV">导出筛选CSV</el-button>
+          <el-button @click="exportCurrentPageCSV">导出当前页CSV</el-button>
+          <el-button type="primary" plain @click="applyFilters">查询</el-button>
+          <el-button @click="resetFilters">重置</el-button>
+        </div>
+      </div>
+
+      <div v-if="canEditWorkflow" class="card" style="margin-bottom: 12px">
+        <div class="section-header">
+          <h3 style="margin: 0">批量处理</h3>
+          <el-text type="info">
+            已选 {{ selectedRows.length }} 条，未读 {{ selectedUnreadCount }} 条，已读 {{ selectedReadCount }} 条
+          </el-text>
+        </div>
+        <div class="toolbar" style="margin-bottom: 0">
+          <el-button type="primary" :loading="batchUpdating" @click="markAllRead">筛选结果全部已读</el-button>
+          <el-button :disabled="!canBatchMarkRead" :loading="batchUpdating" @click="batchMarkSelected(true)">
+            选中标记已读
+          </el-button>
+          <el-button :disabled="!canBatchMarkUnread" :loading="batchUpdating" @click="batchMarkSelected(false)">
+            选中标记未读
+          </el-button>
+          <el-button @click="clearSelection">清空勾选</el-button>
+        </div>
+      </div>
+
+      <div class="card">
+        <el-table
+          ref="tableRef"
+          :data="items"
+          row-key="id"
+          border
+          stripe
+          v-loading="loading"
+          empty-text="暂无流程消息"
+          @selection-change="handleSelectionChange"
+        >
+          <el-table-column v-if="canEditWorkflow" type="selection" width="52" reserve-selection />
+          <el-table-column prop="event_type" label="事件" min-width="170" />
+          <el-table-column prop="module" label="模块" min-width="100" />
+          <el-table-column prop="title" label="标题" min-width="160" />
+          <el-table-column label="内容" min-width="260">
+            <template #default="{ row }">
+              <span class="content-preview">{{ row.content || "-" }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="接收人" min-width="140">
+            <template #default="{ row }">
+              {{ row.receiver_id || "-" }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" min-width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.is_read ? 'success' : 'warning'">
+                {{ row.is_read ? "已读" : "未读" }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="created_at" label="创建时间" min-width="180" />
+          <el-table-column label="操作" min-width="210" align="right">
+            <template #default="{ row }">
+              <div class="inline-actions inline-actions--right">
+                <el-button size="small" @click="openMessageDetail(row)">详情</el-button>
+                <el-button v-if="canEditWorkflow" size="small" @click="toggleRead(row)">
+                  {{ row.is_read ? "取消已读" : "标记已读" }}
+                </el-button>
+                <el-text v-else type="info">只读</el-text>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="pagination">
+          <el-text type="info">第 {{ page }} 页，共 {{ total }} 条</el-text>
+          <el-pagination
+            background
+            layout="prev, pager, next"
+            :current-page="page"
+            :page-size="pageSize"
+            :total="total"
+            @current-change="handlePageChange"
+          />
+        </div>
+      </div>
+    </template>
 
     <el-drawer v-model="detailVisible" size="620px" destroy-on-close>
       <template #header>
-        <div class="drawer-title">流程消息详情</div>
+        <div class="drawer-title">{{ detailTitle }}</div>
       </template>
 
-      <template v-if="currentMessage">
+      <template v-if="detailMode === 'workflow' && currentMessage">
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item label="消息ID">{{ currentMessage.id || "-" }}</el-descriptions-item>
           <el-descriptions-item label="模块">{{ currentMessage.module || "-" }}</el-descriptions-item>
@@ -560,6 +830,38 @@ onBeforeUnmount(() => {
         </div>
         <pre class="detail-block">{{ currentMessage.content || "-" }}</pre>
       </template>
+
+      <template v-else-if="currentAuditItem">
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item label="事件ID">{{ currentAuditItem.id || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="事件域">{{ currentAuditItem.event_domain || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="事件类型">{{ currentAuditItem.event_type || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="告警等级">{{ currentAuditItem.level || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="模块">{{ currentAuditItem.module || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="对象类型">{{ currentAuditItem.object_type || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="对象ID">{{ currentAuditItem.object_id || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="状态">{{ currentAuditItem.status || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="时间">{{ currentAuditItem.created_at || "-" }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div class="detail-title-row">
+          <h4>摘要</h4>
+        </div>
+        <pre class="detail-block">{{ currentAuditItem.summary || currentAuditItem.title || "-" }}</pre>
+
+        <div class="detail-title-row">
+          <h4>详情</h4>
+          <el-button link type="primary" :disabled="!resolveAuditObjectRoute(currentAuditItem)" @click="openAuditObject(currentAuditItem)">
+            跳转对象页
+          </el-button>
+        </div>
+        <pre class="detail-block">{{ currentAuditItem.detail || "-" }}</pre>
+
+        <div class="detail-title-row">
+          <h4>metadata</h4>
+        </div>
+        <pre class="detail-block">{{ formatJsonBlock(currentAuditItem.metadata) }}</pre>
+      </template>
     </el-drawer>
   </div>
 </template>
@@ -575,6 +877,31 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.metric-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.metric-label {
+  color: #64748b;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.metric-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .section-header {
@@ -602,6 +929,40 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+.audit-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.audit-event-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+
+.audit-event-topline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.audit-event-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+
+.audit-event-summary {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .drawer-title {

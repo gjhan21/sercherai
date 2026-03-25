@@ -116,5 +116,9 @@ type MarketSyncResult struct {
 	TruthCount         int                          `json:"truth_count,omitempty"`
 	InventoryCount     int                          `json:"inventory_count,omitempty"`
 	SnapshotCount      int                          `json:"snapshot_count,omitempty"`
+	SelectedSource     string                       `json:"selected_source,omitempty"`
+	FallbackChain      []string                     `json:"fallback_chain,omitempty"`
+	DecisionReason     string                       `json:"decision_reason,omitempty"`
+	PolicyKey          string                       `json:"policy_key,omitempty"`
 	Results            []MarketSourceSyncItemResult `json:"results,omitempty"`
 }

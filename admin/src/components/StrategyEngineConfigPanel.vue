@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from "vue";
+import { nextTick, onMounted, reactive, ref } from "vue";
 import StrategyEngineJobCenter from "./StrategyEngineJobCenter.vue";
 import {
   createStrategyAgentProfile,
@@ -28,6 +28,8 @@ const seedSets = ref([]);
 const agentProfiles = ref([]);
 const scenarioTemplates = ref([]);
 const publishPolicies = ref([]);
+const policyTableRef = ref(null);
+const focusedPolicyID = ref("");
 const jobCenterRef = ref(null);
 const seedDialogVisible = ref(false);
 const agentDialogVisible = ref(false);
@@ -340,6 +342,37 @@ function openEditPolicyDialog(row) {
   policyDialogVisible.value = true;
 }
 
+
+function policyRowClassName({ row }) {
+  return row?.id && row.id === focusedPolicyID.value ? "is-route-focus" : "";
+}
+
+async function focusPublishPolicyByID(policyID) {
+  const targetID = String(policyID || "").trim();
+  if (!targetID) {
+    focusedPolicyID.value = "";
+    return false;
+  }
+  if (!publishPolicies.value.some((item) => item?.id === targetID)) {
+    await refreshAll();
+  }
+  const matched = publishPolicies.value.find((item) => item?.id === targetID);
+  if (!matched) {
+    errorMessage.value = `未找到发布策略 ${targetID}`;
+    return false;
+  }
+  focusedPolicyID.value = targetID;
+  message.value = `已定位到发布策略 ${matched.name || targetID}`;
+  await nextTick();
+  const table = policyTableRef.value?.$el || policyTableRef.value;
+  const row = table?.querySelector?.(`tr[data-row-key="${targetID}"]`);
+  row?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  if (canEditMarket) {
+    openEditPolicyDialog(matched);
+  }
+  return true;
+}
+
 async function refreshAll() {
   loading.value = true;
   clearMessages();
@@ -546,7 +579,7 @@ function formatScenarioSummary(items = []) {
 
 onMounted(refreshAll);
 
-defineExpose({ refreshAll });
+defineExpose({ refreshAll, focusPublishPolicyByID });
 </script>
 
 <template>
@@ -667,7 +700,7 @@ defineExpose({ refreshAll });
           </div>
           <el-button v-if="canEditMarket" type="primary" @click="openCreatePolicyDialog">新建发布策略</el-button>
         </div>
-        <el-table :data="publishPolicies" border>
+        <el-table ref="policyTableRef" :data="publishPolicies" row-key="id" :row-class-name="policyRowClassName" border>
           <el-table-column prop="name" label="名称" min-width="160" />
           <el-table-column prop="target_type" label="作用范围" width="110" />
           <el-table-column label="默认" width="80">
@@ -967,6 +1000,10 @@ defineExpose({ refreshAll });
 .scenario-card__head h4 {
   margin: 0;
   font-size: 16px;
+}
+
+:deep(.is-route-focus td) {
+  background: rgba(64, 158, 255, 0.12);
 }
 
 @media (max-width: 960px) {

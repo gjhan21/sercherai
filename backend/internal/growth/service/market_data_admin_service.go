@@ -37,3 +37,19 @@ func (s *growthService) AdminGetMarketDerivedTruthSummary(assetClass string) (*m
 func (s *growthService) AdminRebuildMarketDerivedTruth(assetClass string, tradeDate string, days int) (model.MarketDerivedTruthRebuildResult, error) {
 	return s.repo.AdminRebuildMarketDerivedTruth(assetClass, tradeDate, days)
 }
+
+func (s *growthService) AdminGetMarketProviderGovernanceOverview() (model.MarketProviderGovernanceOverview, error) {
+	return s.repo.AdminGetMarketProviderGovernanceOverview()
+}
+
+func (s *growthService) AdminListMarketProviderCapabilities(providerKey string, assetClass string, dataKind string) ([]model.MarketProviderCapability, error) {
+	return s.repo.AdminListMarketProviderCapabilities(providerKey, assetClass, dataKind)
+}
+
+func (s *growthService) AdminListMarketProviderRoutingPolicies(assetClass string, dataKind string) ([]model.MarketProviderRoutingPolicy, error) {
+	return s.repo.AdminListMarketProviderRoutingPolicies(assetClass, dataKind)
+}
+
+func (s *growthService) AdminUpsertMarketProviderRoutingPolicy(item model.MarketProviderRoutingPolicy) (model.MarketProviderRoutingPolicy, error) {
+	return s.repo.AdminUpsertMarketProviderRoutingPolicy(item)
+}

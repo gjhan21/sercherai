@@ -258,6 +258,27 @@ export function normalizeMarketCenterTab(value) {
   return "stocks";
 }
 
+export function normalizeMarketCenterView(value, hasPublishID = false) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "replay") return "replay";
+  if (normalized === "detail") return "detail";
+  return hasPublishID ? "detail" : "";
+}
+
+export function normalizeMarketCenterJobType(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.includes("FUTURES")) {
+    return "FUTURES_SELECTION";
+  }
+  if (normalized.includes("STOCK")) {
+    return "STOCK_SELECTION";
+  }
+  return normalized;
+}
+
 export function buildMarketCenterRouteQuery(filters = {}) {
   const query = {
     tab: normalizeMarketCenterTab(filters?.tab)
@@ -267,20 +288,41 @@ export function buildMarketCenterRouteQuery(filters = {}) {
     filters?.quality_hours ?? filters?.hours,
     0
   );
+  const publishID = String(filters?.publish_id || "").trim();
+  const policyID = String(filters?.policy_id || "").trim();
+  const jobType = normalizeMarketCenterJobType(filters?.job_type);
+  const view = normalizeMarketCenterView(filters?.view, Boolean(publishID));
   if (qualityHours > 0) {
     query.quality_hours = String(qualityHours);
   }
   if (issueCode) {
     query.issue_code = issueCode;
   }
+  if (publishID) {
+    query.publish_id = publishID;
+  }
+  if (view) {
+    query.view = view;
+  }
+  if (jobType) {
+    query.job_type = jobType;
+  }
+  if (policyID) {
+    query.policy_id = policyID;
+  }
   return query;
 }
 
 export function normalizeMarketCenterRouteState(query = {}) {
+  const publishID = String(query?.publish_id || "").trim();
   return {
     tab: normalizeMarketCenterTab(query?.tab),
     quality_hours: normalizeMarketQualityLookbackHours(query?.quality_hours),
-    issue_code: String(query?.issue_code || "").trim().toUpperCase()
+    issue_code: String(query?.issue_code || "").trim().toUpperCase(),
+    publish_id: publishID,
+    view: normalizeMarketCenterView(query?.view, Boolean(publishID)),
+    job_type: normalizeMarketCenterJobType(query?.job_type),
+    policy_id: String(query?.policy_id || "").trim()
   };
 }
 
@@ -478,4 +520,21 @@ export function areMarketQualityFiltersEqual(left = {}, right = {}) {
     normalizedLeft.issue_code === normalizedRight.issue_code &&
     normalizedLeft.hours === normalizedRight.hours
   );
+}
+
+export function marketGovernanceSuggestionTagType(value) {
+  const normalized = String(value || "").trim();
+  if (normalized.includes("降级")) return "danger";
+  if (normalized.includes("补同步")) return "warning";
+  if (normalized.includes("主源")) return "success";
+  return "info";
+}
+
+export function buildGovernanceProviderLabel(item = {}) {
+  const providerKey = String(item?.provider_key || "").trim().toUpperCase();
+  const providerName = String(item?.provider_name || "").trim();
+  if (providerName) {
+    return `${providerKey} · ${providerName}`;
+  }
+  return providerKey || "-";
 }

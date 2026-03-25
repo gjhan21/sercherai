@@ -202,6 +202,9 @@ type GrowthRepo interface {
 	AdminDashboardOverview() (model.AdminDashboardOverview, error)
 	AdminCreateOperationLog(module string, action string, targetType string, targetID string, operatorUserID string, beforeValue string, afterValue string, reason string) error
 	AdminListOperationLogs(module string, action string, operatorUserID string, page int, pageSize int) ([]model.AdminOperationLog, int, error)
+	AdminCreateAuditEvent(item model.AdminAuditEvent) error
+	AdminListAuditEvents(filter model.AdminAuditEventFilter, page int, pageSize int) ([]model.AdminAuditEvent, int, error)
+	AdminGetAuditEventSummary() (model.AdminAuditEventSummary, error)
 	AdminListMembershipProducts(status string, page int, pageSize int) ([]model.MembershipProduct, int, error)
 	AdminCreateMembershipProduct(name string, price float64, status string, memberLevel string, durationDays int) (string, error)
 	AdminUpdateMembershipProduct(id string, name string, price float64, status string, memberLevel string, durationDays int) error
@@ -218,6 +221,10 @@ type GrowthRepo interface {
 	AdminCreateDataSource(item model.DataSource) (string, error)
 	AdminUpdateDataSource(sourceKey string, item model.DataSource) error
 	AdminDeleteDataSource(sourceKey string) error
+	AdminGetMarketProviderGovernanceOverview() (model.MarketProviderGovernanceOverview, error)
+	AdminListMarketProviderCapabilities(providerKey string, assetClass string, dataKind string) ([]model.MarketProviderCapability, error)
+	AdminListMarketProviderRoutingPolicies(assetClass string, dataKind string) ([]model.MarketProviderRoutingPolicy, error)
+	AdminUpsertMarketProviderRoutingPolicy(item model.MarketProviderRoutingPolicy) (model.MarketProviderRoutingPolicy, error)
 	AdminCheckDataSourceHealth(sourceKey string) (model.DataSourceHealthCheck, error)
 	AdminBatchCheckDataSourceHealth(sourceKeys []string) ([]model.DataSourceHealthCheck, error)
 	AdminListDataSourceHealthLogs(sourceKey string, page int, pageSize int) ([]model.DataSourceHealthLog, int, error)

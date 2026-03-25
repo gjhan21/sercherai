@@ -273,5 +273,26 @@ func (r *InMemoryGrowthRepo) AdminPublishStrategyEngineJob(jobID string, operato
 	if strings.TrimSpace(jobID) == "" {
 		return model.StrategyEnginePublishRecord{}, sql.ErrNoRows
 	}
-	return model.StrategyEnginePublishRecord{}, sql.ErrNoRows
+	return model.StrategyEnginePublishRecord{
+		PublishID:     "pub_demo_001",
+		JobID:         strings.TrimSpace(jobID),
+		JobType:       "stock-selection",
+		Version:       1,
+		CreatedAt:     "2026-03-24T09:30:00+08:00",
+		TradeDate:     "2026-03-24",
+		ReportSummary: "demo publish",
+		SelectedCount: 3,
+		PayloadCount:  3,
+		Replay: model.StrategyEnginePublishReplay{
+			PublishID:       "pub_demo_001",
+			JobID:           strings.TrimSpace(jobID),
+			PublishVersion:  1,
+			Operator:        strings.TrimSpace(operator),
+			ForcePublish:    force,
+			OverrideReason:  strings.TrimSpace(overrideReason),
+			WarningCount:    1,
+			StorageSource:   "LOCAL_ONLY",
+			WarningMessages: []string{"demo warning"},
+		},
+	}, nil
 }

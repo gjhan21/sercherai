@@ -1,13 +1,19 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import {
   assignReviewTask,
+  getAuditEventSummary,
   getWorkflowMetrics,
+  listAuditEvents,
   listReviewTasks,
   reviewTaskDecision,
   submitReviewTask
 } from "../api/admin";
 import { getAccessToken, getSession, hasPermission } from "../lib/session";
+
+const route = useRoute();
+const router = useRouter();
 
 const loading = ref(false);
 const metricsLoading = ref(false);
@@ -59,6 +65,8 @@ const metrics = ref({
   unread_messages: 0,
   total_messages: 0
 });
+const reviewAuditSummary = ref(null);
+const reviewAuditItems = ref([]);
 
 const submitForm = reactive({
   module: "NEWS",
@@ -407,6 +415,26 @@ async function fetchMetrics() {
   }
 }
 
+async function fetchReviewAuditEvents() {
+  try {
+    const [summary, data] = await Promise.all([
+      getAuditEventSummary(),
+      listAuditEvents({
+        module: filters.module || "NEWS",
+        object_type: "REVIEW_TASK",
+        status: "OPEN",
+        page: 1,
+        page_size: 5
+      })
+    ]);
+    reviewAuditSummary.value = summary || null;
+    reviewAuditItems.value = data.items || [];
+  } catch {
+    reviewAuditSummary.value = null;
+    reviewAuditItems.value = [];
+  }
+}
+
 function syncCurrentTask() {
   if (!currentTask.value?.id) {
     return;
@@ -443,8 +471,38 @@ async function fetchTasks(options = {}) {
   }
 }
 
+async function applyReviewRouteFocus(reviewID) {
+  const normalized = String(reviewID || "").trim();
+  if (!normalized) {
+    return;
+  }
+  let matched = tasks.value.find((task) => String(task?.id || "").trim() === normalized);
+  if (!matched) {
+    try {
+      const data = await listReviewTasks({
+        module: "",
+        status: "",
+        submitter_id: "",
+        reviewer_id: "",
+        page: 1,
+        page_size: 200
+      });
+      matched = (data.items || []).find((task) => String(task?.id || "").trim() === normalized);
+      if (matched) {
+        tasks.value = data.items || [];
+        total.value = data.total || tasks.value.length;
+      }
+    } catch {
+      return;
+    }
+  }
+  if (matched) {
+    openTaskDetail(matched, { syncRoute: false });
+  }
+}
+
 async function refreshAll(options = {}) {
-  await Promise.all([fetchMetrics(), fetchTasks(options)]);
+  await Promise.all([fetchMetrics(), fetchTasks(options), fetchReviewAuditEvents()]);
   clearSelection();
   updateNowTick();
 }
@@ -479,12 +537,19 @@ async function handleSubmitReview() {
   }
 }
 
-function openTaskDetail(task) {
+function openTaskDetail(task, options = {}) {
+  const { syncRoute = true } = options;
   currentTask.value = { ...task };
   detailForm.reviewer_id = task.reviewer_id || "";
   detailForm.decision_status = "APPROVED";
   detailForm.decision_note = task.review_note || "";
   detailVisible.value = true;
+  if (syncRoute && task?.id) {
+    router.replace({
+      name: "review-center",
+      query: { review_id: task.id }
+    });
+  }
 }
 
 function canQuickDecision(task) {
@@ -986,6 +1051,10 @@ function handlePageChange(nextPage) {
   fetchTasks();
 }
 
+function openReviewAuditInbox() {
+  router.push("/workflow-messages");
+}
+
 function statusTagType(status) {
   const normalized = (status || "").toUpperCase();
   if (normalized === "APPROVED") return "success";
@@ -995,10 +1064,23 @@ function statusTagType(status) {
 }
 
 onMounted(() => {
-  refreshAll();
+  refreshAll().then(async () => {
+    if (route.query.review_id) {
+      await applyReviewRouteFocus(String(route.query.review_id));
+    }
+  });
   updateNowTick();
   setupTimers();
 });
+
+watch(
+  () => route.query.review_id,
+  async (reviewID) => {
+    if (reviewID) {
+      await applyReviewRouteFocus(String(reviewID));
+    }
+  }
+);
 
 onBeforeUnmount(() => {
   clearTimers();
@@ -1072,6 +1154,28 @@ onBeforeUnmount(() => {
         <el-tag type="warning">SLA预警：{{ slaStats.warningCount }}</el-tag>
         <el-tag type="danger">SLA超时：{{ slaStats.dangerCount }}</el-tag>
         <el-text type="info">当前页待审核总数：{{ slaStats.pendingTotal }}</el-text>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 12px">
+      <div class="section-header">
+        <div>
+          <h3 style="margin: 0">审核事件摘要</h3>
+          <p class="muted" style="margin: 6px 0 0">审核中心开始直接回读统一 audit event 主链。</p>
+        </div>
+        <div class="inline-actions inline-actions--left">
+          <el-button link type="primary" @click="openReviewAuditInbox">查看消息中心</el-button>
+          <el-tag type="warning" effect="plain">开放事件 {{ reviewAuditItems.length }}</el-tag>
+          <el-tag type="info" effect="plain">Warning {{ reviewAuditSummary?.warning_count || 0 }}</el-tag>
+          <el-tag type="danger" effect="plain">Critical {{ reviewAuditSummary?.critical_count || 0 }}</el-tag>
+        </div>
+      </div>
+      <div class="toolbar" style="margin-bottom: 0">
+        <el-text type="primary">待处理审核事件</el-text>
+        <el-tag v-for="item in reviewAuditItems" :key="item.id" effect="plain">
+          {{ item.event_type || "REVIEW_TASK" }} · {{ item.status || "OPEN" }}
+        </el-tag>
+        <el-text v-if="!reviewAuditItems.length" type="info">当前筛选下暂无 REVIEW_TASK open audit events</el-text>
       </div>
     </div>
 
