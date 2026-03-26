@@ -1,9 +1,11 @@
-import { createApp } from "vue";
-import App from "./App.vue";
-import router from "./router";
-import "./styles/tokens.css";
-import "./styles/base.css";
-import "./styles/finance-shell.css";
-import "./styles/finance-pages.css";
+import { mountH5App } from "./apps/h5/bootstrap";
+import { mountPcApp } from "./apps/pc/bootstrap";
+import { resolveClientAppMode } from "./app-entry";
 
-createApp(App).use(router).mount("#app");
+const pathname = typeof window !== "undefined" ? window.location.pathname : "/";
+
+if (resolveClientAppMode(pathname) === "h5") {
+  mountH5App();
+} else {
+  mountPcApp();
+}
