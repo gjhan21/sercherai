@@ -657,6 +657,71 @@ func (h *UserGrowthHandler) ListNewsArticles(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
+func (h *UserGrowthHandler) SearchGlobal(c *gin.Context) {
+	userID := optionalUserID(c)
+	keyword := normalizeSearchKeyword(c.Query("keyword"))
+	if keyword == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "keyword required", Data: struct{}{}})
+		return
+	}
+	mode := normalizeSearchMode(c.Query("mode"))
+	defaultLimit := 6
+	if mode == "full" {
+		defaultLimit = 20
+	}
+	limit := parseIntOrDefault(c.Query("limit"), defaultLimit)
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 20 {
+		limit = 20
+	}
+
+	newsItems, newsTotal, err := h.service.ListNewsArticles(userID, "", keyword, 1, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	stocks := make([]model.StockRecommendation, 0)
+	strategies := make([]model.FuturesStrategy, 0)
+	stockTotal := 0
+	strategyTotal := 0
+
+	if userID != "" {
+		stockItems, _, stockErr := h.service.ListStockRecommendations(userID, "", 1, 200)
+		if stockErr != nil {
+			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: stockErr.Error(), Data: struct{}{}})
+			return
+		}
+		stocks, stockTotal = filterStockRecommendationsByKeyword(stockItems, keyword, limit)
+
+		strategyItems, _, strategyErr := h.service.ListFuturesStrategies(userID, "", "", 1, 200)
+		if strategyErr != nil {
+			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: strategyErr.Error(), Data: struct{}{}})
+			return
+		}
+		strategies, strategyTotal = filterFuturesStrategiesByKeyword(strategyItems, keyword, limit)
+	}
+
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"keyword": keyword,
+		"scope":   map[bool]string{true: "USER", false: "PUBLIC"}[userID != ""],
+		"stocks": gin.H{
+			"items": stocks,
+			"total": stockTotal,
+		},
+		"strategies": gin.H{
+			"items": strategies,
+			"total": strategyTotal,
+		},
+		"news": gin.H{
+			"items": newsItems,
+			"total": newsTotal,
+		},
+	}))
+}
+
 func (h *UserGrowthHandler) GetNewsArticleDetail(c *gin.Context) {
 	userID := optionalUserID(c)
 	articleID := c.Param("id")
@@ -1262,6 +1327,80 @@ func parseIntOrDefault(s string, def int) int {
 		return def
 	}
 	return v
+}
+
+func normalizeSearchKeyword(value string) string {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return ""
+	}
+	return strings.ToLower(strings.Join(strings.Fields(text), " "))
+}
+
+func normalizeSearchMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "full":
+		return "full"
+	default:
+		return "suggest"
+	}
+}
+
+func containsSearchKeyword(keyword string, fields ...string) bool {
+	if keyword == "" {
+		return true
+	}
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(field)), keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func filterStockRecommendationsByKeyword(items []model.StockRecommendation, keyword string, limit int) ([]model.StockRecommendation, int) {
+	needle := normalizeSearchKeyword(keyword)
+	if len(items) == 0 || needle == "" || limit <= 0 {
+		return []model.StockRecommendation{}, 0
+	}
+	result := make([]model.StockRecommendation, 0, minInt(limit, len(items)))
+	total := 0
+	for _, item := range items {
+		if !containsSearchKeyword(needle, item.Symbol, item.Name, item.ReasonSummary) {
+			continue
+		}
+		total++
+		if len(result) < limit {
+			result = append(result, item)
+		}
+	}
+	return result, total
+}
+
+func filterFuturesStrategiesByKeyword(items []model.FuturesStrategy, keyword string, limit int) ([]model.FuturesStrategy, int) {
+	needle := normalizeSearchKeyword(keyword)
+	if len(items) == 0 || needle == "" || limit <= 0 {
+		return []model.FuturesStrategy{}, 0
+	}
+	result := make([]model.FuturesStrategy, 0, minInt(limit, len(items)))
+	total := 0
+	for _, item := range items {
+		if !containsSearchKeyword(needle, item.Contract, item.Name, item.Direction, item.ReasonSummary) {
+			continue
+		}
+		total++
+		if len(result) < limit {
+			result = append(result, item)
+		}
+	}
+	return result, total
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func optionalUserID(c *gin.Context) string {

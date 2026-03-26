@@ -69,6 +69,86 @@
       </div>
     </nav>
 
+    <section v-if="showGlobalSearchBar" ref="searchBarRef" class="global-search-strip fade-up">
+      <div class="shell-container global-search-strip-inner">
+        <form class="global-search-form" @submit.prevent="handleSearchSubmit">
+          <div class="global-search-field-wrap">
+            <input
+              v-model="searchKeyword"
+              class="global-search-input"
+              type="search"
+              maxlength="40"
+              placeholder="搜索股票、期货策略和资讯"
+              @focus="handleSearchFocus"
+              @keydown.esc.prevent="handleEscapeSearch"
+            />
+            <button
+              v-if="searchKeyword"
+              type="button"
+              class="global-search-clear"
+              aria-label="清空搜索"
+              @click="clearGlobalSearch"
+            >
+              ×
+            </button>
+          </div>
+          <button class="finance-mini-btn finance-mini-btn-primary" type="submit" :disabled="!canSubmitSearch">
+            搜索
+          </button>
+        </form>
+        <p class="global-search-hint">
+          {{ searchKeyword ? "输入时实时联想，回车或点搜索查看完整结果" : "先用顶部搜索条定位股票、期货策略和资讯" }}
+        </p>
+      </div>
+
+      <div v-if="searchDropdownVisible" class="shell-container">
+        <div class="global-search-dropdown finance-list-card finance-list-card-panel">
+          <div class="global-search-dropdown-head">
+            <div>
+              <p>全局搜索</p>
+              <strong>{{ activeSearchKeyword || "搜索结果" }}</strong>
+            </div>
+            <span class="finance-pill finance-pill-compact finance-pill-neutral">{{ searchScopeLabel }}</span>
+          </div>
+
+          <p v-if="searchLoading" class="search-tip finance-note-strip finance-note-strip-info">正在检索股票、策略和资讯...</p>
+          <p v-else-if="searchError" class="search-tip finance-note-strip finance-note-strip-warning">{{ searchError }}</p>
+          <template v-else>
+            <div v-if="hasSuggestionItems" class="global-search-dropdown-groups">
+              <article v-for="group in suggestionGroups" :key="group.key" class="global-search-group">
+                <header class="global-search-group-head">
+                  <div>
+                    <strong>{{ group.title }}</strong>
+                    <span>{{ group.total }} 条</span>
+                  </div>
+                </header>
+                <ul v-if="group.items.length" class="global-search-list">
+                  <li
+                    v-for="item in group.items.slice(0, 3)"
+                    :key="`${group.key}-${item.id}`"
+                    class="global-search-item"
+                    @click="openSuggestedSearchItem(group.key, item)"
+                  >
+                    <h4>{{ item.title }}</h4>
+                    <p>{{ item.summary }}</p>
+                    <span>{{ item.meta }}</span>
+                  </li>
+                </ul>
+                <p v-else class="global-search-empty">{{ group.emptyText }}</p>
+              </article>
+            </div>
+            <p v-else class="global-search-empty global-search-empty-panel">未找到匹配结果。</p>
+          </template>
+
+          <div class="global-search-dropdown-actions">
+            <button type="button" class="finance-mini-btn finance-mini-btn-soft" @click="openSearchResultsPage()">
+              查看更多搜索结果
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="finance-route-strip fade-up">
       <div class="shell-container finance-route-strip-inner">
         <div class="finance-route-copy">
@@ -139,15 +219,32 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { logout } from "../api/auth";
+import { searchGlobal, searchGlobalPublic } from "../api/search";
 import { clearClientAuthSession, useClientAuth } from "../lib/client-auth";
+import {
+  buildGlobalSearchGroups,
+  buildSearchPageQuery,
+  normalizeGlobalSearchKeyword,
+  normalizeGlobalSearchResult,
+  resolveGlobalSearchScopeLabel,
+  shouldRequestGlobalSearch
+} from "../lib/global-search";
 
 const route = useRoute();
 const router = useRouter();
 const loggingOut = ref(false);
 const { session, isLoggedIn } = useClientAuth();
+const searchBarRef = ref(null);
+const searchKeyword = ref(normalizeGlobalSearchKeyword(route.query.q || ""));
+const searchLoading = ref(false);
+const searchError = ref("");
+const searchResult = ref(null);
+const searchDropdownRequested = ref(false);
+let searchTimer = null;
+let latestSearchRequestID = 0;
 
 const tabs = [
   {
@@ -254,6 +351,61 @@ const accountLabel = computed(() => {
   }
   return session.value?.userID || "当前用户";
 });
+const showGlobalSearchBar = computed(() => route.path === "/home" || route.path === "/search");
+const activeSearchKeyword = computed(() => normalizeGlobalSearchKeyword(searchKeyword.value));
+const searchDropdownVisible = computed(() =>
+  showGlobalSearchBar.value && searchDropdownRequested.value && shouldRequestGlobalSearch(activeSearchKeyword.value)
+);
+const suggestionGroups = computed(() => buildGlobalSearchGroups(searchResult.value));
+const hasSuggestionItems = computed(() => suggestionGroups.value.some((group) => group.items.length > 0));
+const searchScopeLabel = computed(() => resolveGlobalSearchScopeLabel(searchResult.value?.scope));
+const canSubmitSearch = computed(() => shouldRequestGlobalSearch(activeSearchKeyword.value));
+
+watch(
+  () => route.query.q,
+  (value) => {
+    const normalized = normalizeGlobalSearchKeyword(value || "");
+    if (normalized !== searchKeyword.value) {
+      searchKeyword.value = normalized;
+    }
+    if (!showGlobalSearchBar.value || !shouldRequestGlobalSearch(normalized)) {
+      clearSuggestionState();
+    }
+  },
+  { immediate: true }
+);
+
+watch(showGlobalSearchBar, (visible) => {
+  if (!visible) {
+    clearSuggestionState();
+  }
+});
+
+watch(searchKeyword, (value) => {
+  if (!showGlobalSearchBar.value) {
+    return;
+  }
+  const keyword = normalizeGlobalSearchKeyword(value);
+  syncSearchKeywordToRoute(keyword);
+  window.clearTimeout(searchTimer);
+  if (!shouldRequestGlobalSearch(keyword)) {
+    clearSuggestionState();
+    return;
+  }
+  searchDropdownRequested.value = true;
+  searchTimer = window.setTimeout(() => {
+    void loadSuggestedSearch(keyword);
+  }, 250);
+});
+
+onMounted(() => {
+  document.addEventListener("mousedown", handleDocumentPointerDown);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("mousedown", handleDocumentPointerDown);
+  window.clearTimeout(searchTimer);
+});
 
 async function handleLogout() {
   if (loggingOut.value) {
@@ -276,5 +428,97 @@ async function handleLogout() {
 
 function isTabActive(path) {
   return route.path === path || route.path.startsWith(`${path}/`);
+}
+
+function clearSuggestionState() {
+  searchLoading.value = false;
+  searchError.value = "";
+  searchResult.value = null;
+  searchDropdownRequested.value = false;
+}
+
+function handleSearchFocus() {
+  if (shouldRequestGlobalSearch(activeSearchKeyword.value)) {
+    searchDropdownRequested.value = true;
+  }
+}
+
+function handleEscapeSearch() {
+  searchDropdownRequested.value = false;
+}
+
+function handleDocumentPointerDown(event) {
+  if (!searchBarRef.value?.contains?.(event.target)) {
+    searchDropdownRequested.value = false;
+  }
+}
+
+function syncSearchKeywordToRoute(keyword) {
+  const normalized = normalizeGlobalSearchKeyword(keyword);
+  const current = normalizeGlobalSearchKeyword(route.query.q || "");
+  if (normalized === current) {
+    return;
+  }
+  const nextQuery = { ...route.query };
+  if (normalized) {
+    nextQuery.q = normalized;
+  } else {
+    delete nextQuery.q;
+  }
+  delete nextQuery.focus_type;
+  delete nextQuery.focus_id;
+  void router.replace({ path: route.path, query: nextQuery });
+}
+
+async function loadSuggestedSearch(keyword) {
+  const requestID = latestSearchRequestID + 1;
+  latestSearchRequestID = requestID;
+  searchLoading.value = true;
+  searchError.value = "";
+  const searchAction = isLoggedIn.value ? searchGlobal : searchGlobalPublic;
+  try {
+    const result = await searchAction({ keyword, mode: "suggest", limit: 6 });
+    if (requestID !== latestSearchRequestID) {
+      return;
+    }
+    searchResult.value = normalizeGlobalSearchResult(result, keyword);
+  } catch (error) {
+    if (requestID !== latestSearchRequestID) {
+      return;
+    }
+    searchResult.value = null;
+    searchError.value = error?.message || "搜索失败，请稍后再试";
+  } finally {
+    if (requestID === latestSearchRequestID) {
+      searchLoading.value = false;
+    }
+  }
+}
+
+function clearGlobalSearch() {
+  searchKeyword.value = "";
+  if (route.path === "/search") {
+    void router.replace({ path: "/search" });
+  }
+}
+
+function openSearchResultsPage(options = {}) {
+  const query = buildSearchPageQuery(activeSearchKeyword.value, options);
+  searchDropdownRequested.value = false;
+  void router.push({ path: "/search", query });
+}
+
+function openSuggestedSearchItem(groupKey, item) {
+  openSearchResultsPage({
+    focusType: groupKey,
+    focusID: item?.id || ""
+  });
+}
+
+function handleSearchSubmit() {
+  if (!canSubmitSearch.value) {
+    return;
+  }
+  openSearchResultsPage();
 }
 </script>

@@ -143,6 +143,12 @@ func Register(r *gin.Engine) {
 			messages.PUT("/:id/read", userGrowthHandler.ReadMessage)
 		}
 
+		search := v1.Group("/search")
+		search.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("USER", "ADMIN"))
+		{
+			search.GET("/global", userGrowthHandler.SearchGlobal)
+		}
+
 		membership := v1.Group("/membership")
 		membership.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("USER", "ADMIN"))
 		{
@@ -211,6 +217,7 @@ func Register(r *gin.Engine) {
 			public.GET("/news/articles", userGrowthHandler.ListNewsArticles)
 			public.GET("/news/articles/:id", userGrowthHandler.GetNewsArticleDetail)
 			public.GET("/news/articles/:id/attachments", userGrowthHandler.ListNewsAttachments)
+			public.GET("/search/global", userGrowthHandler.SearchGlobal)
 			public.GET("/community/topics", userGrowthHandler.ListPublicCommunityTopics)
 			public.GET("/community/topics/:id", userGrowthHandler.GetPublicCommunityTopic)
 			public.GET("/community/topics/:id/comments", userGrowthHandler.ListPublicCommunityComments)

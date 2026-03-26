@@ -4,6 +4,7 @@ import { syncClientAuthSession } from "../lib/client-auth";
 const ClientLayout = () => import("../components/ClientLayout.vue");
 const AuthView = () => import("../views/AuthView.vue");
 const HomeView = () => import("../views/HomeView.vue");
+const SearchView = () => import("../views/SearchView.vue");
 const StrategyView = () => import("../views/StrategyView.vue");
 const RecommendationArchiveView = () => import("../views/RecommendationArchiveView.vue");
 const MyWatchlistView = () => import("../views/MyWatchlistView.vue");
@@ -37,6 +38,7 @@ const routes = [
     children: [
       { path: "", redirect: "/home" },
       { path: "home", name: "home", component: HomeView },
+      { path: "search", name: "search", component: SearchView },
       { path: "strategies", name: "strategies", component: StrategyView },
       { path: "archive", name: "archive", component: RecommendationArchiveView },
       { path: "watchlist", name: "watchlist", component: MyWatchlistView },

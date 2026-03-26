@@ -1864,7 +1864,12 @@ function summarizeText(value) {
 }
 
 async function handleInsightSearch() {
-  await loadHomeInsights({ keyword: insightKeyword.value });
+  const keyword = normalizeInsightKeyword(insightKeyword.value);
+  if (!keyword) {
+    await clearInsightSearch();
+    return;
+  }
+  await loadHomeInsights({ keyword });
   scrollToInsights();
 }
 
