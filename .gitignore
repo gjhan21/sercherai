@@ -22,6 +22,9 @@ client/dist/
 # Local/dev misc
 .DS_Store
 .codex/
+.superpowers/
 /releases/
 /sercherai*.sql
 /users.sql
+__pycache__/
+*.py[cod]
