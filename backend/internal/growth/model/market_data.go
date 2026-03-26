@@ -97,6 +97,8 @@ type MarketSourceSyncItemResult struct {
 	BarCount       int    `json:"bar_count,omitempty"`
 	NewsCount      int    `json:"news_count,omitempty"`
 	TruthCount     int    `json:"truth_count,omitempty"`
+	InsertedCount  int    `json:"inserted_count,omitempty"`
+	UpdatedCount   int    `json:"updated_count,omitempty"`
 	InventoryCount int    `json:"inventory_count,omitempty"`
 	SnapshotCount  int    `json:"snapshot_count,omitempty"`
 	Message        string `json:"message,omitempty"`
@@ -114,6 +116,8 @@ type MarketSyncResult struct {
 	BarCount           int                          `json:"bar_count,omitempty"`
 	NewsCount          int                          `json:"news_count,omitempty"`
 	TruthCount         int                          `json:"truth_count,omitempty"`
+	InsertedCount      int                          `json:"inserted_count,omitempty"`
+	UpdatedCount       int                          `json:"updated_count,omitempty"`
 	InventoryCount     int                          `json:"inventory_count,omitempty"`
 	SnapshotCount      int                          `json:"snapshot_count,omitempty"`
 	FallbackChain      []string                     `json:"fallback_chain,omitempty"`

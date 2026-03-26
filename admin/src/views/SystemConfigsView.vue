@@ -67,11 +67,13 @@ const listPage = ref(1);
 const listPageSize = ref(20);
 const listTotal = ref(0);
 const listItems = ref([]);
+const revealSensitiveListValues = ref(false);
 const listFilters = reactive({
   keyword: ""
 });
 
 const dialogVisible = ref(false);
+const revealDialogSensitiveValue = ref(false);
 const dialogForm = reactive({
   config_key: "",
   config_value: "",
@@ -147,6 +149,61 @@ function parseConfigInt(raw, fallback, min, max) {
   }
   return Math.max(min, Math.min(max, parsed));
 }
+
+function isSensitiveConfigKey(rawKey) {
+  const key = String(rawKey || "").trim().toLowerCase();
+  if (!key) {
+    return false;
+  }
+  if (key.includes("source_key") || key.includes("policy_key")) {
+    return false;
+  }
+  if (
+    key.includes("secret") ||
+    key.includes("token") ||
+    key.includes("password") ||
+    key.includes("private_key") ||
+    key.includes("access_key") ||
+    key.includes("api_v3_key")
+  ) {
+    return true;
+  }
+  return key.endsWith(".key") || key.endsWith("_key");
+}
+
+function maskSensitiveConfigValue(value) {
+  const text = String(value ?? "");
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return "-";
+  }
+  if (compact.length <= 6) {
+    return `****** (${text.length} chars)`;
+  }
+  return `${compact.slice(0, 2)}***${compact.slice(-2)} (${text.length} chars)`;
+}
+
+function formatListConfigValue(configKey, configValue) {
+  const text = String(configValue ?? "");
+  if (!isSensitiveConfigKey(configKey) || revealSensitiveListValues.value) {
+    return text || "-";
+  }
+  return maskSensitiveConfigValue(text);
+}
+
+function toggleSensitiveListValues() {
+  if (!canEditSystemConfigs) {
+    errorMessage.value = "仅具备编辑权限的管理员可显示敏感配置值";
+    return;
+  }
+  revealSensitiveListValues.value = !revealSensitiveListValues.value;
+  fetchConfigList({ keepMessage: true });
+  message.value = revealSensitiveListValues.value
+    ? "已显示敏感配置值原文，请注意现场安全"
+    : "敏感配置默认脱敏显示";
+}
+
+const dialogValueSensitive = computed(() => isSensitiveConfigKey(dialogForm.config_key));
 
 function toConfigMap(items) {
   const map = {};
@@ -378,7 +435,8 @@ async function fetchConfigList(options = {}) {
     const data = await listSystemConfigs({
       keyword: listFilters.keyword.trim(),
       page: listPage.value,
-      page_size: listPageSize.value
+      page_size: listPageSize.value,
+      include_sensitive: revealSensitiveListValues.value && canEditSystemConfigs ? "true" : undefined
     });
     listItems.value = data.items || [];
     listTotal.value = data.total || 0;
@@ -601,6 +659,7 @@ function openCreateDialog() {
     config_value: "",
     description: ""
   });
+  revealDialogSensitiveValue.value = false;
   dialogVisible.value = true;
 }
 
@@ -608,11 +667,16 @@ function openEditDialog(item) {
   if (!ensureCanEditSystemConfigs()) {
     return;
   }
+  if (isSensitiveConfigKey(item.config_key) && !revealSensitiveListValues.value) {
+    errorMessage.value = "敏感配置默认脱敏，编辑前请先点击“显示敏感配置值”";
+    return;
+  }
   Object.assign(dialogForm, {
     config_key: item.config_key || "",
     config_value: item.config_value || "",
     description: item.description || ""
   });
+  revealDialogSensitiveValue.value = false;
   dialogVisible.value = true;
 }
 
@@ -727,7 +791,7 @@ onMounted(refreshAll);
                 <el-switch v-model="ossForm.enabled" />
               </el-form-item>
               <el-form-item label="AccessKey">
-                <el-input v-model="ossForm.access_key" placeholder="七牛云 AccessKey" />
+                <el-input v-model="ossForm.access_key" type="password" show-password placeholder="七牛云 AccessKey" />
               </el-form-item>
               <el-form-item label="SecretKey">
                 <el-input v-model="ossForm.secret_key" show-password placeholder="七牛云 SecretKey" />
@@ -1024,11 +1088,21 @@ onMounted(refreshAll);
 
       <el-tab-pane label="系统配置列表" name="list">
         <div class="card" style="margin-bottom: 12px">
+          <el-alert
+            title="敏感配置默认脱敏；需要排查时可临时显示敏感配置值，离开页面请及时恢复脱敏。"
+            type="warning"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 12px"
+          />
           <div class="toolbar" style="margin-bottom: 0">
             <el-input v-model="listFilters.keyword" clearable placeholder="按 key/description 关键词检索" style="width: 280px" />
             <el-button type="primary" plain @click="applyListFilters">查询</el-button>
             <el-button @click="resetListFilters">重置</el-button>
             <el-button :loading="listLoading" @click="fetchConfigList">刷新</el-button>
+            <el-button v-if="canEditSystemConfigs" @click="toggleSensitiveListValues">
+              {{ revealSensitiveListValues ? "隐藏敏感配置值" : "显示敏感配置值" }}
+            </el-button>
             <el-button v-if="canEditSystemConfigs" type="primary" @click="openCreateDialog">新增配置</el-button>
           </div>
         </div>
@@ -1036,7 +1110,11 @@ onMounted(refreshAll);
         <div class="card">
           <el-table :data="listItems" border stripe v-loading="listLoading" empty-text="暂无系统配置">
             <el-table-column prop="config_key" label="配置键" min-width="260" />
-            <el-table-column prop="config_value" label="配置值" min-width="320" />
+            <el-table-column label="配置值" min-width="320">
+              <template #default="{ row }">
+                <span class="config-value-cell">{{ formatListConfigValue(row.config_key, row.config_value) }}</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="description" label="描述" min-width="220" />
             <el-table-column prop="updated_by" label="更新人" min-width="120" />
             <el-table-column prop="updated_at" label="更新时间" min-width="180" />
@@ -1068,7 +1146,28 @@ onMounted(refreshAll);
           <el-input v-model="dialogForm.config_key" placeholder="如 oss.provider" />
         </el-form-item>
         <el-form-item label="配置值" required>
-          <el-input v-model="dialogForm.config_value" type="textarea" :rows="4" placeholder="配置内容" />
+          <div v-if="dialogValueSensitive" class="dialog-sensitive-row">
+            <el-tag type="warning">敏感配置</el-tag>
+            <el-button link type="primary" @click="revealDialogSensitiveValue = !revealDialogSensitiveValue">
+              {{ revealDialogSensitiveValue ? "恢复脱敏" : "显示原文" }}
+            </el-button>
+          </div>
+          <el-input
+            v-if="dialogValueSensitive && !revealDialogSensitiveValue"
+            :model-value="maskSensitiveConfigValue(dialogForm.config_value)"
+            disabled
+            placeholder="敏感配置默认脱敏"
+          />
+          <el-input
+            v-else
+            v-model="dialogForm.config_value"
+            type="textarea"
+            :rows="4"
+            placeholder="配置内容"
+          />
+          <div v-if="dialogValueSensitive && !revealDialogSensitiveValue" class="muted" style="margin-top: 6px">
+            敏感配置默认脱敏，显示原文后可编辑。
+          </div>
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="dialogForm.description" placeholder="用途说明" />
@@ -1120,5 +1219,19 @@ onMounted(refreshAll);
 .weight-unit {
   color: #6b7280;
   font-size: 12px;
+}
+
+.config-value-cell {
+  display: inline-block;
+  max-width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dialog-sensitive-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 </style>

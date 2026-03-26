@@ -72,6 +72,35 @@ type pythonBridgeDailyBarItem struct {
 	OpenInterest    float64 `json:"open_interest"`
 }
 
+type pythonBridgeDailyBasicPayload struct {
+	Items []pythonBridgeDailyBasicItem `json:"items"`
+}
+
+type pythonBridgeDailyBasicItem struct {
+	Symbol       string  `json:"symbol"`
+	TradeDate    string  `json:"trade_date"`
+	TurnoverRate float64 `json:"turnover_rate"`
+	VolumeRatio  float64 `json:"volume_ratio"`
+	PeTTM        float64 `json:"pe_ttm"`
+	PB           float64 `json:"pb"`
+	TotalMV      float64 `json:"total_mv"`
+	CircMV       float64 `json:"circ_mv"`
+}
+
+type pythonBridgeMoneyflowPayload struct {
+	Items []pythonBridgeMoneyflowItem `json:"items"`
+}
+
+type pythonBridgeMoneyflowItem struct {
+	Symbol        string  `json:"symbol"`
+	TradeDate     string  `json:"trade_date"`
+	NetMFAmount   float64 `json:"net_mf_amount"`
+	BuyLGAmount   float64 `json:"buy_lg_amount"`
+	SellLGAmount  float64 `json:"sell_lg_amount"`
+	BuyELGAmount  float64 `json:"buy_elg_amount"`
+	SellELGAmount float64 `json:"sell_elg_amount"`
+}
+
 type pythonBridgeNewsPayload struct {
 	Items []pythonBridgeNewsItem `json:"items"`
 }
@@ -215,6 +244,71 @@ func (r *MySQLGrowthRepo) resolveStockSyncSymbols(symbols []string) ([]string, e
 	return r.loadActiveMarketInstrumentKeys(marketAssetClassStock)
 }
 
+func (r *MySQLGrowthRepo) loadPreferredFuturesContractsFromMaster(preferredProducts []string) ([]string, error) {
+	if len(preferredProducts) == 0 {
+		return nil, nil
+	}
+	holders := make([]string, 0, len(preferredProducts))
+	args := make([]interface{}, 0, 2+len(preferredProducts))
+	args = append(args, marketAssetClassFutures)
+	for _, item := range preferredProducts {
+		normalized := strings.ToUpper(strings.TrimSpace(item))
+		if normalized == "" {
+			continue
+		}
+		holders = append(holders, "?")
+		args = append(args, normalized)
+	}
+	if len(holders) == 0 {
+		return nil, nil
+	}
+	query := `
+SELECT instrument_key, product_key
+FROM market_instruments
+WHERE asset_class = ? AND status = 'ACTIVE' AND product_key IN (` + strings.Join(holders, ",") + `)`
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	candidatesByProduct := make(map[string][]string, len(preferredProducts))
+	for rows.Next() {
+		var instrumentKey string
+		var productKey sql.NullString
+		if err := rows.Scan(&instrumentKey, &productKey); err != nil {
+			return nil, err
+		}
+		if !productKey.Valid {
+			continue
+		}
+		normalizedProduct := strings.ToUpper(strings.TrimSpace(productKey.String))
+		normalizedInstrument := strings.ToUpper(strings.TrimSpace(instrumentKey))
+		if normalizedProduct == "" || normalizedInstrument == "" {
+			continue
+		}
+		candidatesByProduct[normalizedProduct] = append(candidatesByProduct[normalizedProduct], normalizedInstrument)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return selectPreferredFuturesContracts(candidatesByProduct, preferredProducts, time.Now()), nil
+}
+
+func (r *MySQLGrowthRepo) resolveFuturesSyncContracts(contracts []string) ([]string, error) {
+	contracts = normalizeFuturesContractList(contracts)
+	if len(contracts) > 0 {
+		return contracts, nil
+	}
+	preferred, err := r.loadPreferredFuturesContractsFromMaster([]string{"AU", "AG", "RB", "IF"})
+	if err != nil {
+		return nil, err
+	}
+	if len(preferred) > 0 {
+		return preferred, nil
+	}
+	return defaultFuturesContracts(), nil
+}
+
 func (r *MySQLGrowthRepo) AdminSyncStockDailyBasics(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
 	symbols, err := r.resolveStockSyncSymbols(symbols)
 	if err != nil {
@@ -230,7 +324,7 @@ func (r *MySQLGrowthRepo) AdminSyncStockDailyBasics(sourceKey string, symbols []
 	if days > 365 {
 		days = 365
 	}
-	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.factor.source_priority", []string{"TUSHARE"})
+	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.factor.source_priority", []string{"AKSHARE", "TUSHARE"})
 	result := model.MarketSyncResult{
 		AssetClass:         marketAssetClassStock,
 		DataKind:           marketDataKindStockDailyBasic,
@@ -313,7 +407,7 @@ func (r *MySQLGrowthRepo) AdminSyncStockMoneyflows(sourceKey string, symbols []s
 	if days > 365 {
 		days = 365
 	}
-	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.factor.source_priority", []string{"TUSHARE"})
+	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.factor.source_priority", []string{"AKSHARE", "TUSHARE"})
 	result := model.MarketSyncResult{
 		AssetClass:         marketAssetClassStock,
 		DataKind:           marketDataKindStockMoneyflow,
@@ -396,7 +490,7 @@ func (r *MySQLGrowthRepo) AdminSyncStockNewsRaw(sourceKey string, symbols []stri
 	if days > 30 {
 		days = 30
 	}
-	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.news.source_priority", []string{"TUSHARE"})
+	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.news.source_priority", []string{"AKSHARE", "TUSHARE"})
 	result := model.MarketSyncResult{
 		AssetClass:         marketAssetClassStock,
 		DataKind:           marketDataKindStockNewsRaw,
@@ -468,9 +562,14 @@ func (r *MySQLGrowthRepo) AdminSyncStockNewsRaw(sourceKey string, symbols []stri
 }
 
 func (r *MySQLGrowthRepo) AdminSyncFuturesQuotes(sourceKey string, contracts []string, days int) (model.MarketSyncResult, error) {
-	contracts = normalizeFuturesContractList(contracts)
-	if len(contracts) == 0 {
-		contracts = defaultFuturesContracts()
+	var err error
+	contracts, err = r.resolveFuturesSyncContracts(contracts)
+	if err != nil {
+		return model.MarketSyncResult{
+			AssetClass:         marketAssetClassFutures,
+			DataKind:           marketDataKindDailyBars,
+			RequestedSourceKey: strings.ToUpper(strings.TrimSpace(sourceKey)),
+		}, err
 	}
 	if days <= 0 {
 		days = 120
@@ -1029,16 +1128,106 @@ func normalizeFuturesInventorySymbolList(symbols []string) []string {
 }
 
 func defaultFuturesContracts() []string {
+	now := time.Now()
+	year := now.Year() % 100
+	month := int(now.Month())
+	seasonMonth := nextQuarterMonth(month)
+	seasonYear := year
+	if seasonMonth < month {
+		seasonYear++
+	}
 	return []string{
-		"AU2406.SHF",
-		"AG2406.SHF",
-		"RB2406.SHF",
-		"IF2406.CFX",
+		fmt.Sprintf("AU%02d%02d.SHF", year, month),
+		fmt.Sprintf("AG%02d%02d.SHF", year, month),
+		fmt.Sprintf("RB%02d%02d.SHF", year, month),
+		fmt.Sprintf("IF%02d%02d.CFX", seasonYear, seasonMonth),
 	}
 }
 
 func defaultFuturesInventorySymbols() []string {
 	return []string{"RB", "CU", "AL", "RU", "AU"}
+}
+
+func nextQuarterMonth(month int) int {
+	quarters := []int{3, 6, 9, 12}
+	for _, item := range quarters {
+		if month <= item {
+			return item
+		}
+	}
+	return quarters[0]
+}
+
+func parseFuturesContractMaturityYYMM(instrumentKey string) (int, bool) {
+	normalized := strings.ToUpper(strings.TrimSpace(instrumentKey))
+	if normalized == "" {
+		return 0, false
+	}
+	core := normalized
+	if dot := strings.Index(core, "."); dot >= 0 {
+		core = core[:dot]
+	}
+	if core == "" {
+		return 0, false
+	}
+	end := len(core)
+	start := end
+	for start > 0 {
+		ch := core[start-1]
+		if ch < '0' || ch > '9' {
+			break
+		}
+		start--
+	}
+	digits := core[start:end]
+	if len(digits) < 4 {
+		return 0, false
+	}
+	value, err := strconv.Atoi(digits[len(digits)-4:])
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func selectPreferredFuturesContracts(candidatesByProduct map[string][]string, preferredProducts []string, now time.Time) []string {
+	nowYYMM := (now.Year()%100)*100 + int(now.Month())
+	selected := make([]string, 0, len(preferredProducts))
+	for _, product := range preferredProducts {
+		candidates := candidatesByProduct[strings.ToUpper(strings.TrimSpace(product))]
+		if len(candidates) == 0 {
+			continue
+		}
+		bestFuture := ""
+		bestFutureYYMM := 0
+		bestPast := ""
+		bestPastYYMM := 0
+		for _, candidate := range candidates {
+			yymm, ok := parseFuturesContractMaturityYYMM(candidate)
+			if !ok {
+				continue
+			}
+			if yymm >= nowYYMM {
+				if bestFuture == "" || yymm < bestFutureYYMM {
+					bestFuture = candidate
+					bestFutureYYMM = yymm
+				}
+				continue
+			}
+			if bestPast == "" || yymm > bestPastYYMM {
+				bestPast = candidate
+				bestPastYYMM = yymm
+			}
+		}
+		if bestFuture != "" {
+			selected = append(selected, bestFuture)
+			continue
+		}
+		if bestPast != "" {
+			selected = append(selected, bestPast)
+		}
+	}
+	return normalizeFuturesContractList(selected)
 }
 
 func buildMarketSourceRoutingSummary(requestedSourceKey string, resolvedSourceKeys []string, assetClass string, dataKind string) marketSourceRoutingSummary {
@@ -2715,9 +2904,12 @@ func resolvePythonBridgeRuntime(config map[string]interface{}) (string, string, 
 	if _, err := os.Stat(scriptPath); err != nil {
 		return "", "", 0, fmt.Errorf("market bridge script not found: %s", scriptPath)
 	}
-	timeoutMS := parseDataSourceTimeoutMS(config)
+	timeoutMS := parseDataSourceIntConfig(config, "sync_timeout_ms", 0, 1000, 900000)
 	if timeoutMS <= 0 {
-		timeoutMS = 10000
+		timeoutMS = parseDataSourceTimeoutMS(config)
+	}
+	if timeoutMS < 60000 {
+		timeoutMS = 120000
 	}
 	return pythonBin, scriptPath, timeoutMS, nil
 }
@@ -2811,7 +3003,10 @@ func (r *MySQLGrowthRepo) fetchStockDailyBasicsForSource(item model.DataSource, 
 	if provider == "" {
 		provider = sourceKey
 	}
+	sourceKey = canonicalMarketSourceKey(sourceKey, provider)
 	switch provider {
+	case "AKSHARE":
+		return fetchStockDailyBasicsFromAkshareBridge(item.Config, sourceKey, symbols, days)
 	case "TUSHARE":
 		items, err := fetchStockDailyBasicsFromTushare(resolveTushareTokenFromDataSourceConfig(item.Config), sourceKey, symbols, days, parseDataSourceTimeoutMS(item.Config))
 		return items, "", err
@@ -2826,7 +3021,10 @@ func (r *MySQLGrowthRepo) fetchStockMoneyflowsForSource(item model.DataSource, s
 	if provider == "" {
 		provider = sourceKey
 	}
+	sourceKey = canonicalMarketSourceKey(sourceKey, provider)
 	switch provider {
+	case "AKSHARE":
+		return fetchStockMoneyflowsFromAkshareBridge(item.Config, sourceKey, symbols, days)
 	case "TUSHARE":
 		items, err := fetchStockMoneyflowsFromTushare(resolveTushareTokenFromDataSourceConfig(item.Config), sourceKey, symbols, days, parseDataSourceTimeoutMS(item.Config))
 		return items, "", err
@@ -2841,13 +3039,185 @@ func (r *MySQLGrowthRepo) fetchStockNewsRawForSource(item model.DataSource, symb
 	if provider == "" {
 		provider = sourceKey
 	}
+	sourceKey = canonicalMarketSourceKey(sourceKey, provider)
 	switch provider {
+	case "AKSHARE":
+		return fetchStockNewsRawFromAkshareBridge(item.Config, sourceKey, symbols, days)
 	case "TUSHARE":
 		items, err := fetchStockNewsFromTushare(resolveTushareTokenFromDataSourceConfig(item.Config), sourceKey, symbols, days, parseDataSourceTimeoutMS(item.Config))
 		return items, "", err
 	default:
 		return nil, "", fmt.Errorf("unsupported stock news provider: %s", provider)
 	}
+}
+
+func fetchStockDailyBasicsFromAkshareBridge(config map[string]interface{}, sourceKey string, symbols []string, days int) ([]stockDailyBasicPoint, string, error) {
+	pythonBin, scriptPath, timeoutMS, err := resolvePythonBridgeRuntime(config)
+	if err != nil {
+		return nil, "", err
+	}
+	args := []string{scriptPath, "stock_daily_basic", "--days", strconv.Itoa(days)}
+	if len(symbols) > 0 {
+		values := make([]string, 0, len(symbols))
+		for _, symbol := range symbols {
+			values = append(values, deriveDefaultExternalSymbol("AKSHARE", marketAssetClassStock, symbol))
+		}
+		args = append(args, "--symbols", strings.Join(values, ","))
+	}
+	output, err := runPythonBridgeCommand(pythonBin, args, timeoutMS)
+	if err != nil {
+		return nil, "", err
+	}
+	payload := pythonBridgeDailyBasicPayload{}
+	if err := json.Unmarshal(output, &payload); err != nil {
+		return nil, "", err
+	}
+	return convertAkshareBridgeDailyBasics(sourceKey, payload.Items), string(output), nil
+}
+
+func convertAkshareBridgeDailyBasics(sourceKey string, payloadItems []pythonBridgeDailyBasicItem) []stockDailyBasicPoint {
+	items := make([]stockDailyBasicPoint, 0, len(payloadItems))
+	for _, item := range payloadItems {
+		symbol := canonicalStockInstrumentKey(item.Symbol)
+		if symbol == "" {
+			continue
+		}
+		tradeDate, err := parseFlexibleDateTime(item.TradeDate)
+		if err != nil {
+			continue
+		}
+		items = append(items, stockDailyBasicPoint{
+			Symbol:       symbol,
+			TradeDate:    tradeDate,
+			TurnoverRate: roundTo(item.TurnoverRate, 4),
+			VolumeRatio:  roundTo(item.VolumeRatio, 4),
+			PeTTM:        roundTo(item.PeTTM, 4),
+			PB:           roundTo(item.PB, 4),
+			TotalMV:      roundTo(item.TotalMV, 4),
+			CircMV:       roundTo(item.CircMV, 4),
+			SourceKey:    sourceKey,
+		})
+	}
+	return items
+}
+
+func fetchStockMoneyflowsFromAkshareBridge(config map[string]interface{}, sourceKey string, symbols []string, days int) ([]stockMoneyflowPoint, string, error) {
+	pythonBin, scriptPath, timeoutMS, err := resolvePythonBridgeRuntime(config)
+	if err != nil {
+		return nil, "", err
+	}
+	args := []string{scriptPath, "stock_moneyflow", "--days", strconv.Itoa(days)}
+	if len(symbols) > 0 {
+		values := make([]string, 0, len(symbols))
+		for _, symbol := range symbols {
+			values = append(values, deriveDefaultExternalSymbol("AKSHARE", marketAssetClassStock, symbol))
+		}
+		args = append(args, "--symbols", strings.Join(values, ","))
+	}
+	output, err := runPythonBridgeCommand(pythonBin, args, timeoutMS)
+	if err != nil {
+		return nil, "", err
+	}
+	payload := pythonBridgeMoneyflowPayload{}
+	if err := json.Unmarshal(output, &payload); err != nil {
+		return nil, "", err
+	}
+	return convertAkshareBridgeMoneyflows(sourceKey, payload.Items), string(output), nil
+}
+
+func convertAkshareBridgeMoneyflows(sourceKey string, payloadItems []pythonBridgeMoneyflowItem) []stockMoneyflowPoint {
+	items := make([]stockMoneyflowPoint, 0, len(payloadItems))
+	for _, item := range payloadItems {
+		symbol := canonicalStockInstrumentKey(item.Symbol)
+		if symbol == "" {
+			continue
+		}
+		tradeDate, err := parseFlexibleDateTime(item.TradeDate)
+		if err != nil {
+			continue
+		}
+		items = append(items, stockMoneyflowPoint{
+			Symbol:        symbol,
+			TradeDate:     tradeDate,
+			NetMFAmount:   roundTo(item.NetMFAmount, 4),
+			BuyLGAmount:   roundTo(item.BuyLGAmount, 4),
+			SellLGAmount:  roundTo(item.SellLGAmount, 4),
+			BuyELGAmount:  roundTo(item.BuyELGAmount, 4),
+			SellELGAmount: roundTo(item.SellELGAmount, 4),
+			SourceKey:     sourceKey,
+		})
+	}
+	return items
+}
+
+func fetchStockNewsRawFromAkshareBridge(config map[string]interface{}, sourceKey string, symbols []string, days int) ([]stockNewsRawPoint, string, error) {
+	pythonBin, scriptPath, timeoutMS, err := resolvePythonBridgeRuntime(config)
+	if err != nil {
+		return nil, "", err
+	}
+	limit := parseDataSourceIntConfig(config, "news_limit", 0, 10, 5000)
+	if limit <= 0 {
+		limit = 200
+	}
+	limit = maxInt(limit, minInt(maxInt(len(symbols)*2, 50), 2000))
+	args := []string{scriptPath, "market_news", "--days", strconv.Itoa(days), "--limit", strconv.Itoa(limit)}
+	// Avoid passing huge symbol lists to CLI args in full-market mode.
+	if len(symbols) > 0 && len(symbols) <= 120 {
+		values := make([]string, 0, len(symbols))
+		for _, symbol := range symbols {
+			values = append(values, deriveDefaultExternalSymbol("AKSHARE", marketAssetClassStock, symbol))
+		}
+		args = append(args, "--symbols", strings.Join(values, ","))
+	}
+	output, err := runPythonBridgeCommand(pythonBin, args, timeoutMS)
+	if err != nil {
+		return nil, "", err
+	}
+	payload := pythonBridgeNewsPayload{}
+	if err := json.Unmarshal(output, &payload); err != nil {
+		return nil, "", err
+	}
+	return convertAkshareBridgeNewsToStockNewsRaw(sourceKey, payload.Items), string(output), nil
+}
+
+func convertAkshareBridgeNewsToStockNewsRaw(sourceKey string, payloadItems []pythonBridgeNewsItem) []stockNewsRawPoint {
+	result := make([]stockNewsRawPoint, 0, len(payloadItems))
+	for _, item := range payloadItems {
+		title := strings.TrimSpace(item.Title)
+		if title == "" {
+			continue
+		}
+		publishedAt, err := parseFlexibleDateTime(item.PublishedAt)
+		if err != nil {
+			continue
+		}
+		symbols := normalizeStockSymbolList(item.Symbols)
+		if len(symbols) == 0 {
+			primary := canonicalStockInstrumentKey(item.PrimarySymbol)
+			if primary != "" {
+				symbols = []string{primary}
+			}
+		}
+		if len(symbols) == 0 {
+			continue
+		}
+		content := strings.TrimSpace(item.Content)
+		if content == "" {
+			content = strings.TrimSpace(item.Summary)
+		}
+		for _, symbol := range symbols {
+			result = append(result, stockNewsRawPoint{
+				SourceKey:   sourceKey,
+				Symbol:      symbol,
+				PublishedAt: publishedAt,
+				Title:       title,
+				Content:     content,
+				URL:         strings.TrimSpace(item.URL),
+				Sentiment:   classifyNewsSentiment(title),
+			})
+		}
+	}
+	return result
 }
 
 func fetchMarketNewsFromAkshareBridge(config map[string]interface{}, sourceKey string, symbols []string, days int, limit int) ([]model.MarketNewsItem, string, error) {

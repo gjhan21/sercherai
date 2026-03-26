@@ -477,6 +477,8 @@ func normalizeMarketStageAssetType(value string) string {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
 	case "STOCK":
 		return "STOCK"
+	case "FUTURES":
+		return "FUTURES"
 	case "INDEX":
 		return "INDEX"
 	case "ETF":

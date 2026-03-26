@@ -28,8 +28,12 @@ const seedSets = ref([]);
 const agentProfiles = ref([]);
 const scenarioTemplates = ref([]);
 const publishPolicies = ref([]);
+const seedSetTableRef = ref(null);
+const agentProfileTableRef = ref(null);
+const scenarioTemplateTableRef = ref(null);
 const policyTableRef = ref(null);
-const focusedPolicyID = ref("");
+const focusedConfigType = ref("");
+const focusedConfigID = ref("");
 const jobCenterRef = ref(null);
 const seedDialogVisible = ref(false);
 const agentDialogVisible = ref(false);
@@ -343,34 +347,108 @@ function openEditPolicyDialog(row) {
 }
 
 
-function policyRowClassName({ row }) {
-  return row?.id && row.id === focusedPolicyID.value ? "is-route-focus" : "";
+function normalizeStrategyConfigRouteType(value) {
+  const normalized = String(value || "").trim().toUpperCase().replace(/[-\s]+/g, "_");
+  if (!normalized) {
+    return "";
+  }
+  if (normalized === "SEED_SET" || normalized === "STRATEGY_SEED_SET") {
+    return "seed-set";
+  }
+  if (normalized === "AGENT_PROFILE" || normalized === "STRATEGY_AGENT_PROFILE") {
+    return "agent-profile";
+  }
+  if (normalized === "SCENARIO_TEMPLATE" || normalized === "STRATEGY_SCENARIO_TEMPLATE") {
+    return "scenario-template";
+  }
+  if (normalized === "PUBLISH_POLICY" || normalized === "STRATEGY_PUBLISH_POLICY") {
+    return "publish-policy";
+  }
+  return "";
 }
 
-async function focusPublishPolicyByID(policyID) {
-  const targetID = String(policyID || "").trim();
-  if (!targetID) {
-    focusedPolicyID.value = "";
+function buildConfigRowClassName(type) {
+  return ({ row }) =>
+    row?.id && focusedConfigType.value === type && row.id === focusedConfigID.value ? "is-route-focus" : "";
+}
+
+const seedSetRowClassName = buildConfigRowClassName("seed-set");
+const agentProfileRowClassName = buildConfigRowClassName("agent-profile");
+const scenarioTemplateRowClassName = buildConfigRowClassName("scenario-template");
+const policyRowClassName = buildConfigRowClassName("publish-policy");
+
+function resolveStrategyConfigFocusSpec(type) {
+  switch (normalizeStrategyConfigRouteType(type)) {
+    case "seed-set":
+      return {
+        type: "seed-set",
+        label: "种子集",
+        items: seedSets.value,
+        tableRef: seedSetTableRef.value,
+        openEdit: openEditSeedDialog
+      };
+    case "agent-profile":
+      return {
+        type: "agent-profile",
+        label: "角色配置",
+        items: agentProfiles.value,
+        tableRef: agentProfileTableRef.value,
+        openEdit: openEditAgentDialog
+      };
+    case "scenario-template":
+      return {
+        type: "scenario-template",
+        label: "场景模板",
+        items: scenarioTemplates.value,
+        tableRef: scenarioTemplateTableRef.value,
+        openEdit: openEditScenarioDialog
+      };
+    case "publish-policy":
+      return {
+        type: "publish-policy",
+        label: "发布策略",
+        items: publishPolicies.value,
+        tableRef: policyTableRef.value,
+        openEdit: openEditPolicyDialog
+      };
+    default:
+      return null;
+  }
+}
+
+async function focusStrategyConfigItem(configType, configID) {
+  const targetType = normalizeStrategyConfigRouteType(configType);
+  const targetID = String(configID || "").trim();
+  if (!targetType || !targetID) {
+    focusedConfigType.value = "";
+    focusedConfigID.value = "";
     return false;
   }
-  if (!publishPolicies.value.some((item) => item?.id === targetID)) {
+  let spec = resolveStrategyConfigFocusSpec(targetType);
+  if (!spec?.items?.some((item) => item?.id === targetID)) {
     await refreshAll();
+    spec = resolveStrategyConfigFocusSpec(targetType);
   }
-  const matched = publishPolicies.value.find((item) => item?.id === targetID);
+  const matched = spec?.items?.find((item) => item?.id === targetID);
   if (!matched) {
-    errorMessage.value = `未找到发布策略 ${targetID}`;
+    errorMessage.value = `未找到${spec?.label || "策略配置"} ${targetID}`;
     return false;
   }
-  focusedPolicyID.value = targetID;
-  message.value = `已定位到发布策略 ${matched.name || targetID}`;
+  focusedConfigType.value = targetType;
+  focusedConfigID.value = targetID;
+  message.value = `已定位到${spec.label} ${matched.name || targetID}`;
   await nextTick();
-  const table = policyTableRef.value?.$el || policyTableRef.value;
+  const table = spec.tableRef?.$el || spec.tableRef;
   const row = table?.querySelector?.(`tr[data-row-key="${targetID}"]`);
   row?.scrollIntoView?.({ block: "center", behavior: "smooth" });
   if (canEditMarket) {
-    openEditPolicyDialog(matched);
+    spec.openEdit?.(matched);
   }
   return true;
+}
+
+async function focusPublishPolicyByID(policyID) {
+  return focusStrategyConfigItem("publish-policy", policyID);
 }
 
 async function refreshAll() {
@@ -579,7 +657,7 @@ function formatScenarioSummary(items = []) {
 
 onMounted(refreshAll);
 
-defineExpose({ refreshAll, focusPublishPolicyByID });
+defineExpose({ refreshAll, focusPublishPolicyByID, focusStrategyConfigItem });
 </script>
 
 <template>
@@ -596,7 +674,7 @@ defineExpose({ refreshAll, focusPublishPolicyByID });
           </div>
           <el-button v-if="canEditMarket" type="primary" @click="openCreateSeedDialog">新建种子集</el-button>
         </div>
-        <el-table :data="seedSets" border>
+        <el-table ref="seedSetTableRef" :data="seedSets" row-key="id" :row-class-name="seedSetRowClassName" border>
           <el-table-column prop="name" label="名称" min-width="160" />
           <el-table-column prop="target_type" label="类型" width="100" />
           <el-table-column label="默认" width="80">
@@ -625,7 +703,7 @@ defineExpose({ refreshAll, focusPublishPolicyByID });
           </div>
           <el-button v-if="canEditMarket" type="primary" @click="openCreateAgentDialog">新建角色配置</el-button>
         </div>
-        <el-table :data="agentProfiles" border>
+        <el-table ref="agentProfileTableRef" :data="agentProfiles" row-key="id" :row-class-name="agentProfileRowClassName" border>
           <el-table-column prop="name" label="名称" min-width="160" />
           <el-table-column prop="target_type" label="作用范围" width="110" />
           <el-table-column label="默认" width="80">
@@ -671,7 +749,7 @@ defineExpose({ refreshAll, focusPublishPolicyByID });
           </div>
           <el-button v-if="canEditMarket" type="primary" @click="openCreateScenarioDialog">新建场景模板</el-button>
         </div>
-        <el-table :data="scenarioTemplates" border>
+        <el-table ref="scenarioTemplateTableRef" :data="scenarioTemplates" row-key="id" :row-class-name="scenarioTemplateRowClassName" border>
           <el-table-column prop="name" label="名称" min-width="160" />
           <el-table-column prop="target_type" label="作用范围" width="110" />
           <el-table-column label="默认" width="80">

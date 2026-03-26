@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -146,6 +147,27 @@ func TestAdminListMarketProviderCapabilitiesAppliesFilters(t *testing.T) {
 	}
 }
 
+func TestAdminListMarketProviderCapabilitiesFallsBackWhenTableMissing(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+	mock.ExpectQuery(marketProviderCapabilityListQueryPattern).
+		WithArgs("STOCK", "DAILY_BARS").
+		WillReturnError(errors.New("Error 1146 (42S02): Table 'sercherai.market_provider_capabilities' doesn't exist"))
+
+	items, err := repo.AdminListMarketProviderCapabilities("", "STOCK", "DAILY_BARS")
+	if err != nil {
+		t.Fatalf("expected schema-compat fallback, got error: %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatalf("expected default capabilities on fallback")
+	}
+}
+
 func TestAdminListMarketProviderRoutingPoliciesParsesFallbackProviders(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -198,6 +220,26 @@ func TestAdminListMarketProviderRoutingPoliciesParsesFallbackProviders(t *testin
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestAdminListMarketProviderRoutingPoliciesFallsBackWhenTableMissing(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+	mock.ExpectQuery(marketProviderRoutingPolicyListQueryPattern).
+		WillReturnError(errors.New("Error 1146 (42S02): Table 'sercherai.market_provider_routing_policies' doesn't exist"))
+
+	items, err := repo.AdminListMarketProviderRoutingPolicies("", "")
+	if err != nil {
+		t.Fatalf("expected schema-compat fallback, got error: %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatalf("expected default routing policies on fallback")
 	}
 }
 

@@ -2523,12 +2523,30 @@ func (h *AdminGrowthHandler) BatchCheckDataSourcesHealth(c *gin.Context) {
 func (h *AdminGrowthHandler) ListSystemConfigs(c *gin.Context) {
 	page, pageSize := parsePage(c)
 	keyword := c.Query("keyword")
+	includeSensitive := parseConfigBool(c.Query("include_sensitive"), false)
 	items, total, err := h.service.AdminListSystemConfigs(keyword, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
-	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+	responseItems := sanitizeSystemConfigItems(items, includeSensitive)
+	if includeSensitive {
+		targetID := strings.TrimSpace(keyword)
+		if targetID == "" {
+			targetID = "ALL"
+		}
+		h.writeOperationLog(
+			c,
+			"SYSTEM",
+			"VIEW_SENSITIVE_CONFIG_VALUES",
+			"SYSTEM_CONFIG",
+			targetID,
+			"",
+			fmt.Sprintf("count=%d", len(responseItems)),
+			"include_sensitive=true",
+		)
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": responseItems, "page": page, "page_size": pageSize, "total": total}))
 }
 
 func (h *AdminGrowthHandler) UpsertSystemConfig(c *gin.Context) {
@@ -2543,7 +2561,16 @@ func (h *AdminGrowthHandler) UpsertSystemConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
-	h.writeOperationLog(c, "SYSTEM", "UPSERT_CONFIG", "SYSTEM_CONFIG", req.ConfigKey, "", req.ConfigValue, req.Description)
+	h.writeOperationLog(
+		c,
+		"SYSTEM",
+		"UPSERT_CONFIG",
+		"SYSTEM_CONFIG",
+		req.ConfigKey,
+		"",
+		maskSystemConfigValueForAudit(req.ConfigKey, req.ConfigValue),
+		req.Description,
+	)
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
@@ -3285,6 +3312,59 @@ func buildTushareNewsSyncOptions(newsSources []string, symbols []string, syncTyp
 		opts.BatchSize = 0
 	}
 	return opts
+}
+
+func isSensitiveSystemConfigKey(rawKey string) bool {
+	key := strings.ToLower(strings.TrimSpace(rawKey))
+	if key == "" {
+		return false
+	}
+	if strings.Contains(key, "source_key") || strings.Contains(key, "policy_key") {
+		return false
+	}
+	if strings.Contains(key, "secret") ||
+		strings.Contains(key, "token") ||
+		strings.Contains(key, "password") ||
+		strings.Contains(key, "private_key") ||
+		strings.Contains(key, "access_key") ||
+		strings.Contains(key, "api_v3_key") {
+		return true
+	}
+	return strings.HasSuffix(key, ".key") || strings.HasSuffix(key, "_key")
+}
+
+func maskSensitiveSystemConfigValue(rawValue string) string {
+	trimmed := strings.TrimSpace(rawValue)
+	if trimmed == "" {
+		return "-"
+	}
+	if len(trimmed) <= 6 {
+		return fmt.Sprintf("****** (%d chars)", len(rawValue))
+	}
+	return fmt.Sprintf("%s***%s (%d chars)", trimmed[:2], trimmed[len(trimmed)-2:], len(rawValue))
+}
+
+func sanitizeSystemConfigItem(item model.SystemConfig, includeSensitive bool) model.SystemConfig {
+	sanitized := item
+	if !includeSensitive && isSensitiveSystemConfigKey(item.ConfigKey) {
+		sanitized.ConfigValue = maskSensitiveSystemConfigValue(item.ConfigValue)
+	}
+	return sanitized
+}
+
+func sanitizeSystemConfigItems(items []model.SystemConfig, includeSensitive bool) []model.SystemConfig {
+	result := make([]model.SystemConfig, 0, len(items))
+	for _, item := range items {
+		result = append(result, sanitizeSystemConfigItem(item, includeSensitive))
+	}
+	return result
+}
+
+func maskSystemConfigValueForAudit(configKey string, configValue string) string {
+	if isSensitiveSystemConfigKey(configKey) {
+		return maskSensitiveSystemConfigValue(configValue)
+	}
+	return configValue
 }
 
 func (h *AdminGrowthHandler) writeOperationLog(c *gin.Context, module string, action string, targetType string, targetID string, beforeValue string, afterValue string, reason string) {

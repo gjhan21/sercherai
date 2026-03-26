@@ -9,6 +9,8 @@ const activeTab = ref("audit-events");
 const loading = ref(false);
 const exportingFiltered = ref(false);
 const copyingDetail = ref(false);
+const auditFeatureUnavailable = ref(false);
+const auditFeatureError = ref("");
 
 const errorMessage = ref("");
 const message = ref("");
@@ -42,7 +44,9 @@ const moduleOptions = ["USER", "NEWS", "WORKFLOW", "MEMBERSHIP", "SYSTEM", "STOC
 const auditDomainOptions = ["RESEARCH", "DATA", "PUBLISH", "SYSTEM"];
 const auditLevelOptions = ["INFO", "WARNING", "CRITICAL"];
 const auditStatusOptions = ["OPEN", "RESOLVED"];
-const auditObjectTypeOptions = ["REVIEW_TASK", "SCHEDULER_JOB", "DATA_SOURCE", "STRATEGY_JOB", "STRATEGY_PUBLISH_POLICY"];
+const auditObjectTypeOptions = ["REVIEW_TASK", "SCHEDULER_JOB", "DATA_SOURCE", "STRATEGY_JOB", "STRATEGY_PUBLISH_POLICY", "STRATEGY_SEED_SET", "STRATEGY_AGENT_PROFILE", "STRATEGY_SCENARIO_TEMPLATE"];
+const auditMigrationSQLPath = "backend/migrations/20260324_00_admin_audit_events.sql";
+const auditMigrationCommand = "./scripts/devctl.sh migrate audit";
 
 const currentItems = computed(() => (activeTab.value === "audit-events" ? auditItems.value : operationItems.value));
 
@@ -100,6 +104,25 @@ function normalizeErrorMessage(error, fallback) {
   return error?.message || fallback || "操作失败";
 }
 
+function isAuditFeatureUnavailableError(error) {
+  const text = normalizeErrorMessage(error, "").toLowerCase();
+  return text.includes("admin_audit_events") || text.includes("doesn't exist") || text.includes("1146");
+}
+
+function markAuditFeatureUnavailable(error) {
+  const rootError = normalizeErrorMessage(error, "");
+  auditFeatureUnavailable.value = true;
+  auditFeatureError.value =
+    rootError
+      ? `统一审计事件当前不可用：${rootError}。请先执行 ${auditMigrationSQLPath}`
+      : `统一审计事件依赖的数据表不存在，请先执行 ${auditMigrationSQLPath}`;
+}
+
+function clearAuditFeatureUnavailable() {
+  auditFeatureUnavailable.value = false;
+  auditFeatureError.value = "";
+}
+
 function resolvedAuditCount(summary) {
   const totalCount = Number(summary?.total_count) || 0;
   const openCount = Number(summary?.open_count) || 0;
@@ -112,6 +135,38 @@ function normalizeAuditRouteToken(value) {
     .toUpperCase();
 }
 
+function normalizeStrategyConfigRouteType(value) {
+  const normalized = normalizeAuditRouteToken(value);
+  if (normalized === "STRATEGY_SEED_SET") return "seed-set";
+  if (normalized === "STRATEGY_AGENT_PROFILE") return "agent-profile";
+  if (normalized === "STRATEGY_SCENARIO_TEMPLATE") return "scenario-template";
+  if (normalized === "STRATEGY_PUBLISH_POLICY") return "publish-policy";
+  return "";
+}
+
+function buildStrategyConfigRoute(objectType, objectID, policyID = "") {
+  const configType = normalizeStrategyConfigRouteType(objectType);
+  if (!configType) {
+    return "";
+  }
+  const targetID = String(configType === "publish-policy" ? policyID || objectID : objectID).trim();
+  if (!targetID) {
+    return {
+      name: "market-center",
+      query: { tab: "engine-config" }
+    };
+  }
+  return {
+    name: "market-center",
+    query: {
+      tab: "engine-config",
+      config_type: configType,
+      config_id: targetID,
+      ...(configType === "publish-policy" ? { policy_id: targetID } : {})
+    }
+  };
+}
+
 function resolveAuditObjectRoute(item) {
   const objectType = normalizeAuditRouteToken(item?.object_type);
   const module = normalizeAuditRouteToken(item?.module);
@@ -122,7 +177,6 @@ function resolveAuditObjectRoute(item) {
   const policyID = String(metadata?.policy_id || objectID).trim();
   const jobType = normalizeAuditRouteToken(metadata?.job_type);
   const marketTab = jobType.includes("FUTURES") ? "futures" : "stocks";
-
   if (objectType === "REVIEW_TASK" || module === "WORKFLOW") {
     return objectID ? { name: "review-center", query: { review_id: objectID } } : { name: "review-center" };
   }
@@ -136,13 +190,12 @@ function resolveAuditObjectRoute(item) {
   }
   if (objectType === "DATA_SOURCE" || module === "DATA") {
     return objectID
-      ? { name: "data-sources", query: { source_key: objectID, action: "logs" } }
-      : { name: "data-sources" };
+      ? { name: "data-sources-registry", query: { source_key: objectID, action: "logs" } }
+      : { name: "data-sources-governance" };
   }
-  if (objectType === "STRATEGY_PUBLISH_POLICY") {
-    return policyID
-      ? { name: "market-center", query: { tab: "engine-config", policy_id: policyID } }
-      : { name: "market-center", query: { tab: "engine-config" } };
+  const strategyConfigRoute = buildStrategyConfigRoute(objectType, objectID, policyID);
+  if (strategyConfigRoute) {
+    return strategyConfigRoute;
   }
   if (objectType === "STRATEGY_JOB") {
     if (publishID) {
@@ -173,10 +226,48 @@ function resolveAuditObjectRoute(item) {
   return "";
 }
 
+function resolveOperationObjectRoute(item) {
+  const targetType = normalizeAuditRouteToken(item?.target_type);
+  const module = normalizeAuditRouteToken(item?.module);
+  const targetID = String(item?.target_id || "").trim();
+
+  if (targetType === "REVIEW_TASK" || module === "WORKFLOW") {
+    return targetID ? { name: "review-center", query: { review_id: targetID } } : { name: "review-center" };
+  }
+  if (targetType === "DATA_SOURCE") {
+    return targetID
+      ? { name: "data-sources-registry", query: { source_key: targetID, action: "logs" } }
+      : { name: "data-sources-governance" };
+  }
+  if (targetType === "JOB_RUN" || targetType === "SCHEDULER_JOB") {
+    return targetID ? { name: "system-jobs", query: { run_id: targetID } } : { name: "system-jobs" };
+  }
+  if (targetType === "JOB" || targetType === "JOB_DEFINITION") {
+    return targetID ? { name: "system-jobs", query: { job_name: targetID } } : { name: "system-jobs" };
+  }
+  const strategyConfigRoute = buildStrategyConfigRoute(targetType, targetID, targetID);
+  if (strategyConfigRoute) {
+    return strategyConfigRoute;
+  }
+  if (targetType === "STRATEGY_JOB") {
+    return targetID ? { name: "system-jobs", query: { run_id: targetID } } : { name: "system-jobs" };
+  }
+  return "";
+}
+
 function openAuditObject(item) {
   const route = resolveAuditObjectRoute(item);
   if (!route) {
     errorMessage.value = "当前事件暂未配置对象跳转页";
+    return;
+  }
+  router.push(route);
+}
+
+function openOperationObject(item) {
+  const route = resolveOperationObjectRoute(item);
+  if (!route) {
+    errorMessage.value = "当前日志暂未配置对象跳转页";
     return;
   }
   router.push(route);
@@ -214,13 +305,26 @@ async function fetchAuditSummary(options = {}) {
   }
   try {
     auditSummary.value = await getAuditEventSummary();
+    clearAuditFeatureUnavailable();
   } catch (error) {
+    if (isAuditFeatureUnavailableError(error)) {
+      auditSummary.value = null;
+      markAuditFeatureUnavailable(error);
+      return;
+    }
     errorMessage.value = normalizeErrorMessage(error, "加载审计摘要失败");
   }
 }
 
 async function fetchAuditEvents(options = {}) {
-  const { keepMessage = false } = options;
+  const { keepMessage = false, forceAuditProbe = false } = options;
+  if (auditFeatureUnavailable.value && !forceAuditProbe) {
+    activeTab.value = "operation-logs";
+    message.value = "统一审计事件当前不可用，已切换到旧操作日志";
+    await fetchOperationLogs({ keepMessage: true });
+    return;
+  }
+
   loading.value = true;
   errorMessage.value = "";
   if (!keepMessage) {
@@ -229,6 +333,13 @@ async function fetchAuditEvents(options = {}) {
 
   try {
     await fetchAuditSummary({ keepMessage: true });
+    if (auditFeatureUnavailable.value) {
+      loading.value = false;
+      activeTab.value = "operation-logs";
+      message.value = "统一审计事件当前不可用，已切换到旧操作日志";
+      await fetchOperationLogs({ keepMessage: true });
+      return;
+    }
     const data = await listAuditEvents({
       event_domain: auditFilters.event_domain.trim(),
       event_type: auditFilters.event_type.trim(),
@@ -241,7 +352,16 @@ async function fetchAuditEvents(options = {}) {
     });
     auditItems.value = data.items || [];
     total.value = data.total || 0;
+    clearAuditFeatureUnavailable();
   } catch (error) {
+    if (isAuditFeatureUnavailableError(error)) {
+      markAuditFeatureUnavailable(error);
+      loading.value = false;
+      activeTab.value = "operation-logs";
+      message.value = "统一审计事件当前不可用，已切换到旧操作日志";
+      await fetchOperationLogs({ keepMessage: true });
+      return;
+    }
     errorMessage.value = normalizeErrorMessage(error, "加载统一审计事件失败");
   } finally {
     loading.value = false;
@@ -256,9 +376,25 @@ async function fetchCurrentTab(options = {}) {
   await fetchOperationLogs(options);
 }
 
+function refreshCurrentTab() {
+  fetchCurrentTab({ forceAuditProbe: auditFeatureUnavailable.value });
+}
+
 function handleTabChange() {
   page.value = 1;
+  if (activeTab.value === "audit-events" && auditFeatureUnavailable.value) {
+    activeTab.value = "operation-logs";
+    message.value = "统一审计事件当前不可用，请先执行数据库迁移";
+    fetchOperationLogs({ keepMessage: true });
+    return;
+  }
   fetchCurrentTab();
+}
+
+function retryAuditFeature() {
+  page.value = 1;
+  activeTab.value = "audit-events";
+  fetchAuditEvents({ keepMessage: true, forceAuditProbe: true });
 }
 
 function applyFilters() {
@@ -472,7 +608,7 @@ onMounted(fetchCurrentTab);
       </div>
       <div class="toolbar" style="margin-bottom: 0">
         <el-button @click="goToMessageCenter">返回消息中心</el-button>
-        <el-button :loading="loading" @click="fetchCurrentTab">刷新</el-button>
+        <el-button :loading="loading" @click="refreshCurrentTab">刷新</el-button>
       </div>
     </div>
 
@@ -493,9 +629,26 @@ onMounted(fetchCurrentTab);
 
     <div class="card" style="margin-bottom: 12px">
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
-        <el-tab-pane label="统一审计事件" name="audit-events" />
+        <el-tab-pane :label="auditFeatureUnavailable ? '统一审计事件（未启用）' : '统一审计事件'" name="audit-events" :disabled="auditFeatureUnavailable" />
         <el-tab-pane label="旧操作日志" name="operation-logs" />
       </el-tabs>
+    </div>
+
+    <el-alert
+      v-if="auditFeatureUnavailable"
+      :title="auditFeatureError"
+      type="warning"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 12px"
+    />
+    <div v-if="auditFeatureUnavailable" class="card" style="margin-bottom: 12px">
+      <div class="inline-actions">
+        <el-text type="info">请先执行迁移命令后再点击“迁移后重试”</el-text>
+        <el-button @click="copyDetailText(auditMigrationCommand, '迁移命令')">复制迁移命令</el-button>
+        <el-button @click="copyDetailText(auditMigrationSQLPath, '迁移文件路径')">复制 SQL 路径</el-button>
+        <el-button type="primary" :loading="loading" @click="retryAuditFeature">迁移后重试</el-button>
+      </div>
     </div>
 
     <div v-if="activeTab === 'audit-events'" class="card" style="margin-bottom: 12px">
@@ -638,7 +791,10 @@ onMounted(fetchCurrentTab);
         <el-table-column prop="created_at" label="时间" min-width="180" />
         <el-table-column label="操作" align="right" min-width="100">
           <template #default="{ row }">
-            <el-button size="small" @click="openDetail(row)">详情</el-button>
+            <div class="inline-actions">
+              <el-button size="small" @click="openDetail(row)">详情</el-button>
+              <el-button size="small" :disabled="!resolveOperationObjectRoute(row)" @click="openOperationObject(row)">跳转对象页</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -685,10 +841,11 @@ onMounted(fetchCurrentTab);
           <el-descriptions-item label="时间">{{ currentRecord.created_at || '-' }}</el-descriptions-item>
         </el-descriptions>
 
-        <div v-if="activeTab === 'audit-events'" class="detail-block-wrap">
+        <div class="detail-block-wrap">
           <div class="detail-title-row">
-            <h4>摘要</h4>
+            <h4>{{ activeTab === 'audit-events' ? '摘要' : '对象跳转' }}</h4>
             <el-button
+              v-if="activeTab === 'audit-events'"
               link
               type="primary"
               :disabled="!(currentRecord.summary || currentRecord.title || '').trim()"
@@ -697,11 +854,16 @@ onMounted(fetchCurrentTab);
             >
               复制
             </el-button>
-            <el-button link type="primary" :disabled="!resolveAuditObjectRoute(currentRecord)" @click="openAuditObject(currentRecord)">
+            <el-button
+              link
+              type="primary"
+              :disabled="activeTab === 'audit-events' ? !resolveAuditObjectRoute(currentRecord) : !resolveOperationObjectRoute(currentRecord)"
+              @click="activeTab === 'audit-events' ? openAuditObject(currentRecord) : openOperationObject(currentRecord)"
+            >
               跳转对象页
             </el-button>
           </div>
-          <pre class="detail-block">{{ currentRecord.summary || currentRecord.title || '-' }}</pre>
+          <pre class="detail-block">{{ activeTab === 'audit-events' ? currentRecord.summary || currentRecord.title || '-' : '当前日志可跳转到对应对象页时，会复用统一消息中心的深链规则。' }}</pre>
         </div>
 
         <div class="detail-block-wrap">
@@ -780,6 +942,13 @@ onMounted(fetchCurrentTab);
   border-radius: 12px;
   padding: 12px;
   background: #fff;
+}
+
+.inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .metric-label {

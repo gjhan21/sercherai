@@ -191,6 +191,17 @@ func (r *InMemoryGrowthRepo) buildMarketUniverseSnapshotLocked(sourceKey string,
 
 func inMemoryUniverseTemplateForAsset(assetType string) marketUniverseSourceItem {
 	switch normalizeUniverseAssetType(assetType) {
+	case "FUTURES":
+		return marketUniverseSourceItem{
+			AssetType:      "FUTURES",
+			InstrumentKey:  "AU2506.SHF",
+			ExternalSymbol: "AU2506.SHF",
+			DisplayName:    "沪金主力示例",
+			ExchangeCode:   "SHF",
+			Status:         "ACTIVE",
+			ListDate:       "2024-01-02",
+			MetadataJSON:   `{"provider":"demo","product_key":"AU"}`,
+		}
 	case "INDEX":
 		return marketUniverseSourceItem{
 			AssetType:      "INDEX",
@@ -393,6 +404,8 @@ func fetchTushareMarketUniverseItems(token string, sourceKey string, assetType s
 	switch assetType {
 	case "STOCK":
 		return fetchTushareStockUniverseItems(client, token, sourceKey)
+	case "FUTURES":
+		return fetchTushareFuturesUniverseItems(client, token, sourceKey)
 	case "INDEX":
 		return fetchTushareIndexUniverseItems(client, token, sourceKey)
 	case "ETF", "LOF":
@@ -441,6 +454,59 @@ func fetchTushareStockUniverseItems(client *http.Client, token string, sourceKey
 					"industry":   firstTushareString(row, fieldIndex, "industry"),
 					"market":     firstTushareString(row, fieldIndex, "market"),
 					"is_hs":      firstTushareString(row, fieldIndex, "is_hs"),
+				})),
+			})
+		}
+	}
+	return items, nil
+}
+
+func fetchTushareFuturesUniverseItems(client *http.Client, token string, sourceKey string) ([]marketUniverseSourceItem, error) {
+	responses, err := fetchPaginatedTushareUniverseResponses(
+		client,
+		token,
+		"fut_basic",
+		nil,
+		"ts_code,symbol,exchange,name,fut_code,multiplier,trade_unit,quote_unit,quote_unit_desc,list_date,delist_date,d_mode_desc,trade_time_desc,last_ddate,d_month",
+	)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	items := make([]marketUniverseSourceItem, 0, 2048)
+	seen := make(map[string]struct{}, 2048)
+	for _, response := range responses {
+		fieldIndex := buildTushareFieldIndex(response.Data.Fields)
+		for _, row := range response.Data.Items {
+			instrumentKey := strings.ToUpper(firstTushareString(row, fieldIndex, "ts_code"))
+			if instrumentKey == "" {
+				continue
+			}
+			if _, exists := seen[instrumentKey]; exists {
+				continue
+			}
+			seen[instrumentKey] = struct{}{}
+			delistDate := normalizeMarketDate(firstTushareString(row, fieldIndex, "delist_date"))
+			productKey := strings.ToUpper(strings.TrimSpace(firstTushareString(row, fieldIndex, "fut_code")))
+			items = append(items, marketUniverseSourceItem{
+				AssetType:      "FUTURES",
+				InstrumentKey:  instrumentKey,
+				ExternalSymbol: defaultString(firstTushareString(row, fieldIndex, "symbol"), instrumentKey),
+				DisplayName:    defaultString(firstTushareString(row, fieldIndex, "name"), instrumentKey),
+				ExchangeCode:   normalizeMarketExchangeCode(firstTushareString(row, fieldIndex, "exchange"), detectInstrumentExchangeCode(instrumentKey)),
+				Status:         normalizeMarketUniverseStatus("", delistDate, now),
+				ListDate:       normalizeMarketDate(firstTushareString(row, fieldIndex, "list_date")),
+				DelistDate:     delistDate,
+				MetadataJSON: marshalJSONSilently(filterEmptyJSONMap(map[string]interface{}{
+					"source_key":      sourceKey,
+					"product_key":     productKey,
+					"trade_unit":      firstTushareString(row, fieldIndex, "trade_unit"),
+					"quote_unit":      firstTushareString(row, fieldIndex, "quote_unit"),
+					"quote_unit_desc": firstTushareString(row, fieldIndex, "quote_unit_desc"),
+					"d_mode_desc":     firstTushareString(row, fieldIndex, "d_mode_desc"),
+					"trade_time_desc": firstTushareString(row, fieldIndex, "trade_time_desc"),
+					"last_trade_date": normalizeMarketDate(firstTushareString(row, fieldIndex, "last_ddate")),
+					"delivery_month":  firstTushareString(row, fieldIndex, "d_month"),
 				})),
 			})
 		}

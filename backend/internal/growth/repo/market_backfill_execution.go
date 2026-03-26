@@ -45,6 +45,9 @@ func normalizeMarketStageInstrumentKeys(assetType string, instrumentKeys []strin
 	if normalizedAssetType == "STOCK" {
 		return normalizeStockSymbolList(instrumentKeys)
 	}
+	if normalizedAssetType == "FUTURES" {
+		return normalizeFuturesContractList(instrumentKeys)
+	}
 	seen := make(map[string]struct{}, len(instrumentKeys))
 	items := make([]string, 0, len(instrumentKeys))
 	for _, value := range instrumentKeys {
@@ -62,10 +65,14 @@ func normalizeMarketStageInstrumentKeys(assetType string, instrumentKeys []strin
 }
 
 func marketStageSyncPriority(assetType string) (string, []string) {
-	if normalizeMarketStageSyncAssetType(assetType) == "STOCK" {
+	switch normalizeMarketStageSyncAssetType(assetType) {
+	case "STOCK":
+		return marketStockPriorityConfigKey, []string{"TUSHARE", "AKSHARE", "TICKERMD", "MOCK"}
+	case "FUTURES":
+		return marketFuturesPriorityConfigKey, []string{"TUSHARE", "TICKERMD", "AKSHARE", "MYSELF", "MOCK"}
+	default:
 		return marketStockPriorityConfigKey, []string{"TUSHARE", "AKSHARE", "TICKERMD", "MOCK"}
 	}
-	return marketStockPriorityConfigKey, []string{"TUSHARE", "AKSHARE", "TICKERMD", "MOCK"}
 }
 
 func normalizeMarketBackfillWindowDays(tradeDateFrom string, tradeDateTo string) int {
@@ -1113,6 +1120,8 @@ func resolveMarketBackfillQuoteRoute(assetType string) (string, []string) {
 	switch normalizeMarketBackfillAssetType(assetType) {
 	case "STOCK", "INDEX", "ETF", "LOF", "CBOND":
 		return marketStockPriorityConfigKey, []string{"TUSHARE", "AKSHARE", "TICKERMD", "MYSELF", "MOCK"}
+	case "FUTURES":
+		return marketFuturesPriorityConfigKey, []string{"TUSHARE", "TICKERMD", "AKSHARE", "MYSELF", "MOCK"}
 	default:
 		return marketStockPriorityConfigKey, []string{"MOCK"}
 	}

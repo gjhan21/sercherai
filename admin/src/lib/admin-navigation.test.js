@@ -45,6 +45,18 @@ test("admin navigation keeps the research workbench menus in the expected order"
   );
 });
 
+test("data-sources navigation entry points to the governance child route", async () => {
+  mockLocalStorage({
+    accessToken: "test-token",
+    permissionCodes: ["*"]
+  });
+
+  const { adminNavigationItems } = await import(`./admin-navigation.js?test=${Date.now()}-data-sources`);
+  const item = adminNavigationItems.find((entry) => entry.name === "data-sources");
+
+  assert.equal(item?.to, "/data-sources/governance");
+});
+
 test("resolveFirstAccessibleRoute returns the first visible route for the current session", async () => {
   mockLocalStorage({
     accessToken: "test-token",

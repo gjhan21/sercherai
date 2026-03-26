@@ -69,6 +69,24 @@ func TestAdminBuildMarketUniverseSnapshotRejectsEmptyScope(t *testing.T) {
 	}
 }
 
+func TestAdminBuildMarketUniverseSnapshotSupportsFuturesScope(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+
+	snapshot, items, err := repo.AdminBuildMarketUniverseSnapshot("TUSHARE", []string{"FUTURES"}, "tester")
+	if err != nil {
+		t.Fatalf("AdminBuildMarketUniverseSnapshot returned error: %v", err)
+	}
+	if len(snapshot.Scope) != 1 || snapshot.Scope[0] != "FUTURES" {
+		t.Fatalf("expected FUTURES scope, got %+v", snapshot.Scope)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 futures universe item, got %+v", items)
+	}
+	if items[0].AssetType != "FUTURES" {
+		t.Fatalf("expected FUTURES item, got %+v", items[0])
+	}
+}
+
 func TestAdminCreateMarketDataBackfillRunBuildsUniverseSnapshotPerAsset(t *testing.T) {
 	repo := NewInMemoryGrowthRepo()
 
@@ -673,6 +691,49 @@ func TestMySQLExecuteMarketDataBackfillRunCompletesMockPipeline(t *testing.T) {
 	}
 	if got := run.Summary["window_days"]; got != 2 {
 		t.Fatalf("expected window_days summary 2, got %+v", run.Summary)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestMySQLAdminGetMarketCoverageSummaryUsesSelectedSourceKey(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+	latestTradeDate := time.Date(2026, 3, 25, 0, 0, 0, 0, time.Local)
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM market_instruments WHERE asset_class = 'STOCK'`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT instrument_key\) FROM market_daily_bar_truth WHERE asset_class = 'STOCK'`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(8))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT symbol\) FROM stock_daily_basic`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(6))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT symbol\) FROM stock_moneyflow_daily`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
+	mock.ExpectQuery(`SELECT MAX\(trade_date\) FROM market_daily_bar_truth WHERE asset_class = 'STOCK'`).
+		WillReturnRows(sqlmock.NewRows([]string{"max_trade_date"}).AddRow(latestTradeDate))
+	mock.ExpectQuery(`(?s)SELECT COALESCE\(selected_source_key, ''\)\s+AS source_key,\s*COUNT\(\*\)\s+FROM market_daily_bar_truth`).
+		WillReturnRows(sqlmock.NewRows([]string{"selected_source_key", "count"}).
+			AddRow("TUSHARE", 7).
+			AddRow("", 1))
+
+	summary, err := repo.AdminGetMarketCoverageSummary()
+	if err != nil {
+		t.Fatalf("AdminGetMarketCoverageSummary returned error: %v", err)
+	}
+	if summary.LatestTradeDate != "2026-03-25" {
+		t.Fatalf("expected latest trade date 2026-03-25, got %s", summary.LatestTradeDate)
+	}
+	if len(summary.FallbackSourceSummary) != 2 {
+		t.Fatalf("expected 2 fallback source items, got %+v", summary.FallbackSourceSummary)
+	}
+	if summary.FallbackSourceSummary[0].SourceKey != "TUSHARE" || summary.FallbackSourceSummary[0].Count != 7 {
+		t.Fatalf("unexpected first fallback source item: %+v", summary.FallbackSourceSummary[0])
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)

@@ -2,9 +2,11 @@ package repo
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -133,6 +135,49 @@ func TestFetchStockInstrumentFactsFromTushareReturnsFullMarketFactsWhenKeysEmpty
 	}
 }
 
+func TestFetchStockInstrumentFactsFromTusharePaginatesFullMarketStockBasic(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	defer func() {
+		http.DefaultTransport = originalTransport
+	}()
+
+	requestBodies := make([]string, 0, 2)
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		requestBodies = append(requestBodies, string(body))
+
+		payload := buildTusharePagedStockBasicPayload(0, 4000)
+		if len(requestBodies) == 2 {
+			if !bytes.Contains(body, []byte(`"offset":"4000"`)) {
+				t.Fatalf("expected second request to include offset 4000, got %s", string(body))
+			}
+			payload = buildTusharePagedStockBasicPayload(4000, 1)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(payload)),
+			Header:     make(http.Header),
+		}, nil
+	})
+
+	facts, err := fetchStockInstrumentFactsFromTushare("token", "TUSHARE", nil, 1000)
+	if err != nil {
+		t.Fatalf("fetchStockInstrumentFactsFromTushare: %v", err)
+	}
+	if len(requestBodies) != 2 {
+		t.Fatalf("expected 2 paginated requests, got %d", len(requestBodies))
+	}
+	if len(facts) != 4001 {
+		t.Fatalf("expected 4001 facts, got %d", len(facts))
+	}
+	if facts[4000].InstrumentKey != "004000.SZ" {
+		t.Fatalf("expected final fact 004000.SZ, got %#v", facts[4000])
+	}
+}
+
 func TestFetchStockInstrumentFactsFromTushareCanonicalizesRequestedKeys(t *testing.T) {
 	originalTransport := http.DefaultTransport
 	defer func() {
@@ -213,6 +258,43 @@ type roundTripFunc func(req *http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
+}
+
+func buildTusharePagedStockBasicPayload(start int, count int) string {
+	fields := []string{"ts_code", "symbol", "name", "area", "industry", "market", "list_date", "delist_date", "list_status", "is_hs", "exchange"}
+	items := make([][]interface{}, 0, count)
+	for index := 0; index < count; index++ {
+		seq := start + index
+		symbol := strconv.FormatInt(int64(seq), 10)
+		symbol = strings.Repeat("0", 6-len(symbol)) + symbol
+		tsCode := symbol + ".SZ"
+		items = append(items, []interface{}{
+			tsCode,
+			symbol,
+			"Stock " + symbol,
+			"Shenzhen",
+			"Tech",
+			"Main",
+			"20200101",
+			"",
+			"L",
+			"",
+			"SZSE",
+		})
+	}
+	payload := map[string]any{
+		"code": 0,
+		"msg":  "",
+		"data": map[string]any{
+			"fields": fields,
+			"items":  items,
+		},
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		panic(err)
+	}
+	return string(encoded)
 }
 
 func TestBuildTushareStockInstrumentFact(t *testing.T) {

@@ -19,11 +19,11 @@
 
 ## 当前代码锚点
 
-- 后端模型：`/Users/gjhan21/cursor/sercherai/.worktrees/topic-a-governance-a0/backend/internal/growth/model/admin_audit_event.go`
-- 后端 repo：`/Users/gjhan21/cursor/sercherai/.worktrees/topic-a-governance-a0/backend/internal/growth/repo/admin_audit_event_repo.go`
-- migration：`/Users/gjhan21/cursor/sercherai/.worktrees/topic-a-governance-a0/backend/migrations/20260324_00_admin_audit_events.sql`
-- Admin 读取入口：`/Users/gjhan21/cursor/sercherai/.worktrees/topic-a-governance-a0/backend/router/router.go`
-- Admin API：`/Users/gjhan21/cursor/sercherai/.worktrees/topic-a-governance-a0/admin/src/api/admin.js`
+- 后端模型：`/Users/gjhan21/cursor/sercherai/backend/internal/growth/model/admin_audit_event.go`
+- 后端 repo：`/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/admin_audit_event_repo.go`
+- migration：`/Users/gjhan21/cursor/sercherai/backend/migrations/20260324_00_admin_audit_events.sql`
+- Admin 读取入口：`/Users/gjhan21/cursor/sercherai/backend/router/router.go`
+- Admin API：`/Users/gjhan21/cursor/sercherai/admin/src/api/admin.js`
 
 ## 已完成
 
@@ -58,8 +58,16 @@
   - `WorkflowMessagesView` 与 `AuditLogsView` 已补 `STRATEGY_JOB / STRATEGY_PUBLISH_POLICY` 对象类型深链
   - `MarketCenterView` 已可消费 `publish_id / view / job_type / policy_id` query，并自动打开股票/期货发布详情或定位发布策略
   - `StrategyEngineConfigPanel` 已支持发布策略高亮与对象定位，消息中心到策略中心的跨对象跳转不再停留在模块级
+- `E4` 深化第四刀已落地
+  - `WorkflowMessagesView` 与 `AuditLogsView` 已继续补 `STRATEGY_SEED_SET / STRATEGY_AGENT_PROFILE / STRATEGY_SCENARIO_TEMPLATE` 对象类型深链
+  - `MarketCenterView` 已统一消费 `config_type / config_id` query，并把策略种子集、代理配置、场景模板路由到 `engine-config` 视图
+  - `StrategyEngineConfigPanel` 已补通用 `focusStrategyConfigItem` 聚焦能力，配置对象高亮不再只支持发布策略
+- `E4` 深化第五刀已落地
+  - `AuditLogsView` 的旧操作日志页已补对象页跳转，不再只有统一审计事件支持深链
+  - 旧操作日志现在可复用 `STRATEGY_SEED_SET / STRATEGY_AGENT_PROFILE / STRATEGY_SCENARIO_TEMPLATE / STRATEGY_PUBLISH_POLICY / STRATEGY_JOB / DATA_SOURCE / REVIEW_TASK / JOB_RUN / JOB_DEFINITION` 的对象路由规则
+  - 这样即使排查路径仍落在旧日志页，后台也能继续跳回 `market-center / data-sources / system-jobs / review-center`，减少双入口割裂
 
 ## 下一步
 
-- `E4` 后续深化：继续补更多对象类型的深链映射与跨对象跳转策略
+- `E4` 后续深化：继续补更多对象类型的深链映射、跨对象跳转策略，以及消息中心到治理台/运行中心的批量回放入口
 - 等 Topic E 第一轮 commit 整理后，再决定是否把更多旧入口改为默认跳回统一消息中心

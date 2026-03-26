@@ -1,4 +1,8 @@
-import http from "../lib/http";
+import http from "../lib/http.js";
+
+const SYNC_REQUEST_CONFIG = {
+  timeout: 1800000
+};
 
 function buildParams(raw) {
   const params = {};
@@ -252,27 +256,20 @@ export function listMarketDataQualityLogs(params) {
   });
 }
 
-export function getDataSourceGovernanceOverview() {
-  return http.get("/admin/data-sources/governance/overview");
+export function getDataSourceGovernanceOverview(params) {
+  return getMarketProviderGovernanceOverview(params);
 }
 
 export function listDataSourceGovernanceCapabilities(params) {
-  return http.get("/admin/data-sources/governance/capabilities", {
-    params: buildParams(params)
-  });
+  return listMarketProviderCapabilities(params);
 }
 
 export function listDataSourceGovernanceRoutingPolicies(params) {
-  return http.get("/admin/data-sources/governance/routing-policies", {
-    params: buildParams(params)
-  });
+  return listMarketProviderRoutingPolicies(params);
 }
 
 export function updateDataSourceGovernanceRoutingPolicy(policyKey, payload) {
-  return http.put(
-    `/admin/data-sources/governance/routing-policies/${encodeURIComponent(policyKey)}`,
-    payload
-  );
+  return updateMarketProviderRoutingPolicy(policyKey, payload);
 }
 
 export function getMarketDataQualitySummary(params) {
@@ -348,19 +345,19 @@ export function updateMarketProviderRoutingPolicy(policyKey, payload) {
 }
 
 export function syncMarketDataMaster(payload) {
-  return http.post("/admin/market-data/master/sync", payload);
+  return http.post("/admin/market-data/master/sync", payload, SYNC_REQUEST_CONFIG);
 }
 
 export function syncMarketDataQuotes(payload) {
-  return http.post("/admin/market-data/quotes/sync", payload);
+  return http.post("/admin/market-data/quotes/sync", payload, SYNC_REQUEST_CONFIG);
 }
 
 export function syncMarketDataDailyBasic(payload) {
-  return http.post("/admin/market-data/daily-basic/sync", payload);
+  return http.post("/admin/market-data/daily-basic/sync", payload, SYNC_REQUEST_CONFIG);
 }
 
 export function syncMarketDataMoneyflow(payload) {
-  return http.post("/admin/market-data/moneyflow/sync", payload);
+  return http.post("/admin/market-data/moneyflow/sync", payload, SYNC_REQUEST_CONFIG);
 }
 
 export function rebuildMarketDataTruth(payload) {
@@ -778,20 +775,24 @@ export function updateStockRecommendationStatus(id, status) {
   });
 }
 
+export function syncStockInstrumentMaster(payload) {
+  return http.post("/admin/stocks/master/sync", payload, SYNC_REQUEST_CONFIG);
+}
+
 export function syncStockQuotes(payload) {
-  return http.post("/admin/stocks/quotes/sync", payload);
+  return http.post("/admin/stocks/quotes/sync", payload, SYNC_REQUEST_CONFIG);
 }
 
 export function syncFuturesQuotes(payload) {
-  return http.post("/admin/futures/quotes/sync", payload);
+  return http.post("/admin/futures/quotes/sync", payload, SYNC_REQUEST_CONFIG);
 }
 
 export function syncFuturesInventory(payload) {
-  return http.post("/admin/futures/inventory/sync", payload);
+  return http.post("/admin/futures/inventory/sync", payload, SYNC_REQUEST_CONFIG);
 }
 
 export function syncMarketNewsSource(payload) {
-  return http.post("/admin/news/market-sync", payload);
+  return http.post("/admin/news/market-sync", payload, SYNC_REQUEST_CONFIG);
 }
 
 export function listQuantTopStocks(params) {

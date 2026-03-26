@@ -9,11 +9,13 @@ import { clearSession, formatSessionRole, saveSession } from "../lib/session";
 const router = useRouter();
 const submitting = ref(false);
 const errorMessage = ref("");
+const allowMockLogin = import.meta.env.DEV && String(import.meta.env.VITE_ADMIN_ALLOW_MOCK_LOGIN || "true").toLowerCase() !== "false";
+const showDevLoginAssist = import.meta.env.DEV;
 const mode = ref("password");
 
 const form = reactive({
-  phone: "19900000001",
-  password: "abc123456",
+  phone: "",
+  password: "",
   expire_seconds: 86400,
   user_id: "admin_001",
   role: "ADMIN"
@@ -55,6 +57,9 @@ async function handleSubmit() {
         expire_seconds: form.expire_seconds
       });
     } else {
+      if (!allowMockLogin) {
+        throw new Error("当前环境未开启 Mock 登录");
+      }
       const userID = form.user_id.trim();
       if (!userID) {
         throw new Error("Mock 登录时用户 ID 不能为空");
@@ -108,8 +113,8 @@ async function handleSubmit() {
       </div>
 
       <el-radio-group v-model="mode" size="large" class="login-mode">
-        <el-radio-button value="mock">Mock 登录（开发）</el-radio-button>
         <el-radio-button value="password">密码登录</el-radio-button>
+        <el-radio-button v-if="allowMockLogin" value="mock">Mock 登录（开发）</el-radio-button>
       </el-radio-group>
 
       <el-form label-position="top" @submit.prevent="handleSubmit">
@@ -120,7 +125,7 @@ async function handleSubmit() {
           <el-form-item label="密码">
             <el-input v-model="form.password" type="password" placeholder="请输入密码" show-password />
           </el-form-item>
-          <div class="quick-account">
+          <div v-if="showDevLoginAssist" class="quick-account">
             <el-button text @click="() => ((form.phone = '19900000001'), (form.password = 'abc123456'))">
               使用 admin_001
             </el-button>
@@ -129,6 +134,7 @@ async function handleSubmit() {
             </el-button>
           </div>
           <el-alert
+            v-if="showDevLoginAssist"
             title="开发测试账号：19900000001 / abc123456，19900000002 / abc123456"
             type="info"
             :closable="false"
@@ -158,7 +164,7 @@ async function handleSubmit() {
         </el-button>
       </el-form>
 
-      <el-text type="info" size="small">
+      <el-text v-if="allowMockLogin" type="info" size="small">
         若使用 Mock 登录，请确保后端启动时设置了 `ALLOW_MOCK_LOGIN=true`。
       </el-text>
     </el-card>

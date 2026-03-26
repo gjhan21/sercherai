@@ -1,13 +1,15 @@
 package repo
 
 import (
-	"errors"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 
@@ -36,6 +38,38 @@ func TestDeriveDefaultExternalSymbol(t *testing.T) {
 	}
 	if got := deriveDefaultExternalSymbol("AKSHARE", marketAssetClassFutures, "AU2406.SHF"); got != "au2406" {
 		t.Fatalf("unexpected akshare futures symbol: %s", got)
+	}
+}
+
+func TestParseFuturesContractMaturityYYMM(t *testing.T) {
+	if got, ok := parseFuturesContractMaturityYYMM("AU2606.SHF"); !ok || got != 2606 {
+		t.Fatalf("expected 2606, got %d (ok=%v)", got, ok)
+	}
+	if got, ok := parseFuturesContractMaturityYYMM("IF2603.CFX"); !ok || got != 2603 {
+		t.Fatalf("expected 2603, got %d (ok=%v)", got, ok)
+	}
+	if _, ok := parseFuturesContractMaturityYYMM("AU.SHF"); ok {
+		t.Fatal("expected parse failure for non-contract symbol")
+	}
+}
+
+func TestSelectPreferredFuturesContracts(t *testing.T) {
+	now := time.Date(2026, time.March, 26, 0, 0, 0, 0, time.Local)
+	items := selectPreferredFuturesContracts(
+		map[string][]string{
+			"AU": {"AU2406.SHF", "AU2604.SHF", "AU2606.SHF"},
+			"AG": {"AG2509.SHF", "AG2601.SHF"},
+			"RB": {"RB2505.SHF", "RB2509.SHF"},
+			"IF": {"IF2603.CFX", "IF2606.CFX"},
+		},
+		[]string{"AU", "AG", "RB", "IF"},
+		now,
+	)
+	if len(items) != 4 {
+		t.Fatalf("expected 4 contracts, got %d (%v)", len(items), items)
+	}
+	if items[0] != "AU2604.SHF" || items[1] != "AG2601.SHF" || items[2] != "RB2509.SHF" || items[3] != "IF2603.CFX" {
+		t.Fatalf("unexpected preferred futures contracts: %v", items)
 	}
 }
 
@@ -181,6 +215,107 @@ func TestConvertAkshareBridgeDailyBarsForFutures(t *testing.T) {
 	}
 }
 
+func TestConvertAkshareBridgeDailyBasics(t *testing.T) {
+	items := convertAkshareBridgeDailyBasics(
+		"AKSHARE",
+		[]pythonBridgeDailyBasicItem{
+			{
+				Symbol:       "600519",
+				TradeDate:    "2026-03-25",
+				TurnoverRate: 2.136789,
+				VolumeRatio:  1.234567,
+				PeTTM:        25.8899,
+				PB:           8.1122,
+				TotalMV:      1200000000000.0,
+				CircMV:       1150000000000.0,
+			},
+		},
+	)
+	if len(items) != 1 {
+		t.Fatalf("expected one daily basic item, got %d", len(items))
+	}
+	if items[0].Symbol != "600519.SH" {
+		t.Fatalf("expected canonical stock symbol, got %+v", items[0])
+	}
+	if items[0].SourceKey != "AKSHARE" {
+		t.Fatalf("expected source key AKSHARE, got %+v", items[0])
+	}
+	if items[0].TurnoverRate != 2.1368 || items[0].VolumeRatio != 1.2346 {
+		t.Fatalf("expected rounded metrics, got %+v", items[0])
+	}
+}
+
+func TestConvertAkshareBridgeMoneyflows(t *testing.T) {
+	items := convertAkshareBridgeMoneyflows(
+		"AKSHARE",
+		[]pythonBridgeMoneyflowItem{
+			{
+				Symbol:        "000001.SZ",
+				TradeDate:     "2026-03-25",
+				NetMFAmount:   1234567.89123,
+				BuyLGAmount:   333333.33333,
+				SellLGAmount:  111111.11111,
+				BuyELGAmount:  555555.55555,
+				SellELGAmount: 222222.22222,
+			},
+		},
+	)
+	if len(items) != 1 {
+		t.Fatalf("expected one moneyflow item, got %d", len(items))
+	}
+	if items[0].Symbol != "000001.SZ" {
+		t.Fatalf("expected canonical stock symbol, got %+v", items[0])
+	}
+	if items[0].NetMFAmount != 1234567.8912 || items[0].BuyELGAmount != 555555.5556 {
+		t.Fatalf("expected rounded moneyflow metrics, got %+v", items[0])
+	}
+}
+
+func TestConvertAkshareBridgeNewsToStockNewsRaw(t *testing.T) {
+	items := convertAkshareBridgeNewsToStockNewsRaw(
+		"AKSHARE",
+		[]pythonBridgeNewsItem{
+			{
+				Title:       "公司签约新增订单",
+				Summary:     "业务增长明显",
+				URL:         "https://example.com/news/1",
+				PublishedAt: "2026-03-25T10:00:00+08:00",
+				Symbols:     []string{"600519", "000001.SZ"},
+			},
+		},
+	)
+	if len(items) != 2 {
+		t.Fatalf("expected one row per symbol, got %d", len(items))
+	}
+	if items[0].Symbol != "600519.SH" || items[1].Symbol != "000001.SZ" {
+		t.Fatalf("expected canonical symbols, got %+v", items)
+	}
+	if items[0].Sentiment != "POSITIVE" {
+		t.Fatalf("expected sentiment classification, got %+v", items[0])
+	}
+}
+
+func TestConvertAkshareBridgeNewsToStockNewsRawAcceptsISOWithoutTimezone(t *testing.T) {
+	items := convertAkshareBridgeNewsToStockNewsRaw(
+		"AKSHARE",
+		[]pythonBridgeNewsItem{
+			{
+				Title:       "指数午盘震荡",
+				Summary:     "市场午间资讯",
+				URL:         "https://example.com/news/no-zone",
+				PublishedAt: "2026-03-26T11:47:05",
+				Symbols:     []string{"600519"},
+			},
+		},
+	)
+	if len(items) != 1 {
+		t.Fatalf("expected one news item for ISO datetime without timezone, got %d", len(items))
+	}
+	if items[0].Symbol != "600519.SH" {
+		t.Fatalf("expected canonical stock symbol, got %+v", items[0])
+	}
+}
+
 func TestMyselfStockAPISymbol(t *testing.T) {
 	if got := myselfStockAPISymbol("600519.SH", ""); got != "sh600519" {
 		t.Fatalf("expected sh600519, got %s", got)
@@ -226,6 +361,165 @@ func TestFetchStockQuotesFromTushareDateRangeUsesExplicitDates(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].TradeDate != "2024-01-05" {
 		t.Fatalf("unexpected quote items: %+v", items)
+	}
+}
+
+func TestFetchStockQuotesFromTushareDateRangeBatchesByTradeDateForMultipleSymbols(t *testing.T) {
+	requests := make([]map[string]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		var payload struct {
+			APIName string            `json:"api_name"`
+			Params  map[string]string `json:"params"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("decode request payload: %v", err)
+		}
+		if payload.APIName != "daily" {
+			t.Fatalf("expected daily api_name, got %+v", payload)
+		}
+		requests = append(requests, payload.Params)
+		tradeDate := payload.Params["trade_date"]
+		if tradeDate == "" {
+			t.Fatalf("expected trade_date batching request, got %+v", payload.Params)
+		}
+		if payload.Params["ts_code"] != "" {
+			t.Fatalf("did not expect ts_code in batched request, got %+v", payload.Params)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(
+			w,
+			fmt.Sprintf(`{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","open","high","low","close","pre_close","vol","amount"],"items":[["600519.SH","%s",10,11,9,10.5,10,100,1000],["000001.SZ","%s",20,21,19,20.5,20,200,2000]]}}`, tradeDate, tradeDate),
+		)
+	}))
+	defer server.Close()
+
+	previousEndpoint := tushareAPIEndpoint
+	tushareAPIEndpoint = server.URL
+	defer func() {
+		tushareAPIEndpoint = previousEndpoint
+	}()
+
+	items, err := fetchStockQuotesFromTushareDateRange(
+		"token",
+		"TUSHARE",
+		[]string{"600519.SH", "000001.SZ"},
+		"20240101",
+		"20240102",
+		500,
+	)
+	if err != nil {
+		t.Fatalf("fetchStockQuotesFromTushareDateRange returned error: %v", err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 trade_date requests, got %d", len(requests))
+	}
+	if requests[0]["trade_date"] != "20240101" || requests[1]["trade_date"] != "20240102" {
+		t.Fatalf("unexpected trade_date sequence: %+v", requests)
+	}
+	if len(items) != 4 {
+		t.Fatalf("expected 4 quotes from 2 days x 2 symbols, got %+v", items)
+	}
+}
+
+func TestFetchStockDailyBasicsFromTushareBatchesByTradeDateForMultipleSymbols(t *testing.T) {
+	requests := make([]map[string]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		var payload struct {
+			APIName string            `json:"api_name"`
+			Params  map[string]string `json:"params"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("decode request payload: %v", err)
+		}
+		if payload.APIName != "daily_basic" {
+			t.Fatalf("expected daily_basic api_name, got %+v", payload)
+		}
+		requests = append(requests, payload.Params)
+		tradeDate := payload.Params["trade_date"]
+		if tradeDate == "" || payload.Params["ts_code"] != "" {
+			t.Fatalf("expected trade_date batching request, got %+v", payload.Params)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(
+			w,
+			fmt.Sprintf(`{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","turnover_rate","volume_ratio","pe_ttm","pb","total_mv","circ_mv"],"items":[["600519.SH","%s",1.1,1.2,10,2,1000,800],["000001.SZ","%s",2.1,2.2,20,3,2000,1600]]}}`, tradeDate, tradeDate),
+		)
+	}))
+	defer server.Close()
+
+	previousEndpoint := tushareAPIEndpoint
+	tushareAPIEndpoint = server.URL
+	defer func() { tushareAPIEndpoint = previousEndpoint }()
+
+	items, err := fetchStockDailyBasicsFromTushare("token", "TUSHARE", []string{"600519.SH", "000001.SZ"}, 2, 500)
+	if err != nil {
+		t.Fatalf("fetchStockDailyBasicsFromTushare returned error: %v", err)
+	}
+	if len(requests) < 2 {
+		t.Fatalf("expected batched daily_basic requests, got %d", len(requests))
+	}
+	if requests[0]["trade_date"] == "" {
+		t.Fatalf("expected first request to use trade_date, got %+v", requests[0])
+	}
+	if len(items) == 0 {
+		t.Fatalf("expected daily_basic items, got %+v", items)
+	}
+}
+
+func TestFetchStockMoneyflowsFromTushareBatchesByTradeDateForMultipleSymbols(t *testing.T) {
+	requests := make([]map[string]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		var payload struct {
+			APIName string            `json:"api_name"`
+			Params  map[string]string `json:"params"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("decode request payload: %v", err)
+		}
+		if payload.APIName != "moneyflow" {
+			t.Fatalf("expected moneyflow api_name, got %+v", payload)
+		}
+		requests = append(requests, payload.Params)
+		tradeDate := payload.Params["trade_date"]
+		if tradeDate == "" || payload.Params["ts_code"] != "" {
+			t.Fatalf("expected trade_date batching request, got %+v", payload.Params)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(
+			w,
+			fmt.Sprintf(`{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","net_mf_amount","buy_lg_amount","sell_lg_amount","buy_elg_amount","sell_elg_amount"],"items":[["600519.SH","%s",11,12,13,14,15],["000001.SZ","%s",21,22,23,24,25]]}}`, tradeDate, tradeDate),
+		)
+	}))
+	defer server.Close()
+
+	previousEndpoint := tushareAPIEndpoint
+	tushareAPIEndpoint = server.URL
+	defer func() { tushareAPIEndpoint = previousEndpoint }()
+
+	items, err := fetchStockMoneyflowsFromTushare("token", "TUSHARE", []string{"600519.SH", "000001.SZ"}, 2, 500)
+	if err != nil {
+		t.Fatalf("fetchStockMoneyflowsFromTushare returned error: %v", err)
+	}
+	if len(requests) < 2 {
+		t.Fatalf("expected batched moneyflow requests, got %d", len(requests))
+	}
+	if requests[0]["trade_date"] == "" {
+		t.Fatalf("expected first request to use trade_date, got %+v", requests[0])
+	}
+	if len(items) == 0 {
+		t.Fatalf("expected moneyflow items, got %+v", items)
 	}
 }
 

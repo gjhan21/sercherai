@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { NO_ACCESS_ROUTE_PATH, resolveFirstAccessibleRoute } from "../lib/admin-navigation";
+import { resolveDataSourcesSectionRoute } from "../lib/data-sources-admin.js";
 import { hasPermission, hasSession } from "../lib/session";
 
 const AppLayout = () => import("../components/AppLayout.vue");
@@ -15,6 +16,12 @@ const CommunityView = () => import("../views/CommunityView.vue");
 const ReviewCenterView = () => import("../views/ReviewCenterView.vue");
 const SystemJobsView = () => import("../views/SystemJobsView.vue");
 const DataSourcesView = () => import("../views/DataSourcesView.vue");
+const DataSourcesGovernanceSectionView = () => import("../views/data-sources/DataSourcesGovernanceSectionView.vue");
+const DataSourcesSyncSectionView = () => import("../views/data-sources/DataSourcesSyncSectionView.vue");
+const DataSourcesCoverageSectionView = () => import("../views/data-sources/DataSourcesCoverageSectionView.vue");
+const DataSourcesTruthSectionView = () => import("../views/data-sources/DataSourcesTruthSectionView.vue");
+const DataSourcesRegistrySectionView = () => import("../views/data-sources/DataSourcesRegistrySectionView.vue");
+const DataSourcesQualitySectionView = () => import("../views/data-sources/DataSourcesQualitySectionView.vue");
 const WorkflowMessagesView = () => import("../views/WorkflowMessagesView.vue");
 const AuditLogsView = () => import("../views/AuditLogsView.vue");
 const MembershipCenterView = () => import("../views/MembershipCenterView.vue");
@@ -83,7 +90,49 @@ const routes = [
         path: "data-sources",
         name: "data-sources",
         component: DataSourcesView,
-        meta: { permission: "data_source.view" }
+        redirect: (to) => ({
+          name: resolveDataSourcesSectionRoute(to.query || {}),
+          query: to.query
+        }),
+        meta: { permission: "data_source.view", navKey: "/data-sources" },
+        children: [
+          {
+            path: "governance",
+            name: "data-sources-governance",
+            component: DataSourcesGovernanceSectionView,
+            meta: { permission: "data_source.view", navKey: "/data-sources" }
+          },
+          {
+            path: "sync",
+            name: "data-sources-sync",
+            component: DataSourcesSyncSectionView,
+            meta: { permission: "data_source.view", navKey: "/data-sources" }
+          },
+          {
+            path: "coverage",
+            name: "data-sources-coverage",
+            component: DataSourcesCoverageSectionView,
+            meta: { permission: "data_source.view", navKey: "/data-sources" }
+          },
+          {
+            path: "truth",
+            name: "data-sources-truth",
+            component: DataSourcesTruthSectionView,
+            meta: { permission: "data_source.view", navKey: "/data-sources" }
+          },
+          {
+            path: "registry",
+            name: "data-sources-registry",
+            component: DataSourcesRegistrySectionView,
+            meta: { permission: "data_source.view", navKey: "/data-sources" }
+          },
+          {
+            path: "quality",
+            name: "data-sources-quality",
+            component: DataSourcesQualitySectionView,
+            meta: { permission: "data_source.view", navKey: "/data-sources" }
+          }
+        ]
       },
       {
         path: "users",

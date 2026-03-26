@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -8841,7 +8842,7 @@ func (r *MySQLGrowthRepo) ensureBuiltinDataSources() error {
 		{
 			ID:          "cfg_data_source_akshare",
 			SourceKey:   "akshare",
-			ConfigValue: `{"name":"AkShare","source_type":"MARKET","status":"ACTIVE","config":{"provider":"AKSHARE","python_bin":"../services/strategy-engine/.venv/bin/python","bridge_script":"../services/strategy-engine/app/tools/market_bridge.py","retry_times":0,"fail_threshold":3,"retry_interval_ms":300,"health_timeout_ms":10000,"alert_receiver_id":"admin_001"}}`,
+			ConfigValue: `{"name":"AkShare","source_type":"MARKET","status":"ACTIVE","config":{"provider":"AKSHARE","python_bin":"../services/strategy-engine/.venv/bin/python","bridge_script":"../services/strategy-engine/app/tools/market_bridge.py","retry_times":0,"fail_threshold":3,"retry_interval_ms":300,"health_timeout_ms":10000,"sync_timeout_ms":240000,"alert_receiver_id":"admin_001"}}`,
 			Description: "内置 AkShare 多市场数据源",
 		},
 		{
@@ -8889,6 +8890,26 @@ func (r *MySQLGrowthRepo) ensureBuiltinDataSources() error {
 			Description: "股票行情默认数据源",
 		},
 		{
+			Key:         "stock.master.default_source_key",
+			Value:       "AKSHARE",
+			Description: "股票主数据默认数据源",
+		},
+		{
+			Key:         "stock.daily_basic.default_source_key",
+			Value:       "AKSHARE",
+			Description: "股票指标默认数据源",
+		},
+		{
+			Key:         "stock.moneyflow.default_source_key",
+			Value:       "AKSHARE",
+			Description: "股票资金流默认数据源",
+		},
+		{
+			Key:         "stock.news.default_source_key",
+			Value:       "AKSHARE",
+			Description: "股票资讯默认数据源",
+		},
+		{
 			Key:         "futures.quotes.default_source_key",
 			Value:       "TUSHARE",
 			Description: "期货行情默认数据源",
@@ -8907,6 +8928,16 @@ func (r *MySQLGrowthRepo) ensureBuiltinDataSources() error {
 			Key:         marketNewsPriorityConfigKey,
 			Value:       "AKSHARE,TUSHARE",
 			Description: "市场资讯多源优先级",
+		},
+		{
+			Key:         "market.stock.factor.source_priority",
+			Value:       "AKSHARE,TUSHARE",
+			Description: "股票指标多源优先级",
+		},
+		{
+			Key:         "market.stock.news.source_priority",
+			Value:       "AKSHARE,TUSHARE",
+			Description: "股票资讯多源优先级",
 		},
 		{
 			Key:         marketInstrumentStockPriorityConfigKey,
@@ -9180,12 +9211,12 @@ func (r *MySQLGrowthRepo) createDataSourceHealthWorkflowMessage(source model.Dat
 			Status:      "OPEN",
 			DedupeKey:   "data_source_health:" + source.SourceKey + ":unhealthy",
 			Metadata: map[string]any{
-				"source_key":            source.SourceKey,
-				"consecutive_failures":  check.ConsecutiveFailures,
-				"threshold":             threshold,
-				"status":                check.Status,
-				"receiver_id":           receiverID,
-				"provider_governance":   true,
+				"source_key":           source.SourceKey,
+				"consecutive_failures": check.ConsecutiveFailures,
+				"threshold":            threshold,
+				"status":               check.Status,
+				"receiver_id":          receiverID,
+				"provider_governance":  true,
 			},
 		})
 	case "RECOVERED":
@@ -9582,10 +9613,10 @@ WHERE id = ?`,
 		Detail:      truncateByRunes(normalizeUTF8Text(reviewNote), 512),
 		Status:      "OPEN",
 		Metadata: map[string]any{
-			"review_id":    reviewID,
-			"target_id":    targetID,
+			"review_id":     reviewID,
+			"target_id":     targetID,
 			"target_module": module,
-			"submitter_id": submitterID,
+			"submitter_id":  submitterID,
 			"review_status": status,
 		},
 	})
@@ -11598,6 +11629,115 @@ func fetchStockQuotesFromEndpoint(endpoint string, sourceKey string, symbols []s
 
 var tushareAPIEndpoint = "https://api.tushare.pro"
 
+var (
+	tushareThrottleMu sync.Mutex
+	tushareLastCallAt = map[string]time.Time{}
+
+	tushareMinIntervalDefault = 150 * time.Millisecond
+	tushareMinIntervalByAPI   = map[string]time.Duration{
+		"stock_basic": 220 * time.Millisecond,
+		"daily":       150 * time.Millisecond,
+		"daily_basic": 180 * time.Millisecond,
+		"moneyflow":   180 * time.Millisecond,
+		"anns_d":      220 * time.Millisecond,
+	}
+
+	tushareMaxRetryAttempts = 4
+	tushareRetryBaseDelay   = 700 * time.Millisecond
+	tushareRateLimitDelay   = 5 * time.Second
+)
+
+func shouldThrottleTushareAPI() bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(tushareAPIEndpoint)), "api.tushare.pro")
+}
+
+func tushareMinInterval(apiName string) time.Duration {
+	interval := tushareMinIntervalDefault
+	if value, ok := tushareMinIntervalByAPI[strings.ToLower(strings.TrimSpace(apiName))]; ok && value > interval {
+		interval = value
+	}
+	return interval
+}
+
+func waitForTushareCallSlot(apiName string) {
+	if !shouldThrottleTushareAPI() {
+		return
+	}
+	interval := tushareMinInterval(apiName)
+	if interval <= 0 {
+		return
+	}
+	key := strings.ToLower(strings.TrimSpace(apiName))
+	if key == "" {
+		key = "_default"
+	}
+	for {
+		now := time.Now()
+		tushareThrottleMu.Lock()
+		last := tushareLastCallAt[key]
+		wait := interval - now.Sub(last)
+		if last.IsZero() || wait <= 0 {
+			tushareLastCallAt[key] = now
+			tushareThrottleMu.Unlock()
+			return
+		}
+		tushareThrottleMu.Unlock()
+		time.Sleep(wait)
+	}
+}
+
+func isTushareRetryableNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	text := strings.ToLower(strings.TrimSpace(err.Error()))
+	retryableKeywords := []string{
+		"eof",
+		"timeout",
+		"connection reset",
+		"broken pipe",
+		"tls handshake timeout",
+		"temporarily unavailable",
+	}
+	for _, keyword := range retryableKeywords {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldRetryTushareRequest(err error, statusCode int) bool {
+	if err == nil {
+		return false
+	}
+	if statusCode == http.StatusTooManyRequests || statusCode >= http.StatusInternalServerError {
+		return true
+	}
+	if isTushareRateLimitErrorText(err.Error()) {
+		return true
+	}
+	return isTushareRetryableNetworkError(err)
+}
+
+func nextTushareRetryDelay(err error, attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	if isTushareRateLimitErrorText(err.Error()) {
+		return time.Duration(attempt) * tushareRateLimitDelay
+	}
+	delay := time.Duration(attempt) * tushareRetryBaseDelay
+	if delay > 15*time.Second {
+		return 15 * time.Second
+	}
+	return delay
+}
+
 func normalizeTushareTradeDateValue(value string, fieldName string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -11697,6 +11837,110 @@ func parseStockQuotesFromTushareResponse(sourceKey string, symbols []string, par
 	return result
 }
 
+func parseStockDailyBasicsFromTushareResponse(sourceKey string, symbols []string, parsed tushareStdResponse) []stockDailyBasicPoint {
+	if len(parsed.Data.Fields) == 0 || len(parsed.Data.Items) == 0 {
+		return nil
+	}
+	symbolFilter := make(map[string]struct{}, len(symbols))
+	for _, symbol := range symbols {
+		symbolFilter[strings.ToUpper(strings.TrimSpace(symbol))] = struct{}{}
+	}
+	fieldIndex := make(map[string]int, len(parsed.Data.Fields))
+	for idx, field := range parsed.Data.Fields {
+		fieldIndex[strings.TrimSpace(field)] = idx
+	}
+	result := make([]stockDailyBasicPoint, 0, len(parsed.Data.Items))
+	for _, row := range parsed.Data.Items {
+		tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+		if !ok {
+			continue
+		}
+		tsCode = strings.ToUpper(strings.TrimSpace(tsCode))
+		if len(symbolFilter) > 0 {
+			if _, exists := symbolFilter[tsCode]; !exists {
+				continue
+			}
+		}
+		tradeDateRaw, ok := tushareGetString(row, fieldIndex, "trade_date")
+		if !ok {
+			continue
+		}
+		tradeDate, err := time.ParseInLocation("20060102", tradeDateRaw, time.Local)
+		if err != nil {
+			continue
+		}
+		turnoverRate, _ := tushareGetFloat(row, fieldIndex, "turnover_rate")
+		volumeRatio, _ := tushareGetFloat(row, fieldIndex, "volume_ratio")
+		peTTM, _ := tushareGetFloat(row, fieldIndex, "pe_ttm")
+		pb, _ := tushareGetFloat(row, fieldIndex, "pb")
+		totalMV, _ := tushareGetFloat(row, fieldIndex, "total_mv")
+		circMV, _ := tushareGetFloat(row, fieldIndex, "circ_mv")
+		result = append(result, stockDailyBasicPoint{
+			Symbol:       tsCode,
+			TradeDate:    tradeDate,
+			TurnoverRate: roundTo(turnoverRate, 4),
+			VolumeRatio:  roundTo(volumeRatio, 4),
+			PeTTM:        roundTo(peTTM, 4),
+			PB:           roundTo(pb, 4),
+			TotalMV:      roundTo(totalMV, 4),
+			CircMV:       roundTo(circMV, 4),
+			SourceKey:    sourceKey,
+		})
+	}
+	return result
+}
+
+func parseStockMoneyflowsFromTushareResponse(sourceKey string, symbols []string, parsed tushareStdResponse) []stockMoneyflowPoint {
+	if len(parsed.Data.Fields) == 0 || len(parsed.Data.Items) == 0 {
+		return nil
+	}
+	symbolFilter := make(map[string]struct{}, len(symbols))
+	for _, symbol := range symbols {
+		symbolFilter[strings.ToUpper(strings.TrimSpace(symbol))] = struct{}{}
+	}
+	fieldIndex := make(map[string]int, len(parsed.Data.Fields))
+	for idx, field := range parsed.Data.Fields {
+		fieldIndex[strings.TrimSpace(field)] = idx
+	}
+	result := make([]stockMoneyflowPoint, 0, len(parsed.Data.Items))
+	for _, row := range parsed.Data.Items {
+		tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+		if !ok {
+			continue
+		}
+		tsCode = strings.ToUpper(strings.TrimSpace(tsCode))
+		if len(symbolFilter) > 0 {
+			if _, exists := symbolFilter[tsCode]; !exists {
+				continue
+			}
+		}
+		tradeDateRaw, ok := tushareGetString(row, fieldIndex, "trade_date")
+		if !ok {
+			continue
+		}
+		tradeDate, err := time.ParseInLocation("20060102", tradeDateRaw, time.Local)
+		if err != nil {
+			continue
+		}
+		netMFAmount, _ := tushareGetFloat(row, fieldIndex, "net_mf_amount")
+		buyLGAmount, _ := tushareGetFloat(row, fieldIndex, "buy_lg_amount")
+		sellLGAmount, _ := tushareGetFloat(row, fieldIndex, "sell_lg_amount")
+		buyELGAmount, _ := tushareGetFloat(row, fieldIndex, "buy_elg_amount")
+		sellELGAmount, _ := tushareGetFloat(row, fieldIndex, "sell_elg_amount")
+		result = append(result, stockMoneyflowPoint{
+			Symbol:        tsCode,
+			TradeDate:     tradeDate,
+			NetMFAmount:   roundTo(netMFAmount, 4),
+			BuyLGAmount:   roundTo(buyLGAmount, 4),
+			SellLGAmount:  roundTo(sellLGAmount, 4),
+			BuyELGAmount:  roundTo(buyELGAmount, 4),
+			SellELGAmount: roundTo(sellELGAmount, 4),
+			SourceKey:     sourceKey,
+		})
+	}
+	return result
+}
+
 func fetchStockQuotesFromTushare(token string, sourceKey string, symbols []string, days int, timeoutMS int) ([]model.StockMarketQuote, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -11730,6 +11974,11 @@ func fetchStockQuotesFromTushareDateRange(token string, sourceKey string, symbol
 		return nil, err
 	}
 	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+
+	if len(symbols) > 1 {
+		return fetchStockQuotesFromTushareByTradeDates(client, token, sourceKey, symbols, normalizedStartDate, normalizedEndDate)
+	}
+
 	result := make([]model.StockMarketQuote, 0, len(symbols))
 
 	for _, symbol := range symbols {
@@ -11742,6 +11991,33 @@ func fetchStockQuotesFromTushareDateRange(token string, sourceKey string, symbol
 			return nil, err
 		}
 		result = append(result, parseStockQuotesFromTushareResponse(sourceKey, []string{symbol}, parsed)...)
+	}
+	return result, nil
+}
+
+func fetchStockQuotesFromTushareByTradeDates(client *http.Client, token string, sourceKey string, symbols []string, startDate string, endDate string) ([]model.StockMarketQuote, error) {
+	start, err := time.ParseInLocation("20060102", startDate, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	end, err := time.ParseInLocation("20060102", endDate, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	if end.Before(start) {
+		return nil, fmt.Errorf("end_date must be >= start_date")
+	}
+
+	result := make([]model.StockMarketQuote, 0, len(symbols)*int(end.Sub(start).Hours()/24+1))
+	for current := start; !current.After(end); current = current.AddDate(0, 0, 1) {
+		tradeDate := current.Format("20060102")
+		parsed, err := callTushareAPI(client, token, "daily", map[string]string{
+			"trade_date": tradeDate,
+		}, "ts_code,trade_date,open,high,low,close,pre_close,vol,amount")
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, parseStockQuotesFromTushareResponse(sourceKey, symbols, parsed)...)
 	}
 	return result, nil
 }
@@ -11766,31 +12042,65 @@ func callTushareAPI(client *http.Client, token string, apiName string, params ma
 	if err != nil {
 		return tushareStdResponse{}, err
 	}
-	req, err := http.NewRequest(http.MethodPost, tushareAPIEndpoint, bytes.NewReader(payload))
-	if err != nil {
-		return tushareStdResponse{}, err
+	attempts := tushareMaxRetryAttempts
+	if attempts < 1 {
+		attempts = 1
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		return tushareStdResponse{}, err
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		waitForTushareCallSlot(apiName)
+		req, reqErr := http.NewRequest(http.MethodPost, tushareAPIEndpoint, bytes.NewReader(payload))
+		if reqErr != nil {
+			return tushareStdResponse{}, reqErr
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, doErr := client.Do(req)
+		if doErr != nil {
+			lastErr = doErr
+			if attempt < attempts && shouldRetryTushareRequest(doErr, 0) {
+				time.Sleep(nextTushareRetryDelay(doErr, attempt))
+				continue
+			}
+			return tushareStdResponse{}, doErr
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			if attempt < attempts && shouldRetryTushareRequest(readErr, 0) {
+				time.Sleep(nextTushareRetryDelay(readErr, attempt))
+				continue
+			}
+			return tushareStdResponse{}, readErr
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			statusErr := fmt.Errorf("tushare status: %s", resp.Status)
+			lastErr = statusErr
+			if attempt < attempts && shouldRetryTushareRequest(statusErr, resp.StatusCode) {
+				time.Sleep(nextTushareRetryDelay(statusErr, attempt))
+				continue
+			}
+			return tushareStdResponse{}, statusErr
+		}
+		parsed := tushareStdResponse{}
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return tushareStdResponse{}, err
+		}
+		if parsed.Code != 0 {
+			apiErr := fmt.Errorf("tushare error(%s): %s", apiName, strings.TrimSpace(parsed.Msg))
+			lastErr = apiErr
+			if attempt < attempts && shouldRetryTushareRequest(apiErr, 0) {
+				time.Sleep(nextTushareRetryDelay(apiErr, attempt))
+				continue
+			}
+			return tushareStdResponse{}, apiErr
+		}
+		return parsed, nil
 	}
-	body, readErr := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	if readErr != nil {
-		return tushareStdResponse{}, readErr
+	if lastErr == nil {
+		lastErr = errors.New("tushare request failed")
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return tushareStdResponse{}, fmt.Errorf("tushare status: %s", resp.Status)
-	}
-	parsed := tushareStdResponse{}
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return tushareStdResponse{}, err
-	}
-	if parsed.Code != 0 {
-		return tushareStdResponse{}, fmt.Errorf("tushare error(%s): %s", apiName, strings.TrimSpace(parsed.Msg))
-	}
-	return parsed, nil
+	return tushareStdResponse{}, lastErr
 }
 
 func fetchStockDailyBasicsFromTushare(token string, sourceKey string, symbols []string, days int, timeoutMS int) ([]stockDailyBasicPoint, error) {
@@ -11807,6 +12117,11 @@ func fetchStockDailyBasicsFromTushare(token string, sourceKey string, symbols []
 	startDate := time.Now().AddDate(0, 0, -(days + 20)).Format("20060102")
 	endDate := time.Now().Format("20060102")
 	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+
+	if len(symbols) > 1 {
+		return fetchStockDailyBasicsFromTushareByTradeDates(client, token, sourceKey, symbols, startDate, endDate)
+	}
+
 	result := make([]stockDailyBasicPoint, 0, len(symbols)*days)
 	for _, symbol := range symbols {
 		parsed, err := callTushareAPI(client, token, "daily_basic", map[string]string{
@@ -11817,41 +12132,7 @@ func fetchStockDailyBasicsFromTushare(token string, sourceKey string, symbols []
 		if err != nil {
 			return nil, err
 		}
-		fieldIndex := make(map[string]int, len(parsed.Data.Fields))
-		for idx, field := range parsed.Data.Fields {
-			fieldIndex[strings.TrimSpace(field)] = idx
-		}
-		for _, row := range parsed.Data.Items {
-			tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
-			if !ok {
-				continue
-			}
-			tradeDateRaw, ok := tushareGetString(row, fieldIndex, "trade_date")
-			if !ok {
-				continue
-			}
-			tradeDate, err := time.ParseInLocation("20060102", tradeDateRaw, time.Local)
-			if err != nil {
-				continue
-			}
-			turnoverRate, _ := tushareGetFloat(row, fieldIndex, "turnover_rate")
-			volumeRatio, _ := tushareGetFloat(row, fieldIndex, "volume_ratio")
-			peTTM, _ := tushareGetFloat(row, fieldIndex, "pe_ttm")
-			pb, _ := tushareGetFloat(row, fieldIndex, "pb")
-			totalMV, _ := tushareGetFloat(row, fieldIndex, "total_mv")
-			circMV, _ := tushareGetFloat(row, fieldIndex, "circ_mv")
-			result = append(result, stockDailyBasicPoint{
-				Symbol:       strings.ToUpper(strings.TrimSpace(tsCode)),
-				TradeDate:    tradeDate,
-				TurnoverRate: roundTo(turnoverRate, 4),
-				VolumeRatio:  roundTo(volumeRatio, 4),
-				PeTTM:        roundTo(peTTM, 4),
-				PB:           roundTo(pb, 4),
-				TotalMV:      roundTo(totalMV, 4),
-				CircMV:       roundTo(circMV, 4),
-				SourceKey:    sourceKey,
-			})
-		}
+		result = append(result, parseStockDailyBasicsFromTushareResponse(sourceKey, []string{symbol}, parsed)...)
 	}
 	return result, nil
 }
@@ -11870,6 +12151,11 @@ func fetchStockMoneyflowsFromTushare(token string, sourceKey string, symbols []s
 	startDate := time.Now().AddDate(0, 0, -(days + 20)).Format("20060102")
 	endDate := time.Now().Format("20060102")
 	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+
+	if len(symbols) > 1 {
+		return fetchStockMoneyflowsFromTushareByTradeDates(client, token, sourceKey, symbols, startDate, endDate)
+	}
+
 	result := make([]stockMoneyflowPoint, 0, len(symbols)*days)
 	for _, symbol := range symbols {
 		parsed, err := callTushareAPI(client, token, "moneyflow", map[string]string{
@@ -11880,39 +12166,61 @@ func fetchStockMoneyflowsFromTushare(token string, sourceKey string, symbols []s
 		if err != nil {
 			return nil, err
 		}
-		fieldIndex := make(map[string]int, len(parsed.Data.Fields))
-		for idx, field := range parsed.Data.Fields {
-			fieldIndex[strings.TrimSpace(field)] = idx
+		result = append(result, parseStockMoneyflowsFromTushareResponse(sourceKey, []string{symbol}, parsed)...)
+	}
+	return result, nil
+}
+
+func fetchStockDailyBasicsFromTushareByTradeDates(client *http.Client, token string, sourceKey string, symbols []string, startDate string, endDate string) ([]stockDailyBasicPoint, error) {
+	start, err := time.ParseInLocation("20060102", startDate, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	end, err := time.ParseInLocation("20060102", endDate, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	if end.Before(start) {
+		return nil, fmt.Errorf("end_date must be >= start_date")
+	}
+
+	result := make([]stockDailyBasicPoint, 0, len(symbols)*int(end.Sub(start).Hours()/24+1))
+	for current := start; !current.After(end); current = current.AddDate(0, 0, 1) {
+		tradeDate := current.Format("20060102")
+		parsed, err := callTushareAPI(client, token, "daily_basic", map[string]string{
+			"trade_date": tradeDate,
+		}, "ts_code,trade_date,turnover_rate,volume_ratio,pe_ttm,pb,total_mv,circ_mv")
+		if err != nil {
+			return nil, err
 		}
-		for _, row := range parsed.Data.Items {
-			tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
-			if !ok {
-				continue
-			}
-			tradeDateRaw, ok := tushareGetString(row, fieldIndex, "trade_date")
-			if !ok {
-				continue
-			}
-			tradeDate, err := time.ParseInLocation("20060102", tradeDateRaw, time.Local)
-			if err != nil {
-				continue
-			}
-			netMFAmount, _ := tushareGetFloat(row, fieldIndex, "net_mf_amount")
-			buyLGAmount, _ := tushareGetFloat(row, fieldIndex, "buy_lg_amount")
-			sellLGAmount, _ := tushareGetFloat(row, fieldIndex, "sell_lg_amount")
-			buyELGAmount, _ := tushareGetFloat(row, fieldIndex, "buy_elg_amount")
-			sellELGAmount, _ := tushareGetFloat(row, fieldIndex, "sell_elg_amount")
-			result = append(result, stockMoneyflowPoint{
-				Symbol:        strings.ToUpper(strings.TrimSpace(tsCode)),
-				TradeDate:     tradeDate,
-				NetMFAmount:   roundTo(netMFAmount, 4),
-				BuyLGAmount:   roundTo(buyLGAmount, 4),
-				SellLGAmount:  roundTo(sellLGAmount, 4),
-				BuyELGAmount:  roundTo(buyELGAmount, 4),
-				SellELGAmount: roundTo(sellELGAmount, 4),
-				SourceKey:     sourceKey,
-			})
+		result = append(result, parseStockDailyBasicsFromTushareResponse(sourceKey, symbols, parsed)...)
+	}
+	return result, nil
+}
+
+func fetchStockMoneyflowsFromTushareByTradeDates(client *http.Client, token string, sourceKey string, symbols []string, startDate string, endDate string) ([]stockMoneyflowPoint, error) {
+	start, err := time.ParseInLocation("20060102", startDate, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	end, err := time.ParseInLocation("20060102", endDate, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	if end.Before(start) {
+		return nil, fmt.Errorf("end_date must be >= start_date")
+	}
+
+	result := make([]stockMoneyflowPoint, 0, len(symbols)*int(end.Sub(start).Hours()/24+1))
+	for current := start; !current.After(end); current = current.AddDate(0, 0, 1) {
+		tradeDate := current.Format("20060102")
+		parsed, err := callTushareAPI(client, token, "moneyflow", map[string]string{
+			"trade_date": tradeDate,
+		}, "ts_code,trade_date,net_mf_amount,buy_lg_amount,sell_lg_amount,buy_elg_amount,sell_elg_amount")
+		if err != nil {
+			return nil, err
 		}
+		result = append(result, parseStockMoneyflowsFromTushareResponse(sourceKey, symbols, parsed)...)
 	}
 	return result, nil
 }
@@ -13418,6 +13726,10 @@ func parseFlexibleDateTime(value string) (time.Time, error) {
 	}
 	layouts := []string{
 		time.RFC3339,
+		"2006-01-02T15:04:05.999999999Z07:00",
+		"2006-01-02T15:04:05.999999999",
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
 		"2006-01-02 15:04:05",
 		"2006-01-02 15:04",
 		"2006-01-02",

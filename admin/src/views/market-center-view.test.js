@@ -21,6 +21,8 @@ test("MarketCenterView keeps migration messaging and jumps to dedicated modules"
   assert.match(text, /前往数据源管理/);
   assert.match(text, /前往智能选股/);
   assert.match(text, /前往智能期货/);
+  assert.match(text, /data-sources-governance/);
+  assert.match(text, /data-sources-sync/);
 });
 
 test("MarketCenterView no longer owns data-source governance logic", () => {
@@ -47,7 +49,10 @@ test("MarketCenterView consumes audit deep-link query state", () => {
   assert.match(text, /normalizeMarketCenterRouteState\(query\)/);
   assert.match(text, /publish_id/);
   assert.match(text, /policy_id/);
+  assert.match(text, /config_type/);
+  assert.match(text, /config_id/);
   assert.match(text, /view/);
+  assert.match(text, /focusStrategyConfigItem/);
   assert.match(text, /handleViewStockPublishDetail/);
   assert.match(text, /handleViewStockPublishReplay/);
   assert.match(text, /handleViewFuturesPublishDetail/);

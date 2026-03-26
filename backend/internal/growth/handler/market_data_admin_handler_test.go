@@ -714,6 +714,85 @@ func TestSyncMarketDataQuotes(t *testing.T) {
 	}
 }
 
+func TestSyncMarketDataMasterSupportsFuturesScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/admin/market-data/master/sync",
+		strings.NewReader(`{"source_key":"TUSHARE","asset_scope":["FUTURES"]}`),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SyncMarketDataMaster(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Code int `json:"code"`
+		Data struct {
+			AssetScope []string `json:"asset_scope"`
+			Result     struct {
+				AssetClass string `json:"asset_class"`
+				DataKind   string `json:"data_kind"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Code != 0 || len(payload.Data.AssetScope) != 1 || payload.Data.AssetScope[0] != "FUTURES" {
+		t.Fatalf("unexpected futures master scope payload: %+v", payload)
+	}
+	if payload.Data.Result.AssetClass != "FUTURES" || payload.Data.Result.DataKind == "" {
+		t.Fatalf("unexpected futures master result payload: %+v", payload)
+	}
+}
+
+func TestSyncMarketDataQuotesSupportsFuturesScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newStockSelectionTestHandler()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/admin/market-data/quotes/sync",
+		strings.NewReader(`{"source_key":"MOCK","asset_scope":["FUTURES"],"symbols":["AU2506.SHF"],"days":2}`),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SyncMarketDataQuotes(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Code int `json:"code"`
+		Data struct {
+			AssetScope []string `json:"asset_scope"`
+			Result     struct {
+				AssetClass string `json:"asset_class"`
+				DataKind   string `json:"data_kind"`
+				BarCount   int    `json:"bar_count"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Code != 0 || len(payload.Data.AssetScope) != 1 || payload.Data.AssetScope[0] != "FUTURES" {
+		t.Fatalf("unexpected futures quotes scope payload: %+v", payload)
+	}
+	if payload.Data.Result.AssetClass != "FUTURES" || payload.Data.Result.DataKind == "" || payload.Data.Result.BarCount <= 0 {
+		t.Fatalf("unexpected futures quotes result payload: %+v", payload)
+	}
+}
+
 func TestSyncMarketDataDailyBasic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := newStockSelectionTestHandler()

@@ -291,7 +291,9 @@ test("market center route helpers normalize tab and quality state", () => {
       publish_id: "",
       view: "",
       job_type: "",
-      policy_id: ""
+      policy_id: "",
+      config_type: "",
+      config_id: ""
     }
   );
 });
@@ -616,7 +618,43 @@ test("market center route helpers keep publish and policy deep-link state", () =
       publish_id: "stock-pub-001",
       view: "detail",
       job_type: "STOCK_SELECTION",
-      policy_id: "policy_default_all"
+      policy_id: "policy_default_all",
+      config_type: "publish-policy",
+      config_id: "policy_default_all"
+    }
+  );
+});
+
+
+test("market center route helpers keep strategy config deep-link state", () => {
+  assert.deepEqual(
+    buildMarketCenterRouteQuery({
+      tab: "engine-config",
+      config_type: " seed-set ",
+      config_id: " seed_default_stock "
+    }),
+    {
+      tab: "engine-config",
+      config_type: "seed-set",
+      config_id: "seed_default_stock"
+    }
+  );
+  assert.deepEqual(
+    normalizeMarketCenterRouteState({
+      tab: "engine-config",
+      config_type: " STRATEGY_SCENARIO_TEMPLATE ",
+      config_id: " scenario_default_stock "
+    }),
+    {
+      tab: "engine-config",
+      quality_hours: 24,
+      issue_code: "",
+      publish_id: "",
+      view: "",
+      job_type: "",
+      policy_id: "",
+      config_type: "scenario-template",
+      config_id: "scenario_default_stock"
     }
   );
 });

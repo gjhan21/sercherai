@@ -47,6 +47,44 @@ func (h *AdminGrowthHandler) resolveDefaultConfigValue(configKey string, fallbac
 	return fallback
 }
 
+func isTushareNewsPermissionDeniedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(strings.TrimSpace(err.Error()))
+	if text == "" {
+		return false
+	}
+	return strings.Contains(text, "tushare error(anns_d)") &&
+		(strings.Contains(text, "没有接口访问权限") || strings.Contains(text, "no permission"))
+}
+
+func preferAkshareWhenDefaultRequested(requestedSourceKey string, resolvedSourceKey string) string {
+	if strings.TrimSpace(requestedSourceKey) != "" {
+		return resolvedSourceKey
+	}
+	if strings.EqualFold(strings.TrimSpace(resolvedSourceKey), "TUSHARE") {
+		return "AKSHARE"
+	}
+	return resolvedSourceKey
+}
+
+func marketSyncResultCount(result model.MarketSyncResult) int {
+	if result.TruthCount > 0 {
+		return result.TruthCount
+	}
+	if result.BarCount > 0 {
+		return result.BarCount
+	}
+	if result.NewsCount > 0 {
+		return result.NewsCount
+	}
+	if result.InventoryCount > 0 {
+		return result.InventoryCount
+	}
+	return 0
+}
+
 func (h *AdminGrowthHandler) SyncFuturesQuotes(c *gin.Context) {
 	var req dto.FuturesQuoteSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
@@ -67,28 +105,49 @@ func (h *AdminGrowthHandler) SyncFuturesQuotes(c *gin.Context) {
 	}
 	contracts := normalizeFuturesContracts(req.Contracts)
 	result, err := h.service.AdminSyncFuturesQuotes(sourceKey, contracts, days)
+	fallbackUsed := false
+	fallbackReason := ""
+	effectiveSourceKey := sourceKey
+	if err == nil && strings.EqualFold(sourceKey, "TUSHARE") && len(contracts) == 0 && marketSyncResultCount(result) == 0 {
+		fallbackResult, fallbackErr := h.service.AdminSyncFuturesQuotes("AUTO", contracts, days)
+		if fallbackErr == nil && marketSyncResultCount(fallbackResult) > 0 {
+			result = fallbackResult
+			fallbackUsed = true
+			fallbackReason = "tushare_empty_result"
+			effectiveSourceKey = strings.ToUpper(strings.TrimSpace(fallbackResult.SelectedSource))
+			if effectiveSourceKey == "" {
+				effectiveSourceKey = "AUTO"
+			}
+		}
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
-	count := result.TruthCount
-	if count <= 0 {
-		count = result.BarCount
-	}
+	count := marketSyncResultCount(result)
 	beforeValue := requestedSourceKey
 	if beforeValue == "" {
 		beforeValue = "DEFAULT"
 	}
 	reason := fmt.Sprintf("days=%d,contracts=%d", days, len(contracts))
-	h.writeOperationLog(c, "FUTURES", "SYNC_QUOTES", "FUTURES_QUOTES", sourceKey, beforeValue, "count="+strconv.Itoa(count), reason)
-	c.JSON(http.StatusOK, dto.OK(gin.H{
+	if fallbackUsed {
+		reason += ",fallback_from=TUSHARE"
+	}
+	h.writeOperationLog(c, "FUTURES", "SYNC_QUOTES", "FUTURES_QUOTES", effectiveSourceKey, beforeValue, "count="+strconv.Itoa(count), reason)
+	response := gin.H{
 		"count":                count,
-		"source_key":           sourceKey,
+		"source_key":           effectiveSourceKey,
 		"requested_source_key": requestedSourceKey,
 		"days":                 days,
 		"contracts":            contracts,
 		"result":               result,
-	}))
+	}
+	if fallbackUsed {
+		response["fallback_used"] = true
+		response["fallback_source_key"] = effectiveSourceKey
+		response["fallback_reason"] = fallbackReason
+	}
+	c.JSON(http.StatusOK, dto.OK(response))
 }
 
 func normalizeFuturesInventorySymbols(raw []string) []string {
@@ -183,30 +242,52 @@ func (h *AdminGrowthHandler) SyncMarketNewsSource(c *gin.Context) {
 		limit = 50
 	}
 	symbols := normalizeStockSymbols(req.Symbols)
+	effectiveSourceKey := sourceKey
+	fallbackSourceKey := ""
 	result, err := h.service.AdminSyncMarketNews(sourceKey, symbols, days, limit)
+	if err != nil && strings.EqualFold(sourceKey, "TUSHARE") && isTushareNewsPermissionDeniedError(err) {
+		fallbackSourceKey = h.resolveDefaultConfigValue("market.news.default_source_key", "AKSHARE")
+		if strings.EqualFold(fallbackSourceKey, "TUSHARE") || strings.TrimSpace(fallbackSourceKey) == "" {
+			fallbackSourceKey = "AKSHARE"
+		}
+		result, err = h.service.AdminSyncMarketNews(fallbackSourceKey, symbols, days, limit)
+		if err == nil {
+			effectiveSourceKey = fallbackSourceKey
+		}
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
+	}
+	reason := fmt.Sprintf("days=%d,symbols=%d,limit=%d", days, len(symbols), limit)
+	if fallbackSourceKey != "" && strings.EqualFold(effectiveSourceKey, fallbackSourceKey) {
+		reason += fmt.Sprintf(",fallback_from=%s", sourceKey)
 	}
 	h.writeOperationLog(
 		c,
 		"NEWS",
 		"SYNC_MARKET_NEWS",
 		"MARKET_NEWS",
-		sourceKey,
+		effectiveSourceKey,
 		requestedSourceKey,
 		fmt.Sprintf("count=%d", result.NewsCount),
-		fmt.Sprintf("days=%d,symbols=%d,limit=%d", days, len(symbols), limit),
+		reason,
 	)
-	c.JSON(http.StatusOK, dto.OK(gin.H{
+	response := gin.H{
 		"count":                result.NewsCount,
-		"source_key":           sourceKey,
+		"source_key":           effectiveSourceKey,
 		"requested_source_key": requestedSourceKey,
 		"days":                 days,
 		"limit":                limit,
 		"symbols":              symbols,
 		"result":               result,
-	}))
+	}
+	if fallbackSourceKey != "" && strings.EqualFold(effectiveSourceKey, fallbackSourceKey) {
+		response["fallback_used"] = true
+		response["fallback_source_key"] = fallbackSourceKey
+		response["fallback_reason"] = "tushare_anns_d_permission_denied"
+	}
+	c.JSON(http.StatusOK, dto.OK(response))
 }
 
 func (h *AdminGrowthHandler) SyncStockDailyBasics(c *gin.Context) {
@@ -218,7 +299,8 @@ func (h *AdminGrowthHandler) SyncStockDailyBasics(c *gin.Context) {
 	requestedSourceKey := strings.ToUpper(strings.TrimSpace(req.SourceKey))
 	sourceKey := requestedSourceKey
 	if sourceKey == "" {
-		sourceKey = h.resolveDefaultConfigValue("stock.daily_basic.default_source_key", "TUSHARE")
+		sourceKey = h.resolveDefaultConfigValue("stock.daily_basic.default_source_key", "AKSHARE")
+		sourceKey = preferAkshareWhenDefaultRequested(requestedSourceKey, sourceKey)
 	}
 	days := req.Days
 	if days <= 0 {
@@ -253,7 +335,8 @@ func (h *AdminGrowthHandler) SyncStockMoneyflows(c *gin.Context) {
 	requestedSourceKey := strings.ToUpper(strings.TrimSpace(req.SourceKey))
 	sourceKey := requestedSourceKey
 	if sourceKey == "" {
-		sourceKey = h.resolveDefaultConfigValue("stock.moneyflow.default_source_key", "TUSHARE")
+		sourceKey = h.resolveDefaultConfigValue("stock.moneyflow.default_source_key", "AKSHARE")
+		sourceKey = preferAkshareWhenDefaultRequested(requestedSourceKey, sourceKey)
 	}
 	days := req.Days
 	if days <= 0 {
@@ -288,7 +371,8 @@ func (h *AdminGrowthHandler) SyncStockNewsSource(c *gin.Context) {
 	requestedSourceKey := strings.ToUpper(strings.TrimSpace(req.SourceKey))
 	sourceKey := requestedSourceKey
 	if sourceKey == "" {
-		sourceKey = h.resolveDefaultConfigValue("stock.news.default_source_key", "TUSHARE")
+		sourceKey = h.resolveDefaultConfigValue("stock.news.default_source_key", "AKSHARE")
+		sourceKey = preferAkshareWhenDefaultRequested(requestedSourceKey, sourceKey)
 	}
 	days := req.Days
 	if days <= 0 {
@@ -323,7 +407,8 @@ func (h *AdminGrowthHandler) BackfillStockMarketData(c *gin.Context) {
 	requestedSourceKey := strings.ToUpper(strings.TrimSpace(req.SourceKey))
 	sourceKey := requestedSourceKey
 	if sourceKey == "" {
-		sourceKey = h.resolveDefaultConfigValue("stock.master.default_source_key", "TUSHARE")
+		sourceKey = h.resolveDefaultConfigValue("stock.master.default_source_key", "AKSHARE")
+		sourceKey = preferAkshareWhenDefaultRequested(requestedSourceKey, sourceKey)
 	}
 	days := req.Days
 	if days <= 0 {

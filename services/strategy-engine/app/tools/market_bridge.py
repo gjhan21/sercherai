@@ -19,6 +19,20 @@ def parse_args() -> argparse.Namespace:
     stock_daily.add_argument("--symbols", default="", help="Comma-separated stock symbols")
     stock_daily.add_argument("--days", type=int, default=120, help="Lookback days")
 
+    stock_daily_basic = subparsers.add_parser(
+        "stock_daily_basic",
+        help="Fetch stock daily basic snapshot via AkShare",
+    )
+    stock_daily_basic.add_argument("--symbols", default="", help="Comma-separated stock symbols")
+    stock_daily_basic.add_argument("--days", type=int, default=120, help="Lookback days (reserved)")
+
+    stock_moneyflow = subparsers.add_parser(
+        "stock_moneyflow",
+        help="Fetch stock moneyflow snapshot via AkShare",
+    )
+    stock_moneyflow.add_argument("--symbols", default="", help="Comma-separated stock symbols")
+    stock_moneyflow.add_argument("--days", type=int, default=120, help="Lookback days (reserved)")
+
     futures_daily = subparsers.add_parser("futures_daily", help="Fetch futures daily bars via AkShare")
     futures_daily.add_argument("--symbols", default="", help="Comma-separated futures symbols")
     futures_daily.add_argument("--days", type=int, default=120, help="Lookback days")
@@ -59,6 +73,21 @@ def normalize_akshare_stock_symbol(symbol: str) -> str:
     if normalized.startswith("SH") or normalized.startswith("SZ") or normalized.startswith("BJ"):
         normalized = normalized[2:]
     return normalized
+
+
+def canonical_stock_symbol_with_exchange(symbol: str) -> str:
+    normalized = normalize_akshare_stock_symbol(symbol)
+    if not normalized:
+        return ""
+    if normalized.startswith(("6", "9")) or normalized.startswith("5"):
+        suffix = "SH"
+    elif normalized.startswith(("0", "1", "2", "3")):
+        suffix = "SZ"
+    elif normalized.startswith(("4", "8")):
+        suffix = "BJ"
+    else:
+        suffix = "SZ"
+    return f"{normalized}.{suffix}"
 
 
 def normalize_akshare_futures_symbol(symbol: str) -> str:
@@ -189,6 +218,86 @@ def command_stock_daily(symbols: list[str], days: int) -> dict:
             )
             prev_close = close_price
 
+    return {"items": items}
+
+
+def load_stock_spot_metric_map() -> dict[str, dict]:
+    ak = import_akshare()
+    frame = ak.stock_zh_a_spot_em()
+    if frame is None or frame.empty:
+        return {}
+    result: dict[str, dict] = {}
+    for _, row in frame.iterrows():
+        code = normalize_akshare_stock_symbol(safe_text(row_value(row, ["代码", "symbol", "Symbol"])))
+        if not code:
+            continue
+        result[code] = {
+            "pe_ttm": safe_float(row_value(row, ["市盈率-动态", "pe_ttm", "PE"])),
+            "pb": safe_float(row_value(row, ["市净率", "pb", "PB"])),
+            "total_mv": safe_float(row_value(row, ["总市值", "total_mv", "TotalMV"])),
+            "circ_mv": safe_float(row_value(row, ["流通市值", "circ_mv", "CircMV"])),
+            "volume_ratio": safe_float(row_value(row, ["量比", "volume_ratio", "VolumeRatio"])),
+            "name": safe_text(row_value(row, ["名称", "name", "Name"])),
+        }
+    return result
+
+
+def command_stock_daily_basic(symbols: list[str], days: int) -> dict:
+    _ = days
+    metric_map = load_stock_spot_metric_map()
+    if not metric_map:
+        return {"items": []}
+
+    symbol_filter = {normalize_akshare_stock_symbol(item) for item in symbols if item}
+    trade_date = datetime.now().strftime("%Y-%m-%d")
+    items: list[dict] = []
+    for code, metrics in metric_map.items():
+        if symbol_filter and code not in symbol_filter:
+            continue
+        items.append(
+            {
+                "symbol": canonical_stock_symbol_with_exchange(code),
+                "trade_date": trade_date,
+                "turnover_rate": 0.0,
+                "volume_ratio": metrics.get("volume_ratio", 0.0),
+                "pe_ttm": metrics.get("pe_ttm", 0.0),
+                "pb": metrics.get("pb", 0.0),
+                "total_mv": metrics.get("total_mv", 0.0),
+                "circ_mv": metrics.get("circ_mv", 0.0),
+            }
+        )
+    return {"items": items}
+
+
+def command_stock_moneyflow(symbols: list[str], days: int) -> dict:
+    _ = days
+    ak = import_akshare()
+    frame = ak.stock_individual_fund_flow_rank(indicator="今日")
+    if frame is None or frame.empty:
+        return {"items": []}
+
+    symbol_filter = {normalize_akshare_stock_symbol(item) for item in symbols if item}
+    trade_date = datetime.now().strftime("%Y-%m-%d")
+    items: list[dict] = []
+    for _, row in frame.iterrows():
+        code = normalize_akshare_stock_symbol(safe_text(row_value(row, ["代码", "symbol", "Symbol"])))
+        if not code:
+            continue
+        if symbol_filter and code not in symbol_filter:
+            continue
+        buy_elg_amount = safe_float(row_value(row, ["今日超大单净流入-净额"]))
+        buy_lg_amount = safe_float(row_value(row, ["今日大单净流入-净额"]))
+        items.append(
+            {
+                "symbol": canonical_stock_symbol_with_exchange(code),
+                "trade_date": trade_date,
+                "net_mf_amount": safe_float(row_value(row, ["今日主力净流入-净额"])),
+                "buy_lg_amount": buy_lg_amount,
+                "sell_lg_amount": 0.0,
+                "buy_elg_amount": buy_elg_amount,
+                "sell_elg_amount": 0.0,
+            }
+        )
     return {"items": items}
 
 
@@ -324,6 +433,10 @@ def main() -> int:
         payload = command_healthcheck()
     elif args.command == "stock_daily":
         payload = command_stock_daily(split_symbols(args.symbols), args.days)
+    elif args.command == "stock_daily_basic":
+        payload = command_stock_daily_basic(split_symbols(args.symbols), args.days)
+    elif args.command == "stock_moneyflow":
+        payload = command_stock_moneyflow(split_symbols(args.symbols), args.days)
     elif args.command == "futures_daily":
         payload = command_futures_daily(split_symbols(args.symbols), args.days)
     elif args.command == "market_news":

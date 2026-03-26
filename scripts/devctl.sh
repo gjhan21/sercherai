@@ -38,10 +38,12 @@ usage() {
   ./scripts/devctl.sh stop [strategy-graph|strategy-engine|backend|admin|client|all]
   ./scripts/devctl.sh restart [strategy-graph|strategy-engine|backend|admin|client|all]
   ./scripts/devctl.sh status [strategy-graph|strategy-engine|backend|admin|client|all]
+  ./scripts/devctl.sh migrate [all|audit|market-data]
 
 说明:
   - 默认目标为 all
   - start 前会清理目标端口占用进程
+  - migrate 支持一键执行数据库迁移（默认 all）
   - 日志目录: ./.run/logs
   - PID 文件: ./.run/<service>.pid
 EOF
@@ -248,6 +250,110 @@ service_wait_checks() {
     strategy-engine) echo "320" ;;
     *) echo "80" ;;
   esac
+}
+
+migration_files_for_target() {
+  case "$1" in
+    audit)
+      echo "$ROOT_DIR/backend/migrations/20260324_00_admin_audit_events.sql"
+      ;;
+    market-data)
+      cat <<EOF
+$ROOT_DIR/backend/migrations/20260323_00_market_provider_governance.sql
+$ROOT_DIR/backend/migrations/20260324_01_market_data_full_backfill.sql
+EOF
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+resolve_mysql_config() {
+  local key="$1"
+  local fallback="$2"
+  read_env_override "$(service_env_file backend)" "$key" "$fallback"
+}
+
+run_migration() {
+  local target="$1"
+  local mysql_host mysql_port mysql_user mysql_pwd mysql_db migration_files
+  local -a table_checks
+
+  mysql_host="$(resolve_mysql_config MYSQL_HOST 127.0.0.1)"
+  mysql_port="$(resolve_mysql_config MYSQL_PORT 3306)"
+  mysql_user="$(resolve_mysql_config MYSQL_USER root)"
+  mysql_pwd="$(resolve_mysql_config MYSQL_PWD abc123)"
+  mysql_db="$(resolve_mysql_config MYSQL_DB sercherai)"
+
+  if ! command -v mysql >/dev/null 2>&1; then
+    echo "[ERROR] 未找到 mysql 客户端，请先安装 mysql 并确保可执行"
+    return 1
+  fi
+
+  if [[ "$target" == "all" ]]; then
+    echo "[INFO] 执行全量数据库迁移 (target=all, db=${mysql_db}@${mysql_host}:${mysql_port})"
+    (
+      cd "$ROOT_DIR/backend"
+      MYSQL_HOST="$mysql_host" \
+      MYSQL_PORT="$mysql_port" \
+      MYSQL_USER="$mysql_user" \
+      MYSQL_PWD="$mysql_pwd" \
+      MYSQL_DB="$mysql_db" \
+      ./scripts/init_mysql.sh
+    )
+    echo "[OK] 数据库全量迁移完成"
+    return 0
+  fi
+
+  migration_files="$(migration_files_for_target "$target")"
+  if [[ -z "$migration_files" ]]; then
+    echo "[ERROR] 未找到迁移文件配置: ${target}"
+    return 1
+  fi
+  while IFS= read -r migration_file; do
+    [[ -z "$migration_file" ]] && continue
+    if [[ ! -f "$migration_file" ]]; then
+      echo "[ERROR] 迁移文件不存在: $migration_file"
+      return 1
+    fi
+  done <<< "$migration_files"
+
+  mysql -h"${mysql_host}" -P"${mysql_port}" -u"${mysql_user}" -p"${mysql_pwd}" \
+    -e "CREATE DATABASE IF NOT EXISTS \`${mysql_db}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+  while IFS= read -r migration_file; do
+    [[ -z "$migration_file" ]] && continue
+    echo "[INFO] 执行数据库迁移 (${target}): $(basename "$migration_file")"
+    mysql -h"${mysql_host}" -P"${mysql_port}" -u"${mysql_user}" -p"${mysql_pwd}" "${mysql_db}" < "$migration_file"
+  done <<< "$migration_files"
+
+  case "$target" in
+    audit)
+      table_checks=("admin_audit_events")
+      ;;
+    market-data)
+      table_checks=("market_provider_registry" "market_provider_capabilities" "market_provider_routing_policies" "market_universe_snapshots")
+      ;;
+    *)
+      table_checks=()
+      ;;
+  esac
+
+  if [[ "${#table_checks[@]}" -eq 0 ]]; then
+    echo "[OK] 迁移完成: ${target}"
+    return 0
+  fi
+
+  local table_check exists
+  for table_check in "${table_checks[@]}"; do
+    exists="$(
+      mysql -h"${mysql_host}" -P"${mysql_port}" -u"${mysql_user}" -p"${mysql_pwd}" -N -e \
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${mysql_db}' AND table_name='${table_check}';"
+    )"
+    if [[ "${exists}" == "0" ]]; then
+      echo "[ERROR] 迁移执行后仍未检测到表: ${table_check}"
+      return 1
+    fi
+  done
+  echo "[OK] 迁移完成，已检测到关键表: ${table_checks[*]}"
 }
 
 pid_file() {
@@ -518,13 +624,27 @@ main() {
   fi
 
   case "$action" in
-    start|stop|restart|status) ;;
+    start|stop|restart|status|migrate) ;;
     *)
       echo "[ERROR] 不支持的命令: $action"
       usage
       exit 1
       ;;
   esac
+
+  if [[ "$action" == "migrate" ]]; then
+    case "$target" in
+      all|audit|market-data)
+        run_migration "$target"
+        ;;
+      *)
+        echo "[ERROR] 不支持的迁移目标: $target"
+        usage
+        exit 1
+        ;;
+    esac
+    return 0
+  fi
 
   if [[ "$target" == "all" ]]; then
     services=("${ALL_SERVICES[@]}")

@@ -10,7 +10,7 @@ import (
 	"sercherai/backend/internal/growth/model"
 )
 
-var allowedMarketBackfillAssetTypes = []string{"STOCK", "INDEX", "ETF", "LOF", "CBOND"}
+var allowedMarketBackfillAssetTypes = []string{"STOCK", "FUTURES", "INDEX", "ETF", "LOF", "CBOND"}
 
 const marketBackfillLongHistoryChunkDays = 180
 
@@ -57,6 +57,8 @@ func normalizeMarketBackfillAssetType(value string) string {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
 	case "STOCK":
 		return "STOCK"
+	case "FUTURES":
+		return "FUTURES"
 	case "INDEX":
 		return "INDEX"
 	case "ETF":
@@ -999,12 +1001,22 @@ func (r *MySQLGrowthRepo) AdminGetMarketCoverageSummary() (model.MarketCoverageS
 	}
 
 	rows, err := r.db.Query(`
-SELECT source_key, COUNT(*)
+SELECT COALESCE(selected_source_key, '') AS source_key, COUNT(*)
 FROM market_daily_bar_truth
 WHERE asset_class = 'STOCK'
-GROUP BY source_key
+GROUP BY COALESCE(selected_source_key, '')
 ORDER BY COUNT(*) DESC, source_key ASC
 LIMIT 5`)
+	if err != nil && isMarketStatusSchemaCompatError(err) {
+		// Schema compatibility fallback for historical deployments that used `source_key`.
+		rows, err = r.db.Query(`
+SELECT COALESCE(source_key, '') AS source_key, COUNT(*)
+FROM market_daily_bar_truth
+WHERE asset_class = 'STOCK'
+GROUP BY COALESCE(source_key, '')
+ORDER BY COUNT(*) DESC, source_key ASC
+LIMIT 5`)
+	}
 	if err != nil {
 		return summary, err
 	}

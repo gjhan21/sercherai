@@ -12,11 +12,16 @@ function readView() {
   return fs.readFileSync(filePath, "utf8");
 }
 
-test("StrategyEngineConfigPanel exposes publish policy focus helpers for deep links", () => {
+test("StrategyEngineConfigPanel exposes strategy config focus helpers for deep links", () => {
   const text = readView();
   assert.match(text, /focusPublishPolicyByID/);
+  assert.match(text, /focusStrategyConfigItem/);
+  assert.match(text, /seedSetTableRef/);
+  assert.match(text, /agentProfileTableRef/);
+  assert.match(text, /scenarioTemplateTableRef/);
+  assert.match(text, /focusedConfigType/);
+  assert.match(text, /focusedConfigID/);
   assert.match(text, /policyTableRef/);
-  assert.match(text, /focusedPolicyID/);
   assert.match(text, /row-class-name/);
-  assert.match(text, /defineExpose\(\{ refreshAll, focusPublishPolicyByID \}\)/);
+  assert.match(text, /defineExpose\(\{ refreshAll, focusPublishPolicyByID, focusStrategyConfigItem \}\)/);
 });

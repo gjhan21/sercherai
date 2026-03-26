@@ -497,7 +497,7 @@ function applyMarketCenterRouteState(query = route.query) {
 }
 
 function buildMarketCenterRouteFocusKey(state = {}) {
-  return [state.tab, state.publish_id, state.view, state.job_type, state.policy_id].join("|");
+  return [state.tab, state.publish_id, state.view, state.job_type, state.policy_id, state.config_type, state.config_id].join("|");
 }
 
 function findPublishHistoryRow(rows, publishID) {
@@ -507,7 +507,7 @@ function findPublishHistoryRow(rows, publishID) {
 async function applyMarketCenterObjectFocus(query = route.query, options = {}) {
   const state = normalizeMarketCenterRouteState(query);
   const focusKey = buildMarketCenterRouteFocusKey(state);
-  if (!state.publish_id && !state.policy_id) {
+  if (!state.publish_id && !state.policy_id && !state.config_id) {
     marketCenterRouteFocusKey.value = "";
     return;
   }
@@ -515,10 +515,10 @@ async function applyMarketCenterObjectFocus(query = route.query, options = {}) {
     return;
   }
 
-  if (state.policy_id) {
+  if (state.policy_id || state.config_id) {
     activeTab.value = "engine-config";
     await nextTick();
-    await strategyConfigPanelRef.value?.focusPublishPolicyByID?.(state.policy_id);
+    await strategyConfigPanelRef.value?.focusStrategyConfigItem?.(state.config_type || (state.policy_id ? "publish-policy" : ""), state.config_id || state.policy_id);
     marketCenterRouteFocusKey.value = focusKey;
     return;
   }
@@ -1729,7 +1729,7 @@ watch(
             <h2 class="rhythm-board-title">数据链路已独立</h2>
             <p class="muted">行情/资讯同步、健康检查、truth 重建和质量日志统一迁到数据源管理。</p>
           </div>
-          <el-button type="primary" plain @click="router.push({ name: 'data-sources' })">
+          <el-button type="primary" plain @click="router.push({ name: 'data-sources-governance' })">
             前往数据源管理
           </el-button>
         </div>
@@ -1902,7 +1902,7 @@ watch(
               </p>
             </div>
             <div class="inline-actions inline-actions--left">
-              <el-button type="primary" plain @click="router.push({ name: 'data-sources' })">
+              <el-button type="primary" plain @click="router.push({ name: 'data-sources-sync' })">
                 前往数据源管理
               </el-button>
               <el-button type="primary" @click="router.push({ name: 'stock-selection-overview' })">
@@ -2183,7 +2183,7 @@ watch(
               </p>
             </div>
             <div class="inline-actions inline-actions--left">
-              <el-button type="primary" plain @click="router.push({ name: 'data-sources' })">
+              <el-button type="primary" plain @click="router.push({ name: 'data-sources-sync' })">
                 前往数据源管理
               </el-button>
               <el-button type="primary" @click="router.push({ name: 'futures-selection-overview' })">

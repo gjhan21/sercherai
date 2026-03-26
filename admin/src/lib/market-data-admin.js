@@ -279,6 +279,26 @@ export function normalizeMarketCenterJobType(value) {
   return normalized;
 }
 
+export function normalizeMarketCenterConfigType(value) {
+  const normalized = String(value || "").trim().toUpperCase().replace(/[-\s]+/g, "_");
+  if (!normalized) {
+    return "";
+  }
+  if (normalized === "SEED_SET" || normalized === "STRATEGY_SEED_SET") {
+    return "seed-set";
+  }
+  if (normalized === "AGENT_PROFILE" || normalized === "STRATEGY_AGENT_PROFILE") {
+    return "agent-profile";
+  }
+  if (normalized === "SCENARIO_TEMPLATE" || normalized === "STRATEGY_SCENARIO_TEMPLATE") {
+    return "scenario-template";
+  }
+  if (normalized === "PUBLISH_POLICY" || normalized === "STRATEGY_PUBLISH_POLICY") {
+    return "publish-policy";
+  }
+  return "";
+}
+
 export function buildMarketCenterRouteQuery(filters = {}) {
   const query = {
     tab: normalizeMarketCenterTab(filters?.tab)
@@ -290,6 +310,8 @@ export function buildMarketCenterRouteQuery(filters = {}) {
   );
   const publishID = String(filters?.publish_id || "").trim();
   const policyID = String(filters?.policy_id || "").trim();
+  const configType = normalizeMarketCenterConfigType(filters?.config_type);
+  const configID = String(filters?.config_id || "").trim() || (configType === "publish-policy" ? policyID : "");
   const jobType = normalizeMarketCenterJobType(filters?.job_type);
   const view = normalizeMarketCenterView(filters?.view, Boolean(publishID));
   if (qualityHours > 0) {
@@ -310,11 +332,23 @@ export function buildMarketCenterRouteQuery(filters = {}) {
   if (policyID) {
     query.policy_id = policyID;
   }
+  if (configType) {
+    query.config_type = configType;
+  }
+  if (configID) {
+    query.config_id = configID;
+  }
+  if (!query.policy_id && configType === "publish-policy" && configID) {
+    query.policy_id = configID;
+  }
   return query;
 }
 
 export function normalizeMarketCenterRouteState(query = {}) {
   const publishID = String(query?.publish_id || "").trim();
+  const policyID = String(query?.policy_id || "").trim();
+  const configType = normalizeMarketCenterConfigType(query?.config_type || (policyID ? "publish-policy" : ""));
+  const configID = String(query?.config_id || "").trim() || (configType === "publish-policy" ? policyID : "");
   return {
     tab: normalizeMarketCenterTab(query?.tab),
     quality_hours: normalizeMarketQualityLookbackHours(query?.quality_hours),
@@ -322,7 +356,9 @@ export function normalizeMarketCenterRouteState(query = {}) {
     publish_id: publishID,
     view: normalizeMarketCenterView(query?.view, Boolean(publishID)),
     job_type: normalizeMarketCenterJobType(query?.job_type),
-    policy_id: String(query?.policy_id || "").trim()
+    policy_id: policyID,
+    config_type: configType,
+    config_id: configID
   };
 }
 

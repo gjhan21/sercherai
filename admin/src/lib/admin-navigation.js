@@ -13,7 +13,7 @@ export const adminNavigationItems = [
   { name: "market-center", label: "策略中心", to: "/market-center", permission: "market.view" },
   { name: "stock-selection", label: "智能选股", to: "/stock-selection/overview", permission: "stock_selection.view" },
   { name: "futures-selection", label: "智能期货", to: "/futures-selection/overview", permission: "futures_selection.view" },
-  { name: "data-sources", label: "数据源管理", to: "/data-sources", permission: "data_source.view" },
+  { name: "data-sources", label: "数据源管理", to: "/data-sources/governance", permission: "data_source.view" },
   { name: "experiment-analytics", label: "实验埋点看板", to: "/experiment-analytics", permission: "market.view" },
   { name: "review-center", label: "审核中心", to: "/review-center", permission: "review.view" },
   { name: "system-jobs", label: "任务中心", to: "/system-jobs", permission: "system_job.view" },

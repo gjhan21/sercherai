@@ -288,32 +288,34 @@ func fetchStockInstrumentFactsFromTushare(token string, sourceKey string, instru
 }
 
 func fetchAllStockInstrumentFactsFromTushare(client *http.Client, token string, sourceKey string) ([]marketInstrumentSourceFact, error) {
-	parsed, err := callTushareAPI(client, token, "stock_basic", map[string]string{
+	responses, err := fetchPaginatedTushareUniverseResponses(client, token, "stock_basic", map[string]string{
 		"list_status": "L",
 	}, "ts_code,symbol,name,area,industry,market,list_date,delist_date,list_status,is_hs,exchange")
 	if err != nil {
 		return nil, err
 	}
-	fieldIndex := buildTushareFieldIndex(parsed.Data.Fields)
-	records := make([]tushareStockBasicRecord, 0, len(parsed.Data.Items))
-	for _, row := range parsed.Data.Items {
-		tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
-		if !ok {
-			continue
+	records := make([]tushareStockBasicRecord, 0, 4096)
+	for _, parsed := range responses {
+		fieldIndex := buildTushareFieldIndex(parsed.Data.Fields)
+		for _, row := range parsed.Data.Items {
+			tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+			if !ok {
+				continue
+			}
+			records = append(records, tushareStockBasicRecord{
+				TSCode:     strings.ToUpper(strings.TrimSpace(tsCode)),
+				Symbol:     fallbackTushareString(row, fieldIndex, "symbol"),
+				Name:       fallbackTushareString(row, fieldIndex, "name"),
+				Area:       fallbackTushareString(row, fieldIndex, "area"),
+				Industry:   fallbackTushareString(row, fieldIndex, "industry"),
+				Market:     fallbackTushareString(row, fieldIndex, "market"),
+				ListDate:   fallbackTushareString(row, fieldIndex, "list_date"),
+				DelistDate: fallbackTushareString(row, fieldIndex, "delist_date"),
+				ListStatus: fallbackTushareString(row, fieldIndex, "list_status"),
+				IsHS:       fallbackTushareString(row, fieldIndex, "is_hs"),
+				Exchange:   fallbackTushareString(row, fieldIndex, "exchange"),
+			})
 		}
-		records = append(records, tushareStockBasicRecord{
-			TSCode:     strings.ToUpper(strings.TrimSpace(tsCode)),
-			Symbol:     fallbackTushareString(row, fieldIndex, "symbol"),
-			Name:       fallbackTushareString(row, fieldIndex, "name"),
-			Area:       fallbackTushareString(row, fieldIndex, "area"),
-			Industry:   fallbackTushareString(row, fieldIndex, "industry"),
-			Market:     fallbackTushareString(row, fieldIndex, "market"),
-			ListDate:   fallbackTushareString(row, fieldIndex, "list_date"),
-			DelistDate: fallbackTushareString(row, fieldIndex, "delist_date"),
-			ListStatus: fallbackTushareString(row, fieldIndex, "list_status"),
-			IsHS:       fallbackTushareString(row, fieldIndex, "is_hs"),
-			Exchange:   fallbackTushareString(row, fieldIndex, "exchange"),
-		})
 	}
 	facts := buildTushareStockInstrumentFacts(records, time.Now())
 	for index := range facts {

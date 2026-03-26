@@ -28,6 +28,8 @@ const unreadCount = ref(0);
 const auditSummary = ref(null);
 const relatedAuditItems = ref([]);
 const messageCenterTab = ref("workflow");
+const auditFeatureUnavailable = ref(false);
+const auditFeatureError = ref("");
 
 const items = ref([]);
 const tableRef = ref(null);
@@ -63,14 +65,20 @@ const selectedReadCount = computed(() => selectedRows.value.filter((item) => ite
 const canBatchMarkRead = computed(() => selectedUnreadCount.value > 0);
 const canBatchMarkUnread = computed(() => selectedReadCount.value > 0);
 const relatedAuditOpenCount = computed(() => auditSummary.value?.open_count ?? relatedAuditItems.value.length);
-const messageCenterTabOptions = [
+const messageCenterTabOptions = computed(() => [
   { label: "流程待办", value: "workflow" },
-  { label: "开放事件", value: "audit" }
-];
+  {
+    label: auditFeatureUnavailable.value ? "开放事件（未启用）" : "开放事件",
+    value: "audit",
+    disabled: auditFeatureUnavailable.value
+  }
+]);
 const auditDomainOptions = ["RESEARCH", "DATA", "PUBLISH", "SYSTEM"];
 const auditLevelOptions = ["INFO", "WARNING", "CRITICAL"];
 const auditStatusOptions = ["OPEN", "RESOLVED"];
-const auditObjectTypeOptions = ["REVIEW_TASK", "SCHEDULER_JOB", "DATA_SOURCE", "STRATEGY_JOB", "STRATEGY_PUBLISH_POLICY"];
+const auditObjectTypeOptions = ["REVIEW_TASK", "SCHEDULER_JOB", "DATA_SOURCE", "STRATEGY_JOB", "STRATEGY_PUBLISH_POLICY", "STRATEGY_SEED_SET", "STRATEGY_AGENT_PROFILE", "STRATEGY_SCENARIO_TEMPLATE"];
+const auditMigrationSQLPath = "backend/migrations/20260324_00_admin_audit_events.sql";
+const auditMigrationCommand = "./scripts/devctl.sh migrate audit";
 const detailTitle = computed(() => (detailMode.value === "audit" ? "审计事件详情" : "流程消息详情"));
 
 function ensureCanEditWorkflow() {
@@ -83,6 +91,34 @@ function ensureCanEditWorkflow() {
 
 function normalizeErrorMessage(error, fallback) {
   return error?.message || fallback || "操作失败";
+}
+
+function isAuditFeatureUnavailableError(error) {
+  const text = normalizeErrorMessage(error, "").toLowerCase();
+  return text.includes("admin_audit_events") || text.includes("doesn't exist") || text.includes("1146");
+}
+
+function markAuditFeatureUnavailable(error, options = {}) {
+  const { keepMessage = true } = options;
+  const rootError = normalizeErrorMessage(error, "");
+  auditFeatureUnavailable.value = true;
+  auditFeatureError.value =
+    rootError
+      ? `开放事件当前不可用：${rootError}。请先执行 backend/migrations/20260324_00_admin_audit_events.sql`
+      : "开放事件依赖的审计表不存在，请先执行 backend/migrations/20260324_00_admin_audit_events.sql";
+  auditSummary.value = null;
+  relatedAuditItems.value = [];
+  if (messageCenterTab.value === "audit") {
+    messageCenterTab.value = "workflow";
+  }
+  if (!keepMessage) {
+    message.value = "开放事件当前不可用，已切换到流程待办";
+  }
+}
+
+function clearAuditFeatureUnavailable() {
+  auditFeatureUnavailable.value = false;
+  auditFeatureError.value = "";
 }
 
 function clearMessages() {
@@ -139,15 +175,30 @@ async function fetchMessages(options = {}) {
   }
 }
 
-async function fetchAuditSummary() {
+async function fetchAuditSummary(options = {}) {
+  const { force = false } = options;
+  if (auditFeatureUnavailable.value && !force) {
+    auditSummary.value = null;
+    return;
+  }
   try {
     auditSummary.value = await getAuditEventSummary();
-  } catch {
+    clearAuditFeatureUnavailable();
+  } catch (error) {
+    if (isAuditFeatureUnavailableError(error)) {
+      markAuditFeatureUnavailable(error);
+      return;
+    }
     auditSummary.value = null;
   }
 }
 
-async function fetchRelatedAuditEvents() {
+async function fetchRelatedAuditEvents(options = {}) {
+  const { force = false } = options;
+  if (auditFeatureUnavailable.value && !force) {
+    relatedAuditItems.value = [];
+    return;
+  }
   try {
     const data = await listAuditEvents({
       event_domain: auditFilters.event_domain,
@@ -160,13 +211,25 @@ async function fetchRelatedAuditEvents() {
       page_size: 5
     });
     relatedAuditItems.value = data.items || [];
-  } catch {
+    clearAuditFeatureUnavailable();
+  } catch (error) {
+    if (isAuditFeatureUnavailableError(error)) {
+      markAuditFeatureUnavailable(error);
+      return;
+    }
     relatedAuditItems.value = [];
   }
 }
 
 async function refreshAll(options = {}) {
-  await Promise.all([fetchMessages(options), fetchAuditSummary(), fetchRelatedAuditEvents()]);
+  const { keepMessage = false, forceAuditProbe = false } = options;
+  await fetchMessages({ keepMessage });
+  await fetchAuditSummary({ force: forceAuditProbe });
+  await fetchRelatedAuditEvents({ force: forceAuditProbe });
+}
+
+function handleManualRefresh() {
+  refreshAll({ forceAuditProbe: true });
 }
 
 async function toggleRead(item, targetRead = null) {
@@ -286,6 +349,32 @@ async function copyContent() {
   }
 }
 
+async function copyPlainText(text, label) {
+  const normalized = String(text || "").trim();
+  if (!normalized) {
+    errorMessage.value = `${label}为空，无法复制`;
+    return;
+  }
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(normalized);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = normalized;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
+    message.value = `${label}已复制`;
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, `复制${label}失败`);
+  }
+}
+
 function formatJsonBlock(value) {
   if (!value || typeof value !== "object") {
     return "-";
@@ -309,6 +398,15 @@ function normalizeAuditRouteToken(value) {
     .toUpperCase();
 }
 
+function normalizeStrategyConfigRouteType(value) {
+  const normalized = normalizeAuditRouteToken(value);
+  if (normalized === "STRATEGY_SEED_SET") return "seed-set";
+  if (normalized === "STRATEGY_AGENT_PROFILE") return "agent-profile";
+  if (normalized === "STRATEGY_SCENARIO_TEMPLATE") return "scenario-template";
+  if (normalized === "STRATEGY_PUBLISH_POLICY") return "publish-policy";
+  return "";
+}
+
 function resolveAuditObjectRoute(item) {
   const objectType = normalizeAuditRouteToken(item?.object_type);
   const module = normalizeAuditRouteToken(item?.module);
@@ -319,6 +417,7 @@ function resolveAuditObjectRoute(item) {
   const policyID = String(metadata?.policy_id || objectID).trim();
   const jobType = normalizeAuditRouteToken(metadata?.job_type);
   const marketTab = jobType.includes("FUTURES") ? "futures" : "stocks";
+  const configType = normalizeStrategyConfigRouteType(objectType);
 
   if (objectType === "REVIEW_TASK" || module === "WORKFLOW") {
     return objectID ? { name: "review-center", query: { review_id: objectID } } : { name: "review-center" };
@@ -333,13 +432,19 @@ function resolveAuditObjectRoute(item) {
   }
   if (objectType === "DATA_SOURCE" || module === "DATA") {
     return objectID
-      ? { name: "data-sources", query: { source_key: objectID, action: "logs" } }
-      : { name: "data-sources" };
+      ? { name: "data-sources-registry", query: { source_key: objectID, action: "logs" } }
+      : { name: "data-sources-governance" };
   }
-  if (objectType === "STRATEGY_PUBLISH_POLICY") {
-    return policyID
-      ? { name: "market-center", query: { tab: "engine-config", policy_id: policyID } }
-      : { name: "market-center", query: { tab: "engine-config" } };
+  if (configType) {
+    return {
+      name: "market-center",
+      query: {
+        tab: "engine-config",
+        config_type: configType,
+        config_id: configType === "publish-policy" ? policyID : objectID,
+        ...(configType === "publish-policy" ? { policy_id: policyID } : {})
+      }
+    };
   }
   if (objectType === "STRATEGY_JOB") {
     if (publishID) {
@@ -499,6 +604,11 @@ function applyFilters() {
 }
 
 function applyAuditFilters() {
+  if (auditFeatureUnavailable.value) {
+    messageCenterTab.value = "workflow";
+    message.value = "开放事件当前不可用，请先执行数据库迁移";
+    return;
+  }
   fetchRelatedAuditEvents();
 }
 
@@ -509,7 +619,24 @@ function resetAuditFilters() {
   auditFilters.module = "";
   auditFilters.object_type = "";
   auditFilters.status = "OPEN";
+  if (auditFeatureUnavailable.value) {
+    messageCenterTab.value = "workflow";
+    message.value = "开放事件当前不可用，请先执行数据库迁移";
+    return;
+  }
   fetchRelatedAuditEvents();
+}
+
+function handleMessageCenterTabChange(nextTab) {
+  if (nextTab === "audit" && auditFeatureUnavailable.value) {
+    messageCenterTab.value = "workflow";
+    message.value = "开放事件当前不可用，请先执行数据库迁移";
+    return;
+  }
+  if (nextTab === "audit") {
+    fetchAuditSummary({ force: true });
+    fetchRelatedAuditEvents({ force: true });
+  }
 }
 
 function handlePageChange(nextPage) {
@@ -549,7 +676,7 @@ function setupTimers() {
 }
 
 onMounted(() => {
-  refreshAll();
+  refreshAll({ forceAuditProbe: true });
   setupTimers();
 });
 
@@ -571,7 +698,7 @@ onBeforeUnmount(() => {
       <div class="toolbar" style="margin-bottom: 0">
         <el-switch v-model="autoRefreshEnabled" inline-prompt active-text="自动刷新" inactive-text="手动刷新" />
         <el-button @click="goToAuditLogs">前往审计日志</el-button>
-        <el-button :loading="loading" @click="refreshAll">刷新</el-button>
+        <el-button :loading="loading" @click="handleManualRefresh">刷新</el-button>
       </div>
     </div>
 
@@ -589,6 +716,21 @@ onBeforeUnmount(() => {
       show-icon
       style="margin-bottom: 12px"
     />
+    <el-alert
+      v-if="auditFeatureUnavailable"
+      :title="auditFeatureError || '开放事件依赖的审计表不存在，请先执行 backend migration。'"
+      type="warning"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 12px"
+    />
+    <div v-if="auditFeatureUnavailable" class="card" style="margin-bottom: 12px">
+      <div class="inline-actions">
+        <el-text type="info">请执行迁移命令后点击“刷新”恢复开放事件视图</el-text>
+        <el-button @click="copyPlainText(auditMigrationCommand, '迁移命令')">复制迁移命令</el-button>
+        <el-button @click="copyPlainText(auditMigrationSQLPath, '迁移文件路径')">复制 SQL 路径</el-button>
+      </div>
+    </div>
     <el-alert
       v-if="!canEditWorkflow"
       title="当前账号为只读流程消息权限，可查看消息详情和导出结果，但不能修改已读状态。"
@@ -610,7 +752,7 @@ onBeforeUnmount(() => {
     <div class="card" style="margin-bottom: 12px">
       <div class="section-header" style="margin-bottom: 0">
         <h3 style="margin: 0">消息中心视图</h3>
-        <el-segmented v-model="messageCenterTab" :options="messageCenterTabOptions" />
+        <el-segmented v-model="messageCenterTab" :options="messageCenterTabOptions" @change="handleMessageCenterTabChange" />
       </div>
     </div>
 

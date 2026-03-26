@@ -14,12 +14,19 @@
 ./scripts/devctl.sh stop [strategy-engine|backend|admin|client|all]
 ./scripts/devctl.sh restart [strategy-engine|backend|admin|client|all]
 ./scripts/devctl.sh status [strategy-engine|backend|admin|client|all]
+./scripts/devctl.sh migrate [all|audit|market-data]
 ```
 
 - 不传第二个参数时默认 `all`。
 - `start` 会先清理目标服务端口占用，再启动服务。
 - `start` 会在端口监听后继续做健康检查；`strategy-engine` 会校验 `/internal/v1/health`，backend 会校验 `/healthz`。
 - `start` 使用真正 detached 的子进程启动服务，脚本返回后服务不会因为当前终端关闭而被一并回收。
+- `migrate` 会读取 `./.run/backend.env` 的 MySQL 配置（`MYSQL_HOST/PORT/USER/PWD/DB`），支持：
+  - `all`：执行 `backend/scripts/init_mysql.sh` 全量迁移
+  - `audit`：仅执行 `20260324_00_admin_audit_events.sql`
+  - `market-data`：执行市场数据相关迁移（含治理表 + 回填表）：
+    - `20260323_00_market_provider_governance.sql`
+    - `20260324_01_market_data_full_backfill.sql`
 
 ## 默认端口
 
@@ -120,6 +127,9 @@ CLIENT_PORT=5177
 
 # 重启 admin
 ./scripts/devctl.sh restart admin
+
+# 一键补齐审计事件表（admin_audit_events）
+./scripts/devctl.sh migrate audit
 
 # 停止全部服务
 ./scripts/devctl.sh stop all

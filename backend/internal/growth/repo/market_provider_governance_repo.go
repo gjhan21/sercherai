@@ -37,9 +37,10 @@ type marketProviderLatestIssue struct {
 }
 
 func (r *MySQLGrowthRepo) AdminListMarketProviderRegistries(status string) ([]model.MarketProviderRegistry, error) {
+	normalizedStatus := normalizeMarketProviderFilter(status)
 	filters := make([]string, 0, 1)
 	args := make([]any, 0, 1)
-	if normalizedStatus := normalizeMarketProviderFilter(status); normalizedStatus != "" {
+	if normalizedStatus != "" {
 		filters = append(filters, "status = ?")
 		args = append(args, normalizedStatus)
 	}
@@ -58,6 +59,19 @@ FROM market_provider_registry`
 
 	rows, err := r.db.Query(query, args...)
 	if err != nil {
+		if isMarketProviderGovernanceSchemaCompatError(err) {
+			items := defaultMarketProviderRegistries()
+			if normalizedStatus == "" {
+				return items, nil
+			}
+			filtered := make([]model.MarketProviderRegistry, 0, len(items))
+			for _, item := range items {
+				if normalizeMarketProviderFilter(item.Status) == normalizedStatus {
+					filtered = append(filtered, item)
+				}
+			}
+			return filtered, nil
+		}
 		return nil, err
 	}
 	defer rows.Close()
@@ -106,17 +120,20 @@ FROM market_provider_registry`
 }
 
 func (r *MySQLGrowthRepo) AdminListMarketProviderCapabilities(providerKey string, assetClass string, dataKind string) ([]model.MarketProviderCapability, error) {
+	normalizedProvider := normalizeMarketProviderFilter(providerKey)
+	normalizedAssetClass := normalizeMarketProviderFilter(assetClass)
+	normalizedDataKind := normalizeMarketProviderFilter(dataKind)
 	filters := make([]string, 0, 3)
 	args := make([]any, 0, 3)
-	if normalizedProvider := normalizeMarketProviderFilter(providerKey); normalizedProvider != "" {
+	if normalizedProvider != "" {
 		filters = append(filters, "provider_key = ?")
 		args = append(args, normalizedProvider)
 	}
-	if normalizedAssetClass := normalizeMarketProviderFilter(assetClass); normalizedAssetClass != "" {
+	if normalizedAssetClass != "" {
 		filters = append(filters, "asset_class = ?")
 		args = append(args, normalizedAssetClass)
 	}
-	if normalizedDataKind := normalizeMarketProviderFilter(dataKind); normalizedDataKind != "" {
+	if normalizedDataKind != "" {
 		filters = append(filters, "data_kind = ?")
 		args = append(args, normalizedDataKind)
 	}
@@ -133,6 +150,9 @@ FROM market_provider_capabilities`
 
 	rows, err := r.db.Query(query, args...)
 	if err != nil {
+		if isMarketProviderGovernanceSchemaCompatError(err) {
+			return defaultMarketProviderCapabilitiesFiltered(normalizedProvider, normalizedAssetClass, normalizedDataKind), nil
+		}
 		return nil, err
 	}
 	defer rows.Close()
@@ -170,13 +190,15 @@ FROM market_provider_capabilities`
 }
 
 func (r *MySQLGrowthRepo) AdminListMarketProviderRoutingPolicies(assetClass string, dataKind string) ([]model.MarketProviderRoutingPolicy, error) {
+	normalizedAssetClass := normalizeMarketProviderFilter(assetClass)
+	normalizedDataKind := normalizeMarketProviderFilter(dataKind)
 	filters := make([]string, 0, 2)
 	args := make([]any, 0, 2)
-	if normalizedAssetClass := normalizeMarketProviderFilter(assetClass); normalizedAssetClass != "" {
+	if normalizedAssetClass != "" {
 		filters = append(filters, "asset_class = ?")
 		args = append(args, normalizedAssetClass)
 	}
-	if normalizedDataKind := normalizeMarketProviderFilter(dataKind); normalizedDataKind != "" {
+	if normalizedDataKind != "" {
 		filters = append(filters, "data_kind = ?")
 		args = append(args, normalizedDataKind)
 	}
@@ -192,6 +214,20 @@ FROM market_provider_routing_policies`
 
 	rows, err := r.db.Query(query, args...)
 	if err != nil {
+		if isMarketProviderGovernanceSchemaCompatError(err) {
+			items := defaultMarketProviderRoutingPolicies()
+			filtered := make([]model.MarketProviderRoutingPolicy, 0, len(items))
+			for _, item := range items {
+				if normalizedAssetClass != "" && normalizeMarketProviderFilter(item.AssetClass) != normalizedAssetClass {
+					continue
+				}
+				if normalizedDataKind != "" && normalizeMarketProviderFilter(item.DataKind) != normalizedDataKind {
+					continue
+				}
+				filtered = append(filtered, item)
+			}
+			return filtered, nil
+		}
 		return nil, err
 	}
 	defer rows.Close()
