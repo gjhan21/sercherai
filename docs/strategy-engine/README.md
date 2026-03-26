@@ -72,6 +72,7 @@
 - 阶段8收官文档：`docs/strategy-engine/阶段8-真实数据接入与真相源增强.md`
 - 阶段9最终收官文档：`docs/strategy-engine/阶段9-股票智能量化选股系统与后台独立模块.md`
 - 后续专题总路线图：`docs/strategy-engine/专题路线图-多源市场与研究治理平台.md`
+- 专题A正式文档：`docs/strategy-engine/专题A-多源市场数据统一模型与供应商治理.md`
 - 专题A / 专题E 第一轮开发清单：`docs/strategy-engine/专题A-第一轮-开发启动清单.md`、`docs/strategy-engine/专题E-第一轮-开发启动清单.md`
 - 阶段9第一轮历史蓝图：`docs/strategy-engine/阶段9-第一轮-自动选股与后台骨架.md`
 - 阶段9第一轮历史启动清单：`docs/strategy-engine/阶段9-第一轮-开发启动清单.md`
@@ -95,6 +96,11 @@
 - `docs/strategy-engine/专题路线图-多源市场与研究治理平台.md`
 
 作为后续真相源。
+
+当前第一个已正式展开的后续专题为：
+
+- `docs/strategy-engine/专题A-多源市场数据统一模型与供应商治理.md`
+- `docs/strategy-engine/专题A-第一轮-开发启动清单.md`
 
 ## 统一验收口径
 
