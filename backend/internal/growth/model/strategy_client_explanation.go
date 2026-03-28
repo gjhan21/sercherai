@@ -78,6 +78,45 @@ type StrategyExplanationMemoryFeedback struct {
 	Items          []StrategyExplanationMemoryFeedbackItem `json:"items"`
 }
 
+type StrategyResearchOutlineStep struct {
+	Slot         string `json:"slot"`
+	Title        string `json:"title"`
+	Summary      string `json:"summary"`
+	Status       string `json:"status"`
+	EvidenceHint string `json:"evidence_hint"`
+}
+
+type StrategyExplanationThesisCard struct {
+	Key            string `json:"key"`
+	Title          string `json:"title"`
+	Summary        string `json:"summary"`
+	Status         string `json:"status"`
+	EvidenceSource string `json:"evidence_source"`
+	Note           string `json:"note"`
+}
+
+type StrategyExplanationWatchSignal struct {
+	Title      string `json:"title"`
+	SignalType string `json:"signal_type"`
+	Trigger    string `json:"trigger"`
+	Action     string `json:"action"`
+	Priority   string `json:"priority"`
+}
+
+type StrategyExplanationConfidenceDriver struct {
+	Label     string  `json:"label"`
+	Impact    float64 `json:"impact"`
+	Note      string  `json:"note"`
+	SourceKey string  `json:"source_key"`
+}
+
+type StrategyExplanationConfidenceCalibration struct {
+	BaseConfidence     float64                               `json:"base_confidence"`
+	AdjustedConfidence float64                               `json:"adjusted_confidence"`
+	Drivers            []StrategyExplanationConfidenceDriver `json:"drivers"`
+	AdvisoryOnly       bool                                  `json:"advisory_only"`
+}
+
 type StrategyVersionDiff struct {
 	ComparePublishID   string   `json:"compare_publish_id,omitempty"`
 	CompareVersion     int      `json:"compare_version,omitempty"`
@@ -90,62 +129,72 @@ type StrategyVersionDiff struct {
 }
 
 type StrategyClientExplanation struct {
-	SeedSummary        string                             `json:"seed_summary"`
-	SeedHighlights     []string                           `json:"seed_highlights"`
-	GraphSummary       string                             `json:"graph_summary"`
-	GraphSnapshotID    string                             `json:"graph_snapshot_id"`
-	ConsensusSummary   string                             `json:"consensus_summary"`
-	Simulations        []StrategyExplanationSimulation    `json:"simulations"`
-	AgentOpinions      []StrategyExplanationAgentOpinion  `json:"agent_opinions"`
-	RiskFlags          []string                           `json:"risk_flags"`
-	Invalidations      []string                           `json:"invalidations"`
-	ConfidenceReason   string                             `json:"confidence_reason"`
-	MarketRegime       string                             `json:"market_regime"`
-	EvidenceCards      []StrategyExplanationEvidenceCard  `json:"evidence_cards"`
-	PortfolioRole      string                             `json:"portfolio_role"`
-	RiskBoundary       string                             `json:"risk_boundary"`
-	ThemeTags          []string                           `json:"theme_tags"`
-	SectorTags         []string                           `json:"sector_tags"`
-	SupplyChainNotes   []string                           `json:"supply_chain_notes"`
-	StructureSummary   string                             `json:"structure_factor_summary"`
-	InventorySummary   string                             `json:"inventory_factor_summary"`
-	RelatedEntities    []StrategyExplanationRelatedEntity `json:"related_entities"`
-	RelatedEvents      []StrategyExplanationRelatedEvent  `json:"related_events"`
-	EventEvidenceCards []StrategyExplanationEvidenceCard  `json:"event_evidence_cards"`
-	MemoryFeedback     StrategyExplanationMemoryFeedback  `json:"memory_feedback"`
-	EvaluationMeta     map[string]any                     `json:"evaluation_meta"`
-	VersionDiff        StrategyVersionDiff                `json:"version_diff,omitempty"`
-	WorkloadSummary    StrategyWorkloadSummary            `json:"workload_summary"`
-	StrategyVersion    string                             `json:"strategy_version"`
-	PublishID          string                             `json:"publish_id"`
-	JobID              string                             `json:"job_id"`
-	TradeDate          string                             `json:"trade_date"`
-	PublishVersion     int                                `json:"publish_version"`
-	GeneratedAt        string                             `json:"generated_at"`
+	SeedSummary           string                                   `json:"seed_summary"`
+	SeedHighlights        []string                                 `json:"seed_highlights"`
+	GraphSummary          string                                   `json:"graph_summary"`
+	GraphSnapshotID       string                                   `json:"graph_snapshot_id"`
+	ConsensusSummary      string                                   `json:"consensus_summary"`
+	Simulations           []StrategyExplanationSimulation          `json:"simulations"`
+	AgentOpinions         []StrategyExplanationAgentOpinion        `json:"agent_opinions"`
+	RiskFlags             []string                                 `json:"risk_flags"`
+	Invalidations         []string                                 `json:"invalidations"`
+	ConfidenceReason      string                                   `json:"confidence_reason"`
+	MarketRegime          string                                   `json:"market_regime"`
+	EvidenceCards         []StrategyExplanationEvidenceCard        `json:"evidence_cards"`
+	PortfolioRole         string                                   `json:"portfolio_role"`
+	RiskBoundary          string                                   `json:"risk_boundary"`
+	ThemeTags             []string                                 `json:"theme_tags"`
+	SectorTags            []string                                 `json:"sector_tags"`
+	SupplyChainNotes      []string                                 `json:"supply_chain_notes"`
+	StructureSummary      string                                   `json:"structure_factor_summary"`
+	InventorySummary      string                                   `json:"inventory_factor_summary"`
+	ResearchOutline       []StrategyResearchOutlineStep            `json:"research_outline"`
+	ActiveThesisCards     []StrategyExplanationThesisCard          `json:"active_thesis_cards"`
+	HistoricalThesisCards []StrategyExplanationThesisCard          `json:"historical_thesis_cards"`
+	WatchSignals          []StrategyExplanationWatchSignal         `json:"watch_signals"`
+	ConfidenceCalibration StrategyExplanationConfidenceCalibration `json:"confidence_calibration"`
+	RelatedEntities       []StrategyExplanationRelatedEntity       `json:"related_entities"`
+	RelatedEvents         []StrategyExplanationRelatedEvent        `json:"related_events"`
+	EventEvidenceCards    []StrategyExplanationEvidenceCard        `json:"event_evidence_cards"`
+	MemoryFeedback        StrategyExplanationMemoryFeedback        `json:"memory_feedback"`
+	EvaluationMeta        map[string]any                           `json:"evaluation_meta"`
+	VersionDiff           StrategyVersionDiff                      `json:"version_diff,omitempty"`
+	WorkloadSummary       StrategyWorkloadSummary                  `json:"workload_summary"`
+	StrategyVersion       string                                   `json:"strategy_version"`
+	PublishID             string                                   `json:"publish_id"`
+	JobID                 string                                   `json:"job_id"`
+	TradeDate             string                                   `json:"trade_date"`
+	PublishVersion        int                                      `json:"publish_version"`
+	GeneratedAt           string                                   `json:"generated_at"`
 }
 
 type StrategyVersionHistoryItem struct {
-	PublishID        string                             `json:"publish_id"`
-	JobID            string                             `json:"job_id"`
-	TradeDate        string                             `json:"trade_date"`
-	PublishVersion   int                                `json:"publish_version"`
-	CreatedAt        string                             `json:"created_at"`
-	StrategyVersion  string                             `json:"strategy_version"`
-	ReasonSummary    string                             `json:"reason_summary"`
-	ConfidenceReason string                             `json:"confidence_reason"`
-	ConsensusSummary string                             `json:"consensus_summary"`
-	GraphSummary     string                             `json:"graph_summary"`
-	GraphSnapshotID  string                             `json:"graph_snapshot_id"`
-	MarketRegime     string                             `json:"market_regime"`
-	PortfolioRole    string                             `json:"portfolio_role"`
-	RiskBoundary     string                             `json:"risk_boundary"`
-	ThemeTags        []string                           `json:"theme_tags"`
-	SectorTags       []string                           `json:"sector_tags"`
-	RelatedEntities  []StrategyExplanationRelatedEntity `json:"related_entities"`
-	MemoryFeedback   StrategyExplanationMemoryFeedback  `json:"memory_feedback"`
-	RiskFlags        []string                           `json:"risk_flags"`
-	Invalidations    []string                           `json:"invalidations"`
-	EvaluationMeta   map[string]any                     `json:"evaluation_meta"`
-	VersionDiff      StrategyVersionDiff                `json:"version_diff,omitempty"`
-	GeneratedAt      string                             `json:"generated_at"`
+	PublishID             string                                   `json:"publish_id"`
+	JobID                 string                                   `json:"job_id"`
+	TradeDate             string                                   `json:"trade_date"`
+	PublishVersion        int                                      `json:"publish_version"`
+	CreatedAt             string                                   `json:"created_at"`
+	StrategyVersion       string                                   `json:"strategy_version"`
+	ReasonSummary         string                                   `json:"reason_summary"`
+	ConfidenceReason      string                                   `json:"confidence_reason"`
+	ConsensusSummary      string                                   `json:"consensus_summary"`
+	GraphSummary          string                                   `json:"graph_summary"`
+	GraphSnapshotID       string                                   `json:"graph_snapshot_id"`
+	MarketRegime          string                                   `json:"market_regime"`
+	PortfolioRole         string                                   `json:"portfolio_role"`
+	RiskBoundary          string                                   `json:"risk_boundary"`
+	ThemeTags             []string                                 `json:"theme_tags"`
+	SectorTags            []string                                 `json:"sector_tags"`
+	ResearchOutline       []StrategyResearchOutlineStep            `json:"research_outline"`
+	ActiveThesisCards     []StrategyExplanationThesisCard          `json:"active_thesis_cards"`
+	HistoricalThesisCards []StrategyExplanationThesisCard          `json:"historical_thesis_cards"`
+	WatchSignals          []StrategyExplanationWatchSignal         `json:"watch_signals"`
+	ConfidenceCalibration StrategyExplanationConfidenceCalibration `json:"confidence_calibration"`
+	RelatedEntities       []StrategyExplanationRelatedEntity       `json:"related_entities"`
+	MemoryFeedback        StrategyExplanationMemoryFeedback        `json:"memory_feedback"`
+	RiskFlags             []string                                 `json:"risk_flags"`
+	Invalidations         []string                                 `json:"invalidations"`
+	EvaluationMeta        map[string]any                           `json:"evaluation_meta"`
+	VersionDiff           StrategyVersionDiff                      `json:"version_diff,omitempty"`
+	GeneratedAt           string                                   `json:"generated_at"`
 }

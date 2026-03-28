@@ -469,29 +469,34 @@ func buildStrategyVersionHistoryItem(
 ) model.StrategyVersionHistoryItem {
 	explanation := buildStrategyExplanationFromContext(&ctx, firstNonEmpty(asString(ctx.asset["symbol"]), asString(ctx.asset["contract"])), confidenceReason, strategyVersion, filterSteps)
 	return model.StrategyVersionHistoryItem{
-		PublishID:        ctx.record.PublishID,
-		JobID:            ctx.record.JobID,
-		TradeDate:        ctx.record.TradeDate,
-		PublishVersion:   ctx.record.Version,
-		CreatedAt:        ctx.record.CreatedAt,
-		StrategyVersion:  explanation.StrategyVersion,
-		ReasonSummary:    asString(ctx.asset["reason_summary"]),
-		ConfidenceReason: explanation.ConfidenceReason,
-		ConsensusSummary: explanation.ConsensusSummary,
-		GraphSummary:     explanation.GraphSummary,
-		GraphSnapshotID:  explanation.GraphSnapshotID,
-		MarketRegime:     explanation.MarketRegime,
-		PortfolioRole:    explanation.PortfolioRole,
-		RiskBoundary:     explanation.RiskBoundary,
-		ThemeTags:        explanation.ThemeTags,
-		SectorTags:       explanation.SectorTags,
-		RelatedEntities:  explanation.RelatedEntities,
-		MemoryFeedback:   explanation.MemoryFeedback,
-		RiskFlags:        explanation.RiskFlags,
-		Invalidations:    explanation.Invalidations,
-		EvaluationMeta:   explanation.EvaluationMeta,
-		VersionDiff:      explanation.VersionDiff,
-		GeneratedAt:      explanation.GeneratedAt,
+		PublishID:             ctx.record.PublishID,
+		JobID:                 ctx.record.JobID,
+		TradeDate:             ctx.record.TradeDate,
+		PublishVersion:        ctx.record.Version,
+		CreatedAt:             ctx.record.CreatedAt,
+		StrategyVersion:       explanation.StrategyVersion,
+		ReasonSummary:         asString(ctx.asset["reason_summary"]),
+		ConfidenceReason:      explanation.ConfidenceReason,
+		ConsensusSummary:      explanation.ConsensusSummary,
+		GraphSummary:          explanation.GraphSummary,
+		GraphSnapshotID:       explanation.GraphSnapshotID,
+		MarketRegime:          explanation.MarketRegime,
+		PortfolioRole:         explanation.PortfolioRole,
+		RiskBoundary:          explanation.RiskBoundary,
+		ThemeTags:             explanation.ThemeTags,
+		SectorTags:            explanation.SectorTags,
+		ResearchOutline:       explanation.ResearchOutline,
+		ActiveThesisCards:     explanation.ActiveThesisCards,
+		HistoricalThesisCards: explanation.HistoricalThesisCards,
+		WatchSignals:          explanation.WatchSignals,
+		ConfidenceCalibration: explanation.ConfidenceCalibration,
+		RelatedEntities:       explanation.RelatedEntities,
+		MemoryFeedback:        explanation.MemoryFeedback,
+		RiskFlags:             explanation.RiskFlags,
+		Invalidations:         explanation.Invalidations,
+		EvaluationMeta:        explanation.EvaluationMeta,
+		VersionDiff:           explanation.VersionDiff,
+		GeneratedAt:           explanation.GeneratedAt,
 	}
 }
 
@@ -506,29 +511,34 @@ func buildFallbackVersionHistoryItem(
 	explanation model.StrategyClientExplanation,
 ) model.StrategyVersionHistoryItem {
 	return model.StrategyVersionHistoryItem{
-		PublishID:        publishID,
-		JobID:            jobID,
-		TradeDate:        firstNonEmpty(tradeDate, explanation.TradeDate),
-		PublishVersion:   publishVersion,
-		CreatedAt:        createdAt,
-		StrategyVersion:  firstNonEmpty(explanation.StrategyVersion, strategyVersion),
-		ReasonSummary:    reasonSummary,
-		ConfidenceReason: firstNonEmpty(explanation.ConfidenceReason, reasonSummary),
-		ConsensusSummary: explanation.ConsensusSummary,
-		GraphSummary:     explanation.GraphSummary,
-		GraphSnapshotID:  explanation.GraphSnapshotID,
-		MarketRegime:     explanation.MarketRegime,
-		PortfolioRole:    explanation.PortfolioRole,
-		RiskBoundary:     explanation.RiskBoundary,
-		ThemeTags:        explanation.ThemeTags,
-		SectorTags:       explanation.SectorTags,
-		RelatedEntities:  explanation.RelatedEntities,
-		MemoryFeedback:   explanation.MemoryFeedback,
-		RiskFlags:        explanation.RiskFlags,
-		Invalidations:    explanation.Invalidations,
-		EvaluationMeta:   explanation.EvaluationMeta,
-		VersionDiff:      explanation.VersionDiff,
-		GeneratedAt:      firstNonEmpty(explanation.GeneratedAt, createdAt),
+		PublishID:             publishID,
+		JobID:                 jobID,
+		TradeDate:             firstNonEmpty(tradeDate, explanation.TradeDate),
+		PublishVersion:        publishVersion,
+		CreatedAt:             createdAt,
+		StrategyVersion:       firstNonEmpty(explanation.StrategyVersion, strategyVersion),
+		ReasonSummary:         reasonSummary,
+		ConfidenceReason:      firstNonEmpty(explanation.ConfidenceReason, reasonSummary),
+		ConsensusSummary:      explanation.ConsensusSummary,
+		GraphSummary:          explanation.GraphSummary,
+		GraphSnapshotID:       explanation.GraphSnapshotID,
+		MarketRegime:          explanation.MarketRegime,
+		PortfolioRole:         explanation.PortfolioRole,
+		RiskBoundary:          explanation.RiskBoundary,
+		ThemeTags:             explanation.ThemeTags,
+		SectorTags:            explanation.SectorTags,
+		ResearchOutline:       explanation.ResearchOutline,
+		ActiveThesisCards:     explanation.ActiveThesisCards,
+		HistoricalThesisCards: explanation.HistoricalThesisCards,
+		WatchSignals:          explanation.WatchSignals,
+		ConfidenceCalibration: explanation.ConfidenceCalibration,
+		RelatedEntities:       explanation.RelatedEntities,
+		MemoryFeedback:        explanation.MemoryFeedback,
+		RiskFlags:             explanation.RiskFlags,
+		Invalidations:         explanation.Invalidations,
+		EvaluationMeta:        explanation.EvaluationMeta,
+		VersionDiff:           explanation.VersionDiff,
+		GeneratedAt:           firstNonEmpty(explanation.GeneratedAt, createdAt),
 	}
 }
 
@@ -580,6 +590,21 @@ func mergeStrategyExplanation(base model.StrategyClientExplanation, live model.S
 	}
 	if len(live.SectorTags) > 0 {
 		base.SectorTags = live.SectorTags
+	}
+	if len(live.ResearchOutline) > 0 {
+		base.ResearchOutline = live.ResearchOutline
+	}
+	if len(live.ActiveThesisCards) > 0 {
+		base.ActiveThesisCards = live.ActiveThesisCards
+	}
+	if len(live.HistoricalThesisCards) > 0 {
+		base.HistoricalThesisCards = live.HistoricalThesisCards
+	}
+	if len(live.WatchSignals) > 0 {
+		base.WatchSignals = live.WatchSignals
+	}
+	if live.ConfidenceCalibration.AdjustedConfidence > 0 || live.ConfidenceCalibration.BaseConfidence > 0 {
+		base.ConfidenceCalibration = live.ConfidenceCalibration
 	}
 	if len(live.SupplyChainNotes) > 0 {
 		base.SupplyChainNotes = live.SupplyChainNotes
