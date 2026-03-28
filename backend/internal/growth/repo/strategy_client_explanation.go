@@ -475,6 +475,7 @@ func buildStrategyExplanationFromContext(
 		GeneratedAt:     firstNonEmpty(asString(report["generated_at"]), ctx.record.CreatedAt),
 	}
 	applyL1AdvisoryMemoryAdjustments(&explanation, evaluationMeta)
+	applyConfidenceCalibrationToExplanation(&explanation)
 	return explanation
 }
 
