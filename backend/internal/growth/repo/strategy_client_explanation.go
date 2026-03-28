@@ -449,10 +449,17 @@ func buildStrategyExplanationFromContext(
 	var activeThesis []model.StrategyExplanationThesisCard
 	var historicalThesis []model.StrategyExplanationThesisCard
 	var watchSignals []model.StrategyExplanationWatchSignal
+	var relationshipSnapshot model.StrategyExplanationRelationshipSnapshot
+	var scenarioSnapshots []model.StrategyExplanationScenarioSnapshot
+	var scenarioMeta model.StrategyExplanationScenarioMeta
 	if asString(ctx.asset["symbol"]) != "" {
 		researchOutline, activeThesis, historicalThesis, watchSignals = buildStockResearchBlocks(*ctx, assetKey)
+		relationshipSnapshot = buildStockRelationshipSnapshot(*ctx)
+		scenarioSnapshots, scenarioMeta = buildStockScenarioSnapshots(*ctx)
 	} else {
 		researchOutline, activeThesis, historicalThesis, watchSignals = buildFuturesResearchBlocks(*ctx, assetKey)
+		relationshipSnapshot = buildFuturesRelationshipSnapshot(*ctx)
+		scenarioSnapshots, scenarioMeta = buildFuturesScenarioSnapshots(*ctx)
 	}
 
 	explanation := model.StrategyClientExplanation{
@@ -482,6 +489,9 @@ func buildStrategyExplanationFromContext(
 		ActiveThesisCards:     activeThesis,
 		HistoricalThesisCards: historicalThesis,
 		WatchSignals:          watchSignals,
+		RelationshipSnapshot:  relationshipSnapshot,
+		ScenarioSnapshots:     scenarioSnapshots,
+		ScenarioMeta:          scenarioMeta,
 		RelatedEntities:       relatedEntities,
 		MemoryFeedback:        buildExplanationMemoryFeedback(mapValue(report["memory_feedback"])),
 		EvaluationMeta:        evaluationMeta,
@@ -490,7 +500,7 @@ func buildStrategyExplanationFromContext(
 			CandidateCount: len(sliceOfMaps(report["candidates"])) + len(sliceOfMaps(report["strategies"])),
 			SelectedCount:  ctx.record.SelectedCount,
 			AgentCount:     len(agentOpinions),
-			ScenarioCount:  len(simulation.Scenarios),
+			ScenarioCount:  maxInt(len(simulation.Scenarios), len(scenarioSnapshots)),
 			FilterSteps:    filterSteps,
 		},
 		StrategyVersion: firstNonEmpty(asString(ctx.asset["strategy_version"]), strategyVersion),

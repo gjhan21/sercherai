@@ -739,6 +739,35 @@ func TestBuildFallbackVersionHistoryItemCarriesL2Fields(t *testing.T) {
 	}
 }
 
+func TestBuildStockStrategyExplanationCarriesL2ScenarioSnapshots(t *testing.T) {
+	ctx := strategyEngineAssetContext{
+		record: model.StrategyEnginePublishRecord{
+			PublishID: "publish_l2_stock_001",
+			JobID:     "job_l2_stock_001",
+			TradeDate: "2026-03-29",
+			Version:   1,
+			SelectedCount: 1,
+		},
+		asset: map[string]any{
+			"symbol":         "600519.SH",
+			"name":           "贵州茅台",
+			"reason_summary": "资金回流叠加趋势延续",
+			"risk_summary":   "跌破 5 日线失效",
+			"invalidations":  []any{"跌破 5 日线"},
+			"theme_tags":     []any{"白酒"},
+			"sector_tags":    []any{"消费"},
+		},
+	}
+
+	explanation := buildStrategyExplanationFromContext(&ctx, "600519.SH", "", "stock-l2-v1", []string{"scenario-engine"})
+	if len(explanation.ScenarioSnapshots) != 3 {
+		t.Fatalf("expected l2 scenario snapshots on explanation, got %+v", explanation)
+	}
+	if explanation.ScenarioMeta.PrimaryScenario == "" {
+		t.Fatalf("expected scenario meta on explanation, got %+v", explanation.ScenarioMeta)
+	}
+}
+
 func TestBuildFuturesStrategyExplanationUsesLocalSnapshotWithoutRemoteFetch(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
