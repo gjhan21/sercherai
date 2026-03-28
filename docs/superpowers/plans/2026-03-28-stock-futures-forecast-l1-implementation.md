@@ -1,12 +1,31 @@
 # Stock Futures Forecast L1 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 在不改现有推荐主链、不新增新业务表和独立异步系统的前提下，把股票推荐与期货策略的 `insight / version-history` 四个入口升级为带研究编排、记忆反馈消费、历史理由分层和置信度校准的 `L1` 预测增强版本。
 
 **Architecture:** 继续复用现有 `strategy-engine` 报告快照、`StrategyClientExplanation`、`version-history`、评估回补与现有 client 展示链，不新建第二套预测系统。主线做法是先在后端 explanation 生成链中补“研究编排 + 历史失效管理 + advisory 型置信度校准”纯函数层，再把这些非破坏性字段透传到现有 `StrategyView` / `RecommendationArchiveView` 等页面，最后把 admin 需求收口为可选的轻量嵌入，不作为 `L1` 主线前提。
 
 **Tech Stack:** Go, MySQL repo layer, Gin API, existing strategy-engine snapshots, Vue 3 client, existing `client/src/lib/strategy-version.js`
+
+## Execution Status (2026-03-29)
+
+- `L1` 主线已在 `main` 落地，范围保持在既定 4 个读取入口内。
+- Task 1 ~ Task 6 已完成；Task 7 已按“后置可选、嵌入式承接”落地。
+- 当前收口重点改为：统一计划文档、交接文档与 admin 设计文档中的完成状态，避免后续线程误判为仍在开发中。
+- 对应关键提交：
+  - `e4b4065 feat: add l1 explanation contracts`
+  - `acc7518 feat: add research outline blocks for l1`
+  - `f0bc47f feat: consume l1 memory feedback in explanations`
+  - `3624b2e feat: add advisory confidence calibration for l1`
+  - `06ed8f5 feat: wire l1 forecast enrichment into insight and history`
+  - `5fbaed1 feat: render l1 forecast explanation details in client`
+  - `6c8ca7e feat: add optional admin forecast controls`
+- 本次收口会话 fresh verification：
+  - `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/repo -run 'TestBuild.*ResearchBlocks|TestApplyL1AdvisoryMemoryAdjustments|TestBuildExplanationConfidenceCalibration|TestGetStockRecommendationInsight|TestGetStockRecommendationVersionHistory|TestGetFuturesStrategyInsight|TestGetFuturesStrategyVersionHistory'` -> PASS
+  - `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/repo` -> PASS
+  - `cd /Users/gjhan21/cursor/sercherai/client && npm run build` -> PASS
+  - `cd /Users/gjhan21/cursor/sercherai/admin && node --test src/lib/forecast-admin.test.js src/views/system-configs-view.test.js src/views/market-center-view.test.js src/views/review-center-view.test.js && npm run build` -> PASS
 
 ---
 
@@ -117,7 +136,7 @@
 - Modify: `/Users/gjhan21/cursor/sercherai/backend/internal/growth/model/strategy_client_explanation.go`
 - Test: `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/strategy_client_explanation_test.go`
 
-- [ ] **Step 1: 写 failing tests，先把 L1 字段 contract 钉死**
+- [x] **Step 1: 写 failing tests，先把 L1 字段 contract 钉死**
 
 Add tests similar to:
 
@@ -157,7 +176,7 @@ Run: `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/re
 
 Expected: FAIL，提示 `StrategyClientExplanation` 或 `StrategyVersionHistoryItem` 缺少新字段。
 
-- [ ] **Step 2: 在 model 中新增 L1 子结构和非破坏性字段**
+- [x] **Step 2: 在 model 中新增 L1 子结构和非破坏性字段**
 
 Implementation notes:
 - 在 `strategy_client_explanation.go` 中新增：
@@ -210,7 +229,7 @@ type StrategyExplanationConfidenceCalibration struct {
 }
 ```
 
-- [ ] **Step 3: 把 fallback/history 构造函数先补齐新字段透传**
+- [x] **Step 3: 把 fallback/history 构造函数先补齐新字段透传**
 
 Implementation notes:
 - 修改 `buildStrategyVersionHistoryItem`
@@ -218,13 +237,13 @@ Implementation notes:
 - 修改 `mergeStrategyExplanation`
 - 这一小步先只做“字段可透传”，不做生成逻辑。
 
-- [ ] **Step 4: 运行 targeted tests，确认 contract 成型**
+- [x] **Step 4: 运行 targeted tests，确认 contract 成型**
 
 Run: `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/repo -run 'TestBuildFallbackVersionHistoryItemCarriesL1Fields'`
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git -C /Users/gjhan21/cursor/sercherai add \
@@ -240,7 +259,7 @@ git -C /Users/gjhan21/cursor/sercherai commit -m "feat: add l1 explanation contr
 - Create: `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/strategy_explanation_research_test.go`
 - Modify: `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/strategy_client_explanation.go`
 
-- [ ] **Step 1: 写 failing tests，先固定股票与期货研究编排的最小行为**
+- [x] **Step 1: 写 failing tests，先固定股票与期货研究编排的最小行为**
 
 Add tests similar to:
 
@@ -279,7 +298,7 @@ Run: `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/re
 
 Expected: FAIL，提示 research helper 不存在或没有生成分层结果。
 
-- [ ] **Step 2: 在新文件里实现股票与期货分域 research builders**
+- [x] **Step 2: 在新文件里实现股票与期货分域 research builders**
 
 Implementation notes:
 - 在 `strategy_explanation_research.go` 中新增：
@@ -332,7 +351,7 @@ func buildStockResearchBlocks(
 )
 ```
 
-- [ ] **Step 3: 接入 `buildStrategyExplanationFromContext`，先让 explanation 自身能生成这些字段**
+- [x] **Step 3: 接入 `buildStrategyExplanationFromContext`，先让 explanation 自身能生成这些字段**
 
 Implementation notes:
 - 在 `buildStrategyExplanationFromContext` 中：
@@ -342,7 +361,7 @@ Implementation notes:
   - 在没有历史上下文时，允许 `HistoricalThesisCards` 退化为 `memory_feedback` / invalidation 衍生的“已弱化理由”
   - 填充基础 `WatchSignals`
 
-- [ ] **Step 4: 用 history 上下文补强 historical thesis**
+- [x] **Step 4: 用 history 上下文补强 historical thesis**
 
 Implementation notes:
 - 新增一个后处理 helper，例如：
@@ -351,13 +370,13 @@ Implementation notes:
 - `applyStrategyVersionDiffToHistoryItems` 旁边新增 history item 对应的 L1 helper，例如：
   - `applyStrategyL1HistoryToHistoryItems(items []model.StrategyVersionHistoryItem, contexts []strategyEngineAssetContext, assetKey string)`
 
-- [ ] **Step 5: 运行 tests，确认 research 分层稳定**
+- [x] **Step 5: 运行 tests，确认 research 分层稳定**
 
 Run: `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/repo -run 'TestBuild.*ResearchBlocks|TestBuildStockStrategyExplanation.*|TestBuildFallbackVersionHistoryItemCarriesL1Fields'`
 
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git -C /Users/gjhan21/cursor/sercherai add \
@@ -377,7 +396,7 @@ git -C /Users/gjhan21/cursor/sercherai commit -m "feat: add l1 research outline 
 - Modify: `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/stock_selection_run_evaluation_backfill_test.go`
 - Modify: `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/strategy_client_explanation_test.go`
 
-- [ ] **Step 1: 写 failing tests，明确“被消费”而不是“仅返回”**
+- [x] **Step 1: 写 failing tests，明确“被消费”而不是“仅返回”**
 
 Add tests similar to:
 
@@ -411,7 +430,7 @@ Run: `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/re
 
 Expected: FAIL，提示 advisory memory helper 不存在，或 `RiskBoundary / WatchSignals` 未变化。
 
-- [ ] **Step 2: 在新 helper 文件里实现 memory/evaluation 归一化**
+- [x] **Step 2: 在新 helper 文件里实现 memory/evaluation 归一化**
 
 Implementation notes:
 - 在 `strategy_explanation_memory.go` 中新增：
@@ -428,7 +447,7 @@ Implementation notes:
   - futures report 自带的 `evaluation_summary`
 - 不新增存储，只在读取期同步消费。
 
-- [ ] **Step 3: 统一股票 evaluation summary 的空态与 map 结构**
+- [x] **Step 3: 统一股票 evaluation summary 的空态与 map 结构**
 
 Implementation notes:
 - 在 `stock_selection_run_evaluation_backfill.go` 中新增一个很小的 helper，例如：
@@ -451,7 +470,7 @@ func normalizeStockSelectionEvaluationSummary(summary map[string]any) map[string
 
 统一走这个 helper，避免后面 confidence 校准因空 map 失真。
 
-- [ ] **Step 4: 在 explanation 生成链中显式调用 advisory memory adjustments**
+- [x] **Step 4: 在 explanation 生成链中显式调用 advisory memory adjustments**
 
 Implementation notes:
 - `buildStrategyExplanationFromContext` 生成基础 explanation 后，立即调用：
@@ -461,13 +480,13 @@ Implementation notes:
   - 增加 `WatchSignals`
   - 补充 `RiskFlags` 或 `ConfidenceReason`
 
-- [ ] **Step 5: 运行 tests，确认 memory feedback 已真正生效**
+- [x] **Step 5: 运行 tests，确认 memory feedback 已真正生效**
 
 Run: `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/repo -run 'TestApplyL1AdvisoryMemoryAdjustments|TestBuildStockStrategyExplanation.*|TestBuildFuturesStrategyExplanation.*|TestNormalizeStockSelectionEvaluationSummary'`
 
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git -C /Users/gjhan21/cursor/sercherai add \
@@ -487,7 +506,7 @@ git -C /Users/gjhan21/cursor/sercherai commit -m "feat: consume l1 memory feedba
 - Modify: `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/strategy_client_explanation.go`
 - Modify: `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/mysql_repo.go`
 
-- [ ] **Step 1: 写 failing tests，钉死 `confidence_calibration` 的 advisory contract**
+- [x] **Step 1: 写 failing tests，钉死 `confidence_calibration` 的 advisory contract**
 
 Add tests similar to:
 
@@ -524,7 +543,7 @@ Run: `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/re
 
 Expected: FAIL，提示 calibration helper 不存在或没有生成 advisory 结果。
 
-- [ ] **Step 2: 实现轻量校准器**
+- [x] **Step 2: 实现轻量校准器**
 
 Implementation notes:
 - 在 `strategy_explanation_confidence.go` 中新增：
@@ -566,7 +585,7 @@ func buildExplanationConfidenceCalibration(
 }
 ```
 
-- [ ] **Step 3: 在 explanation 生成链和 history item 链统一接入 calibration**
+- [x] **Step 3: 在 explanation 生成链和 history item 链统一接入 calibration**
 
 Implementation notes:
 - `buildStrategyExplanationFromContext`
@@ -576,7 +595,7 @@ Implementation notes:
 
 都必须能保留 `ConfidenceCalibration`。
 
-- [ ] **Step 4: 在四个 repo 读取入口上确认不会改排序/权重主链**
+- [x] **Step 4: 在四个 repo 读取入口上确认不会改排序/权重主链**
 
 Implementation notes:
 - `GetStockRecommendationInsight`
@@ -586,13 +605,13 @@ Implementation notes:
 
 只允许 explanation 内容变化，严禁改 `item.Score`、策略排序、持仓权重或 review status。
 
-- [ ] **Step 5: 运行 tests，确认 advisory calibration 生效且不越权**
+- [x] **Step 5: 运行 tests，确认 advisory calibration 生效且不越权**
 
 Run: `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/repo -run 'TestBuildExplanationConfidenceCalibration|TestBuildStockStrategyExplanation.*|TestBuildFuturesStrategyExplanation.*|TestGet.*VersionHistory.*'`
 
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git -C /Users/gjhan21/cursor/sercherai add \
@@ -611,7 +630,7 @@ git -C /Users/gjhan21/cursor/sercherai commit -m "feat: add advisory confidence 
 - Modify: `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/strategy_client_explanation.go`
 - Modify: `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/strategy_client_explanation_test.go`
 
-- [ ] **Step 1: 写 failing tests，覆盖四个真实入口的 L1 字段可见性**
+- [x] **Step 1: 写 failing tests，覆盖四个真实入口的 L1 字段可见性**
 
 Add or extend tests so they assert:
 - `GetStockRecommendationInsight(...).Explanation.ActiveThesisCards`
@@ -624,7 +643,7 @@ Run: `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/re
 
 Expected: FAIL，提示四个入口尚未统一带出 L1 字段。
 
-- [ ] **Step 2: 在 stock insight / history 入口挂接 L1 helpers**
+- [x] **Step 2: 在 stock insight / history 入口挂接 L1 helpers**
 
 Implementation notes:
 - `GetStockRecommendationInsight`
@@ -637,7 +656,7 @@ Implementation notes:
     - `applyStrategyVersionDiffToHistoryItems`
     - `applyStrategyL1HistoryToHistoryItems`
 
-- [ ] **Step 3: 在 futures insight / history 入口挂接同一套 L1 helpers**
+- [x] **Step 3: 在 futures insight / history 入口挂接同一套 L1 helpers**
 
 Implementation notes:
 - `GetFuturesStrategyInsight`
@@ -645,7 +664,7 @@ Implementation notes:
 
 逻辑与 stock 保持一致，但 research slot 用 futures 模板。
 
-- [ ] **Step 4: 做一次空上下文和 fallback 路径回归**
+- [x] **Step 4: 做一次空上下文和 fallback 路径回归**
 
 Implementation notes:
 - 没有历史上下文时：
@@ -654,13 +673,13 @@ Implementation notes:
   - `ConfidenceCalibration.AdvisoryOnly` 仍必须为 `true`
 - `buildFallbackVersionHistoryItem` 路径不能因为缺 contexts 而丢字段。
 
-- [ ] **Step 5: 运行 repo 主回归**
+- [x] **Step 5: 运行 repo 主回归**
 
 Run: `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/repo`
 
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git -C /Users/gjhan21/cursor/sercherai add \
@@ -678,7 +697,7 @@ git -C /Users/gjhan21/cursor/sercherai commit -m "feat: wire l1 forecast enrichm
 - Modify: `/Users/gjhan21/cursor/sercherai/client/src/views/RecommendationArchiveView.vue`
 - Modify: `/Users/gjhan21/cursor/sercherai/client/src/views/HomeView.vue`
 
-- [ ] **Step 1: 写前端 helper 层的 failing tests；如果当前 client 无单测，则先补 helper 级测试文件**
+- [x] **Step 1: 写前端 helper 层的 failing tests；如果当前 client 无单测，则先补 helper 级测试文件**
 
 Preferred new test file:
 - Create: `/Users/gjhan21/cursor/sercherai/client/src/lib/strategy-version.test.js`
@@ -711,7 +730,7 @@ Run: `cd /Users/gjhan21/cursor/sercherai/client && npm test -- strategy-version.
 
 Expected: 如果仓库没有测试脚本，则记录为“当前 client 无通用 test 脚本”，改为先让 helper 代码编译并在 build 阶段验证；不要为了这一轮引入整套新测试框架。
 
-- [ ] **Step 2: 在 `strategy-version.js` 增加新字段格式化 helpers**
+- [x] **Step 2: 在 `strategy-version.js` 增加新字段格式化 helpers**
 
 Implementation notes:
 - 新增：
@@ -723,7 +742,7 @@ Implementation notes:
   - 旧 explanation 没有这些字段时返回空数组或空 summary
   - 不破坏现有 `buildStrategyInsightSections / buildStrategyRiskBoundaryText`
 
-- [ ] **Step 3: 在 `StrategyView.vue` explanation 区接入新模块**
+- [x] **Step 3: 在 `StrategyView.vue` explanation 区接入新模块**
 
 Implementation notes:
 - 在现有 explanation 区新增 4 个卡组，顺序固定：
@@ -738,7 +757,7 @@ Implementation notes:
   - 历史版本
 - 不要新开页面，不要把当前策略页改成分析聊天页。
 
-- [ ] **Step 4: 在 `RecommendationArchiveView.vue` 和 `HomeView.vue` 做轻量承接**
+- [x] **Step 4: 在 `RecommendationArchiveView.vue` 和 `HomeView.vue` 做轻量承接**
 
 Implementation notes:
 - `RecommendationArchiveView.vue`
@@ -753,13 +772,13 @@ Implementation notes:
     - 首条 watch signal / calibration 提示
 - 首页不要扩成长页。
 
-- [ ] **Step 5: 运行 client build**
+- [x] **Step 5: 运行 client build**
 
 Run: `cd /Users/gjhan21/cursor/sercherai/client && npm run build`
 
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git -C /Users/gjhan21/cursor/sercherai add \
@@ -778,13 +797,13 @@ git -C /Users/gjhan21/cursor/sercherai commit -m "feat: surface l1 forecast insi
 - Optional Modify: `/Users/gjhan21/cursor/sercherai/admin/src/views/MarketCenterView.vue`
 - Optional Modify: `/Users/gjhan21/cursor/sercherai/admin/src/views/ReviewCenterView.vue`
 
-- [ ] **Step 1: 只有在 Task 1-6 已稳定后，才确认是否真的需要 admin 嵌入**
+- [x] **Step 1: 只有在 Task 1-6 已稳定后，才确认是否真的需要 admin 嵌入**
 
 Decision gate:
 - 如果 owner 只需要前台 explanation 增强，本任务直接跳过。
 - 如果 owner 需要运营可见性，只允许做嵌入式只读/轻配置，不开新后台中心。
 
-- [ ] **Step 2: 如需做 admin，只做 3 类轻量能力**
+- [x] **Step 2: 如需做 admin，只做 3 类轻量能力**
 
 Allowed scope only:
 - `SystemConfigsView`
@@ -797,28 +816,55 @@ Allowed scope only:
 - `ReviewCenterView`
   - 仅展示 advisory priority，不改审核主流程
 
-- [ ] **Step 3: 禁止事项复核**
+Implemented status:
+- 已落地 `/Users/gjhan21/cursor/sercherai/admin/src/lib/forecast-admin.js`
+- 已在 `/Users/gjhan21/cursor/sercherai/admin/src/views/SystemConfigsView.vue` 嵌入：
+  - `growth.forecast_l1.enabled`
+  - `growth.forecast_l1.explanation_enabled`
+  - `growth.forecast_l1.memory_feedback_min_samples`
+  - `growth.forecast_l1.advisory_priority_threshold`
+- 已在 `/Users/gjhan21/cursor/sercherai/admin/src/views/MarketCenterView.vue` 的股票/期货发布详情中嵌入“预测增强摘要”
+- 已在 `/Users/gjhan21/cursor/sercherai/admin/src/views/ReviewCenterView.vue` 嵌入 advisory-only 审核提示
+- 已补最小测试：
+  - `/Users/gjhan21/cursor/sercherai/admin/src/lib/forecast-admin.test.js`
+  - `/Users/gjhan21/cursor/sercherai/admin/src/views/system-configs-view.test.js`
+  - `/Users/gjhan21/cursor/sercherai/admin/src/views/market-center-view.test.js`
+  - `/Users/gjhan21/cursor/sercherai/admin/src/views/review-center-view.test.js`
+
+- [x] **Step 3: 禁止事项复核**
 
 Must not do:
 - 不新开“预测增强中心”
 - 不新增平行审核流
 - 不让 admin 配置直接改排序/权重
 
-- [ ] **Step 4: 如果真的进入 admin，再单独写 mini plan 并执行**
+Confirmed:
+- 本轮没有新增独立后台中心
+- 本轮没有新增 admin 专用后端接口
+- 本轮没有把 advisory 提示接成新的审核动作或排序控制链
+
+- [x] **Step 4: 如果真的进入 admin，再单独写 mini plan 并执行**
 
 Run before touching admin:
 - `cd /Users/gjhan21/cursor/sercherai/admin && npm run build`
 
 Expected: PASS 基线确认后，再开始 admin 嵌入开发。
 
+Final verification:
+- `cd /Users/gjhan21/cursor/sercherai/admin && node --test src/lib/forecast-admin.test.js src/views/system-configs-view.test.js src/views/market-center-view.test.js src/views/review-center-view.test.js`
+- `cd /Users/gjhan21/cursor/sercherai/admin && npm run build`
+
+Commit:
+- `6c8ca7e feat: add optional admin forecast controls`
+
 ## Verification Checklist
 
-- [ ] `memory_feedback` 在 explanation 中被真实消费，而不是只作为返回字段存在。
-- [ ] `confidence_calibration.advisory_only` 在 stock/futures explanation 与 history 中都恒为 `true`。
-- [ ] stock/futures 四个入口都能返回新字段。
-- [ ] 排序、持仓权重、审核流没有被 `L1` 误改。
-- [ ] 没有新增新业务表或独立异步研究系统。
-- [ ] client 在旧字段缺失时仍能正常渲染，不出现白屏。
+- [x] `memory_feedback` 在 explanation 中被真实消费，而不是只作为返回字段存在。
+- [x] `confidence_calibration.advisory_only` 在 stock/futures explanation 与 history 中都恒为 `true`。
+- [x] stock/futures 四个入口都能返回新字段。
+- [x] 排序、持仓权重、审核流没有被 `L1` 误改。
+- [x] 没有新增新业务表或独立异步研究系统。
+- [x] client 在旧字段缺失时仍能正常渲染，不出现白屏。
 
 ## Full Validation Commands
 

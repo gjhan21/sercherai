@@ -22,6 +22,7 @@
 3. 目标是增强现有股票推荐与期货策略体系，不另造一套平行主系统
 4. 借鉴 `MiroFish` 的是预测闭环思想，不是整套社交仿真产品形态
 5. admin 侧优先复用现有后台模块，不在 `L1` 新开独立预测增强后台中心
+6. `L1` 主线与后置 admin 承接均已落地到 `main`
 
 ## 已定硬边界
 
@@ -48,6 +49,39 @@
 5. 是否引入了新的页面、接口或持久化业务表作为前提？
 
 如果其中任意一项回答为“是，超出边界”，需要先停下来重新确认范围。
+
+## 当前实现状态（2026-03-28）
+
+### 已完成
+
+1. `L1` explanation contract 与 history contract 扩展
+2. 股票/期货研究编排、active/historical thesis、watch signals
+3. `memory_feedback` 真正参与 explanation 生成
+4. advisory-only `confidence_calibration`
+5. 四个真实入口打通：
+   - 股票 `insight`
+   - 股票 `version-history`
+   - 期货 `insight`
+   - 期货 `version-history`
+6. client 已在现有页面承接：
+   - `/Users/gjhan21/cursor/sercherai/client/src/views/StrategyView.vue`
+   - `/Users/gjhan21/cursor/sercherai/client/src/views/RecommendationArchiveView.vue`
+   - `/Users/gjhan21/cursor/sercherai/client/src/views/HomeView.vue`
+7. optional admin 已按轻量嵌入方式落地：
+   - `/Users/gjhan21/cursor/sercherai/admin/src/views/SystemConfigsView.vue`
+   - `/Users/gjhan21/cursor/sercherai/admin/src/views/MarketCenterView.vue`
+   - `/Users/gjhan21/cursor/sercherai/admin/src/views/ReviewCenterView.vue`
+
+### 关键提交
+
+- `44b38ff Merge branch 'codex/stock-futures-forecast-l1'`
+- `6c8ca7e feat: add optional admin forecast controls`
+
+### 继续推进时的事实
+
+- 当前不需要再补独立 admin 规划入口
+- 如果继续做 `L1` 收尾，优先做文档、联调或远端集成，不要把范围扩成 `L2 / L3`
+- `/Users/gjhan21/cursor/sercherai/admin/src/router/index.js:155-164` 的权限跳转问题仍是独立问题，不属于本主题范围
 
 ## 其他线程的推荐阅读顺序
 

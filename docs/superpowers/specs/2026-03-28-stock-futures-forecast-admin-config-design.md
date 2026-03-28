@@ -187,6 +187,45 @@
 - 不新开“预测增强配置中心”
 - 只允许在现有页面中补少量必要配置与只读运营信息
 
+#### L1 当前已落地状态
+
+截至 `2026-03-28`，`L1` 的 admin 轻量承接已按该规范落地，且保持“嵌入式、非独立后台中心”边界不变。
+
+已落地页面与文件如下：
+
+1. `SystemConfigsView`
+
+- 文件：`/Users/gjhan21/cursor/sercherai/admin/src/views/SystemConfigsView.vue`
+- helper：`/Users/gjhan21/cursor/sercherai/admin/src/lib/forecast-admin.js`
+- 已落地配置项：
+  - `growth.forecast_l1.enabled`
+  - `growth.forecast_l1.explanation_enabled`
+  - `growth.forecast_l1.memory_feedback_min_samples`
+  - `growth.forecast_l1.advisory_priority_threshold`
+
+2. `MarketCenterView`
+
+- 文件：`/Users/gjhan21/cursor/sercherai/admin/src/views/MarketCenterView.vue`
+- 已落地能力：
+  - 在股票/期货发布详情中展示“预测增强摘要”
+  - 直接回读现有 `publish_payloads / report_snapshot`
+  - 展示覆盖率、研究编排数、观察信号数、记忆反馈数、高 advisory 样本数
+
+3. `ReviewCenterView`
+
+- 文件：`/Users/gjhan21/cursor/sercherai/admin/src/views/ReviewCenterView.vue`
+- 已落地能力：
+  - 展示 advisory-only 审核提示
+  - 回读 `growth.forecast_l1.*` 配置
+  - 明确提示“不改变现有审核主流程”
+
+对应测试文件：
+
+- `/Users/gjhan21/cursor/sercherai/admin/src/lib/forecast-admin.test.js`
+- `/Users/gjhan21/cursor/sercherai/admin/src/views/system-configs-view.test.js`
+- `/Users/gjhan21/cursor/sercherai/admin/src/views/market-center-view.test.js`
+- `/Users/gjhan21/cursor/sercherai/admin/src/views/review-center-view.test.js`
+
 #### L1 可新增的后台项
 
 1. 放在 `stock-selection / futures-selection profiles / templates` 的配置
@@ -352,6 +391,15 @@
 - 不新增独立后台大模块
 - 轻量配置能复用现有页面承接
 - 后台配置不会直接改排序 / 权重 / 发布审批主链
+- 当前实现已满足以上验收项
+
+验证命令：
+
+```bash
+cd /Users/gjhan21/cursor/sercherai/admin
+node --test src/lib/forecast-admin.test.js src/views/system-configs-view.test.js src/views/market-center-view.test.js src/views/review-center-view.test.js
+npm run build
+```
 
 ### L2 admin 验收
 
