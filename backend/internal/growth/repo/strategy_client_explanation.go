@@ -41,6 +41,19 @@ func (r *MySQLGrowthRepo) buildStockStrategyExplanation(item model.StockRecommen
 		},
 		StrategyVersion: item.StrategyVersion,
 		GeneratedAt:     item.ValidFrom,
+		EvaluationMeta:  normalizeExplanationEvaluationSummary(nil),
+		ResearchOutline: []model.StrategyResearchOutlineStep{
+			{Slot: "TREND", Title: "趋势与结构", Summary: firstNonEmpty(item.ReasonSummary, "当前推荐理由待确认"), Status: "ACTIVE"},
+		},
+		ActiveThesisCards: []model.StrategyExplanationThesisCard{
+			{Key: "fallback_reason", Title: "当前理由", Summary: firstNonEmpty(item.ReasonSummary, "当前推荐理由待确认"), Status: "ACTIVE", EvidenceSource: "RECOMMENDATION"},
+		},
+		WatchSignals: buildFallbackWatchSignals(fallbackStockInvalidations(item, detail)),
+	}
+	applyStrategyL1HistoryFallback(&explanation)
+	applyConfidenceCalibrationToExplanation(&explanation)
+	if r.db == nil {
+		return explanation
 	}
 
 	ctx, err := r.findStrategyEngineAssetContext("stock-selection", item.Symbol, dateOnly(item.ValidFrom))
@@ -62,6 +75,7 @@ func (r *MySQLGrowthRepo) buildStockStrategyExplanation(item model.StockRecommen
 	))
 	if summary, summaryErr := r.loadStockSelectionEvaluationSummaryByContext(*ctx, item.Symbol); summaryErr == nil {
 		enrichStockSelectionEvaluationMetaFromSummary(&explanation, summary)
+		applyL1AdvisoryMemoryAdjustments(&explanation, summary)
 	}
 	if relatedEvents, eventCards, eventErr := r.listReviewedStockEventEvidence(item.Symbol, item.ValidFrom); eventErr == nil {
 		explanation.RelatedEvents = relatedEvents
@@ -93,6 +107,19 @@ func (r *MySQLGrowthRepo) buildFuturesStrategyExplanation(item model.FuturesStra
 		},
 		StrategyVersion: "futures-mvp-v1",
 		GeneratedAt:     item.ValidFrom,
+		EvaluationMeta:  normalizeExplanationEvaluationSummary(nil),
+		ResearchOutline: []model.StrategyResearchOutlineStep{
+			{Slot: "STRUCTURE", Title: "结构与供需", Summary: firstNonEmpty(item.ReasonSummary, "当前策略理由待确认"), Status: "ACTIVE"},
+		},
+		ActiveThesisCards: []model.StrategyExplanationThesisCard{
+			{Key: "fallback_reason", Title: "当前理由", Summary: firstNonEmpty(item.ReasonSummary, "当前策略理由待确认"), Status: "ACTIVE", EvidenceSource: "STRATEGY"},
+		},
+		WatchSignals: buildFallbackWatchSignals(compactStrings([]string{guidance.InvalidCondition})),
+	}
+	applyStrategyL1HistoryFallback(&explanation)
+	applyConfidenceCalibrationToExplanation(&explanation)
+	if r.db == nil {
+		return explanation
 	}
 
 	ctx, err := r.findStrategyEngineAssetContext("futures-strategy", item.Contract, dateOnly(item.ValidFrom))
@@ -390,7 +417,7 @@ func buildStrategyExplanationFromContext(
 	filterSteps []string,
 ) model.StrategyClientExplanation {
 	report := ctx.record.ReportSnapshot
-	evaluationSummary := mapValue(report["evaluation_summary"])
+	evaluationMeta := normalizeExplanationEvaluationSummary(mapValue(report["evaluation_summary"]))
 	seedHighlights := extractSeedHighlights(ctx.job.Payload)
 	evidenceCards := buildExplanationEvidenceCards(sliceOfMaps(ctx.asset["evidence_cards"]))
 	relatedEntities := mergeExplanationRelatedEntities(
@@ -419,16 +446,16 @@ func buildStrategyExplanationFromContext(
 		confidenceReason = asString(ctx.asset["reason_summary"])
 	}
 	var researchOutline []model.StrategyResearchOutlineStep
-	var activeThesisCards []model.StrategyExplanationThesisCard
-	var historicalThesisCards []model.StrategyExplanationThesisCard
+	var activeThesis []model.StrategyExplanationThesisCard
+	var historicalThesis []model.StrategyExplanationThesisCard
 	var watchSignals []model.StrategyExplanationWatchSignal
-	if asString(ctx.asset["contract"]) != "" {
-		researchOutline, activeThesisCards, historicalThesisCards, watchSignals = buildFuturesResearchBlocks(*ctx, report, nil, evaluationSummary)
+	if asString(ctx.asset["symbol"]) != "" {
+		researchOutline, activeThesis, historicalThesis, watchSignals = buildStockResearchBlocks(*ctx, assetKey)
 	} else {
-		researchOutline, activeThesisCards, historicalThesisCards, watchSignals = buildStockResearchBlocks(*ctx, report, nil, evaluationSummary)
+		researchOutline, activeThesis, historicalThesis, watchSignals = buildFuturesResearchBlocks(*ctx, assetKey)
 	}
 
-	return model.StrategyClientExplanation{
+	explanation := model.StrategyClientExplanation{
 		SeedSummary:      buildSeedSummary(seedHighlights, report),
 		SeedHighlights:   seedHighlights,
 		GraphSummary:     asString(report["graph_summary"]),
@@ -440,24 +467,24 @@ func buildStrategyExplanationFromContext(
 			append(append([]string{}, ctx.record.Replay.WarningMessages...), ctx.record.Replay.Notes...),
 			stringSlice(ctx.asset["risk_flags"])...,
 		)),
-		Invalidations:    compactStrings(stringSlice(ctx.asset["invalidations"])),
-		ConfidenceReason: confidenceReason,
-		MarketRegime:     asString(report["market_regime"]),
-		EvidenceCards:    evidenceCards,
-		PortfolioRole:    asString(ctx.asset["portfolio_role"]),
-		RiskBoundary:     firstNonEmpty(asString(ctx.asset["risk_summary"]), asString(report["risk_summary"])),
-		ThemeTags:        stringSlice(ctx.asset["theme_tags"]),
-		SectorTags:       stringSlice(ctx.asset["sector_tags"]),
-		SupplyChainNotes: buildFuturesSupplyChainNotes(relatedEntities, evidenceCards, inventorySummary, structureSummary),
-		StructureSummary: structureSummary,
-		InventorySummary: inventorySummary,
-		RelatedEntities:  relatedEntities,
-		MemoryFeedback:   buildExplanationMemoryFeedback(mapValue(report["memory_feedback"])),
-		ResearchOutline:  researchOutline,
-		ActiveThesisCards: activeThesisCards,
-		HistoricalThesisCards: historicalThesisCards,
-		WatchSignals:     watchSignals,
-		EvaluationMeta:   evaluationSummary,
+		Invalidations:         compactStrings(stringSlice(ctx.asset["invalidations"])),
+		ConfidenceReason:      confidenceReason,
+		MarketRegime:          asString(report["market_regime"]),
+		EvidenceCards:         evidenceCards,
+		PortfolioRole:         asString(ctx.asset["portfolio_role"]),
+		RiskBoundary:          firstNonEmpty(asString(ctx.asset["risk_summary"]), asString(report["risk_summary"])),
+		ThemeTags:             stringSlice(ctx.asset["theme_tags"]),
+		SectorTags:            stringSlice(ctx.asset["sector_tags"]),
+		SupplyChainNotes:      buildFuturesSupplyChainNotes(relatedEntities, evidenceCards, inventorySummary, structureSummary),
+		StructureSummary:      structureSummary,
+		InventorySummary:      inventorySummary,
+		ResearchOutline:       researchOutline,
+		ActiveThesisCards:     activeThesis,
+		HistoricalThesisCards: historicalThesis,
+		WatchSignals:          watchSignals,
+		RelatedEntities:       relatedEntities,
+		MemoryFeedback:        buildExplanationMemoryFeedback(mapValue(report["memory_feedback"])),
+		EvaluationMeta:        evaluationMeta,
 		WorkloadSummary: model.StrategyWorkloadSummary{
 			SeedCount:      len(seedHighlights),
 			CandidateCount: len(sliceOfMaps(report["candidates"])) + len(sliceOfMaps(report["strategies"])),
@@ -472,6 +499,89 @@ func buildStrategyExplanationFromContext(
 		TradeDate:       ctx.record.TradeDate,
 		PublishVersion:  ctx.record.Version,
 		GeneratedAt:     firstNonEmpty(asString(report["generated_at"]), ctx.record.CreatedAt),
+	}
+	applyL1AdvisoryMemoryAdjustments(&explanation, evaluationMeta)
+	applyConfidenceCalibrationToExplanation(&explanation)
+	return explanation
+}
+
+func buildFallbackWatchSignals(invalidations []string) []model.StrategyExplanationWatchSignal {
+	result := make([]model.StrategyExplanationWatchSignal, 0, len(invalidations))
+	for _, item := range compactStrings(invalidations) {
+		result = append(result, model.StrategyExplanationWatchSignal{
+			Title:      "基础失效信号",
+			SignalType: "INVALIDATION",
+			Trigger:    item,
+			Action:     "重新验证",
+			Priority:   "HIGH",
+		})
+	}
+	return result
+}
+
+func applyStrategyL1HistoryFallback(explanation *model.StrategyClientExplanation) {
+	if explanation == nil || len(explanation.HistoricalThesisCards) > 0 || len(explanation.Invalidations) == 0 {
+		return
+	}
+	explanation.HistoricalThesisCards = []model.StrategyExplanationThesisCard{
+		{
+			Key:     "fallback_invalidation",
+			Title:   "历史弱化理由",
+			Summary: explanation.Invalidations[0],
+			Status:  "WEAKENED",
+			Note:    "缺少更完整历史上下文时，先用当前失效边界兜底。",
+		},
+	}
+}
+
+func applyStrategyL1HistoryFromContexts(explanation *model.StrategyClientExplanation, contexts []strategyEngineAssetContext, assetKey string) {
+	if explanation == nil {
+		return
+	}
+	if len(contexts) > 1 {
+		previous := contexts[1]
+		summary := strings.TrimSpace(asString(previous.asset["reason_summary"]))
+		note := strings.Join(compactStrings(stringSlice(previous.asset["invalidations"])), "；")
+		if summary != "" {
+			explanation.HistoricalThesisCards = append(explanation.HistoricalThesisCards, model.StrategyExplanationThesisCard{
+				Key:     "previous_context",
+				Title:   "上一版理由",
+				Summary: summary,
+				Status:  "WEAKENED",
+				Note:    note,
+			})
+		}
+	}
+	applyStrategyL1HistoryFallback(explanation)
+}
+
+func applyStrategyL1HistoryToHistoryItems(items []model.StrategyVersionHistoryItem, contexts []strategyEngineAssetContext, assetKey string) {
+	for index := range items {
+		if len(items[index].HistoricalThesisCards) == 0 {
+			if len(contexts) > index+1 {
+				previous := contexts[index+1]
+				summary := strings.TrimSpace(asString(previous.asset["reason_summary"]))
+				note := strings.Join(compactStrings(stringSlice(previous.asset["invalidations"])), "；")
+				if summary != "" {
+					items[index].HistoricalThesisCards = append(items[index].HistoricalThesisCards, model.StrategyExplanationThesisCard{
+						Key:     "previous_context",
+						Title:   "上一版理由",
+						Summary: summary,
+						Status:  "WEAKENED",
+						Note:    note,
+					})
+				}
+			}
+			if len(items[index].HistoricalThesisCards) == 0 && len(items[index].Invalidations) > 0 {
+				items[index].HistoricalThesisCards = append(items[index].HistoricalThesisCards, model.StrategyExplanationThesisCard{
+					Key:     "fallback_invalidation",
+					Title:   "历史弱化理由",
+					Summary: items[index].Invalidations[0],
+					Status:  "WEAKENED",
+					Note:    "缺少更完整历史上下文时，先用当前失效边界兜底。",
+				})
+			}
+		}
 	}
 }
 
@@ -499,13 +609,13 @@ func buildStrategyVersionHistoryItem(
 		RiskBoundary:          explanation.RiskBoundary,
 		ThemeTags:             explanation.ThemeTags,
 		SectorTags:            explanation.SectorTags,
-		RelatedEntities:       explanation.RelatedEntities,
-		MemoryFeedback:        explanation.MemoryFeedback,
 		ResearchOutline:       explanation.ResearchOutline,
 		ActiveThesisCards:     explanation.ActiveThesisCards,
 		HistoricalThesisCards: explanation.HistoricalThesisCards,
 		WatchSignals:          explanation.WatchSignals,
 		ConfidenceCalibration: explanation.ConfidenceCalibration,
+		RelatedEntities:       explanation.RelatedEntities,
+		MemoryFeedback:        explanation.MemoryFeedback,
 		RiskFlags:             explanation.RiskFlags,
 		Invalidations:         explanation.Invalidations,
 		EvaluationMeta:        explanation.EvaluationMeta,
@@ -541,13 +651,13 @@ func buildFallbackVersionHistoryItem(
 		RiskBoundary:          explanation.RiskBoundary,
 		ThemeTags:             explanation.ThemeTags,
 		SectorTags:            explanation.SectorTags,
-		RelatedEntities:       explanation.RelatedEntities,
-		MemoryFeedback:        explanation.MemoryFeedback,
 		ResearchOutline:       explanation.ResearchOutline,
 		ActiveThesisCards:     explanation.ActiveThesisCards,
 		HistoricalThesisCards: explanation.HistoricalThesisCards,
 		WatchSignals:          explanation.WatchSignals,
 		ConfidenceCalibration: explanation.ConfidenceCalibration,
+		RelatedEntities:       explanation.RelatedEntities,
+		MemoryFeedback:        explanation.MemoryFeedback,
 		RiskFlags:             explanation.RiskFlags,
 		Invalidations:         explanation.Invalidations,
 		EvaluationMeta:        explanation.EvaluationMeta,
@@ -605,6 +715,21 @@ func mergeStrategyExplanation(base model.StrategyClientExplanation, live model.S
 	if len(live.SectorTags) > 0 {
 		base.SectorTags = live.SectorTags
 	}
+	if len(live.ResearchOutline) > 0 {
+		base.ResearchOutline = live.ResearchOutline
+	}
+	if len(live.ActiveThesisCards) > 0 {
+		base.ActiveThesisCards = live.ActiveThesisCards
+	}
+	if len(live.HistoricalThesisCards) > 0 {
+		base.HistoricalThesisCards = live.HistoricalThesisCards
+	}
+	if len(live.WatchSignals) > 0 {
+		base.WatchSignals = live.WatchSignals
+	}
+	if live.ConfidenceCalibration.AdjustedConfidence > 0 || live.ConfidenceCalibration.BaseConfidence > 0 {
+		base.ConfidenceCalibration = live.ConfidenceCalibration
+	}
 	if len(live.SupplyChainNotes) > 0 {
 		base.SupplyChainNotes = live.SupplyChainNotes
 	}
@@ -625,21 +750,6 @@ func mergeStrategyExplanation(base model.StrategyClientExplanation, live model.S
 	}
 	if live.MemoryFeedback.Summary != "" || len(live.MemoryFeedback.Items) > 0 {
 		base.MemoryFeedback = live.MemoryFeedback
-	}
-	if len(live.ResearchOutline) > 0 {
-		base.ResearchOutline = live.ResearchOutline
-	}
-	if len(live.ActiveThesisCards) > 0 {
-		base.ActiveThesisCards = live.ActiveThesisCards
-	}
-	if len(live.HistoricalThesisCards) > 0 {
-		base.HistoricalThesisCards = live.HistoricalThesisCards
-	}
-	if len(live.WatchSignals) > 0 {
-		base.WatchSignals = live.WatchSignals
-	}
-	if live.ConfidenceCalibration.AdvisoryOnly || live.ConfidenceCalibration.BaseConfidence > 0 || live.ConfidenceCalibration.AdjustedConfidence > 0 || len(live.ConfidenceCalibration.Drivers) > 0 {
-		base.ConfidenceCalibration = live.ConfidenceCalibration
 	}
 	if len(live.EvaluationMeta) > 0 {
 		base.EvaluationMeta = live.EvaluationMeta

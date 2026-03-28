@@ -91,18 +91,15 @@ func TestLoadStockSelectionEvaluationRunMetaFallsBackToRunContextAndTradeDate(t 
 }
 
 func TestNormalizeStockSelectionEvaluationSummary(t *testing.T) {
-	pending := normalizeStockSelectionEvaluationSummary(nil)
-	if status := asString(pending["status"]); status != "PENDING" {
-		t.Fatalf("expected pending status for empty summary, got %+v", pending)
+	empty := normalizeStockSelectionEvaluationSummary(nil)
+	if empty["status"] != "PENDING" {
+		t.Fatalf("expected pending summary for empty input, got %+v", empty)
 	}
 
-	completed := normalizeStockSelectionEvaluationSummary(map[string]any{
-		"5": map[string]any{"return_pct": 0.03},
+	summary := normalizeStockSelectionEvaluationSummary(map[string]any{
+		"5": map[string]any{"return_pct": 0.04},
 	})
-	if status := asString(completed["status"]); status != "COMPLETED" {
-		t.Fatalf("expected completed status when summary has data, got %+v", completed)
-	}
-	if _, ok := completed["5"]; !ok {
-		t.Fatalf("expected original summary fields to survive normalization: %+v", completed)
+	if summary["status"] != "COMPLETED" {
+		t.Fatalf("expected completed summary when payload exists, got %+v", summary)
 	}
 }

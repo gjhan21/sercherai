@@ -415,14 +415,18 @@ import {
 } from "../lib/growth-analytics";
 import { getExperimentVariant } from "../lib/growth-experiments";
 import {
+  buildStrategyConfidenceCalibrationSummary,
   buildFallbackStrategyVersionHistory,
   buildStrategyHistoryCompareState,
   buildStrategyInsightSections,
   buildStrategyMetaText,
   buildStrategyOriginCards,
   buildStrategyProofTags,
+  buildStrategyThesisCardRows,
   buildStrategyRiskHighlights,
+  buildStrategyWatchSignalRows,
   findMatchedStrategyHistoryItem,
+  firstMeaningfulStrategyText,
   mapStrategyVersionHistory,
   toStrategyTradeDate
 } from "../lib/strategy-version";
@@ -606,18 +610,22 @@ const archiveRows = computed(() =>
     const cumulative = Number(stats.cumulative_return);
     const benchmark = Number(stats.benchmark_cumulative_return);
     const excess = Number(stats.excess_return);
+    const historicalThesis = buildStrategyThesisCardRows(explanation, "historical", { limit: 1 })[0];
+    const watchSignal = buildStrategyWatchSignalRows(explanation, { limit: 1 })[0];
+    const calibration = buildStrategyConfidenceCalibrationSummary(explanation);
     return {
       id: item.id,
       name: `${item.symbol || "-"} ${item.name || ""}`.trim(),
       date: formatDate(item.valid_from),
       reason: item.reason_summary || "暂无推荐理由",
-      explanationSummary: sections.whyNow || item.reason_summary || "暂无推荐理由",
+      explanationSummary:
+        firstMeaningfulStrategyText([historicalThesis?.summary, sections.whyNow, item.reason_summary]) || "暂无推荐理由",
       proofTags: buildArchiveProofTags(explanation),
-      consensusText: sections.proofSource || "",
+      consensusText: firstMeaningfulStrategyText([historicalThesis?.title, calibration?.summary, sections.proofSource]),
       seedHighlights: Array.isArray(explanation.seed_highlights) ? explanation.seed_highlights.slice(0, 3) : [],
       riskHighlights: buildStrategyRiskHighlights(explanation, {
         limit: 3,
-        fallback: buildStatusNote(item.status)
+        fallback: firstMeaningfulStrategyText([watchSignal?.trigger, calibration?.deltaLabel, buildStatusNote(item.status)])
       }),
       metaText: buildArchiveMetaText(explanation),
       versionDiff: historyCompare.diff,

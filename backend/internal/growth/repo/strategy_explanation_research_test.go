@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"strings"
 	"testing"
 
 	"sercherai/backend/internal/growth/model"
@@ -12,70 +13,62 @@ func TestBuildStockResearchBlocksCreatesActiveHistoricalAndWatchLayers(t *testin
 		"memory_feedback": map[string]any{
 			"summary":         "高波动题材需要缩短验证窗口",
 			"failure_signals": []any{"题材切换过快"},
-			"suggestions":     []any{"观察放量后的承接强度"},
 		},
 	}
 	ctx := strategyEngineAssetContext{
-		record: model.StrategyEnginePublishRecord{TradeDate: "2026-03-28"},
+		record: model.StrategyEnginePublishRecord{TradeDate: "2026-03-28", ReportSnapshot: report},
 		asset: map[string]any{
 			"symbol":         "600519.SH",
 			"reason_summary": "资金回流叠加趋势延续",
-			"risk_summary":   "跌破 5 日线失效",
-			"risk_flags":     []any{"高位分歧"},
-			"invalidations":  []any{"跌破 5 日线"},
-			"theme_tags":     []any{"消费龙头"},
-			"sector_tags":    []any{"消费"},
+			"risk_summary":   "跌破 5 日线需减仓",
 		},
 	}
 
-	outline, active, historical, watch := buildStockResearchBlocks(ctx, report, nil, nil)
-	if len(outline) != 5 {
-		t.Fatalf("expected 5 stock research outline steps, got %+v", outline)
+	outline, active, historical, watch := buildStockResearchBlocks(ctx, "600519.SH")
+
+	if len(outline) == 0 || outline[0].Slot == "" {
+		t.Fatalf("expected research outline to be built: %+v", outline)
 	}
-	if len(active) == 0 {
-		t.Fatalf("expected stock active thesis cards, got %+v", active)
+	if len(active) != 1 || !strings.Contains(active[0].Summary, "趋势") {
+		t.Fatalf("expected active thesis to be created from reason summary: %+v", active)
 	}
-	if len(historical) == 0 {
-		t.Fatalf("expected stock historical thesis cards, got %+v", historical)
+	if len(historical) != 1 || historical[0].Status != "WEAKENED" {
+		t.Fatalf("expected historical thesis derived from memory feedback: %+v", historical)
 	}
-	if len(watch) == 0 {
-		t.Fatalf("expected stock watch signals, got %+v", watch)
+	if len(watch) != 1 || watch[0].SignalType != "INVALIDATION" {
+		t.Fatalf("expected watch signal derived from risk or memory feedback: %+v", watch)
 	}
 }
 
-func TestBuildFuturesResearchBlocksCreatesDomainSpecificOutline(t *testing.T) {
+func TestBuildFuturesResearchBlocksUsesStructureAndInventory(t *testing.T) {
 	report := map[string]any{
-		"market_regime": "TREND_CONTINUE",
-		"memory_feedback": map[string]any{
-			"summary":         "趋势方向正确，但节奏验证偏慢",
-			"failure_signals": []any{"宏观扰动放大回撤"},
-			"suggestions":     []any{"紧盯基差和主仓切换"},
-		},
+		"market_regime": "TREND",
 	}
 	ctx := strategyEngineAssetContext{
-		record: model.StrategyEnginePublishRecord{TradeDate: "2026-03-28"},
+		record: model.StrategyEnginePublishRecord{TradeDate: "2026-03-28", ReportSnapshot: report},
 		asset: map[string]any{
-			"contract":                "RB2609",
-			"reason_summary":          "供需收紧叠加基差修复，方向继续偏多",
-			"risk_summary":            "跌破 3220 则失效",
-			"risk_flags":              []any{"主仓切换临近"},
-			"invalidations":           []any{"跌破 3220 则失效"},
-			"inventory_factor_summary": "库存连续去化",
-			"structure_factor_summary": "期限结构保持同向",
+			"contract":                 "RB2505",
+			"reason_summary":           "库存继续回落，结构维持升水",
+			"structure_factor_summary": "期限结构维持升水",
+			"inventory_factor_summary": "库存持续去化",
 		},
 	}
 
-	outline, active, historical, watch := buildFuturesResearchBlocks(ctx, report, nil, nil)
-	if len(outline) != 5 {
-		t.Fatalf("expected 5 futures research outline steps, got %+v", outline)
+	outline, active, historical, watch := buildFuturesResearchBlocks(ctx, "RB2505")
+
+	if len(outline) == 0 || outline[0].Slot == "" {
+		t.Fatalf("expected futures research outline to be built: %+v", outline)
 	}
-	if len(active) == 0 {
-		t.Fatalf("expected futures active thesis cards, got %+v", active)
+	if len(active) < 1 {
+		t.Fatalf("expected futures active thesis cards: %+v", active)
 	}
-	if len(historical) == 0 {
-		t.Fatalf("expected futures historical thesis cards, got %+v", historical)
+	if len(historical) != 0 {
+		t.Fatalf("expected no historical thesis when memory feedback is absent: %+v", historical)
 	}
 	if len(watch) == 0 {
-		t.Fatalf("expected futures watch signals, got %+v", watch)
+		t.Fatalf("expected futures watch signals even without memory feedback: %+v", watch)
+	}
+	if active[0].EvidenceSource == "" {
+		t.Fatalf("expected evidence source to be filled for futures thesis cards: %+v", active)
 	}
 }

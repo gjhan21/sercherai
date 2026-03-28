@@ -104,10 +104,10 @@ type StrategyExplanationWatchSignal struct {
 }
 
 type StrategyExplanationConfidenceDriver struct {
-	Label  string  `json:"label"`
-	Effect string  `json:"effect"`
-	Note   string  `json:"note"`
-	Delta  float64 `json:"delta"`
+	Label     string  `json:"label"`
+	Impact    float64 `json:"impact"`
+	Note      string  `json:"note"`
+	SourceKey string  `json:"source_key"`
 }
 
 type StrategyExplanationConfidenceCalibration struct {
@@ -148,15 +148,15 @@ type StrategyClientExplanation struct {
 	SupplyChainNotes      []string                                 `json:"supply_chain_notes"`
 	StructureSummary      string                                   `json:"structure_factor_summary"`
 	InventorySummary      string                                   `json:"inventory_factor_summary"`
-	RelatedEntities       []StrategyExplanationRelatedEntity       `json:"related_entities"`
-	RelatedEvents         []StrategyExplanationRelatedEvent        `json:"related_events"`
-	EventEvidenceCards    []StrategyExplanationEvidenceCard        `json:"event_evidence_cards"`
-	MemoryFeedback        StrategyExplanationMemoryFeedback        `json:"memory_feedback"`
 	ResearchOutline       []StrategyResearchOutlineStep            `json:"research_outline"`
 	ActiveThesisCards     []StrategyExplanationThesisCard          `json:"active_thesis_cards"`
 	HistoricalThesisCards []StrategyExplanationThesisCard          `json:"historical_thesis_cards"`
 	WatchSignals          []StrategyExplanationWatchSignal         `json:"watch_signals"`
 	ConfidenceCalibration StrategyExplanationConfidenceCalibration `json:"confidence_calibration"`
+	RelatedEntities       []StrategyExplanationRelatedEntity       `json:"related_entities"`
+	RelatedEvents         []StrategyExplanationRelatedEvent        `json:"related_events"`
+	EventEvidenceCards    []StrategyExplanationEvidenceCard        `json:"event_evidence_cards"`
+	MemoryFeedback        StrategyExplanationMemoryFeedback        `json:"memory_feedback"`
 	EvaluationMeta        map[string]any                           `json:"evaluation_meta"`
 	VersionDiff           StrategyVersionDiff                      `json:"version_diff,omitempty"`
 	WorkloadSummary       StrategyWorkloadSummary                  `json:"workload_summary"`
@@ -185,13 +185,13 @@ type StrategyVersionHistoryItem struct {
 	RiskBoundary          string                                   `json:"risk_boundary"`
 	ThemeTags             []string                                 `json:"theme_tags"`
 	SectorTags            []string                                 `json:"sector_tags"`
-	RelatedEntities       []StrategyExplanationRelatedEntity       `json:"related_entities"`
-	MemoryFeedback        StrategyExplanationMemoryFeedback        `json:"memory_feedback"`
 	ResearchOutline       []StrategyResearchOutlineStep            `json:"research_outline"`
 	ActiveThesisCards     []StrategyExplanationThesisCard          `json:"active_thesis_cards"`
 	HistoricalThesisCards []StrategyExplanationThesisCard          `json:"historical_thesis_cards"`
 	WatchSignals          []StrategyExplanationWatchSignal         `json:"watch_signals"`
 	ConfidenceCalibration StrategyExplanationConfidenceCalibration `json:"confidence_calibration"`
+	RelatedEntities       []StrategyExplanationRelatedEntity       `json:"related_entities"`
+	MemoryFeedback        StrategyExplanationMemoryFeedback        `json:"memory_feedback"`
 	RiskFlags             []string                                 `json:"risk_flags"`
 	Invalidations         []string                                 `json:"invalidations"`
 	EvaluationMeta        map[string]any                           `json:"evaluation_meta"`

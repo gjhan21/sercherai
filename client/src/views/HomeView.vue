@@ -629,9 +629,13 @@ import {
 } from "../lib/growth-analytics";
 import { getExperimentVariant } from "../lib/growth-experiments";
 import {
+  buildStrategyConfidenceCalibrationSummary,
   buildStrategyInsightSections,
   buildStrategyMetaText,
-  buildStrategyProofTags
+  buildStrategyProofTags,
+  buildStrategyThesisCardRows,
+  buildStrategyWatchSignalRows,
+  firstMeaningfulStrategyText
 } from "../lib/strategy-version";
 import {
   buildCommunityComposeRoute,
@@ -860,7 +864,11 @@ const primaryStockInsightSections = computed(() =>
   buildStrategyInsightSections(primaryStockExplanation.value, primaryStock.value?.reason || "")
 );
 
-const primaryStockWhyText = computed(() => primaryStockInsightSections.value.whyNow);
+const primaryStockWhyText = computed(() => {
+  const explanation = primaryStockExplanation.value;
+  const activeThesis = buildStrategyThesisCardRows(explanation, "active", { limit: 1 })[0];
+  return firstMeaningfulStrategyText([activeThesis?.summary, primaryStockInsightSections.value.whyNow]);
+});
 
 const primaryStockProofTags = computed(() =>
   buildStrategyProofTags(primaryStockExplanation.value, { includeVersion: true })
@@ -877,6 +885,9 @@ const decisionWatchlist = computed(() =>
     const sections = buildStrategyInsightSections(explanation, item.reason_summary || "等待更多触发信号确认");
     const historyReturn = calcCumulativeReturn(stockPerformanceMap.value[item.id] || []);
     const expected = inferExpectedRange(detail.take_profit, historyReturn);
+    const activeThesis = buildStrategyThesisCardRows(explanation, "active", { limit: 1 })[0];
+    const watchSignal = buildStrategyWatchSignalRows(explanation, { limit: 1 })[0];
+    const calibration = buildStrategyConfidenceCalibrationSummary(explanation);
 
     return {
       id: item.id,
@@ -886,10 +897,12 @@ const decisionWatchlist = computed(() =>
       risk: mapRiskLevel(item.risk_level),
       expected,
       direction: inferExpectedSide(expected),
-      note: sections.whyNow || item.reason_summary || "等待更多触发信号确认",
+      note: firstMeaningfulStrategyText([activeThesis?.summary, sections.whyNow, item.reason_summary, "等待更多触发信号确认"]),
       whySelected: sections.proofSource || "",
       proofTags: buildStrategyProofTags(explanation, { limit: 3, includeVersion: true }),
-      action: sections.riskBoundary || (detail.stop_loss ? `风险线：${detail.stop_loss}` : `观察日：${formatDate(item.valid_from)}`),
+      action:
+        firstMeaningfulStrategyText([watchSignal?.trigger, calibration?.summary, sections.riskBoundary]) ||
+        (detail.stop_loss ? `风险线：${detail.stop_loss}` : `观察日：${formatDate(item.valid_from)}`),
       meta: buildStrategyMetaText(explanation, formatDateTime, { includeBatch: false, includeJob: false })
     };
   })
