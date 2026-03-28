@@ -606,6 +606,42 @@ func TestApplyStrategyVersionDiffUsesStructuredPublishChanges(t *testing.T) {
 	}
 }
 
+func TestBuildFallbackVersionHistoryItemCarriesL1Fields(t *testing.T) {
+	explanation := model.StrategyClientExplanation{
+		ResearchOutline: []model.StrategyResearchOutlineStep{
+			{Slot: "TREND", Title: "趋势与结构", Summary: "价格结构仍强"},
+		},
+		ActiveThesisCards: []model.StrategyExplanationThesisCard{
+			{Key: "trend", Title: "趋势延续", Summary: "主升趋势未破坏"},
+		},
+		HistoricalThesisCards: []model.StrategyExplanationThesisCard{
+			{Key: "event", Title: "事件催化弱化", Summary: "旧催化已进入兑现期"},
+		},
+		WatchSignals: []model.StrategyExplanationWatchSignal{
+			{Title: "跌破止损", SignalType: "INVALIDATION", Trigger: "跌破 5 日线"},
+		},
+		ConfidenceCalibration: model.StrategyExplanationConfidenceCalibration{
+			BaseConfidence:     0.72,
+			AdjustedConfidence: 0.64,
+			AdvisoryOnly:       true,
+		},
+	}
+
+	item := buildFallbackVersionHistoryItem("", "", "2026-03-28", 0, "2026-03-28T09:00:00Z", "", "", explanation)
+	if len(item.ResearchOutline) != 1 {
+		t.Fatalf("expected research outline to survive fallback item: %+v", item)
+	}
+	if len(item.ActiveThesisCards) != 1 || len(item.HistoricalThesisCards) != 1 {
+		t.Fatalf("expected thesis fields to survive fallback item: %+v", item)
+	}
+	if len(item.WatchSignals) != 1 || item.ConfidenceCalibration.AdjustedConfidence <= 0 {
+		t.Fatalf("expected watch/confidence fields to survive fallback item: %+v", item)
+	}
+	if !item.ConfidenceCalibration.AdvisoryOnly {
+		t.Fatalf("expected advisory_only to survive fallback item: %+v", item.ConfidenceCalibration)
+	}
+}
+
 func TestBuildFuturesStrategyExplanationUsesLocalSnapshotWithoutRemoteFetch(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
