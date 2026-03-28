@@ -115,8 +115,14 @@ func TestBuildStockStrategyExplanationUsesLocalSnapshotWithoutRemoteFetch(t *tes
 	if strings.Join(explanation.Invalidations, ",") != "跌破 5 日线" {
 		t.Fatalf("unexpected invalidations: %+v", explanation.Invalidations)
 	}
-	if len(explanation.Simulations) != 1 || len(explanation.AgentOpinions) != 1 {
+	if len(explanation.Simulations) != 1 || len(explanation.AgentOpinions) == 0 {
 		t.Fatalf("expected explanation simulation and agent opinions, got %+v", explanation)
+	}
+	if len(explanation.ScenarioSnapshots) != 3 || explanation.ScenarioMeta.PrimaryScenario == "" {
+		t.Fatalf("expected stock insight explanation to carry l2 scenarios, got %+v", explanation)
+	}
+	if explanation.RelationshipSnapshot.RelationshipCount == 0 {
+		t.Fatalf("expected stock insight explanation to carry relationship snapshot, got %+v", explanation.RelationshipSnapshot)
 	}
 	if !explanation.ConfidenceCalibration.AdvisoryOnly || explanation.ConfidenceCalibration.AdjustedConfidence <= 0 {
 		t.Fatalf("expected stock explanation confidence calibration, got %+v", explanation.ConfidenceCalibration)
@@ -340,8 +346,11 @@ func TestBuildStockStrategyExplanationBackfillsFromRemotePublishRecordUsingLocal
 	if strings.Join(explanation.RiskFlags, ",") != "远端回填告警,回填备注" {
 		t.Fatalf("unexpected risk flags: %+v", explanation.RiskFlags)
 	}
-	if len(explanation.Simulations) != 1 || len(explanation.AgentOpinions) != 1 {
+	if len(explanation.Simulations) != 1 || len(explanation.AgentOpinions) == 0 {
 		t.Fatalf("expected simulations and agents from remote backfill, got %+v", explanation)
+	}
+	if len(explanation.ScenarioSnapshots) != 3 || explanation.ScenarioMeta.PrimaryScenario == "" {
+		t.Fatalf("expected remote stock explanation to carry l2 scenarios, got %+v", explanation)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -520,6 +529,12 @@ func TestGetStockRecommendationVersionHistoryUsesBackfilledLocalContexts(t *test
 	}
 	if len(items[0].HistoricalThesisCards) == 0 {
 		t.Fatalf("expected stock version history to keep historical thesis cards, got %+v", items[0])
+	}
+	if len(items[0].ScenarioSnapshots) != 3 || items[0].ScenarioMeta.PrimaryScenario == "" {
+		t.Fatalf("expected stock version history to keep l2 scenario fields, got %+v", items[0])
+	}
+	if len(items[0].AgentOpinions) == 0 {
+		t.Fatalf("expected stock version history to keep l2 agent opinions, got %+v", items[0])
 	}
 	if strings.Join(items[0].RiskFlags, ",") != "版本历史告警,版本历史备注" {
 		t.Fatalf("unexpected version history risk flags: %+v", items[0].RiskFlags)
@@ -869,8 +884,11 @@ func TestBuildFuturesStrategyExplanationUsesLocalSnapshotWithoutRemoteFetch(t *t
 	if strings.Join(explanation.Invalidations, ",") != "跌破 3490 则失效" {
 		t.Fatalf("unexpected futures invalidations: %+v", explanation.Invalidations)
 	}
-	if len(explanation.Simulations) != 1 || len(explanation.AgentOpinions) != 1 {
+	if len(explanation.Simulations) != 1 || len(explanation.AgentOpinions) == 0 {
 		t.Fatalf("expected futures explanation simulation and agent opinions, got %+v", explanation)
+	}
+	if len(explanation.ScenarioSnapshots) != 3 || explanation.RelationshipSnapshot.RelationshipCount == 0 {
+		t.Fatalf("expected futures insight explanation to carry l2 fields, got %+v", explanation)
 	}
 	if !explanation.ConfidenceCalibration.AdvisoryOnly || explanation.ConfidenceCalibration.AdjustedConfidence <= 0 {
 		t.Fatalf("expected futures explanation confidence calibration, got %+v", explanation.ConfidenceCalibration)
@@ -1249,6 +1267,9 @@ func TestGetFuturesStrategyVersionHistoryUsesBackfilledLocalContexts(t *testing.
 	}
 	if len(items[0].ResearchOutline) == 0 || len(items[0].HistoricalThesisCards) == 0 {
 		t.Fatalf("expected futures version history to keep l1 research fields, got %+v", items[0])
+	}
+	if len(items[0].ScenarioSnapshots) != 3 || items[0].ScenarioMeta.PrimaryScenario == "" {
+		t.Fatalf("expected futures version history to keep l2 scenario fields, got %+v", items[0])
 	}
 	if strings.Join(items[0].RiskFlags, ",") != "期货版本告警,期货版本备注" {
 		t.Fatalf("unexpected futures version history risk flags: %+v", items[0].RiskFlags)

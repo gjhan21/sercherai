@@ -6,13 +6,11 @@ func buildStockRelationshipSnapshot(ctx strategyEngineAssetContext) model.Strate
 	assetKey := firstNonEmpty(asString(ctx.asset["symbol"]), asString(ctx.asset["asset_key"]))
 	nodes := []model.StrategyExplanationRelationshipNode{}
 
-	if name := asString(ctx.asset["name"]); name != "" {
-		nodes = append(nodes, model.StrategyExplanationRelationshipNode{
-			Type:  "Company",
-			Key:   assetKey,
-			Label: name,
-		})
-	}
+	nodes = append(nodes, model.StrategyExplanationRelationshipNode{
+		Type:  "Company",
+		Key:   assetKey,
+		Label: firstNonEmpty(asString(ctx.asset["name"]), assetKey),
+	})
 	for _, sector := range compactStrings(anySliceToStrings(ctx.asset["sector_tags"])) {
 		nodes = append(nodes, model.StrategyExplanationRelationshipNode{
 			Type:  "Sector",
