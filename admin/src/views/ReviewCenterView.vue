@@ -5,11 +5,13 @@ import {
   assignReviewTask,
   getAuditEventSummary,
   getWorkflowMetrics,
+  listSystemConfigs,
   listAuditEvents,
   listReviewTasks,
   reviewTaskDecision,
   submitReviewTask
 } from "../api/admin";
+import { parseForecastAdminConfigMap } from "../lib/forecast-admin";
 import { getAccessToken, getSession, hasPermission } from "../lib/session";
 
 const route = useRoute();
@@ -67,6 +69,7 @@ const metrics = ref({
 });
 const reviewAuditSummary = ref(null);
 const reviewAuditItems = ref([]);
+const forecastReviewConfig = ref(null);
 
 const submitForm = reactive({
   module: "NEWS",
@@ -435,6 +438,22 @@ async function fetchReviewAuditEvents() {
   }
 }
 
+async function fetchForecastReviewConfig() {
+  try {
+    const data = await listSystemConfigs({
+      keyword: "growth.forecast_l1.",
+      page: 1,
+      page_size: 50
+    });
+    const configMap = Object.fromEntries(
+      (data.items || []).map((item) => [String(item.config_key || "").trim().toLowerCase(), item.config_value])
+    );
+    forecastReviewConfig.value = parseForecastAdminConfigMap(configMap);
+  } catch {
+    forecastReviewConfig.value = parseForecastAdminConfigMap({});
+  }
+}
+
 function syncCurrentTask() {
   if (!currentTask.value?.id) {
     return;
@@ -502,7 +521,7 @@ async function applyReviewRouteFocus(reviewID) {
 }
 
 async function refreshAll(options = {}) {
-  await Promise.all([fetchMetrics(), fetchTasks(options), fetchReviewAuditEvents()]);
+  await Promise.all([fetchMetrics(), fetchTasks(options), fetchReviewAuditEvents(), fetchForecastReviewConfig()]);
   clearSelection();
   updateNowTick();
 }
@@ -1197,6 +1216,28 @@ onBeforeUnmount(() => {
           {{ item.event_type || "REVIEW_TASK" }} · {{ item.status || "OPEN" }}
         </el-tag>
         <el-text v-if="!reviewAuditItems.length" type="info">当前筛选下暂无 REVIEW_TASK open audit events</el-text>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 12px">
+      <div class="section-header">
+        <div>
+          <h3 style="margin: 0">预测增强审核提示</h3>
+          <p class="muted" style="margin: 6px 0 0">L1 当前仅输出 advisory only 提示，不改变现有审核主流程。</p>
+        </div>
+        <div class="inline-actions inline-actions--left">
+          <el-tag :type="forecastReviewConfig?.enabled ? 'success' : 'info'" effect="plain">
+            {{ forecastReviewConfig?.enabled ? "预测增强开启" : "预测增强关闭" }}
+          </el-tag>
+          <el-tag :type="forecastReviewConfig?.explanationEnabled ? 'primary' : 'info'" effect="plain">
+            {{ forecastReviewConfig?.explanationEnabled ? "explanation 增强开启" : "explanation 增强关闭" }}
+          </el-tag>
+        </div>
+      </div>
+      <div class="toolbar" style="margin-bottom: 0">
+        <el-text type="info">记忆反馈样本阈值：{{ forecastReviewConfig?.memoryFeedbackMinSamples ?? "-" }}</el-text>
+        <el-text type="info">优先级阈值：{{ forecastReviewConfig?.advisoryPriorityThreshold ?? "-" }}</el-text>
+        <el-text type="warning">advisory only：仅提示高风险/低置信度样本，审批动作仍以现有流程为准。</el-text>
       </div>
     </div>
 

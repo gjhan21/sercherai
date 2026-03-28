@@ -28,6 +28,7 @@ import {
   updateFuturesStrategyStatus,
   updateStockRecommendationStatus
 } from "../api/admin";
+import { DEFAULT_FORECAST_ADMIN_CONFIG, buildForecastPublishSummary } from "../lib/forecast-admin";
 import { sanitizeHTML } from "../lib/html";
 import { normalizeMarketCenterRouteState } from "../lib/market-data-admin";
 import { hasPermission } from "../lib/session";
@@ -138,6 +139,9 @@ const stockForm = reactive({
   performance_label: "PENDING"
 });
 const stockPublishDetailHTML = computed(() => sanitizeHTML(stockPublishDetail.value?.html || "<p>暂无报告正文</p>"));
+const stockForecastSummary = computed(() =>
+  buildForecastPublishSummary(stockPublishDetail.value, DEFAULT_FORECAST_ADMIN_CONFIG.advisoryPriorityThreshold)
+);
 
 const futuresLoading = ref(false);
 const futuresSubmitting = ref(false);
@@ -222,6 +226,9 @@ const futuresForm = reactive({
 });
 const futuresPublishDetailHTML = computed(() =>
   sanitizeHTML(futuresPublishDetail.value?.html || "<p>暂无报告正文</p>")
+);
+const futuresForecastSummary = computed(() =>
+  buildForecastPublishSummary(futuresPublishDetail.value, DEFAULT_FORECAST_ADMIN_CONFIG.advisoryPriorityThreshold)
 );
 
 const eventsLoading = ref(false);
@@ -2360,6 +2367,18 @@ watch(
         <span v-if="!(stockPublishDetail.asset_keys || []).length" class="muted">暂无标的清单</span>
       </div>
 
+      <div class="publish-detail-summary-card" style="margin-bottom: 12px">
+        <strong>预测增强摘要</strong>
+        <div class="publish-summary-grid">
+          <el-tag type="success">增强 explanation 覆盖 {{ stockForecastSummary.enhancedCount }} / {{ stockForecastSummary.payloadCount || 0 }}</el-tag>
+          <el-tag type="info">覆盖率 {{ stockForecastSummary.coverageRatio }}</el-tag>
+          <el-tag type="primary">研究编排 {{ stockForecastSummary.researchOutlineCount }}</el-tag>
+          <el-tag type="warning">高 advisory 样本 {{ stockForecastSummary.highAdvisoryCount }}</el-tag>
+          <el-tag>观察信号 {{ stockForecastSummary.watchSignalCount }}</el-tag>
+          <el-tag>记忆反馈 {{ stockForecastSummary.memoryFeedbackCount }}</el-tag>
+        </div>
+      </div>
+
       <div class="publish-detail-body" v-loading="stockPublishDetailLoading">
         <el-tabs v-model="stockPublishDetailActiveTab">
           <el-tab-pane label="HTML报告" name="html">
@@ -2604,6 +2623,18 @@ watch(
           {{ item }}
         </el-tag>
         <span v-if="!(futuresPublishDetail.asset_keys || []).length" class="muted">暂无合约清单</span>
+      </div>
+
+      <div class="publish-detail-summary-card" style="margin-bottom: 12px">
+        <strong>预测增强摘要</strong>
+        <div class="publish-summary-grid">
+          <el-tag type="success">增强 explanation 覆盖 {{ futuresForecastSummary.enhancedCount }} / {{ futuresForecastSummary.payloadCount || 0 }}</el-tag>
+          <el-tag type="info">覆盖率 {{ futuresForecastSummary.coverageRatio }}</el-tag>
+          <el-tag type="primary">研究编排 {{ futuresForecastSummary.researchOutlineCount }}</el-tag>
+          <el-tag type="warning">高 advisory 样本 {{ futuresForecastSummary.highAdvisoryCount }}</el-tag>
+          <el-tag>观察信号 {{ futuresForecastSummary.watchSignalCount }}</el-tag>
+          <el-tag>记忆反馈 {{ futuresForecastSummary.memoryFeedbackCount }}</el-tag>
+        </div>
       </div>
 
       <div class="publish-detail-body" v-loading="futuresPublishDetailLoading">
@@ -3256,6 +3287,20 @@ watch(
   margin: 8px 0 0;
   color: #374151;
   line-height: 1.7;
+}
+
+.publish-detail-summary-card {
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+}
+
+.publish-summary-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 </style>

@@ -30,3 +30,16 @@ test("SystemConfigsView masks sensitive config values by default", () => {
   assert.match(text, /编辑前请先点击“显示敏感配置值”/);
   assert.match(text, /formatListConfigValue\(row\.config_key, row\.config_value\)/);
 });
+
+test("SystemConfigsView exposes forecast enhancement config tab", () => {
+  const text = readView();
+  assert.match(text, /forecast-admin/);
+  assert.match(text, /const forecastLoading = ref\(false\);/);
+  assert.match(text, /const forecastForm = reactive\(/);
+  assert.match(text, /async function fetchForecastConfig\(/);
+  assert.match(text, /async function saveForecastConfig\(/);
+  assert.match(text, /预测增强配置/);
+  assert.match(text, /L1 仅做 explanation 增强与 advisory 提示/);
+  assert.match(text, /growth\.forecast_l1\.enabled/);
+  assert.match(text, /growth\.forecast_l1\.advisory_priority_threshold/);
+});

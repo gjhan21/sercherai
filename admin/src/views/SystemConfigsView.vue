@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { listSystemConfigs, testOSSQiniuConfig, testPaymentYolkPayConfig, upsertSystemConfig } from "../api/admin";
+import { buildForecastAdminConfigPayloads, parseForecastAdminConfigMap } from "../lib/forecast-admin";
 import { hasPermission } from "../lib/session";
 
 const activeTab = ref("oss");
@@ -109,6 +110,14 @@ const futuresFactorItems = [
   { key: "news", label: "资讯因子", desc: "相关资讯情绪与相关度" },
   { key: "performance", label: "绩效因子", desc: "历史胜率、超额收益与回撤" }
 ];
+const forecastLoading = ref(false);
+const forecastSaving = ref(false);
+const forecastForm = reactive({
+  enabled: true,
+  explanationEnabled: true,
+  memoryFeedbackMinSamples: 5,
+  advisoryPriorityThreshold: 0.55
+});
 const canEditSystemConfigs = hasPermission("system_config.edit");
 
 function normalizeErrorMessage(error, fallback) {
@@ -424,6 +433,18 @@ async function fetchFuturesScoreConfig() {
   }
 }
 
+async function fetchForecastConfig() {
+  forecastLoading.value = true;
+  try {
+    const data = await listSystemConfigs({ keyword: "growth.forecast_l1.", page: 1, page_size: 50 });
+    Object.assign(forecastForm, parseForecastAdminConfigMap(toConfigMap(data?.items || [])));
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "加载预测增强配置失败");
+  } finally {
+    forecastLoading.value = false;
+  }
+}
+
 async function fetchConfigList(options = {}) {
   const { keepMessage = false } = options;
   listLoading.value = true;
@@ -451,7 +472,13 @@ async function refreshAll() {
   refreshingAll.value = true;
   clearMessages();
   try {
-    await Promise.all([fetchOSSConfig(), fetchPaymentConfig(), fetchFuturesScoreConfig(), fetchConfigList()]);
+    await Promise.all([
+      fetchOSSConfig(),
+      fetchPaymentConfig(),
+      fetchFuturesScoreConfig(),
+      fetchForecastConfig(),
+      fetchConfigList()
+    ]);
     message.value = "配置中心数据已刷新";
   } finally {
     refreshingAll.value = false;
@@ -650,6 +677,24 @@ async function saveFuturesScoreConfig() {
   }
 }
 
+async function saveForecastConfig() {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
+  forecastSaving.value = true;
+  clearMessages();
+  try {
+    const payloads = buildForecastAdminConfigPayloads(forecastForm);
+    await Promise.all(payloads.map((payload) => upsertSystemConfig(payload)));
+    await Promise.all([fetchForecastConfig(), fetchConfigList({ keepMessage: true })]);
+    message.value = "预测增强配置已保存";
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "保存预测增强配置失败");
+  } finally {
+    forecastSaving.value = false;
+  }
+}
+
 function openCreateDialog() {
   if (!ensureCanEditSystemConfigs()) {
     return;
@@ -698,7 +743,13 @@ async function submitDialog() {
   try {
     await upsertSystemConfig(payload);
     dialogVisible.value = false;
-    await Promise.all([fetchConfigList({ keepMessage: true }), fetchOSSConfig(), fetchPaymentConfig(), fetchFuturesScoreConfig()]);
+    await Promise.all([
+      fetchConfigList({ keepMessage: true }),
+      fetchOSSConfig(),
+      fetchPaymentConfig(),
+      fetchFuturesScoreConfig(),
+      fetchForecastConfig()
+    ]);
     message.value = `系统配置 ${payload.config_key} 已保存`;
   } catch (error) {
     errorMessage.value = normalizeErrorMessage(error, "保存系统配置失败");
@@ -1083,6 +1134,70 @@ onMounted(refreshAll);
             show-icon
             style="margin-top: 8px"
           />
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="预测增强配置" name="forecast-l1">
+        <div class="card" v-loading="forecastLoading">
+          <div class="section-head">
+            <div class="section-title">股票/期货预测增强 L1</div>
+            <div class="toolbar" style="margin-bottom: 0">
+              <el-button :loading="forecastLoading" @click="fetchForecastConfig">刷新</el-button>
+              <el-button
+                v-if="canEditSystemConfigs"
+                type="primary"
+                :loading="forecastSaving"
+                @click="saveForecastConfig"
+              >
+                保存配置
+              </el-button>
+            </div>
+          </div>
+
+          <el-alert
+            title="L1 仅做 explanation 增强与 advisory 提示，不改推荐排序、不改权重、不改发布审核主流程。"
+            type="info"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 12px"
+          />
+
+          <el-form label-width="170px">
+            <div class="form-grid">
+              <el-form-item label="全局启用">
+                <el-switch v-model="forecastForm.enabled" />
+              </el-form-item>
+              <el-form-item label="Explanation 增强展示">
+                <el-switch v-model="forecastForm.explanationEnabled" />
+              </el-form-item>
+              <el-form-item label="记忆反馈样本阈值">
+                <el-input-number
+                  v-model="forecastForm.memoryFeedbackMinSamples"
+                  :min="1"
+                  :max="100"
+                  :step="1"
+                  controls-position="right"
+                />
+              </el-form-item>
+              <el-form-item label="advisory priority 阈值">
+                <el-input-number
+                  v-model="forecastForm.advisoryPriorityThreshold"
+                  :min="0.1"
+                  :max="0.95"
+                  :step="0.01"
+                  :precision="2"
+                  controls-position="right"
+                />
+              </el-form-item>
+            </div>
+          </el-form>
+
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item label="配置键">growth.forecast_l1.enabled</el-descriptions-item>
+            <el-descriptions-item label="增强展示键">growth.forecast_l1.explanation_enabled</el-descriptions-item>
+            <el-descriptions-item label="样本阈值键">growth.forecast_l1.memory_feedback_min_samples</el-descriptions-item>
+            <el-descriptions-item label="优先级阈值键">growth.forecast_l1.advisory_priority_threshold</el-descriptions-item>
+          </el-descriptions>
         </div>
       </el-tab-pane>
 

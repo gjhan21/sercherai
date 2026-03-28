@@ -59,3 +59,15 @@ test("MarketCenterView consumes audit deep-link query state", () => {
   assert.match(text, /handleViewFuturesPublishReplay/);
   assert.match(text, /watch\(\s*\(\) => route\.query/);
 });
+
+test("MarketCenterView shows forecast enhancement summary in publish detail", () => {
+  const text = readView();
+  assert.match(text, /forecast-admin/);
+  assert.match(text, /buildForecastPublishSummary/);
+  assert.match(text, /stockForecastSummary = computed/);
+  assert.match(text, /futuresForecastSummary = computed/);
+  assert.match(text, /预测增强摘要/);
+  assert.match(text, /增强 explanation 覆盖/);
+  assert.match(text, /高 advisory 样本/);
+  assert.match(text, /观察信号/);
+});

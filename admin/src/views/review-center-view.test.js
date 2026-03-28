@@ -32,3 +32,15 @@ test("ReviewCenterView reads unified audit event summary for review operations",
   assert.match(text, /待处理审核事件/);
   assert.match(text, /REVIEW_TASK/);
 });
+
+test("ReviewCenterView shows forecast advisory-only configuration summary", () => {
+  const text = readView();
+  assert.match(text, /listSystemConfigs/);
+  assert.match(text, /forecast-admin/);
+  assert.match(text, /const forecastReviewConfig = ref\(null\);/);
+  assert.match(text, /async function fetchForecastReviewConfig\(/);
+  assert.match(text, /预测增强审核提示/);
+  assert.match(text, /advisory only/);
+  assert.match(text, /记忆反馈样本阈值/);
+  assert.match(text, /优先级阈值/);
+});
