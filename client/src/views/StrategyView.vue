@@ -1426,6 +1426,7 @@ import { getExperimentVariant } from "../lib/growth-experiments";
 import { shouldUseDemoFallback } from "../lib/fallback-policy";
 import {
   buildFallbackStrategyVersionHistory,
+  buildStrategyConfidenceCalibrationSummary,
   buildStrategyEventEvidenceCards,
   buildStrategyHistoryCompareState,
   buildStrategyBatchText,
@@ -1433,8 +1434,11 @@ import {
   buildStrategyMetaText,
   buildStrategyOriginCards,
   buildStrategyProofTags,
+  buildStrategyResearchOutlineRows,
   buildStrategyRiskBoundaryText,
+  buildStrategyThesisCardRows,
   buildStrategyVersionDiff,
+  buildStrategyWatchSignalRows,
   firstMeaningfulStrategyText,
   mapStrategyVersionHistory
 } from "../lib/strategy-version";
@@ -1936,6 +1940,11 @@ const activeStockExplanationCards = computed(() => {
   const evidenceCount = Array.isArray(explanation.evidence_cards) ? explanation.evidence_cards.length : 0;
   const agentCount = Number(explanation.workload_summary?.agent_count ?? 0);
   const scenarioCount = Number(explanation.workload_summary?.scenario_count ?? 0);
+  const researchOutline = buildStrategyResearchOutlineRows(explanation, { limit: 1 })[0];
+  const activeThesis = buildStrategyThesisCardRows(explanation, "active", { limit: 1 })[0];
+  const historicalThesis = buildStrategyThesisCardRows(explanation, "historical", { limit: 1 })[0];
+  const watchSignal = buildStrategyWatchSignalRows(explanation, { limit: 1 })[0];
+  const calibration = buildStrategyConfidenceCalibrationSummary(explanation);
   return [
     {
       label: "种子输入",
@@ -1951,8 +1960,36 @@ const activeStockExplanationCards = computed(() => {
       label: "评审覆盖",
       value: `${agentCount} 角 / ${scenarioCount} 景`,
       note: buildStrategyRiskBoundaryText(explanation, "当前未补更多风险边界。")
-    }
-  ];
+    },
+    researchOutline
+      ? {
+          label: "研究拆解",
+          value: researchOutline.title,
+          note: researchOutline.summary
+        }
+      : null,
+    activeThesis
+      ? {
+          label: "当前有效理由",
+          value: activeThesis.title,
+          note: activeThesis.summary
+        }
+      : null,
+    historicalThesis
+      ? {
+          label: "历史弱化理由",
+          value: historicalThesis.title,
+          note: historicalThesis.summary
+        }
+      : null,
+    watchSignal || calibration
+      ? {
+          label: "观察与校准",
+          value: watchSignal?.title || calibration?.summary || "继续观察",
+          note: firstMeaningfulStrategyText([watchSignal?.trigger, calibration?.deltaLabel, calibration?.note])
+        }
+      : null
+  ].filter(Boolean);
 });
 
 const activeStockProofTags = computed(() => buildListProofTags(activeStockExplanation.value, { limit: 4 }));
@@ -2026,6 +2063,11 @@ const activeFuturesExplanationCards = computed(() => {
   const evidenceCount = Array.isArray(explanation.evidence_cards) ? explanation.evidence_cards.length : 0;
   const agentCount = Number(explanation.workload_summary?.agent_count ?? 0);
   const scenarioCount = Number(explanation.workload_summary?.scenario_count ?? 0);
+  const researchOutline = buildStrategyResearchOutlineRows(explanation, { limit: 1 })[0];
+  const activeThesis = buildStrategyThesisCardRows(explanation, "active", { limit: 1 })[0];
+  const historicalThesis = buildStrategyThesisCardRows(explanation, "historical", { limit: 1 })[0];
+  const watchSignal = buildStrategyWatchSignalRows(explanation, { limit: 1 })[0];
+  const calibration = buildStrategyConfidenceCalibrationSummary(explanation);
   return [
     {
       label: "种子输入",
@@ -2041,8 +2083,36 @@ const activeFuturesExplanationCards = computed(() => {
       label: "评审覆盖",
       value: `${agentCount} 角 / ${scenarioCount} 景`,
       note: buildStrategyRiskBoundaryText(explanation, "当前未补更多风险边界。")
-    }
-  ];
+    },
+    researchOutline
+      ? {
+          label: "研究拆解",
+          value: researchOutline.title,
+          note: researchOutline.summary
+        }
+      : null,
+    activeThesis
+      ? {
+          label: "当前有效理由",
+          value: activeThesis.title,
+          note: activeThesis.summary
+        }
+      : null,
+    historicalThesis
+      ? {
+          label: "历史弱化理由",
+          value: historicalThesis.title,
+          note: historicalThesis.summary
+        }
+      : null,
+    watchSignal || calibration
+      ? {
+          label: "观察与校准",
+          value: watchSignal?.title || calibration?.summary || "继续观察",
+          note: firstMeaningfulStrategyText([watchSignal?.trigger, calibration?.deltaLabel, calibration?.note])
+        }
+      : null
+  ].filter(Boolean);
 });
 
 const activeFuturesSupplyChainEntities = computed(() => {

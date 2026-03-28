@@ -115,6 +115,85 @@ function firstSupplyChainNote(explanation) {
   return firstMeaningfulStrategyText(explanation.supply_chain_notes);
 }
 
+export function buildStrategyResearchOutlineRows(explanation, options = {}) {
+  const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 4;
+  if (!Array.isArray(explanation?.research_outline)) {
+    return [];
+  }
+  return explanation.research_outline
+    .map((item, index) => ({
+      key: `${toText(item?.slot)}-${index}`,
+      title: toText(item?.title) || toText(item?.slot) || "研究步骤",
+      summary: toText(item?.summary) || "当前未补更多研究摘要。",
+      status: toText(item?.status) || "ACTIVE",
+      note: toText(item?.evidence_hint)
+    }))
+    .filter((item) => item.title)
+    .slice(0, limit);
+}
+
+export function buildStrategyThesisCardRows(explanation, type = "active", options = {}) {
+  const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 4;
+  const source =
+    type === "historical"
+      ? explanation?.historical_thesis_cards
+      : explanation?.active_thesis_cards;
+  if (!Array.isArray(source)) {
+    return [];
+  }
+  return source
+    .map((item, index) => ({
+      key: `${toText(item?.key)}-${index}`,
+      title: toText(item?.title) || "理由卡",
+      summary: toText(item?.summary) || "当前未补更多理由摘要。",
+      status: toText(item?.status) || (type === "historical" ? "WEAKENED" : "ACTIVE"),
+      note: firstMeaningfulStrategyText([item?.note, item?.evidence_source])
+    }))
+    .filter((item) => item.title)
+    .slice(0, limit);
+}
+
+export function buildStrategyWatchSignalRows(explanation, options = {}) {
+  const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 4;
+  if (!Array.isArray(explanation?.watch_signals)) {
+    return [];
+  }
+  return explanation.watch_signals
+    .map((item, index) => ({
+      key: `${toText(item?.signal_type)}-${index}`,
+      title: toText(item?.title) || "观察信号",
+      trigger: toText(item?.trigger) || "等待更多信号",
+      action: toText(item?.action) || "继续观察",
+      priority: toText(item?.priority) || "NORMAL",
+      note: toText(item?.signal_type)
+    }))
+    .filter((item) => item.trigger)
+    .slice(0, limit);
+}
+
+export function buildStrategyConfidenceCalibrationSummary(explanation) {
+  const calibration = explanation?.confidence_calibration;
+  if (!calibration || typeof calibration !== "object") {
+    return null;
+  }
+  const base = Number(calibration.base_confidence);
+  const adjusted = Number(calibration.adjusted_confidence);
+  if (!Number.isFinite(base) || !Number.isFinite(adjusted) || adjusted <= 0) {
+    return null;
+  }
+  const delta = Math.round((adjusted - base) * 100);
+  const deltaLabel = `${delta > 0 ? "+" : ""}${delta} pts`;
+  const driverLabel = Array.isArray(calibration.drivers)
+    ? firstMeaningfulStrategyText(calibration.drivers.map((item) => item?.label))
+    : "";
+  return {
+    summary: calibration.advisory_only ? `建议置信度 ${(adjusted * 100).toFixed(0)}%` : `置信度 ${(adjusted * 100).toFixed(0)}%`,
+    deltaLabel,
+    note: firstMeaningfulStrategyText([driverLabel, `基础 ${(base * 100).toFixed(0)}%`]),
+    advisoryOnly: calibration.advisory_only === true
+  };
+}
+
 export function buildStrategyRelatedEntities(explanation, options = {}) {
   const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 4;
   if (!Array.isArray(explanation?.related_entities)) {
