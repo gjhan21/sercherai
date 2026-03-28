@@ -417,6 +417,15 @@ func buildStrategyExplanationFromContext(
 	if confidenceReason == "" {
 		confidenceReason = asString(ctx.asset["reason_summary"])
 	}
+	var researchOutline []model.StrategyResearchOutlineStep
+	var activeThesis []model.StrategyExplanationThesisCard
+	var historicalThesis []model.StrategyExplanationThesisCard
+	var watchSignals []model.StrategyExplanationWatchSignal
+	if asString(ctx.asset["symbol"]) != "" {
+		researchOutline, activeThesis, historicalThesis, watchSignals = buildStockResearchBlocks(*ctx, assetKey)
+	} else {
+		researchOutline, activeThesis, historicalThesis, watchSignals = buildFuturesResearchBlocks(*ctx, assetKey)
+	}
 
 	return model.StrategyClientExplanation{
 		SeedSummary:      buildSeedSummary(seedHighlights, report),
@@ -430,20 +439,24 @@ func buildStrategyExplanationFromContext(
 			append(append([]string{}, ctx.record.Replay.WarningMessages...), ctx.record.Replay.Notes...),
 			stringSlice(ctx.asset["risk_flags"])...,
 		)),
-		Invalidations:    compactStrings(stringSlice(ctx.asset["invalidations"])),
-		ConfidenceReason: confidenceReason,
-		MarketRegime:     asString(report["market_regime"]),
-		EvidenceCards:    evidenceCards,
-		PortfolioRole:    asString(ctx.asset["portfolio_role"]),
-		RiskBoundary:     firstNonEmpty(asString(ctx.asset["risk_summary"]), asString(report["risk_summary"])),
-		ThemeTags:        stringSlice(ctx.asset["theme_tags"]),
-		SectorTags:       stringSlice(ctx.asset["sector_tags"]),
-		SupplyChainNotes: buildFuturesSupplyChainNotes(relatedEntities, evidenceCards, inventorySummary, structureSummary),
-		StructureSummary: structureSummary,
-		InventorySummary: inventorySummary,
-		RelatedEntities:  relatedEntities,
-		MemoryFeedback:   buildExplanationMemoryFeedback(mapValue(report["memory_feedback"])),
-		EvaluationMeta:   mapValue(report["evaluation_summary"]),
+		Invalidations:         compactStrings(stringSlice(ctx.asset["invalidations"])),
+		ConfidenceReason:      confidenceReason,
+		MarketRegime:          asString(report["market_regime"]),
+		EvidenceCards:         evidenceCards,
+		PortfolioRole:         asString(ctx.asset["portfolio_role"]),
+		RiskBoundary:          firstNonEmpty(asString(ctx.asset["risk_summary"]), asString(report["risk_summary"])),
+		ThemeTags:             stringSlice(ctx.asset["theme_tags"]),
+		SectorTags:            stringSlice(ctx.asset["sector_tags"]),
+		SupplyChainNotes:      buildFuturesSupplyChainNotes(relatedEntities, evidenceCards, inventorySummary, structureSummary),
+		StructureSummary:      structureSummary,
+		InventorySummary:      inventorySummary,
+		ResearchOutline:       researchOutline,
+		ActiveThesisCards:     activeThesis,
+		HistoricalThesisCards: historicalThesis,
+		WatchSignals:          watchSignals,
+		RelatedEntities:       relatedEntities,
+		MemoryFeedback:        buildExplanationMemoryFeedback(mapValue(report["memory_feedback"])),
+		EvaluationMeta:        mapValue(report["evaluation_summary"]),
 		WorkloadSummary: model.StrategyWorkloadSummary{
 			SeedCount:      len(seedHighlights),
 			CandidateCount: len(sliceOfMaps(report["candidates"])) + len(sliceOfMaps(report["strategies"])),
