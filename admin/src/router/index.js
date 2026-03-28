@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { NO_ACCESS_ROUTE_PATH, resolveFirstAccessibleRoute } from "../lib/admin-navigation";
+import { resolvePermissionDeniedRedirect } from "../lib/admin-route-guard.js";
 import { resolveDataSourcesSectionRoute } from "../lib/data-sources-admin.js";
 import { hasPermission, hasSession } from "../lib/session";
 
@@ -397,7 +398,10 @@ router.beforeEach((to) => {
     return "/login";
   }
   if (to.meta.permission && !hasPermission(to.meta.permission)) {
-    return to.path === landingPath ? NO_ACCESS_ROUTE_PATH : landingPath;
+    return resolvePermissionDeniedRedirect({
+      deniedPath: to.path,
+      firstAccessiblePath: landingPath
+    });
   }
   return true;
 });
