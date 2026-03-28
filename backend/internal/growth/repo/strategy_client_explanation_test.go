@@ -406,6 +406,57 @@ func TestApplyL1AdvisoryMemoryAdjustmentsAppendsRiskBoundaryAndWatchSignal(t *te
 	}
 }
 
+func TestBuildStockStrategyExplanationKeepsL1FallbackWithoutContext(t *testing.T) {
+	repo := &MySQLGrowthRepo{}
+	explanation := repo.buildStockStrategyExplanation(
+		model.StockRecommendation{
+			ID:              "reco_fallback_001",
+			Symbol:          "600519.SH",
+			ValidFrom:       "2026-03-28T09:30:00Z",
+			ReasonSummary:   "趋势保持，等待确认",
+			StrategyVersion: "stock-fallback-v1",
+		},
+		model.StockRecommendationDetail{
+			RecoID:   "reco_fallback_001",
+			RiskNote: "跌破前低减仓",
+		},
+	)
+
+	if len(explanation.ResearchOutline) == 0 || len(explanation.ActiveThesisCards) == 0 {
+		t.Fatalf("expected fallback stock explanation to keep l1 blocks: %+v", explanation)
+	}
+	if !explanation.ConfidenceCalibration.AdvisoryOnly || explanation.ConfidenceCalibration.AdjustedConfidence <= 0 {
+		t.Fatalf("expected fallback stock explanation to keep advisory calibration: %+v", explanation.ConfidenceCalibration)
+	}
+}
+
+func TestBuildFuturesStrategyExplanationKeepsL1FallbackWithoutContext(t *testing.T) {
+	repo := &MySQLGrowthRepo{}
+	explanation := repo.buildFuturesStrategyExplanation(
+		model.FuturesStrategy{
+			ID:            "futures_fallback_001",
+			Contract:      "RB2505",
+			ValidFrom:     "2026-03-28T09:30:00Z",
+			ReasonSummary: "结构未破坏，继续观察",
+		},
+		model.FuturesGuidance{
+			Contract:         "RB2505",
+			RiskLevel:        "MEDIUM",
+			InvalidCondition: "跌破 3220 则失效",
+		},
+	)
+
+	if len(explanation.ResearchOutline) == 0 || len(explanation.ActiveThesisCards) == 0 {
+		t.Fatalf("expected fallback futures explanation to keep l1 blocks: %+v", explanation)
+	}
+	if len(explanation.WatchSignals) == 0 {
+		t.Fatalf("expected fallback futures explanation to keep watch signals: %+v", explanation)
+	}
+	if !explanation.ConfidenceCalibration.AdvisoryOnly || explanation.ConfidenceCalibration.AdjustedConfidence <= 0 {
+		t.Fatalf("expected fallback futures explanation to keep advisory calibration: %+v", explanation.ConfidenceCalibration)
+	}
+}
+
 func TestGetStockRecommendationVersionHistoryUsesBackfilledLocalContexts(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -523,6 +574,9 @@ func TestGetStockRecommendationVersionHistoryUsesBackfilledLocalContexts(t *test
 	}
 	if !items[0].ConfidenceCalibration.AdvisoryOnly || items[0].ConfidenceCalibration.AdjustedConfidence <= 0 {
 		t.Fatalf("expected stock version history confidence calibration, got %+v", items[0].ConfidenceCalibration)
+	}
+	if len(items[0].HistoricalThesisCards) == 0 {
+		t.Fatalf("expected stock version history to keep historical thesis cards, got %+v", items[0])
 	}
 	if strings.Join(items[0].RiskFlags, ",") != "版本历史告警,版本历史备注" {
 		t.Fatalf("unexpected version history risk flags: %+v", items[0].RiskFlags)
@@ -1119,6 +1173,9 @@ func TestGetFuturesStrategyVersionHistoryUsesBackfilledLocalContexts(t *testing.
 	}
 	if !items[0].ConfidenceCalibration.AdvisoryOnly || items[0].ConfidenceCalibration.AdjustedConfidence <= 0 {
 		t.Fatalf("expected futures version history confidence calibration, got %+v", items[0].ConfidenceCalibration)
+	}
+	if len(items[0].ResearchOutline) == 0 || len(items[0].HistoricalThesisCards) == 0 {
+		t.Fatalf("expected futures version history to keep l1 research fields, got %+v", items[0])
 	}
 	if strings.Join(items[0].RiskFlags, ",") != "期货版本告警,期货版本备注" {
 		t.Fatalf("unexpected futures version history risk flags: %+v", items[0].RiskFlags)

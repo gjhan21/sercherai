@@ -4183,6 +4183,7 @@ WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT'
 	explanation := r.buildStockStrategyExplanation(item, detail)
 	if contexts, contextErr := r.listStrategyEngineAssetContexts("stock-selection", item.Symbol, defaultVersionHistoryLimit); contextErr == nil {
 		applyStrategyVersionDiffToExplanation(&explanation, contexts, item.Symbol)
+		applyStrategyL1HistoryFromContexts(&explanation, contexts, item.Symbol)
 	}
 
 	return model.StockRecommendationInsight{
@@ -4262,6 +4263,7 @@ WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT'
 		items = append(items, historyItem)
 	}
 	applyStrategyVersionDiffToHistoryItems(items, contexts, item.Symbol)
+	applyStrategyL1HistoryToHistoryItems(items, contexts, item.Symbol)
 	return items, nil
 }
 
@@ -4759,6 +4761,7 @@ func (r *MySQLGrowthRepo) GetFuturesStrategyInsight(userID string, strategyID st
 	explanation := r.buildFuturesStrategyExplanation(strategy, guidance)
 	if contexts, contextErr := r.listStrategyEngineAssetContexts("futures-strategy", strategy.Contract, defaultVersionHistoryLimit); contextErr == nil {
 		applyStrategyVersionDiffToExplanation(&explanation, contexts, strategy.Contract)
+		applyStrategyL1HistoryFromContexts(&explanation, contexts, strategy.Contract)
 	}
 	return model.FuturesStrategyInsight{
 		Strategy:         strategy,
@@ -4816,6 +4819,7 @@ func (r *MySQLGrowthRepo) GetFuturesStrategyVersionHistory(userID string, strate
 		))
 	}
 	applyStrategyVersionDiffToHistoryItems(items, contexts, strategy.Contract)
+	applyStrategyL1HistoryToHistoryItems(items, contexts, strategy.Contract)
 	return items, nil
 }
 

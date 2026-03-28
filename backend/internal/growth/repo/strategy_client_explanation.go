@@ -41,6 +41,19 @@ func (r *MySQLGrowthRepo) buildStockStrategyExplanation(item model.StockRecommen
 		},
 		StrategyVersion: item.StrategyVersion,
 		GeneratedAt:     item.ValidFrom,
+		EvaluationMeta:  normalizeExplanationEvaluationSummary(nil),
+		ResearchOutline: []model.StrategyResearchOutlineStep{
+			{Slot: "TREND", Title: "趋势与结构", Summary: firstNonEmpty(item.ReasonSummary, "当前推荐理由待确认"), Status: "ACTIVE"},
+		},
+		ActiveThesisCards: []model.StrategyExplanationThesisCard{
+			{Key: "fallback_reason", Title: "当前理由", Summary: firstNonEmpty(item.ReasonSummary, "当前推荐理由待确认"), Status: "ACTIVE", EvidenceSource: "RECOMMENDATION"},
+		},
+		WatchSignals: buildFallbackWatchSignals(fallbackStockInvalidations(item, detail)),
+	}
+	applyStrategyL1HistoryFallback(&explanation)
+	applyConfidenceCalibrationToExplanation(&explanation)
+	if r.db == nil {
+		return explanation
 	}
 
 	ctx, err := r.findStrategyEngineAssetContext("stock-selection", item.Symbol, dateOnly(item.ValidFrom))
@@ -94,6 +107,19 @@ func (r *MySQLGrowthRepo) buildFuturesStrategyExplanation(item model.FuturesStra
 		},
 		StrategyVersion: "futures-mvp-v1",
 		GeneratedAt:     item.ValidFrom,
+		EvaluationMeta:  normalizeExplanationEvaluationSummary(nil),
+		ResearchOutline: []model.StrategyResearchOutlineStep{
+			{Slot: "STRUCTURE", Title: "结构与供需", Summary: firstNonEmpty(item.ReasonSummary, "当前策略理由待确认"), Status: "ACTIVE"},
+		},
+		ActiveThesisCards: []model.StrategyExplanationThesisCard{
+			{Key: "fallback_reason", Title: "当前理由", Summary: firstNonEmpty(item.ReasonSummary, "当前策略理由待确认"), Status: "ACTIVE", EvidenceSource: "STRATEGY"},
+		},
+		WatchSignals: buildFallbackWatchSignals(compactStrings([]string{guidance.InvalidCondition})),
+	}
+	applyStrategyL1HistoryFallback(&explanation)
+	applyConfidenceCalibrationToExplanation(&explanation)
+	if r.db == nil {
+		return explanation
 	}
 
 	ctx, err := r.findStrategyEngineAssetContext("futures-strategy", item.Contract, dateOnly(item.ValidFrom))
@@ -477,6 +503,86 @@ func buildStrategyExplanationFromContext(
 	applyL1AdvisoryMemoryAdjustments(&explanation, evaluationMeta)
 	applyConfidenceCalibrationToExplanation(&explanation)
 	return explanation
+}
+
+func buildFallbackWatchSignals(invalidations []string) []model.StrategyExplanationWatchSignal {
+	result := make([]model.StrategyExplanationWatchSignal, 0, len(invalidations))
+	for _, item := range compactStrings(invalidations) {
+		result = append(result, model.StrategyExplanationWatchSignal{
+			Title:      "基础失效信号",
+			SignalType: "INVALIDATION",
+			Trigger:    item,
+			Action:     "重新验证",
+			Priority:   "HIGH",
+		})
+	}
+	return result
+}
+
+func applyStrategyL1HistoryFallback(explanation *model.StrategyClientExplanation) {
+	if explanation == nil || len(explanation.HistoricalThesisCards) > 0 || len(explanation.Invalidations) == 0 {
+		return
+	}
+	explanation.HistoricalThesisCards = []model.StrategyExplanationThesisCard{
+		{
+			Key:     "fallback_invalidation",
+			Title:   "历史弱化理由",
+			Summary: explanation.Invalidations[0],
+			Status:  "WEAKENED",
+			Note:    "缺少更完整历史上下文时，先用当前失效边界兜底。",
+		},
+	}
+}
+
+func applyStrategyL1HistoryFromContexts(explanation *model.StrategyClientExplanation, contexts []strategyEngineAssetContext, assetKey string) {
+	if explanation == nil {
+		return
+	}
+	if len(contexts) > 1 {
+		previous := contexts[1]
+		summary := strings.TrimSpace(asString(previous.asset["reason_summary"]))
+		note := strings.Join(compactStrings(stringSlice(previous.asset["invalidations"])), "；")
+		if summary != "" {
+			explanation.HistoricalThesisCards = append(explanation.HistoricalThesisCards, model.StrategyExplanationThesisCard{
+				Key:     "previous_context",
+				Title:   "上一版理由",
+				Summary: summary,
+				Status:  "WEAKENED",
+				Note:    note,
+			})
+		}
+	}
+	applyStrategyL1HistoryFallback(explanation)
+}
+
+func applyStrategyL1HistoryToHistoryItems(items []model.StrategyVersionHistoryItem, contexts []strategyEngineAssetContext, assetKey string) {
+	for index := range items {
+		if len(items[index].HistoricalThesisCards) == 0 {
+			if len(contexts) > index+1 {
+				previous := contexts[index+1]
+				summary := strings.TrimSpace(asString(previous.asset["reason_summary"]))
+				note := strings.Join(compactStrings(stringSlice(previous.asset["invalidations"])), "；")
+				if summary != "" {
+					items[index].HistoricalThesisCards = append(items[index].HistoricalThesisCards, model.StrategyExplanationThesisCard{
+						Key:     "previous_context",
+						Title:   "上一版理由",
+						Summary: summary,
+						Status:  "WEAKENED",
+						Note:    note,
+					})
+				}
+			}
+			if len(items[index].HistoricalThesisCards) == 0 && len(items[index].Invalidations) > 0 {
+				items[index].HistoricalThesisCards = append(items[index].HistoricalThesisCards, model.StrategyExplanationThesisCard{
+					Key:     "fallback_invalidation",
+					Title:   "历史弱化理由",
+					Summary: items[index].Invalidations[0],
+					Status:  "WEAKENED",
+					Note:    "缺少更完整历史上下文时，先用当前失效边界兜底。",
+				})
+			}
+		}
+	}
 }
 
 func buildStrategyVersionHistoryItem(
