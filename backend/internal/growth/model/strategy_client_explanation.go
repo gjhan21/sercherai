@@ -9,11 +9,52 @@ type StrategyExplanationScenario struct {
 }
 
 type StrategyExplanationAgentOpinion struct {
+	Role       string  `json:"role,omitempty"`
 	Agent      string  `json:"agent"`
 	Stance     string  `json:"stance"`
 	Confidence float64 `json:"confidence"`
 	Summary    string  `json:"summary"`
 	Veto       bool    `json:"veto"`
+}
+
+type StrategyExplanationRelationshipNode struct {
+	Type  string         `json:"type"`
+	Key   string         `json:"key,omitempty"`
+	Label string         `json:"label"`
+	Meta  map[string]any `json:"meta,omitempty"`
+}
+
+type StrategyExplanationRelationshipEdge struct {
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Label string `json:"label"`
+}
+
+type StrategyExplanationRelationshipSnapshot struct {
+	AssetKey          string                              `json:"asset_key"`
+	AssetType         string                              `json:"asset_type"`
+	RelationshipCount int                                 `json:"relationship_count"`
+	Nodes             []StrategyExplanationRelationshipNode `json:"nodes"`
+	Edges             []StrategyExplanationRelationshipEdge `json:"edges"`
+}
+
+type StrategyExplanationScenarioSnapshot struct {
+	Scenario           string  `json:"scenario"`
+	Thesis             string  `json:"thesis"`
+	Trigger            string  `json:"trigger"`
+	ConfirmationSignal string  `json:"confirmation_signal"`
+	InvalidationSignal string  `json:"invalidation_signal"`
+	ExpectedWindow     string  `json:"expected_window"`
+	ActionSuggestion   string  `json:"action_suggestion"`
+	Confidence         float64 `json:"confidence,omitempty"`
+}
+
+type StrategyExplanationScenarioMeta struct {
+	PrimaryScenario          string  `json:"primary_scenario"`
+	ConsensusAction          string  `json:"consensus_action"`
+	Vetoed                   bool    `json:"vetoed"`
+	VetoReason               string  `json:"veto_reason"`
+	ScenarioConfidenceSpread float64 `json:"scenario_confidence_spread"`
 }
 
 type StrategyExplanationSimulation struct {
@@ -136,6 +177,9 @@ type StrategyClientExplanation struct {
 	ConsensusSummary      string                                   `json:"consensus_summary"`
 	Simulations           []StrategyExplanationSimulation          `json:"simulations"`
 	AgentOpinions         []StrategyExplanationAgentOpinion        `json:"agent_opinions"`
+	RelationshipSnapshot  StrategyExplanationRelationshipSnapshot  `json:"relationship_snapshot"`
+	ScenarioSnapshots     []StrategyExplanationScenarioSnapshot    `json:"scenario_snapshots"`
+	ScenarioMeta          StrategyExplanationScenarioMeta          `json:"scenario_meta"`
 	RiskFlags             []string                                 `json:"risk_flags"`
 	Invalidations         []string                                 `json:"invalidations"`
 	ConfidenceReason      string                                   `json:"confidence_reason"`
@@ -190,6 +234,10 @@ type StrategyVersionHistoryItem struct {
 	HistoricalThesisCards []StrategyExplanationThesisCard          `json:"historical_thesis_cards"`
 	WatchSignals          []StrategyExplanationWatchSignal         `json:"watch_signals"`
 	ConfidenceCalibration StrategyExplanationConfidenceCalibration `json:"confidence_calibration"`
+	RelationshipSnapshot  StrategyExplanationRelationshipSnapshot  `json:"relationship_snapshot"`
+	ScenarioSnapshots     []StrategyExplanationScenarioSnapshot    `json:"scenario_snapshots"`
+	ScenarioMeta          StrategyExplanationScenarioMeta          `json:"scenario_meta"`
+	AgentOpinions         []StrategyExplanationAgentOpinion        `json:"agent_opinions"`
 	RelatedEntities       []StrategyExplanationRelatedEntity       `json:"related_entities"`
 	MemoryFeedback        StrategyExplanationMemoryFeedback        `json:"memory_feedback"`
 	RiskFlags             []string                                 `json:"risk_flags"`

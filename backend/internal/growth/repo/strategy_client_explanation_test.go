@@ -702,6 +702,43 @@ func TestBuildFallbackVersionHistoryItemCarriesL1Fields(t *testing.T) {
 	}
 }
 
+func TestBuildFallbackVersionHistoryItemCarriesL2Fields(t *testing.T) {
+	explanation := model.StrategyClientExplanation{
+		RelationshipSnapshot: model.StrategyExplanationRelationshipSnapshot{
+			AssetKey:          "600519.SH",
+			RelationshipCount: 3,
+			Nodes: []model.StrategyExplanationRelationshipNode{
+				{Type: "Theme", Label: "白酒"},
+			},
+		},
+		ScenarioSnapshots: []model.StrategyExplanationScenarioSnapshot{
+			{
+				Scenario:           "base",
+				Thesis:             "主逻辑延续",
+				Trigger:            "放量突破",
+				InvalidationSignal: "跌破 5 日线",
+				ActionSuggestion:   "继续跟踪",
+			},
+		},
+		AgentOpinions: []model.StrategyExplanationAgentOpinion{
+			{
+				Role:       "FLOW",
+				Stance:     "SUPPORT",
+				Confidence: 0.72,
+				Summary:    "资金承接稳定",
+			},
+		},
+	}
+
+	item := buildFallbackVersionHistoryItem("", "", "2026-03-29", 0, "2026-03-29T09:00:00Z", "", "", explanation)
+	if len(item.ScenarioSnapshots) != 1 || len(item.AgentOpinions) != 1 {
+		t.Fatalf("expected L2 fields to survive fallback item: %+v", item)
+	}
+	if item.RelationshipSnapshot.RelationshipCount != 3 {
+		t.Fatalf("expected relationship snapshot to survive fallback item: %+v", item.RelationshipSnapshot)
+	}
+}
+
 func TestBuildFuturesStrategyExplanationUsesLocalSnapshotWithoutRemoteFetch(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

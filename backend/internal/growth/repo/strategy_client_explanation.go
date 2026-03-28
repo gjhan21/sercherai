@@ -614,6 +614,10 @@ func buildStrategyVersionHistoryItem(
 		HistoricalThesisCards: explanation.HistoricalThesisCards,
 		WatchSignals:          explanation.WatchSignals,
 		ConfidenceCalibration: explanation.ConfidenceCalibration,
+		RelationshipSnapshot:  explanation.RelationshipSnapshot,
+		ScenarioSnapshots:     explanation.ScenarioSnapshots,
+		ScenarioMeta:          explanation.ScenarioMeta,
+		AgentOpinions:         explanation.AgentOpinions,
 		RelatedEntities:       explanation.RelatedEntities,
 		MemoryFeedback:        explanation.MemoryFeedback,
 		RiskFlags:             explanation.RiskFlags,
@@ -656,6 +660,10 @@ func buildFallbackVersionHistoryItem(
 		HistoricalThesisCards: explanation.HistoricalThesisCards,
 		WatchSignals:          explanation.WatchSignals,
 		ConfidenceCalibration: explanation.ConfidenceCalibration,
+		RelationshipSnapshot:  explanation.RelationshipSnapshot,
+		ScenarioSnapshots:     explanation.ScenarioSnapshots,
+		ScenarioMeta:          explanation.ScenarioMeta,
+		AgentOpinions:         explanation.AgentOpinions,
 		RelatedEntities:       explanation.RelatedEntities,
 		MemoryFeedback:        explanation.MemoryFeedback,
 		RiskFlags:             explanation.RiskFlags,
@@ -687,6 +695,15 @@ func mergeStrategyExplanation(base model.StrategyClientExplanation, live model.S
 	}
 	if len(live.AgentOpinions) > 0 {
 		base.AgentOpinions = live.AgentOpinions
+	}
+	if live.RelationshipSnapshot.RelationshipCount > 0 || len(live.RelationshipSnapshot.Nodes) > 0 {
+		base.RelationshipSnapshot = live.RelationshipSnapshot
+	}
+	if len(live.ScenarioSnapshots) > 0 {
+		base.ScenarioSnapshots = live.ScenarioSnapshots
+	}
+	if live.ScenarioMeta.PrimaryScenario != "" || live.ScenarioMeta.ConsensusAction != "" || live.ScenarioMeta.Vetoed {
+		base.ScenarioMeta = live.ScenarioMeta
 	}
 	if len(live.RiskFlags) > 0 {
 		base.RiskFlags = live.RiskFlags
