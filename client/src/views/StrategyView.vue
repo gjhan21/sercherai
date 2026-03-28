@@ -1444,6 +1444,7 @@ import {
   findEntityIDByTarget
 } from "../lib/community-entry-links";
 import { useClientAuth } from "../lib/client-auth";
+import { buildProfileModulePath } from "../lib/profile-modules";
 import { WATCHLIST_EVENT, isWatchedStock, removeWatchedStock, saveWatchedStock } from "../lib/watchlist";
 
 const route = useRoute();
@@ -3719,7 +3720,7 @@ function goStrategyArchive() {
 }
 
 function goStrategyWatchlist() {
-  navigateWithStrategyTracking("/watchlist", "focus_watchlist", {
+  navigateWithStrategyTracking(buildProfileModulePath("watchlist"), "focus_watchlist", {
     ctaLabel: "去我的关注"
   });
 }

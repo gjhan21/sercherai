@@ -168,7 +168,7 @@
           <h3>查看范围</h3>
           <p>
             <template v-if="archiveHiddenCount > 0">{{ archiveUpgradeHint }}</template>
-            <template v-else>当前筛选结果已全部展示，可继续前往关注页查看持续跟踪内容。</template>
+            <template v-else>当前筛选结果已全部展示，可继续前往我的关注查看持续跟踪内容。</template>
           </p>
         </article>
       </aside>
@@ -426,6 +426,7 @@ import {
   mapStrategyVersionHistory,
   toStrategyTradeDate
 } from "../lib/strategy-version";
+import { buildProfileModuleRoute } from "../lib/profile-modules";
 
 const fallbackRecommendations = [
   {
@@ -713,7 +714,7 @@ const archiveAccessState = computed(() => {
       tone: "success",
       label: "会员阶段",
       title: "你已解锁完整历史档案，可查看来源和复盘信息。",
-      desc: "建议结合关注页继续查看后续跟踪内容。"
+      desc: "建议结合我的关注继续查看后续跟踪内容。"
     };
   }
   if (archiveAccessStage.value === "REGISTERED") {
@@ -1036,7 +1037,7 @@ function promoteArchivePostAuthAttribution() {
 
 function handleArchivePrimaryAction(targetKey = "primary_action") {
   if (archiveAccessStage.value === "VIP") {
-    router.push("/watchlist");
+    router.push(buildProfileModuleRoute("watchlist"));
     return;
   }
   if (archiveAccessStage.value === "REGISTERED") {

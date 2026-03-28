@@ -25,7 +25,8 @@ test("normalizeAuthRedirect keeps valid h5 paths and rewrites legacy paths", () 
   assert.equal(normalizeAuthRedirect("/membership"), "/membership");
   assert.equal(normalizeAuthRedirect("/news?article=n1"), "/news?article=n1");
   assert.equal(normalizeAuthRedirect("/archive?article=n2"), "/archive?article=n2");
-  assert.equal(normalizeAuthRedirect("/watchlist"), "/watchlist");
+  assert.equal(normalizeAuthRedirect("/profile?section=watchlist"), "/profile?section=watchlist");
+  assert.equal(normalizeAuthRedirect("/watchlist"), "/profile?section=watchlist");
   assert.equal(normalizeAuthRedirect("https://example.com"), "/home");
   assert.equal(normalizeAuthRedirect(""), "/home");
 });
@@ -43,9 +44,9 @@ test("describeAuthScene maps redirect path to h5 scene copy", () => {
   assert.equal(strategies.label, "策略详情");
   assert.match(strategies.tip, /推荐|风险边界/);
 
-  const watchlist = describeAuthScene("/watchlist");
-  assert.equal(watchlist.label, "我的关注");
-  assert.match(watchlist.tip, /跟踪|变化|关注/);
+  const watchlist = describeAuthScene("/profile?section=watchlist");
+  assert.equal(watchlist.label, "我的 > 我的关注");
+  assert.match(watchlist.tip, /个人中心|关注|变化/);
 
   const archive = describeAuthScene("/archive");
   assert.equal(archive.label, "历史档案");
@@ -88,6 +89,6 @@ test("resolveAuthBackTarget avoids redirect loops for auth-only destinations", (
   assert.equal(resolveAuthBackTarget("/membership"), "/home");
   assert.equal(resolveAuthBackTarget("/profile"), "/home");
   assert.equal(resolveAuthBackTarget("/news?article=n1"), "/news?article=n1");
-  assert.equal(resolveAuthBackTarget("/watchlist"), "/watchlist");
+  assert.equal(resolveAuthBackTarget("/profile?section=watchlist"), "/home");
   assert.equal(resolveAuthBackTarget("/archive?article=n1"), "/archive?article=n1");
 });

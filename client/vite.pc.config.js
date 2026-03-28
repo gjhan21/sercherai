@@ -1,5 +1,8 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
+import { resolveProxyTarget } from "./vite.proxy-target.js";
+
+const proxyTarget = resolveProxyTarget();
 
 export default defineConfig({
   plugins: [vue()],
@@ -8,11 +11,11 @@ export default defineConfig({
     port: 5175,
     proxy: {
       "/api": {
-        target: process.env.VITE_PROXY_TARGET || "http://127.0.0.1:18080",
+        target: proxyTarget,
         changeOrigin: true
       },
       "/uploads": {
-        target: process.env.VITE_PROXY_TARGET || "http://127.0.0.1:18080",
+        target: proxyTarget,
         changeOrigin: true
       }
     }

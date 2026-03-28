@@ -1,12 +1,12 @@
 <template>
   <div class="h5-page fade-up watchlist-page">
     <div class="h5-page-topline">
-      <span class="h5-page-tagline">我的关注</span>
+      <span class="h5-page-tagline">我的 > 我的关注详情</span>
       <span>{{ lastUpdatedText }}</span>
     </div>
 
     <H5HeroCard
-      eyebrow="变化工作台"
+      eyebrow="我的二级模块详情"
       :title="heroTitle"
       :description="heroDescription"
       :meta="heroMeta"
@@ -15,7 +15,7 @@
       <template #actions>
         <H5ActionBar>
           <button type="button" class="h5-btn-secondary" :disabled="loading" @click="loadWatchlistPage">
-            {{ loading ? "同步中..." : "刷新关注" }}
+            {{ loading ? "同步中..." : "刷新关注详情" }}
           </button>
           <button type="button" class="h5-btn-ghost" @click="goStrategies">去策略页</button>
         </H5ActionBar>
@@ -218,7 +218,7 @@ const lastUpdatedText = computed(() => lastUpdatedAt.value || "关注清单");
 const heroTitle = computed(() => watchlistModel.value.leadItem ? `先看 ${watchlistModel.value.leadItem.headline}` : "先建立一份自己的关注清单");
 const heroDescription = computed(() => {
   if (!rawWatchedItems.value.length) {
-    return "关注页会把你保存过的标的集中起来，方便每天按固定顺序回访。";
+    return "我的关注详情页会把你保存过的标的集中起来，方便每天按固定顺序回访。";
   }
   if (!isLoggedIn.value) {
     return "你已经保存了本地关注对象，登录后会补齐更多变化、资讯和风险边界信息。";
@@ -249,7 +249,7 @@ const stickyTitle = computed(() => {
     return "登录后同步更多变化和资讯";
   }
   if (resolveVipStage(rawQuota.value)) {
-    return "顺着关注页继续进入资讯或历史复盘";
+    return "顺着我的关注详情继续进入资讯或历史复盘";
   }
   return "继续查看会员权益，补齐更多跟踪能力";
 });
@@ -344,7 +344,7 @@ function goNews() {
 }
 
 function goAuth() {
-  router.push({ path: "/auth", query: { redirect: "/watchlist" } });
+  router.push({ path: "/auth", query: { redirect: "/profile?section=watchlist" } });
 }
 
 function handlePrimaryAction() {
@@ -554,6 +554,34 @@ function formatPerformance(value) {
 
 .trend-flat {
   color: var(--h5-text-sub);
+}
+
+@media (min-width: 521px) {
+  .watchlist-page {
+    gap: 16px;
+  }
+
+  .watchlist-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .watchlist-rhythm-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .watchlist-item-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .watchlist-item-actions.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .watchlist-item-actions > * {
+    min-width: 0;
+  }
 }
 
 @media (max-width: 380px) {

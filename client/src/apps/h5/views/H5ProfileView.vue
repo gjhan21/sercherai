@@ -89,6 +89,57 @@
       </div>
     </section>
 
+    <section ref="moduleSectionRef" class="profile-card">
+      <div class="profile-section-head">
+        <div>
+          <strong>我的二级模块</strong>
+          <span>社区负责发现与讨论，关注只作为“我的”里的二级模块承接</span>
+        </div>
+      </div>
+
+      <div class="profile-module-grid">
+        <button
+          v-for="item in profileModuleCards"
+          :key="item.id"
+          type="button"
+          class="profile-module-card"
+          :class="{ active: item.active }"
+          @click="handleTargetAction(item.id)"
+        >
+          <span>{{ item.note }}</span>
+          <strong>{{ item.title }}</strong>
+          <p>{{ item.desc }}</p>
+        </button>
+      </div>
+    </section>
+
+    <section ref="watchlistEntryRef" class="profile-card profile-card-accent">
+      <div class="profile-section-head compact">
+        <div>
+          <strong>我的关注</strong>
+          <span>先在“我的”里确认入口，再进入详情页继续回访</span>
+        </div>
+      </div>
+
+      <div class="profile-service-list">
+        <article class="profile-service-card active">
+          <div class="profile-service-copy">
+            <strong>{{ activeProfileSection === 'watchlist' ? '当前聚焦：我的关注' : '我的关注详情' }}</strong>
+            <p>关注不再作为 H5 一级入口暴露，统一从个人中心进入，再查看变化工作台详情。</p>
+          </div>
+          <div class="profile-service-meta">
+            <span class="h5-meta-chip">我的入口</span>
+            <span class="h5-meta-chip">变化回访</span>
+          </div>
+        </article>
+      </div>
+
+      <div class="profile-hero-actions">
+        <button type="button" class="h5-btn" @click="handleTargetAction('watchlist')">进入关注详情</button>
+        <button type="button" class="h5-btn-secondary" @click="goStrategies">去策略页补充标的</button>
+      </div>
+    </section>
+
     <section v-if="canSubmitKYC || rawQuota.activation_state === 'PAID_PENDING_KYC'" ref="kycSectionRef" class="profile-card profile-card-accent">
       <div class="profile-section-head compact">
         <div>
@@ -234,8 +285,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import H5EmptyState from "../components/H5EmptyState.vue";
 import H5StickyCta from "../components/H5StickyCta.vue";
 import {
@@ -251,6 +302,7 @@ import {
   submitKYC
 } from "../../../api/userCenter";
 import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
+import { buildProfileModuleRoute, normalizeProfileModuleSection } from "../../../lib/profile-modules";
 import { formatDateTime, mapActivationState, mapKYCStatus, toArray } from "../lib/formatters";
 import {
   fallbackInviteRecords,
@@ -263,6 +315,7 @@ import {
 } from "../lib/mock-data";
 import { buildProfileCenterModel } from "../lib/profile-center.js";
 
+const route = useRoute();
 const router = useRouter();
 const useDemoFallback = shouldUseDemoFallback();
 
@@ -284,6 +337,8 @@ const creatingShareLink = ref(false);
 const messageSectionRef = ref(null);
 const inviteSectionRef = ref(null);
 const kycSectionRef = ref(null);
+const moduleSectionRef = ref(null);
+const watchlistEntryRef = ref(null);
 
 const profileModel = computed(() => buildProfileCenterModel({
   profile: rawProfile.value,
@@ -302,6 +357,23 @@ const kycHelperText = computed(() => canSubmitKYC.value
   ? "提交实名后，系统审核通过会自动激活当前高级权益。"
   : "如果实名审核仍在进行中，这里会持续同步最新状态。");
 const stickyDescription = computed(() => kycMessage.value || inviteMessage.value || loadError.value || profileModel.value.sticky.description);
+const activeProfileSection = computed(() => normalizeProfileModuleSection(route.query.section));
+const profileModuleCards = computed(() => [
+  {
+    id: "watchlist",
+    title: "我的关注",
+    note: activeProfileSection.value === "watchlist" ? "当前聚焦" : "回访入口",
+    desc: "先在我的页聚焦关注模块，再进入详情继续看变化、风险边界和下一步动作。",
+    active: activeProfileSection.value === "watchlist"
+  },
+  {
+    id: "community",
+    title: "我的讨论",
+    note: "承接预留",
+    desc: "H5 暂不单开社区一级入口，个人讨论回访口径统一收在“我的”里。",
+    active: activeProfileSection.value === "community"
+  }
+]);
 
 async function loadProfilePage() {
   loading.value = true;
@@ -421,11 +493,23 @@ function goNews() {
   router.push("/news");
 }
 
+function goWatchlistDetail() {
+  router.push("/profile/watchlist");
+}
+
 function scrollIntoSection(targetRef) {
   targetRef?.value?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function handleTargetAction(target) {
+  if (target === "watchlist") {
+    goWatchlistDetail();
+    return;
+  }
+  if (target === "community") {
+    scrollIntoSection(moduleSectionRef);
+    return;
+  }
   if (target === "membership") {
     goMembership();
     return;
@@ -454,6 +538,7 @@ function handleTargetAction(target) {
 }
 
 function shortcutGlyph(id) {
+  if (id === "watchlist") return "关";
   if (id === "membership") return "会";
   if (id === "strategies") return "策";
   if (id === "news") return "讯";
@@ -461,8 +546,35 @@ function shortcutGlyph(id) {
   return "我";
 }
 
-onMounted(() => {
+function scrollIntoProfileSection(section) {
+  if (section === "watchlist") {
+    scrollIntoSection(watchlistEntryRef);
+    return;
+  }
+  if (section === "community") {
+    scrollIntoSection(moduleSectionRef);
+  }
+}
+
+watch(
+  () => route.query.section,
+  async (value) => {
+    const section = normalizeProfileModuleSection(value);
+    if (section === "overview") {
+      return;
+    }
+    await nextTick();
+    scrollIntoProfileSection(section);
+  },
+  { immediate: true }
+);
+
+onMounted(async () => {
   loadProfilePage();
+  if (activeProfileSection.value !== "overview") {
+    await nextTick();
+    scrollIntoProfileSection(activeProfileSection.value);
+  }
 });
 </script>
 
@@ -794,6 +906,47 @@ onMounted(() => {
   text-align: center;
 }
 
+.profile-module-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.profile-module-card {
+  padding: 14px;
+  border: 1px solid rgba(16, 42, 86, 0.08);
+  border-radius: var(--h5-radius-md);
+  background: linear-gradient(180deg, rgba(247, 249, 252, 0.96), rgba(255, 255, 255, 1));
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+
+.profile-module-card span {
+  color: #7a8798;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.profile-module-card strong {
+  color: #16263d;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.profile-module-card p {
+  color: #5f7088;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.profile-module-card.active {
+  border-color: rgba(23, 58, 110, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(184, 137, 61, 0.16), transparent 35%),
+    linear-gradient(180deg, rgba(23, 58, 110, 0.08), rgba(255, 255, 255, 0.98));
+  box-shadow: inset 0 0 0 1px rgba(23, 58, 110, 0.08);
+}
+
 .profile-kyc-hero {
   padding: 14px;
   border-radius: var(--h5-radius-sm);
@@ -869,6 +1022,27 @@ onMounted(() => {
 .profile-invite-actions {
   display: grid;
   gap: 8px;
+}
+
+@media (min-width: 521px) {
+  .profile-page {
+    gap: 14px;
+  }
+
+  .profile-shortcut-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .profile-module-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-service-list,
+  .profile-message-list,
+  .profile-share-list,
+  .profile-invite-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 380px) {

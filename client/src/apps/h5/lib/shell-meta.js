@@ -6,10 +6,13 @@ const TAB_ITEMS = [
   { path: "/profile", label: "我的", icon: "user" }
 ];
 
-function normalizePath(input = "") {
-  const value = String(input || "");
-  const [pathname] = value.split("?");
-  return pathname || "/home";
+function toURL(input = "") {
+  const value = String(input || "").trim();
+  try {
+    return new URL(value.startsWith("/") ? value : `/${value}`, "https://sercherai.local");
+  } catch {
+    return new URL("/home", "https://sercherai.local");
+  }
 }
 
 export function resolveTabItems() {
@@ -17,14 +20,16 @@ export function resolveTabItems() {
 }
 
 export function resolveShellScene(path) {
-  const pathname = normalizePath(path);
+  const targetURL = toURL(path);
+  const pathname = targetURL.pathname;
+  const section = String(targetURL.searchParams.get("section") || "").trim().toLowerCase();
 
   if (pathname.startsWith("/watchlist")) {
     return {
-      section: "关注",
-      title: "我的关注",
-      subtitle: "变化工作台按回访节奏展示跟踪对象",
-      pulse: "回访中"
+      section: "我的",
+      title: "我的关注详情",
+      subtitle: "关注详情从个人中心进入，继续查看变化工作台",
+      pulse: "二级模块"
     };
   }
 
@@ -65,6 +70,14 @@ export function resolveShellScene(path) {
   }
 
   if (pathname.startsWith("/profile")) {
+    if (section === "watchlist") {
+      return {
+        section: "我的",
+        title: "我的关注",
+        subtitle: "个人中心先承接关注模块，再进入详情继续回访",
+        pulse: "模块聚焦"
+      };
+    }
     return {
       section: "我的",
       title: "账户中心",

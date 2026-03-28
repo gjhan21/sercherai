@@ -637,6 +637,7 @@ import {
   buildCommunityComposeRoute,
   buildCommunityListRoute
 } from "../lib/community-entry-links";
+import { buildProfileModuleRedirectPath, buildProfileModuleRoute } from "../lib/profile-modules";
 import { WATCHLIST_EVENT, isWatchedStock, saveWatchedStock, removeWatchedStock } from "../lib/watchlist";
 
 const fallbackStockRecommendations = [
@@ -1023,7 +1024,7 @@ const featuredResearchCards = computed(() => {
       desc:
         item?.visibility === "VIP"
           ? "先看导读，再进入资讯页查看全文和附件；确认后回策略页继续判断。"
-          : "先看导读，再进入资讯页查看正文；确认后回策略页或关注页继续跟踪。"
+          : "先看导读，再进入资讯页查看正文；确认后回策略页或我的关注继续跟踪。"
     }
   ];
 });
@@ -1634,7 +1635,7 @@ function goArchiveCenter() {
 }
 
 function goWatchlistCenter() {
-  router.push("/watchlist");
+  router.push(buildProfileModuleRoute("watchlist"));
 }
 
 function buildHomeStockCommunityDraft() {
@@ -1786,7 +1787,7 @@ function goMembershipCenter(targetKey = "default_membership_entry") {
   router.push({ path: "/auth", query: { redirect: "/home" } });
 }
 
-function goAuthCenter(redirect = "/watchlist") {
+function goAuthCenter(redirect = buildProfileModuleRedirectPath("watchlist")) {
   router.push({ path: "/auth", query: { redirect } });
 }
 
@@ -1799,7 +1800,7 @@ function handlePrimaryConversionAction() {
     goMembershipCenter();
     return;
   }
-  goAuthCenter("/watchlist");
+  goAuthCenter(buildProfileModuleRedirectPath("watchlist"));
 }
 
 function resolveVIPState(quota) {

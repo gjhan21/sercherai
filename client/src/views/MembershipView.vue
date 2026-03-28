@@ -237,7 +237,7 @@
       </div>
 
       <div class="insight-bridge-box">
-        <p>关注页配合</p>
+        <p>我的关注配合</p>
         <strong>{{ watchlistBridgeSummary.title }}</strong>
         <span>{{ watchlistBridgeSummary.desc }}</span>
         <div class="insight-chip-list">
@@ -494,6 +494,7 @@ import {
   trackExperimentExposureOnce
 } from "../lib/growth-analytics";
 import { getExperimentVariant } from "../lib/growth-experiments";
+import { buildProfileModulePath } from "../lib/profile-modules";
 import { buildStrategySnapshotCard } from "../lib/strategy-version";
 import { WATCHLIST_EVENT, listWatchedStocks } from "../lib/watchlist";
 
@@ -577,6 +578,7 @@ const payChannelOptions = [
 ];
 const useDemoFallback = shouldUseDemoFallback();
 const router = useRouter();
+const watchlistModuleRoute = buildProfileModulePath("watchlist");
 const membershipExperimentVariant = ref(getExperimentVariant("membership_copy", ["cadence", "proof"]));
 const MEMBERSHIP_ATTRIBUTION_EXPERIMENT_KEYS = [
   "strategy_membership_cta",
@@ -835,7 +837,7 @@ const membershipJourney = computed(() => {
         ? `剩余 ${vipRemainDaysText.value} · 可先看历史兑现`
         : `剩余 ${vipRemainDaysText.value} · ${vipStatusLabel.value}`,
       primaryAction: { label: isProofVariant.value ? "先看历史档案" : "先看 08:30 主推荐", to: isProofVariant.value ? "/archive" : "/strategies" },
-      secondaryAction: { label: isProofVariant.value ? "再回我的关注" : "15:30 回我的关注", to: "/watchlist" }
+      secondaryAction: { label: isProofVariant.value ? "再回我的关注" : "15:30 回我的关注", to: watchlistModuleRoute }
     };
   }
   if (isVIPExpired.value) {
@@ -895,7 +897,7 @@ const renewalExperimentPanel = computed(() => {
         ? "建议先看历史兑现、关注跟踪和复盘质量，再判断是否续费。"
         : "建议把会员能力用起来：看推荐、跟午盘、盯收盘、做周末复盘。",
       primaryAction: { label: isProofVariant.value ? "去看历史档案" : "去看策略页", to: isProofVariant.value ? "/archive" : "/strategies" },
-      secondaryAction: { label: "去我的关注", to: "/watchlist" }
+      secondaryAction: { label: "去我的关注", to: watchlistModuleRoute }
     };
   }
   return {
@@ -933,10 +935,10 @@ const cadenceEntries = computed(() => {
       {
         slot: "15:30",
         title: "先保留关注习惯",
-        desc: "关注页和公开历史样本仍可继续使用，等实名完成后再接回完整会员解释能力。",
+        desc: "我的关注和公开历史样本仍可继续使用，等实名完成后再接回完整会员解释能力。",
         highlight: "入口：我的关注",
         supporting: "高级跟踪能力待实名后激活",
-        primary: { label: "进入我的关注", to: "/watchlist" },
+        primary: { label: "进入我的关注", to: watchlistModuleRoute },
         secondary: { label: "去个人中心实名", to: "/profile" }
       },
       {
@@ -952,7 +954,7 @@ const cadenceEntries = computed(() => {
   }
   const watchlistEntry = isVIPActive.value
     ? "会员收盘后回到我的关注页，继续跟进持仓与候选。"
-    : "注册用户先在关注页形成自己的观察清单。";
+    : "注册用户先在我的关注里形成自己的观察清单。";
   const archiveEntry = isVIPActive.value
     ? "周末用完整历史档案复盘推荐兑现和失效原因。"
     : "周末先看公开历史档案，决定是否升级解锁更完整复盘。";
@@ -984,7 +986,7 @@ const cadenceEntries = computed(() => {
       desc: watchlistEntry,
       highlight: "入口：我的关注",
       supporting: isVIPActive.value ? "把推荐转成持续跟踪" : "先把感兴趣标的留下来",
-      primary: { label: "进入我的关注", to: "/watchlist" },
+      primary: { label: "进入我的关注", to: watchlistModuleRoute },
       secondary: { label: "查看历史档案", to: "/archive" }
     },
     {
@@ -1016,8 +1018,8 @@ const explanationCapabilityCards = computed(() => {
       stage: "持续跟踪",
       badge: currentStage === "VIP" ? "已解锁" : "登录后更完整",
       title: "把一次浏览变成持续跟踪",
-      desc: "登录后可把标的留在关注页，继续看跟踪原因、风险边界和资讯变化。",
-      points: ["关注页解释", "风险边界变化", "角色结论变化"],
+      desc: "登录后可把标的留在我的关注，继续看跟踪原因、风险边界和资讯变化。",
+      points: ["我的关注解释", "风险边界变化", "角色结论变化"],
       unlocked: true,
       active: currentStage !== "VIP"
     },
@@ -1038,7 +1040,7 @@ const explanationValueRows = computed(() => [
     label: "升级后多了什么",
     value: isVIPActive.value ? "完整解释链" : "完整策略档案",
     note: isVIPActive.value
-      ? "你现在能把首页、策略页、关注页、历史档案串成一条完整解释链。"
+      ? "你现在能把首页、策略页、我的关注、历史档案串成一条完整解释链。"
       : "不仅知道选了什么，还能看到为什么选、什么情况下失效、后续怎么跟。"
   },
   {
@@ -1063,7 +1065,7 @@ const watchlistBridgeSummary = computed(() => {
         count > 0
           ? "可把会员内容落实到每日跟踪、风险边界和历史复盘。"
           : "升级后可把后续跟踪、风险边界和复盘内容一起查看。",
-      points: ["关注页持续跟踪", "风险边界变化", "历史复盘"]
+      points: ["我的关注持续跟踪", "风险边界变化", "历史复盘"]
     };
   }
   return {
@@ -1071,7 +1073,7 @@ const watchlistBridgeSummary = computed(() => {
     desc:
       count > 0
         ? "你已经开始形成自己的跟踪池，升级会员后会把多角色模拟、场景推演和复盘能力补齐。"
-        : "先把感兴趣的标的留在关注页，回来时再对照会员能力判断是否值得升级。",
+        : "先把感兴趣的标的留在我的关注，回来时再对照会员能力判断是否值得升级。",
     points: ["先保存关注", "再看持续跟踪", "最后补齐完整解释"]
   };
 });

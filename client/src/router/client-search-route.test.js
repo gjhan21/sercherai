@@ -16,10 +16,12 @@ test("client router registers dedicated /search route", () => {
   assert.match(text, /name: "search"/);
 });
 
-test("client layout renders top global search bar for home and search pages", () => {
+test("client layout renders global search inside nav tools for home and search pages", () => {
   const text = fs.readFileSync(layoutPath, "utf8");
   assert.match(text, /showGlobalSearchBar/);
-  assert.match(text, /global-search-strip/);
+  assert.match(text, /finance-nav-tools/);
+  assert.match(text, /finance-nav-search/);
+  assert.doesNotMatch(text, /<section v-if="showGlobalSearchBar" ref="searchBarRef" class="global-search-strip fade-up">/);
   assert.match(text, /searchDropdownVisible/);
   assert.match(text, /查看更多搜索结果/);
   assert.match(text, /focus_type/);

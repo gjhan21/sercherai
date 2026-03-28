@@ -97,13 +97,86 @@
           </div>
         </article>
 
+        <article ref="moduleRailRef" class="card profile-module-card finance-section-card">
+          <header class="profile-watchlist-head finance-section-head-grid">
+            <div>
+              <p class="section-kicker">我的二级模块</p>
+              <h2 class="section-title">个人中心统一承接关注和讨论</h2>
+              <p class="section-subtitle">
+                社区作为一级入口承担发现和讨论，我的关注只作为“我的”里的二级模块保留，适合收盘后继续回访。
+              </p>
+            </div>
+          </header>
+
+          <div class="profile-module-grid finance-card-grid finance-card-grid-2">
+            <button
+              v-for="item in profileModuleCards"
+              :key="item.key"
+              type="button"
+              class="finance-card-surface profile-module-surface"
+              :class="{ active: item.active }"
+              @click="handleAction(item.action)"
+            >
+              <p>{{ item.kicker }}</p>
+              <strong>{{ item.title }}</strong>
+              <span>{{ item.desc }}</span>
+            </button>
+          </div>
+        </article>
+
+        <article ref="watchlistCardRef" class="card profile-watchlist-card finance-section-card">
+          <header class="profile-watchlist-head finance-section-head-grid">
+            <div>
+              <p class="section-kicker">个人跟踪清单</p>
+              <h2 class="section-title">我的关注</h2>
+              <p class="section-subtitle">
+                关注不再作为一级页面暴露，统一收口到“我的”里管理。这里承接你保存的标的、变化记录和解释更新。
+              </p>
+            </div>
+            <div class="profile-watchlist-actions finance-action-row">
+              <button
+                type="button"
+                class="finance-primary-btn"
+                @click="handleAction({ type: 'route', value: '/profile/watchlist' })"
+              >
+                进入我的关注
+              </button>
+              <button
+                type="button"
+                class="finance-ghost-btn"
+                @click="handleAction({ type: 'route', value: '/strategies' })"
+              >
+                去策略页补充标的
+              </button>
+            </div>
+          </header>
+
+          <div class="profile-watchlist-grid finance-card-grid finance-card-grid-3">
+            <article class="finance-card-surface">
+              <p>入口定位</p>
+              <strong>我的二级模块</strong>
+              <span>从个人中心进入，不再保留一级页面感知。</span>
+            </article>
+            <article class="finance-card-surface">
+              <p>承接内容</p>
+              <strong>标的 / 变化 / 解释</strong>
+              <span>持续跟踪加入后的状态、资讯变化和结论更新。</span>
+            </article>
+            <article class="finance-card-surface">
+              <p>推荐动作</p>
+              <strong>收盘后回访</strong>
+              <span>先看策略和资讯，再回我的关注形成闭环。</span>
+            </article>
+          </div>
+        </article>
+
         <article class="card rhythm-card">
           <header class="rhythm-head">
             <div>
               <p class="section-kicker">今日行动板</p>
               <h2 class="section-title">根据今日节奏安排查看顺序。</h2>
               <p class="section-subtitle">
-                08:30 看主推荐，11:30 看资讯，15:30 回关注清单，周末做历史复盘。
+                08:30 看主推荐，11:30 看资讯，15:30 回我的关注，周末做历史复盘。
               </p>
             </div>
             <div class="rhythm-pill finance-summary-pill">
@@ -650,8 +723,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import StatePanel from "../components/StatePanel.vue";
 import {
   createShareLink,
@@ -721,9 +794,13 @@ import {
   fallbackShareLinks,
   fallbackSubscriptions
 } from "./profile/fallback";
+import { buildProfileModuleRoute, normalizeProfileModuleSection } from "../lib/profile-modules";
 
 const useDemoFallback = shouldUseDemoFallback();
+const route = useRoute();
 const router = useRouter();
+const moduleRailRef = ref(null);
+const watchlistCardRef = ref(null);
 
 const activeModule = ref("vip");
 const activeRange = ref(timeRanges[1] || timeRanges[0] || "全部");
@@ -1145,8 +1222,8 @@ const profileRhythmStatus = computed(() => {
       tone: "info",
       eyebrow: "有提醒",
       title: `你还有 ${unreadMessageCount.value} 条未读通知，建议在 15:30 集中处理`,
-      desc: "先去关注页看盘后变化，再回个人中心把提醒清掉。",
-      primaryAction: { type: "route", value: "/watchlist", label: "先去我的关注" },
+      desc: "先去我的关注看盘后变化，再回个人中心把提醒清掉。",
+      primaryAction: { type: "route", value: "/profile/watchlist", label: "先去我的关注" },
       secondaryAction: { type: "module", value: "message", label: "处理未读通知" }
     };
   }
@@ -1204,7 +1281,7 @@ const profileCadenceEntries = computed(() => {
             : "先去我的关注保留收盘回访习惯，等实名后再接回完整解释能力。",
         highlight: "入口：我的关注",
         supporting: "高级跟踪能力待实名后激活",
-        primaryAction: { type: "route", value: "/watchlist", label: "进入我的关注" },
+        primaryAction: { type: "route", value: "/profile/watchlist", label: "进入我的关注" },
         secondaryAction: { type: "module", value: "message", label: "处理通知" }
       },
       {
@@ -1242,14 +1319,14 @@ const profileCadenceEntries = computed(() => {
     },
     {
       slot: "15:30",
-      title: "收盘回关注清单",
+      title: "收盘回我的关注",
       desc:
         unreadMessageCount.value > 0
           ? `收盘后先去我的关注，再回来处理 ${unreadMessageCount.value} 条未读通知，形成闭环。`
           : "收盘后先去我的关注看跟踪结果，再回个人中心补齐消息和阅读记录。",
       highlight: "入口：我的关注",
       supporting: `未读通知 ${unreadMessageCount.value} 条`,
-      primaryAction: { type: "route", value: "/watchlist", label: "进入我的关注" },
+      primaryAction: { type: "route", value: "/profile/watchlist", label: "进入我的关注" },
       secondaryAction: { type: "module", value: "message", label: "处理通知" }
     },
     {
@@ -1439,7 +1516,29 @@ const profileGuideRows = computed(() => [
   },
   {
     title: "常用入口集中",
-    desc: "可从这里继续前往会员页、资讯页、关注页、历史档案和我的讨论。"
+    desc: "可从这里继续前往会员页、资讯页、我的关注、历史档案和我的讨论。"
+  }
+]);
+const activeProfileSection = computed(() => normalizeProfileModuleSection(route.query.section));
+const profileModuleCards = computed(() => [
+  {
+    key: "watchlist",
+    kicker: activeProfileSection.value === "watchlist" ? "当前聚焦" : "收盘后回访",
+    title: "我的关注",
+    desc: "从个人中心进入关注模块，继续看标的变化、解释更新和风险边界。",
+    action:
+      activeProfileSection.value === "watchlist"
+        ? { type: "route", value: "/profile/watchlist" }
+        : { type: "route", value: buildProfileModuleRoute("watchlist") },
+    active: activeProfileSection.value === "watchlist"
+  },
+  {
+    key: "community",
+    kicker: activeProfileSection.value === "community" ? "当前聚焦" : "我的讨论",
+    title: "我的主题与评论",
+    desc: "回到社区查看自己发过的主题和参与过的评论，不再拆成额外一级入口。",
+    action: { type: "route", value: { path: "/community", query: { mine: "topics" } } },
+    active: activeProfileSection.value === "community"
   }
 ]);
 const profileAccountSummaryRows = computed(() => [
@@ -1958,8 +2057,41 @@ function scrollToQueryCard() {
   }
 }
 
-onMounted(() => {
+function scrollToProfileSection(section) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const normalized = normalizeProfileModuleSection(section);
+  const target =
+    normalized === "watchlist"
+      ? watchlistCardRef.value
+      : normalized === "community"
+        ? moduleRailRef.value
+        : null;
+  if (target?.scrollIntoView) {
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
+watch(
+  () => route.query.section,
+  async (section) => {
+    const normalized = normalizeProfileModuleSection(section);
+    if (normalized === "overview") {
+      return;
+    }
+    await nextTick();
+    scrollToProfileSection(normalized);
+  },
+  { immediate: true }
+);
+
+onMounted(async () => {
   loadUserCenterData();
+  if (activeProfileSection.value !== "overview") {
+    await nextTick();
+    scrollToProfileSection(activeProfileSection.value);
+  }
 });
 </script>
 
@@ -1971,6 +2103,29 @@ onMounted(() => {
 
 .profile-page > * {
   min-width: 0;
+}
+
+.profile-watchlist-card,
+.profile-watchlist-grid,
+.profile-module-grid {
+  min-width: 0;
+}
+
+.profile-watchlist-head {
+  gap: 12px;
+}
+
+.profile-module-surface {
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.profile-module-surface.active {
+  border-color: rgba(14, 116, 144, 0.4);
+  box-shadow: 0 14px 32px rgba(14, 116, 144, 0.14);
+  transform: translateY(-1px);
 }
 
 .account-card {

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { syncClientAuthSession } from "../../../shared/auth/client-auth";
+import { buildProfileModuleRoute } from "../../../lib/profile-modules";
 
 const H5Layout = () => import("../layouts/H5Layout.vue");
 const H5AuthView = () => import("../views/H5AuthView.vue");
@@ -10,6 +11,7 @@ const H5WatchlistView = () => import("../views/H5WatchlistView.vue");
 const H5ArchiveView = () => import("../views/H5ArchiveView.vue");
 const H5MembershipView = () => import("../views/H5MembershipView.vue");
 const H5ProfileView = () => import("../views/H5ProfileView.vue");
+const SearchView = () => import("../../../views/SearchView.vue");
 
 const routes = [
   {
@@ -36,10 +38,12 @@ const routes = [
       { path: "home", name: "h5-home", component: H5HomeView },
       { path: "strategies", name: "h5-strategies", component: H5StrategyView },
       { path: "news", name: "h5-news", component: H5NewsView },
-      { path: "watchlist", name: "h5-watchlist", component: H5WatchlistView },
+      { path: "search", name: "h5-search", component: SearchView },
+      { path: "watchlist", redirect: buildProfileModuleRoute("watchlist") },
       { path: "archive", name: "h5-archive", component: H5ArchiveView },
       { path: "membership", name: "h5-membership", component: H5MembershipView, meta: { requiresAuth: true } },
       { path: "profile", name: "h5-profile", component: H5ProfileView, meta: { requiresAuth: true } },
+      { path: "profile/watchlist", name: "h5-profile-watchlist", component: H5WatchlistView, meta: { requiresAuth: true } },
     ]
   },
   {

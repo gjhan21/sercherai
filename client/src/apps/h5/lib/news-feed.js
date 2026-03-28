@@ -9,6 +9,10 @@ function toPlainText(value) {
     .trim();
 }
 
+function cleanRouteValue(value) {
+  return String(value || "").trim();
+}
+
 export function sortNewsCategories(rawCategories = [], fallbackCategories = []) {
   const source = Array.isArray(rawCategories) && rawCategories.length ? rawCategories : fallbackCategories;
   return source
@@ -44,4 +48,26 @@ export function buildNewsFeedRows(items = []) {
     tickerItems,
     feedItems
   };
+}
+
+export function resolveRequestedArticleID(query = {}) {
+  return cleanRouteValue(query.article_id) || cleanRouteValue(query.article);
+}
+
+export function findRequestedArticleLocation(feedMap = {}, articleID) {
+  const targetID = cleanRouteValue(articleID);
+  if (!targetID) {
+    return null;
+  }
+  const entries = Object.entries(feedMap || {});
+  for (const [categoryKey, items] of entries) {
+    const matched = (Array.isArray(items) ? items : []).find((item) => cleanRouteValue(item?.id) === targetID);
+    if (matched) {
+      return {
+        categoryKey,
+        articleID: targetID
+      };
+    }
+  }
+  return null;
 }

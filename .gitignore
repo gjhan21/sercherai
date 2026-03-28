@@ -13,16 +13,19 @@ admin/dist/
 # Client frontend
 client/node_modules/
 client/dist/
+client/dist-h5/
 
 # Runtime artifacts
 .run/
 .mysql-local/
 .worktrees/
+.tmp/
 
 # Local/dev misc
 .DS_Store
 .codex/
 .superpowers/
+.tmp-*.png
 /releases/
 /sercherai*.sql
 /users.sql

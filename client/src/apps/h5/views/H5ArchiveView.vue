@@ -154,6 +154,7 @@ import {
   listStockRecommendations
 } from "../../../api/market";
 import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
+import { buildProfileModuleRoute } from "../../../lib/profile-modules";
 import {
   buildFallbackStrategyVersionHistory,
   buildStrategyInsightSections,
@@ -298,7 +299,7 @@ const stickyTitle = computed(() => {
     return archiveAccessStage.value === "VISITOR" ? "先登录，再回到这里继续查看历史档案" : "先去策略页生成新的推荐样本";
   }
   if (archiveAccessStage.value === "VIP") {
-    return "完整档案已解锁，下一步可以回到我的关注继续跟踪";
+    return "完整档案已解锁，下一步可以回到我的 > 我的关注继续跟踪";
   }
   if (archiveAccessStage.value === "REGISTERED") {
     return "已登录后可看更多样本，升级会员可继续看完整复盘";
@@ -312,7 +313,7 @@ const stickyDescription = computed(() => {
       : "新的推荐结果会继续回到档案页，按时间线沉淀下来。";
   }
   if (archiveAccessStage.value === "VIP") {
-    return "看完结果后，可以把仍值得追踪的对象接到关注页继续观察。";
+    return "看完结果后，可以把仍值得追踪的对象接到我的 > 我的关注继续观察。";
   }
   if (archiveAccessStage.value === "REGISTERED") {
     return "当前还有一部分历史样本和更完整复盘线索需要会员权限后继续展开。";
@@ -324,7 +325,7 @@ const primaryActionLabel = computed(() => {
     return archiveAccessStage.value === "VISITOR" ? "立即登录" : "去策略页";
   }
   if (archiveAccessStage.value === "VIP") {
-    return "去我的关注";
+    return "去我的 > 我的关注";
   }
   if (archiveAccessStage.value === "REGISTERED") {
     return "升级会员看完整复盘";
@@ -473,7 +474,7 @@ function goStrategies() {
 }
 
 function goWatchlist() {
-  router.push("/watchlist");
+  router.push(buildProfileModuleRoute("watchlist"));
 }
 
 function mapArchiveStatusLabel(status) {

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { syncClientAuthSession } from "../lib/client-auth";
+import { buildProfileModuleRoute } from "../lib/profile-modules";
 
 const ClientLayout = () => import("../components/ClientLayout.vue");
 const AuthView = () => import("../views/AuthView.vue");
@@ -41,13 +42,14 @@ const routes = [
       { path: "search", name: "search", component: SearchView },
       { path: "strategies", name: "strategies", component: StrategyView },
       { path: "archive", name: "archive", component: RecommendationArchiveView },
-      { path: "watchlist", name: "watchlist", component: MyWatchlistView },
+      { path: "watchlist", redirect: buildProfileModuleRoute("watchlist") },
       { path: "news", name: "news", component: NewsView },
       { path: "community", name: "community", component: CommunityView },
       { path: "community/topics/:id", name: "community-topic", component: CommunityTopicView },
       { path: "community/new", name: "community-compose", component: CommunityComposeView, meta: { requiresAuth: true } },
       { path: "membership", name: "membership", component: MembershipView, meta: { requiresAuth: true } },
-      { path: "profile", name: "profile", component: ProfileView, meta: { requiresAuth: true } }
+      { path: "profile", name: "profile", component: ProfileView, meta: { requiresAuth: true } },
+      { path: "profile/watchlist", name: "profile-watchlist", component: MyWatchlistView, meta: { requiresAuth: true } }
     ]
   },
   {

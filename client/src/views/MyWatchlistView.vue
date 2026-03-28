@@ -3,7 +3,7 @@
     <header class="watchlist-hero card">
       <div class="watchlist-hero-copy finance-copy-stack">
         <div class="finance-pill-row">
-          <span class="finance-pill finance-pill-compact finance-pill-neutral">关注页</span>
+          <span class="finance-pill finance-pill-compact finance-pill-neutral">我的 > 我的关注</span>
           <span class="finance-pill finance-pill-compact finance-pill-info">本地轻量关注</span>
           <span class="finance-pill finance-pill-compact finance-pill-info">变化工作台</span>
         </div>
@@ -215,7 +215,7 @@
           <header class="section-head compact">
             <div>
               <h2 class="section-title">页面关系</h2>
-              <p class="section-subtitle">关注页用于持续跟踪，不替代策略页和档案页。</p>
+              <p class="section-subtitle">我的关注用于持续跟踪，不替代策略页和档案页。</p>
             </div>
           </header>
           <div class="watchlist-relation-list">
@@ -706,8 +706,8 @@ const watchlistAccessState = computed(() => {
     return {
       tone: "info",
       label: "识别中",
-      title: "正在确认你的关注页阶段",
-      desc: "确认完成后，会把关注页 CTA 调整到对应的登录 / 会员状态。"
+      title: "正在确认你的关注阶段",
+      desc: "确认完成后，会把我的关注 CTA 调整到对应的登录 / 会员状态。"
     };
   }
   if (watchlistAccessStage.value === "VIP") {
@@ -715,7 +715,7 @@ const watchlistAccessState = computed(() => {
       tone: "success",
       label: "会员阶段",
       title: "你已可结合关注列表查看更完整的变化信息。",
-      desc: "建议每天先看关注页，再去资讯中心确认变化。"
+      desc: "建议每天先看我的关注，再去资讯中心确认变化。"
     };
   }
   if (watchlistAccessStage.value === "REGISTERED") {
@@ -723,7 +723,7 @@ const watchlistAccessState = computed(() => {
       tone: "warning",
       label: "注册阶段",
       title: "你已形成自己的关注清单，可继续保持回访习惯。",
-      desc: "先让关注页成为固定入口，再决定是否需要更多盘中变化和复盘内容。"
+      desc: "先让我的关注成为固定入口，再决定是否需要更多盘中变化和复盘内容。"
     };
   }
   return {
@@ -890,7 +890,7 @@ function rememberWatchlistPendingMembershipEntry(targetKey, metadata = {}) {
     pageKey: "watchlist",
     targetKey,
     userStage: "VISITOR",
-    redirectPath: "/watchlist",
+    redirectPath: "/profile/watchlist",
     metadata: {
       watched_count: watchedRows.value.length,
       tracked_count: trackedCount.value,
@@ -927,9 +927,9 @@ function handleWatchlistPrimaryAction() {
     return;
   }
   rememberWatchlistPendingMembershipEntry("primary_action", {
-    destination_after_auth: "/watchlist"
+    destination_after_auth: "/profile/watchlist"
   });
-  router.push({ path: "/auth", query: { redirect: "/watchlist" } });
+  router.push({ path: "/auth", query: { redirect: "/profile/watchlist" } });
 }
 
 function handleWatchlistSecondaryAction() {

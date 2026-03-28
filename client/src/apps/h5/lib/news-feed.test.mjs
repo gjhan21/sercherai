@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildNewsFeedRows, sortNewsCategories } from "./news-feed.js";
+import {
+  buildNewsFeedRows,
+  findRequestedArticleLocation,
+  resolveRequestedArticleID,
+  sortNewsCategories
+} from "./news-feed.js";
 
 test("sortNewsCategories sorts backend categories and falls back to defaults", () => {
   const categories = sortNewsCategories([
@@ -74,4 +79,27 @@ test("buildNewsFeedRows creates a lead card, ticker rows and dense feed rows", (
     tone: "gold",
     visibility: "VIP"
   });
+});
+
+test("resolveRequestedArticleID prefers article_id from search pages and falls back to article", () => {
+  assert.equal(resolveRequestedArticleID({ article_id: "na_001", article: "na_legacy" }), "na_001");
+  assert.equal(resolveRequestedArticleID({ article: "na_legacy" }), "na_legacy");
+  assert.equal(resolveRequestedArticleID({}), "");
+});
+
+test("findRequestedArticleLocation finds target category for a deep-linked article", () => {
+  const location = findRequestedArticleLocation(
+    {
+      book: [{ id: "book_1" }],
+      news: [{ id: "na_001" }, { id: "na_002" }],
+      report: [{ id: "rp_001" }]
+    },
+    "na_002"
+  );
+
+  assert.deepEqual(location, {
+    categoryKey: "news",
+    articleID: "na_002"
+  });
+  assert.equal(findRequestedArticleLocation({ news: [{ id: "na_001" }] }, "missing"), null);
 });

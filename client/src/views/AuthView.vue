@@ -243,9 +243,11 @@ import { computed, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { login, register } from "../api/auth";
 import { setClientAuthSession } from "../lib/client-auth";
+import { buildProfileModuleRedirectPath } from "../lib/profile-modules";
 
 const route = useRoute();
 const router = useRouter();
+const watchlistRedirectPath = buildProfileModuleRedirectPath("watchlist");
 
 const submittingMode = ref("");
 const loginErrorMessage = ref("");
@@ -278,8 +280,8 @@ const redirectContextTip = computed(() => {
   if (redirectPath.value === "/archive") {
     return "登录后会回到历史档案页，继续比较样本、版本和兑现情况。";
   }
-  if (redirectPath.value === "/watchlist") {
-    return "登录后会回到我的关注，继续保存标的并查看变化。";
+  if (redirectPath.value === watchlistRedirectPath) {
+    return "登录后会先回到“我的”页，并聚焦到我的关注模块继续保存标的和查看变化。";
   }
   if (redirectPath.value === "/strategies") {
     return "登录后会回到策略页，继续看主推荐、理由和风险边界。";
@@ -335,9 +337,9 @@ const authRedirectRows = computed(() => [
     desc: "登录后回到原档案位置，继续比较历史样本和兑现表现。"
   },
   {
-    path: "/watchlist",
-    title: "从关注页来",
-    desc: "登录后回到关注页，继续保存标的或查看变化回访结果。"
+    path: watchlistRedirectPath,
+    title: "从我的 > 我的关注来",
+    desc: "登录后回到“我的”页，并自动聚焦到我的关注模块继续保存标的或查看变化。"
   },
   {
     path: "/strategies",
@@ -355,7 +357,7 @@ function mapRedirectLabel(path) {
   if (path === "/membership") return "会员中心";
   if (path === "/news") return "资讯页";
   if (path === "/archive") return "历史档案页";
-  if (path === "/watchlist") return "我的关注";
+  if (path === watchlistRedirectPath) return "我的 > 我的关注";
   if (path === "/strategies") return "策略页";
   return "首页或默认入口";
 }

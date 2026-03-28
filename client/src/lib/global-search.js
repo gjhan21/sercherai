@@ -113,6 +113,27 @@ function buildStockSearchMeta(item) {
   return pieces.filter(Boolean).join(" · ") || "推荐";
 }
 
+function buildStockSearchTitle(item) {
+  const symbol = normalizeText(item?.symbol);
+  const name = normalizeText(item?.name);
+  if (!symbol && !name) {
+    return "未命名股票";
+  }
+  if (!symbol) {
+    return name;
+  }
+  if (!name) {
+    return symbol;
+  }
+  const normalizedSymbol = symbol.toUpperCase();
+  const bareSymbol = normalizedSymbol.replace(/\.(SH|SZ|BJ|HK)$/i, "");
+  const normalizedName = name.toUpperCase();
+  if (normalizedName === normalizedSymbol || normalizedName === bareSymbol) {
+    return symbol;
+  }
+  return `${symbol} ${name}`;
+}
+
 function buildStrategySearchMeta(item) {
   const pieces = [normalizeText(item?.direction), mapRiskLevel(item?.risk_level)];
   const validFrom = formatDate(item?.valid_from);
@@ -141,7 +162,7 @@ export function buildGlobalSearchGroups(result) {
       emptyText: "当前关键词未命中股票推荐。",
       items: normalizeGlobalSearchItems(payload?.stocks?.items).map((item) => ({
         id: item.id || item.symbol || "",
-        title: [item.symbol, item.name].filter(Boolean).join(" ") || "未命名股票",
+        title: buildStockSearchTitle(item),
         summary: item.reason_summary || "暂无推荐理由",
         meta: buildStockSearchMeta(item)
       }))
@@ -173,6 +194,132 @@ export function buildGlobalSearchGroups(result) {
   ];
 }
 
+function normalizeGroupKey(value) {
+  return normalizeText(String(value || "").toLowerCase());
+}
+
+function findSearchFocusMatch(groups, options = {}) {
+  const focusType = normalizeGroupKey(options.focusType || options.focus_type);
+  const focusID = normalizeText(options.focusID || options.focus_id);
+  if (!focusType || !focusID) {
+    return null;
+  }
+  const group = groups.find((item) => item.key === focusType);
+  if (!group) {
+    return null;
+  }
+  const matchedItem = normalizeGlobalSearchItems(group.items).find((item) => normalizeText(item.id) === focusID);
+  if (!matchedItem) {
+    return null;
+  }
+  return {
+    group,
+    item: matchedItem
+  };
+}
+
+export function resolveSearchInitialTab(result, options = {}) {
+  const groups = buildGlobalSearchGroups(result);
+  const focusedMatch = findSearchFocusMatch(groups, options);
+  if (focusedMatch) {
+    return focusedMatch.group.key;
+  }
+  const firstNonEmpty = groups.find((group) => Number(group.total || 0) > 0 && group.items.length > 0);
+  return firstNonEmpty?.key || "all";
+}
+
+export function pickBestSearchMatch(result, options = {}) {
+  const groups = buildGlobalSearchGroups(result);
+  const focusedMatch = findSearchFocusMatch(groups, options);
+  if (focusedMatch) {
+    return {
+      ...focusedMatch,
+      isFocused: true,
+      reason: `已为你定位到最相关的${focusedMatch.group.title.replace(/推荐|研报/g, "")}结果`
+    };
+  }
+  const firstGroup = groups.find((group) => group.items.length > 0);
+  if (!firstGroup) {
+    return null;
+  }
+  return {
+    group: firstGroup,
+    item: firstGroup.items[0],
+    isFocused: false,
+    reason: `当前优先展示最相关的${firstGroup.title}`
+  };
+}
+
+export function buildSearchPreviewGroups(groups, options = {}) {
+  const list = Array.isArray(groups) ? groups : [];
+  const bestMatchGroupKey = normalizeGroupKey(options.bestMatchGroupKey);
+  const perGroupLimit = Number(options.perGroupLimit || 3);
+  const normalizedLimit = Number.isFinite(perGroupLimit) && perGroupLimit > 0 ? perGroupLimit : 3;
+  return list
+    .filter((group) => Number(group.total || 0) > 0)
+    .sort((left, right) => {
+      if (left.key === bestMatchGroupKey) {
+        return -1;
+      }
+      if (right.key === bestMatchGroupKey) {
+        return 1;
+      }
+      return 0;
+    })
+    .map((group) => ({
+      ...group,
+      items: normalizeGlobalSearchItems(group.items).slice(0, normalizedLimit),
+      preview: true
+    }));
+}
+
+export function dedupeVisibleSearchGroups(groups, options = {}) {
+  const list = Array.isArray(groups) ? groups : [];
+  const focusType = normalizeGroupKey(options.focusType || options.focus_type);
+  const focusID = normalizeText(options.focusID || options.focus_id);
+  return list.map((group) => {
+    if (group?.key !== "stocks") {
+      return group;
+    }
+    const deduped = [];
+    const seen = new Map();
+    normalizeGlobalSearchItems(group.items).forEach((item) => {
+      const dedupeKey = normalizeText(item?.title).toUpperCase() || normalizeText(item?.id).toUpperCase();
+      if (!dedupeKey) {
+        deduped.push(item);
+        return;
+      }
+      const existingIndex = seen.get(dedupeKey);
+      if (existingIndex == null) {
+        seen.set(dedupeKey, deduped.length);
+        deduped.push(item);
+        return;
+      }
+      const existing = deduped[existingIndex];
+      const shouldReplace = group.key === focusType && item.id === focusID && existing?.id !== focusID;
+      if (shouldReplace) {
+        deduped[existingIndex] = item;
+      }
+    });
+    return {
+      ...group,
+      items: deduped
+    };
+  });
+}
+
+export function describeSearchGroupCount(group) {
+  const total = Number(group?.total || 0);
+  const visibleCount = normalizeGlobalSearchItems(group?.items).length;
+  if (group?.preview) {
+    return `先看 ${visibleCount} 条结果`;
+  }
+  if (group?.key === "stocks" && visibleCount > 0 && total > visibleCount) {
+    return `${total} 条结果，去重展示 ${visibleCount} 条`;
+  }
+  return `${total} 条结果`;
+}
+
 export function getGlobalSearchTotal(result) {
   return buildGlobalSearchGroups(result).reduce((sum, group) => sum + Number(group.total || 0), 0);
 }
@@ -188,5 +335,11 @@ export function buildSearchItemRoute(groupKey, item = {}) {
   if (groupKey === "strategies") {
     return { path: "/strategies", query: { futures_id: item.id || "" } };
   }
-  return { path: "/news", query: { article_id: item.id || "" } };
+  return {
+    path: "/news",
+    query: {
+      article_id: item.id || "",
+      keyword: normalizeText(item.title || "")
+    }
+  };
 }

@@ -20,7 +20,7 @@
 
 .h5-header-inner,
 .h5-main {
-  width: min(100%, 468px);
+  width: var(--h5-content-width);
   margin: 0 auto;
 }
 
@@ -152,6 +152,189 @@
   line-height: 1.72;
 }
 
+.h5-search-shell {
+  position: relative;
+  display: grid;
+  gap: 12px;
+}
+
+.h5-search-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.h5-search-field {
+  position: relative;
+}
+
+.h5-search-input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 42px 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+}
+
+.h5-search-input::placeholder {
+  color: rgba(236, 242, 252, 0.72);
+}
+
+.h5-search-input:focus {
+  border-color: rgba(216, 182, 100, 0.54);
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 0 0 3px rgba(216, 182, 100, 0.14);
+}
+
+.h5-search-clear,
+.h5-search-submit,
+.h5-search-more {
+  border: 0;
+  cursor: pointer;
+}
+
+.h5-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.h5-search-submit {
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: 16px;
+  color: #17335f;
+  font-size: 13px;
+  font-weight: 800;
+  background: linear-gradient(135deg, #d7b267, #b78523);
+}
+
+.h5-search-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.h5-search-dropdown {
+  max-height: min(56vh, 420px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  background: rgba(9, 23, 48, 0.92);
+  box-shadow: 0 22px 48px rgba(5, 15, 34, 0.34);
+  backdrop-filter: blur(18px);
+}
+
+.h5-search-dropdown-head,
+.h5-search-group-head,
+.h5-search-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.h5-search-dropdown-head {
+  margin-bottom: 12px;
+}
+
+.h5-search-dropdown-head p,
+.h5-search-dropdown-head strong,
+.h5-search-group-head strong,
+.h5-search-group-head span,
+.h5-search-tip,
+.h5-search-empty,
+.h5-search-item h4,
+.h5-search-item p,
+.h5-search-item span,
+.h5-search-scope,
+.h5-search-more {
+  margin: 0;
+}
+
+.h5-search-dropdown-head p,
+.h5-search-group-head span,
+.h5-search-item span,
+.h5-search-scope {
+  color: rgba(229, 236, 247, 0.72);
+  font-size: 11px;
+}
+
+.h5-search-dropdown-head strong,
+.h5-search-group-head strong,
+.h5-search-item h4,
+.h5-search-more {
+  color: #fff;
+}
+
+.h5-search-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.h5-search-group {
+  display: grid;
+  gap: 8px;
+}
+
+.h5-search-list {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.h5-search-item {
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  display: grid;
+  gap: 6px;
+}
+
+.h5-search-item p,
+.h5-search-tip,
+.h5-search-empty {
+  color: rgba(229, 236, 247, 0.82);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.h5-search-tip-error {
+  color: #ffd2d2;
+}
+
+.h5-search-empty-panel {
+  padding: 8px 0 4px;
+}
+
+.h5-search-actions {
+  margin-top: 12px;
+}
+
+.h5-search-more {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .h5-main {
   min-height: calc(100vh - 132px);
   padding-bottom: var(--h5-shell-safe-bottom);
@@ -167,7 +350,7 @@
   left: 50%;
   bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   z-index: 28;
-  width: min(calc(100% - 44px), 412px);
+  width: min(calc(100% - 44px), 504px);
   transform: translateX(-50%);
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -236,6 +419,14 @@
 
   .h5-header-inner {
     padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  }
+
+  .h5-search-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .h5-search-submit {
+    width: 100%;
   }
 
   .h5-tabbar {

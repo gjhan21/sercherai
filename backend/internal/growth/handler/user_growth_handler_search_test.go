@@ -49,6 +49,40 @@ func TestFilterStockRecommendationsByKeywordMatchesReasonSummary(t *testing.T) {
 	}
 }
 
+func TestFilterStockRecommendationsByKeywordDedupesRepeatedStocks(t *testing.T) {
+	items := []model.StockRecommendation{
+		{ID: "latest", Symbol: "600036.SH", Name: "招商银行", ReasonSummary: "最新一条"},
+		{ID: "older", Symbol: "600036", Name: "600036", ReasonSummary: "旧重复记录"},
+		{ID: "other", Symbol: "600519.SH", Name: "贵州茅台", ReasonSummary: "消费龙头"},
+	}
+
+	matched, total := filterStockRecommendationsByKeyword(items, "600", 10)
+	if total != 2 {
+		t.Fatalf("expected deduped total=2, got %d", total)
+	}
+	if len(matched) != 2 {
+		t.Fatalf("expected len=2, got %d", len(matched))
+	}
+	if matched[0].ID != "latest" || matched[1].ID != "other" {
+		t.Fatalf("unexpected deduped order/content: %+v", matched)
+	}
+}
+
+func TestFilterStockRecommendationsByKeywordTreatsMarketSuffixAsSameStock(t *testing.T) {
+	items := []model.StockRecommendation{
+		{ID: "with_suffix", Symbol: "600036.SH", Name: "招商银行", ReasonSummary: "带市场后缀"},
+		{ID: "plain_code", Symbol: "600036", Name: "600036", ReasonSummary: "纯代码"},
+	}
+
+	matched, total := filterStockRecommendationsByKeyword(items, "招商", 10)
+	if total != 1 {
+		t.Fatalf("expected deduped total=1, got %d", total)
+	}
+	if len(matched) != 1 || matched[0].ID != "with_suffix" {
+		t.Fatalf("unexpected matched result: %+v", matched)
+	}
+}
+
 func TestFilterFuturesStrategiesByKeyword(t *testing.T) {
 	items := []model.FuturesStrategy{
 		{ID: "f1", Contract: "RB2505", Name: "螺纹钢策略", ReasonSummary: "价差均值回归"},

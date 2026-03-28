@@ -31,7 +31,7 @@
   --h5-radius: 22px;
   --h5-radius-md: 18px;
   --h5-radius-sm: 14px;
-  --h5-content-width: min(100%, 468px);
+  --h5-content-width: min(100%, 560px);
 }
 
 .h5-page {
@@ -519,7 +519,7 @@
   right: auto;
   bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   z-index: 24;
-  width: min(calc(100% - 44px), 412px);
+  width: min(calc(100% - 44px), 504px);
   transform: translateX(-50%);
   pointer-events: none;
 }

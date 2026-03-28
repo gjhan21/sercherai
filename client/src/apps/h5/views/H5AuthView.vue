@@ -264,7 +264,7 @@ async function handleBack() {
 }
 
 .h5-auth-wrap {
-  width: min(100%, 560px);
+  width: var(--h5-content-width);
   margin: 0 auto;
   display: grid;
   gap: 14px;
@@ -559,6 +559,50 @@ async function handleBack() {
 
 .h5-auth-footer {
   padding: 0 4px;
+}
+
+@media (min-width: 521px) {
+  .h5-auth-wrap {
+    gap: 16px;
+  }
+
+  .h5-auth-hero-card {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
+    align-items: start;
+    gap: 18px;
+    background:
+      radial-gradient(circle at top right, rgba(215, 175, 91, 0.18), transparent 30%),
+      linear-gradient(150deg, #173a6e 0%, #21497d 58%, #f6f9fc 58%, #ffffff 100%);
+  }
+
+  .h5-auth-hero-copy,
+  .h5-auth-highlight-row {
+    max-width: 360px;
+  }
+
+  .h5-auth-invite-banner {
+    min-height: 100%;
+    align-content: start;
+  }
+
+  .h5-auth-main-card {
+    grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+    align-items: start;
+    column-gap: 18px;
+  }
+
+  .h5-auth-tabs {
+    grid-column: 1 / -1;
+  }
+
+  .h5-auth-panel-copy,
+  .h5-auth-form {
+    align-self: start;
+  }
+
+  .h5-auth-scene-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

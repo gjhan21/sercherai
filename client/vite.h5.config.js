@@ -2,6 +2,9 @@ import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import path from "node:path";
 import { shouldServeH5Index } from "./vite.h5-paths.js";
+import { resolveProxyTarget } from "./vite.proxy-target.js";
+
+const proxyTarget = resolveProxyTarget();
 
 function h5HistoryFallback() {
   const rewriteRequest = (req, _res, next) => {
@@ -30,11 +33,11 @@ export default defineConfig({
     port: 5177,
     proxy: {
       "/api": {
-        target: process.env.VITE_PROXY_TARGET || "http://127.0.0.1:18080",
+        target: proxyTarget,
         changeOrigin: true
       },
       "/uploads": {
-        target: process.env.VITE_PROXY_TARGET || "http://127.0.0.1:18080",
+        target: proxyTarget,
         changeOrigin: true
       }
     }

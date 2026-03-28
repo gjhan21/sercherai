@@ -449,6 +449,7 @@ import {
   buildCommunityListRoute,
   findNewsArticleLocation
 } from "../lib/community-entry-links";
+import { buildProfileModuleRoute } from "../lib/profile-modules";
 import { getAccessToken } from "../lib/session";
 
 const categoryTemplates = [
@@ -618,7 +619,7 @@ const newsAccessState = computed(() => {
       tone: "success",
       label: "会员阶段",
       title: "你已解锁深度资讯，可直接阅读正文和附件。",
-      desc: "可结合策略页和关注页继续查看。"
+      desc: "可结合策略页和我的关注继续查看。"
     };
   }
   if (newsAccessStage.value === "REGISTERED") {
@@ -700,7 +701,7 @@ const newsReadingGuideRows = computed(() => [
   {
     title: "继续查看",
     summary: "资讯页负责阅读正文",
-    desc: "可继续前往策略页或关注页查看相关内容。"
+    desc: "可继续前往策略页或我的关注查看相关内容。"
   }
 ]);
 const detailGuideRows = computed(() => [
@@ -717,7 +718,7 @@ const detailGuideRows = computed(() => [
   {
     title: "继续查看相关内容",
     summary: "需要时可前往其他页面",
-    desc: "看完可回策略页确认动作，或回关注页查看跟踪变化。"
+    desc: "看完可回策略页确认动作，或回我的关注查看跟踪变化。"
   }
 ]);
 
@@ -997,7 +998,7 @@ function handleNewsPrimaryAction(targetKey = "primary_action") {
 
 function handleNewsSecondaryAction() {
   if (newsAccessStage.value === "VIP") {
-    router.push("/watchlist");
+    router.push(buildProfileModuleRoute("watchlist"));
     return;
   }
   if (newsAccessStage.value === "REGISTERED") {

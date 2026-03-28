@@ -191,7 +191,7 @@
         <button type="button" class="h5-btn block" :disabled="detailPrimaryDisabled" @click="handlePrimaryAction">
           {{ primaryActionLabel }}
         </button>
-        <button v-if="showWatchlistEntry" type="button" class="h5-btn-secondary block" @click="goWatchlist">去我的关注</button>
+        <button v-if="showWatchlistEntry" type="button" class="h5-btn-secondary block" @click="goWatchlist">去我的 &gt; 我的关注</button>
         <button type="button" class="h5-btn-secondary block" @click="router.push('/membership')">查看会员权益</button>
         <button type="button" class="h5-btn-ghost block" @click="closeDetail">返回观点流</button>
       </section>
@@ -230,8 +230,11 @@ import {
 } from "../../../api/market";
 import { getMembershipQuota } from "../../../api/membership";
 import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
+import { buildProfileModuleRoute } from "../../../lib/profile-modules";
 import { WATCHLIST_EVENT, isWatchedStock, removeWatchedStock, saveWatchedStock } from "../../../lib/watchlist";
+import { useClientAuth } from "../../../shared/auth/client-auth";
 import { shapeStrategyDisplayTitle } from "../lib/display-copy.js";
+import { resolveStrategyAccessSummary } from "../lib/membership-display.js";
 import {
   buildFallbackStrategyVersionHistory,
   buildStrategyInsightSections,
@@ -253,6 +256,7 @@ import {
 
 const router = useRouter();
 const route = useRoute();
+const { isLoggedIn } = useClientAuth();
 const useDemoFallback = shouldUseDemoFallback();
 
 const loading = ref(false);
@@ -358,8 +362,7 @@ const strategyHeroStats = computed(() => [
   },
   {
     label: "阅读状态",
-    value: isVIPUser.value ? "会员已同步" : "普通浏览",
-    note: isVIPUser.value ? "可继续深读更多内容" : "升级后可串联更多正文与附件"
+    ...resolveStrategyAccessSummary(rawQuota.value, { isLoggedIn: isLoggedIn.value, loading: loading.value })
   }
 ]);
 
@@ -522,7 +525,7 @@ const stickyTitle = computed(() => {
 });
 const stickyDescription = computed(() => {
   if (showWatchlistEntry.value) {
-    return "关注页会把状态、资讯和风险边界集中到一条持续跟踪链路里。";
+    return "我的关注详情会把状态、资讯和风险边界集中到一条持续跟踪链路里。";
   }
   return isVIPUser.value ? "当前会员状态已同步，可继续阅读和跟踪。" : "开通会员后，可继续解锁更多正文、附件和策略解释。";
 });
@@ -537,7 +540,7 @@ const primaryActionLabel = computed(() => {
 });
 const secondaryActionLabel = computed(() => {
   if (showWatchlistEntry.value) {
-    return "去我的关注";
+    return "去我的 > 我的关注";
   }
   return activeDetailID.value ? "返回列表" : "去资讯页";
 });
@@ -749,7 +752,7 @@ function toggleActiveStockWatch() {
 }
 
 function goWatchlist() {
-  router.push("/watchlist");
+  router.push(buildProfileModuleRoute("watchlist"));
 }
 
 function goNews() {
@@ -1202,6 +1205,38 @@ onBeforeUnmount(() => {
 
 .strategy-actions-card {
   gap: 10px;
+}
+
+@media (min-width: 521px) {
+  .strategy-page {
+    gap: 14px;
+  }
+
+  .strategy-hero-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .strategy-kind-strip {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .strategy-digest-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .strategy-actions-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .strategy-actions-card .block {
+    min-width: 0;
+  }
+
+  .strategy-actions-card .block:last-child {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 374px) {

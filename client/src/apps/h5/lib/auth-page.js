@@ -1,9 +1,11 @@
+import { buildProfileModuleRedirectPath } from "../../../lib/profile-modules.js";
+
 const DEFAULT_REDIRECT = "/home";
+const WATCHLIST_REDIRECT = buildProfileModuleRedirectPath("watchlist");
 const ALLOWED_REDIRECTS = new Set([
   "/home",
   "/news",
   "/strategies",
-  "/watchlist",
   "/archive",
   "/membership",
   "/profile"
@@ -41,6 +43,10 @@ export function normalizeAuthRedirect(rawPath) {
     return DEFAULT_REDIRECT;
   }
 
+  if (targetURL.pathname === "/watchlist") {
+    return WATCHLIST_REDIRECT;
+  }
+
   const normalizedPath = targetURL.pathname;
   if (!ALLOWED_REDIRECTS.has(normalizedPath)) {
     return DEFAULT_REDIRECT;
@@ -51,7 +57,8 @@ export function normalizeAuthRedirect(rawPath) {
 
 export function describeAuthScene(rawPath) {
   const redirectPath = normalizeAuthRedirect(rawPath);
-  const pathname = toURL(redirectPath)?.pathname || DEFAULT_REDIRECT;
+  const targetURL = toURL(redirectPath);
+  const pathname = targetURL?.pathname || DEFAULT_REDIRECT;
 
   if (pathname === "/membership") {
     return {
@@ -80,15 +87,6 @@ export function describeAuthScene(rawPath) {
     };
   }
 
-  if (pathname === "/watchlist") {
-    return {
-      label: "我的关注",
-      title: "登录后继续跟踪已关注对象",
-      tip: "完成登录后，将返回关注页，继续查看变化、风险边界和下一步动作。",
-      highlights: ["关注变化", "风险边界", "持续跟踪"]
-    };
-  }
-
   if (pathname === "/archive") {
     return {
       label: "历史档案",
@@ -99,6 +97,14 @@ export function describeAuthScene(rawPath) {
   }
 
   if (pathname === "/profile") {
+    if (targetURL?.searchParams.get("section") === "watchlist") {
+      return {
+        label: "我的 > 我的关注",
+        title: "登录后先回到我的，再进入关注详情",
+        tip: "完成登录后，将返回个人中心中的我的关注模块，继续查看变化、风险边界和下一步动作。",
+        highlights: ["我的入口", "关注变化", "持续跟踪"]
+      };
+    }
     return {
       label: "我的账户",
       title: "登录后继续处理账户事项",
@@ -126,7 +132,7 @@ function resolvePrimaryActionLabel(scene, mode) {
     if (scene.label === "策略详情") {
       return "注册并继续看策略";
     }
-    if (scene.label === "我的关注") {
+    if (scene.label === "我的关注" || scene.label === "我的 > 我的关注") {
       return "注册并继续看关注";
     }
     if (scene.label === "历史档案") {
@@ -147,7 +153,7 @@ function resolvePrimaryActionLabel(scene, mode) {
   if (scene.label === "策略详情") {
     return "登录并继续看策略";
   }
-  if (scene.label === "我的关注") {
+  if (scene.label === "我的关注" || scene.label === "我的 > 我的关注") {
     return "登录并继续看关注";
   }
   if (scene.label === "历史档案") {

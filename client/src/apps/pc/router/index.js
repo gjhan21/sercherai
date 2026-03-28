@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { syncClientAuthSession } from "../../../shared/auth/client-auth";
+import { buildProfileModuleRoute } from "../../../lib/profile-modules";
 
 const PcLayout = () => import("../layouts/PcLayout.vue");
 const AuthView = () => import("../../../views/AuthView.vue");
@@ -8,6 +9,10 @@ const StrategyView = () => import("../../../views/StrategyView.vue");
 const RecommendationArchiveView = () => import("../../../views/RecommendationArchiveView.vue");
 const MyWatchlistView = () => import("../../../views/MyWatchlistView.vue");
 const NewsView = () => import("../../../views/NewsView.vue");
+const SearchView = () => import("../../../views/SearchView.vue");
+const CommunityView = () => import("../../../views/CommunityView.vue");
+const CommunityTopicView = () => import("../../../views/CommunityTopicView.vue");
+const CommunityComposeView = () => import("../../../views/CommunityComposeView.vue");
 const MembershipView = () => import("../../../views/MembershipView.vue");
 const ProfileView = () => import("../../../views/ProfileView.vue");
 
@@ -36,10 +41,15 @@ const routes = [
       { path: "home", name: "pc-home", component: HomeView },
       { path: "strategies", name: "pc-strategies", component: StrategyView },
       { path: "archive", name: "pc-archive", component: RecommendationArchiveView },
-      { path: "watchlist", name: "pc-watchlist", component: MyWatchlistView },
       { path: "news", name: "pc-news", component: NewsView },
+      { path: "search", name: "pc-search", component: SearchView },
+      { path: "community", name: "pc-community", component: CommunityView },
+      { path: "community/topics/:id", name: "pc-community-topic", component: CommunityTopicView },
+      { path: "community/new", name: "pc-community-compose", component: CommunityComposeView, meta: { requiresAuth: true } },
+      { path: "watchlist", redirect: buildProfileModuleRoute("watchlist") },
       { path: "membership", name: "pc-membership", component: MembershipView, meta: { requiresAuth: true } },
-      { path: "profile", name: "pc-profile", component: ProfileView, meta: { requiresAuth: true } }
+      { path: "profile", name: "pc-profile", component: ProfileView, meta: { requiresAuth: true } },
+      { path: "profile/watchlist", name: "pc-profile-watchlist", component: MyWatchlistView, meta: { requiresAuth: true } }
     ]
   },
   {

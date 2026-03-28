@@ -41,10 +41,10 @@ test("resolveShellScene falls back to profile/account scene and home defaults", 
   });
 
   assert.deepEqual(resolveShellScene("/watchlist"), {
-    section: "关注",
-    title: "我的关注",
-    subtitle: "变化工作台按回访节奏展示跟踪对象",
-    pulse: "回访中"
+    section: "我的",
+    title: "我的关注详情",
+    subtitle: "关注详情从个人中心进入，继续查看变化工作台",
+    pulse: "二级模块"
   });
 
   assert.deepEqual(resolveShellScene("/archive"), {

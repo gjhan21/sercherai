@@ -212,7 +212,12 @@ import { useClientAuth } from "../../../shared/auth/client-auth";
 import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
 import { shapeNewsDisplayTitle } from "../lib/display-copy.js";
 import { formatAttachmentSize, formatDateTime, renderArticleHTML, resolveVipStage, toArray, toPlainText, truncateText } from "../lib/formatters";
-import { buildNewsFeedRows, sortNewsCategories } from "../lib/news-feed.js";
+import {
+  buildNewsFeedRows,
+  findRequestedArticleLocation,
+  resolveRequestedArticleID,
+  sortNewsCategories
+} from "../lib/news-feed.js";
 import { resolveNewsAccessState } from "../lib/page-state";
 import { fallbackNewsArticles, fallbackNewsAttachments, fallbackNewsCategories } from "../lib/mock-data";
 import { resolveHighlightTone } from "../lib/surface-tone.js";
@@ -238,7 +243,7 @@ const downloadingAttachmentID = ref("");
 
 const categoryTabs = computed(() => sortNewsCategories(rawCategories.value, fallbackNewsCategories));
 const activeTabLabel = computed(() => categoryTabs.value.find((item) => item.key === activeTab.value)?.label || "资讯");
-const activeArticleID = computed(() => String(route.query.article || ""));
+const activeArticleID = computed(() => resolveRequestedArticleID(route.query));
 const currentFeed = computed(() => feedMap.value[activeTab.value] || []);
 const newsFeed = computed(() => buildNewsFeedRows(currentFeed.value));
 const leadArticle = computed(() => newsFeed.value.lead);
@@ -448,6 +453,7 @@ async function loadInitialData() {
   if (!targetTabs.includes(activeTab.value)) {
     activeTab.value = targetTabs[0];
   }
+  syncRequestedArticleSelection();
   if (activeArticleID.value) {
     await loadArticleDetail(activeArticleID.value);
   }
@@ -512,20 +518,31 @@ function resolveDetailErrorMessage(visibility, fallbackMessage) {
 
 function selectTab(tabKey) {
   activeTab.value = tabKey;
-  router.replace({ query: { ...route.query, tab: tabKey, article: undefined } });
+  router.replace({ query: { ...route.query, tab: tabKey, article: undefined, article_id: undefined } });
 }
 
 function openArticle(id) {
-  router.replace({ query: { ...route.query, tab: activeTab.value, article: id } });
+  router.replace({ query: { ...route.query, tab: activeTab.value, article: id, article_id: undefined } });
 }
 
 function closeArticle() {
-  router.replace({ query: { ...route.query, article: undefined } });
+  router.replace({ query: { ...route.query, article: undefined, article_id: undefined } });
 }
 
 async function searchArticles() {
   await Promise.all(categoryTabs.value.map((item) => fetchArticles(item.key, { page: 1, reset: true }).catch(() => null)));
-  router.replace({ query: { ...route.query, keyword: keyword.value || undefined, article: undefined } });
+  syncRequestedArticleSelection();
+  router.replace({ query: { ...route.query, keyword: keyword.value || undefined, article: undefined, article_id: undefined } });
+}
+
+function syncRequestedArticleSelection() {
+  const location = findRequestedArticleLocation(feedMap.value, activeArticleID.value);
+  if (!location) {
+    return;
+  }
+  if (location.categoryKey && activeTab.value !== location.categoryKey) {
+    activeTab.value = location.categoryKey;
+  }
 }
 
 async function loadMore() {
@@ -589,9 +606,10 @@ function goSecondaryAction() {
   closeArticle();
 }
 
-watch(() => route.query.article, (value) => {
-  if (value) {
-    loadArticleDetail(String(value));
+watch(() => [route.query.article, route.query.article_id], () => {
+  syncRequestedArticleSelection();
+  if (activeArticleID.value) {
+    loadArticleDetail(activeArticleID.value);
   }
 }, { immediate: false });
 
@@ -1041,6 +1059,45 @@ onMounted(() => {
 .news-attachment-copy strong {
   color: var(--h5-text);
   font-size: 15px;
+}
+
+@media (min-width: 521px) {
+  .news-page {
+    gap: 14px;
+  }
+
+  .news-hero-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .news-search-bar {
+    grid-template-columns: minmax(0, 1fr) 112px;
+    align-items: center;
+  }
+
+  .news-category-strip {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .news-feed-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .news-lock-actions,
+  .news-next-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .news-next-actions .block:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .news-attachment-item {
+    grid-template-columns: minmax(0, 1fr) 120px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

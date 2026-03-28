@@ -891,6 +891,28 @@ onMounted(() => {
   color: #9b6614;
 }
 
+@media (min-width: 521px) {
+  .membership-page {
+    gap: 14px;
+  }
+
+  .membership-benefit-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .membership-plan-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .membership-action-buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .membership-order-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 380px) {
   .membership-status-grid,
   .membership-mini-grid,

@@ -2,10 +2,10 @@
   <section class="community-page fade-up">
     <header class="community-hero card finance-section-card">
       <div class="finance-copy-stack">
-        <p class="hero-kicker">讨论广场</p>
+        <p class="hero-kicker">社区主入口</p>
         <h1 class="section-title">围绕资讯、策略和标的发起结构化讨论</h1>
         <p class="section-subtitle">
-          当前先支持主题帖、单层评论、点赞、收藏、举报和关联标的展示，不做聊天室式实时刷屏。
+          从策略、资讯和我的讨论继续承接，统一处理发现观点、跟进讨论和发布判断。
         </p>
         <div class="finance-chip-list">
           <span>股票</span>
@@ -13,11 +13,28 @@
           <span>资讯</span>
           <span>策略</span>
         </div>
+        <div class="community-entry-grid">
+          <RouterLink class="finance-list-card finance-list-card-interactive" to="/strategies">
+            <p>从策略进入</p>
+            <strong>围绕候选和解释继续讨论</strong>
+            <span>适合接住“为什么选它”的后续判断。</span>
+          </RouterLink>
+          <RouterLink class="finance-list-card finance-list-card-interactive" to="/news">
+            <p>从资讯进入</p>
+            <strong>围绕新闻和研报继续发帖</strong>
+            <span>适合从文章详情承接观点、风险和节奏。</span>
+          </RouterLink>
+          <RouterLink class="finance-list-card finance-list-card-interactive" :to="{ path: '/community', query: { mine: 'topics' } }">
+            <p>从我的讨论进入</p>
+            <strong>看我的主题与评论回访链</strong>
+            <span>适合收盘后回看自己发过的观点和互动。</span>
+          </RouterLink>
+        </div>
       </div>
 
       <div class="community-hero-actions">
         <button type="button" class="finance-primary-btn" @click="handleCompose">
-          发起讨论
+          发布我的观点
         </button>
         <button type="button" class="finance-ghost-btn" :disabled="loading" @click="loadCommunityData">
           {{ loading ? "刷新中..." : "刷新广场" }}
@@ -411,6 +428,7 @@ import {
   buildCommunityComposeRouteFromQuery,
   resolveCommunityEntryContext
 } from "../lib/community-entry-links";
+import { normalizeCommunityLoadError } from "../lib/community-error";
 
 const router = useRouter();
 const route = useRoute();
@@ -761,7 +779,7 @@ async function loadCommunityData() {
     }
     lastLoadedAt.value = formatDateTime(new Date().toISOString());
   } catch (error) {
-    errorMessage.value = error?.message || "讨论列表加载失败";
+    errorMessage.value = normalizeCommunityLoadError(error?.message);
     topics.value = [];
     comments.value = [];
     topicTotal.value = 0;
@@ -1048,7 +1066,8 @@ function formatDateTime(value) {
 .community-topic-metrics,
 .community-topic-grid,
 .community-side-list,
-.community-path-list {
+.community-path-list,
+.community-entry-grid {
   display: grid;
   gap: 10px;
 }
@@ -1062,6 +1081,10 @@ function formatDateTime(value) {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.community-entry-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .community-link-btn {
@@ -1128,7 +1151,8 @@ function formatDateTime(value) {
 
 @media (max-width: 1080px) {
   .community-topic-metrics,
-  .community-topic-grid {
+  .community-topic-grid,
+  .community-entry-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1150,7 +1174,8 @@ function formatDateTime(value) {
   }
 
   .community-topic-metrics,
-  .community-topic-grid {
+  .community-topic-grid,
+  .community-entry-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

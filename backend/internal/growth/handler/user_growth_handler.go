@@ -1358,16 +1358,38 @@ func containsSearchKeyword(keyword string, fields ...string) bool {
 	return false
 }
 
+func normalizeStockSearchKey(symbol string, name string) string {
+	normalizedSymbol := strings.ToUpper(strings.TrimSpace(symbol))
+	normalizedName := strings.ToUpper(strings.TrimSpace(name))
+	if normalizedSymbol != "" {
+		for _, suffix := range []string{".SH", ".SZ", ".BJ", ".HK"} {
+			normalizedSymbol = strings.TrimSuffix(normalizedSymbol, suffix)
+		}
+		if normalizedSymbol != "" {
+			return normalizedSymbol
+		}
+	}
+	return normalizedName
+}
+
 func filterStockRecommendationsByKeyword(items []model.StockRecommendation, keyword string, limit int) ([]model.StockRecommendation, int) {
 	needle := normalizeSearchKeyword(keyword)
 	if len(items) == 0 || needle == "" || limit <= 0 {
 		return []model.StockRecommendation{}, 0
 	}
 	result := make([]model.StockRecommendation, 0, minInt(limit, len(items)))
+	seen := make(map[string]struct{}, len(items))
 	total := 0
 	for _, item := range items {
 		if !containsSearchKeyword(needle, item.Symbol, item.Name, item.ReasonSummary) {
 			continue
+		}
+		stockKey := normalizeStockSearchKey(item.Symbol, item.Name)
+		if stockKey != "" {
+			if _, exists := seen[stockKey]; exists {
+				continue
+			}
+			seen[stockKey] = struct{}{}
 		}
 		total++
 		if len(result) < limit {

@@ -32,22 +32,6 @@
             <span>当前模块</span>
             <strong>{{ activeTab.label }}</strong>
           </div>
-          <template v-if="isLoggedIn">
-            <div class="finance-account-chip">
-              <span>已登录</span>
-              <strong>{{ accountLabel }}</strong>
-            </div>
-            <button class="finance-logout-btn" type="button" :disabled="loggingOut" @click="handleLogout">
-              {{ loggingOut ? "退出中..." : "退出" }}
-            </button>
-          </template>
-          <RouterLink
-            v-else
-            class="finance-login-btn"
-            :to="{ path: '/auth', query: { redirect: route.fullPath } }"
-          >
-            登录 / 注册
-          </RouterLink>
         </div>
       </div>
     </header>
@@ -65,89 +49,106 @@
             {{ item.label }}
           </RouterLink>
         </div>
-        <div class="finance-nav-note">{{ activeTab.focus }}</div>
-      </div>
-    </nav>
+        <div class="finance-nav-tools">
+          <div v-if="showGlobalSearchBar" ref="searchBarRef" class="finance-nav-search">
+            <form class="global-search-form" @submit.prevent="handleSearchSubmit">
+              <div class="global-search-field-wrap">
+                <input
+                  v-model="searchKeyword"
+                  class="global-search-input"
+                  type="search"
+                  name="global_search"
+                  maxlength="40"
+                  placeholder="搜索股票、期货策略和资讯"
+                  @focus="handleSearchFocus"
+                  @keydown.esc.prevent="handleEscapeSearch"
+                />
+                <button
+                  v-if="searchKeyword"
+                  type="button"
+                  class="global-search-clear"
+                  aria-label="清空搜索"
+                  @click="clearGlobalSearch"
+                >
+                  ×
+                </button>
+              </div>
+              <button class="finance-mini-btn finance-mini-btn-primary" type="submit" :disabled="!canSubmitSearch">
+                搜索
+              </button>
+            </form>
+            <div v-if="searchDropdownVisible" class="global-search-dropdown finance-list-card finance-list-card-panel">
+              <div class="global-search-dropdown-head">
+                <div>
+                  <p>全局搜索</p>
+                  <strong>{{ activeSearchKeyword || "搜索结果" }}</strong>
+                </div>
+                <span class="finance-pill finance-pill-compact finance-pill-neutral">{{ searchScopeLabel }}</span>
+              </div>
 
-    <section v-if="showGlobalSearchBar" ref="searchBarRef" class="global-search-strip fade-up">
-      <div class="shell-container global-search-strip-inner">
-        <form class="global-search-form" @submit.prevent="handleSearchSubmit">
-          <div class="global-search-field-wrap">
-            <input
-              v-model="searchKeyword"
-              class="global-search-input"
-              type="search"
-              maxlength="40"
-              placeholder="搜索股票、期货策略和资讯"
-              @focus="handleSearchFocus"
-              @keydown.esc.prevent="handleEscapeSearch"
-            />
-            <button
-              v-if="searchKeyword"
-              type="button"
-              class="global-search-clear"
-              aria-label="清空搜索"
-              @click="clearGlobalSearch"
+              <p v-if="searchLoading" class="search-tip finance-note-strip finance-note-strip-info">正在检索股票、策略和资讯...</p>
+              <p v-else-if="searchError" class="search-tip finance-note-strip finance-note-strip-warning">{{ searchError }}</p>
+              <template v-else>
+                <div v-if="hasSuggestionItems" class="global-search-dropdown-groups">
+                  <article v-for="group in suggestionGroups" :key="group.key" class="global-search-group">
+                    <header class="global-search-group-head">
+                      <div>
+                        <strong>{{ group.title }}</strong>
+                        <span>{{ group.total }} 条</span>
+                      </div>
+                    </header>
+                    <ul v-if="group.items.length" class="global-search-list">
+                      <li
+                        v-for="item in group.items.slice(0, 3)"
+                        :key="`${group.key}-${item.id}`"
+                        class="global-search-item"
+                        @click="openSuggestedSearchItem(group.key, item)"
+                      >
+                        <h4>{{ item.title }}</h4>
+                        <p>{{ item.summary }}</p>
+                        <span>{{ item.meta }}</span>
+                      </li>
+                    </ul>
+                    <p v-else class="global-search-empty">{{ group.emptyText }}</p>
+                  </article>
+                </div>
+                <p v-else class="global-search-empty global-search-empty-panel">未找到匹配结果。</p>
+              </template>
+
+              <div class="global-search-dropdown-actions">
+                <button type="button" class="finance-mini-btn finance-mini-btn-soft" @click="openSearchResultsPage()">
+                  查看更多搜索结果
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="finance-nav-account">
+            <template v-if="isLoggedIn">
+              <div class="finance-account-chip finance-account-chip-nav">
+                <span>当前用户</span>
+                <strong>{{ accountLabel }}</strong>
+              </div>
+              <button class="finance-logout-btn" type="button" :disabled="loggingOut" @click="handleLogout">
+                {{ loggingOut ? "退出中..." : "退出" }}
+              </button>
+            </template>
+            <RouterLink
+              v-else
+              class="finance-login-btn"
+              :to="{ path: '/auth', query: { redirect: route.fullPath } }"
             >
-              ×
-            </button>
-          </div>
-          <button class="finance-mini-btn finance-mini-btn-primary" type="submit" :disabled="!canSubmitSearch">
-            搜索
-          </button>
-        </form>
-        <p class="global-search-hint">
-          {{ searchKeyword ? "输入时实时联想，回车或点搜索查看完整结果" : "先用顶部搜索条定位股票、期货策略和资讯" }}
-        </p>
-      </div>
-
-      <div v-if="searchDropdownVisible" class="shell-container">
-        <div class="global-search-dropdown finance-list-card finance-list-card-panel">
-          <div class="global-search-dropdown-head">
-            <div>
-              <p>全局搜索</p>
-              <strong>{{ activeSearchKeyword || "搜索结果" }}</strong>
-            </div>
-            <span class="finance-pill finance-pill-compact finance-pill-neutral">{{ searchScopeLabel }}</span>
-          </div>
-
-          <p v-if="searchLoading" class="search-tip finance-note-strip finance-note-strip-info">正在检索股票、策略和资讯...</p>
-          <p v-else-if="searchError" class="search-tip finance-note-strip finance-note-strip-warning">{{ searchError }}</p>
-          <template v-else>
-            <div v-if="hasSuggestionItems" class="global-search-dropdown-groups">
-              <article v-for="group in suggestionGroups" :key="group.key" class="global-search-group">
-                <header class="global-search-group-head">
-                  <div>
-                    <strong>{{ group.title }}</strong>
-                    <span>{{ group.total }} 条</span>
-                  </div>
-                </header>
-                <ul v-if="group.items.length" class="global-search-list">
-                  <li
-                    v-for="item in group.items.slice(0, 3)"
-                    :key="`${group.key}-${item.id}`"
-                    class="global-search-item"
-                    @click="openSuggestedSearchItem(group.key, item)"
-                  >
-                    <h4>{{ item.title }}</h4>
-                    <p>{{ item.summary }}</p>
-                    <span>{{ item.meta }}</span>
-                  </li>
-                </ul>
-                <p v-else class="global-search-empty">{{ group.emptyText }}</p>
-              </article>
-            </div>
-            <p v-else class="global-search-empty global-search-empty-panel">未找到匹配结果。</p>
-          </template>
-
-          <div class="global-search-dropdown-actions">
-            <button type="button" class="finance-mini-btn finance-mini-btn-soft" @click="openSearchResultsPage()">
-              查看更多搜索结果
-            </button>
+              登录 / 注册
+            </RouterLink>
           </div>
         </div>
       </div>
-    </section>
+      <div class="shell-container finance-nav-meta">
+        <div class="finance-nav-note">{{ activeTab.focus }}</div>
+        <p v-if="showGlobalSearchBar" class="global-search-hint">
+          {{ searchKeyword ? "输入时实时联想，回车或点搜索查看完整结果" : "先用顶部搜索条定位股票、期货策略和资讯" }}
+        </p>
+      </div>
+    </nav>
 
     <section class="finance-route-strip fade-up">
       <div class="shell-container finance-route-strip-inner">

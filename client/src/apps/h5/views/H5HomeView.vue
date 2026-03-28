@@ -80,7 +80,7 @@
       </div>
       <H5EmptyState v-else title="观察清单待生成" description="登录后这里会出现今天值得继续跟踪的 2-4 个对象。" />
       <div class="home-watch-actions">
-        <button type="button" class="h5-btn-secondary block" @click="goWatchlist">进入我的关注</button>
+        <button type="button" class="h5-btn-secondary block" @click="goWatchlist">去我的 &gt; 我的关注</button>
       </div>
     </H5SectionBlock>
 
@@ -129,10 +129,12 @@ import { getMembershipQuota } from "../../../api/membership";
 import { getStockRecommendationDetail, getStockRecommendationInsight, listStockRecommendations } from "../../../api/market";
 import { listNewsArticles } from "../../../api/news";
 import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
+import { buildProfileModuleRedirectPath, buildProfileModuleRoute } from "../../../lib/profile-modules";
 import { buildStrategyInsightSections, buildStrategyMetaText, buildStrategyProofTags } from "../../../lib/strategy-version";
 import { WATCHLIST_EVENT, isWatchedStock, removeWatchedStock, saveWatchedStock } from "../../../lib/watchlist";
 import { useClientAuth } from "../../../shared/auth/client-auth";
-import { formatDateTime, mapMemberLevel, mapRiskLevel, mapVIPStatus, normalizeText, resolveVipStage, toArray, truncateText } from "../lib/formatters";
+import { formatDateTime, mapRiskLevel, normalizeText, resolveVipStage, toArray, truncateText } from "../lib/formatters";
+import { resolveHomeMembershipSummary } from "../lib/membership-display.js";
 import { buildHomeFeedModel } from "../lib/home-feed.js";
 import { fallbackNewsArticles, fallbackQuota, fallbackStockDetails, fallbackStockInsights, fallbackStockRecommendations } from "../lib/mock-data";
 import { shapeStrategyDisplayTitle } from "../lib/display-copy.js";
@@ -259,9 +261,9 @@ const recommendationStatus = computed(() => ({
   note: leadStock.value ? truncateText(leadStock.value.title, 28) : "股票与期货推荐会在登录后优先同步"
 }));
 
-const membershipSummary = computed(() => ({
-  value: mapMemberLevel(rawQuota.value?.member_level, rawQuota.value?.member_level),
-  note: resolveVipStage(rawQuota.value) ? mapVIPStatus(rawQuota.value?.vip_status, rawQuota.value?.member_level) : "未开通或待激活"
+const membershipSummary = computed(() => resolveHomeMembershipSummary(rawQuota.value, {
+  isLoggedIn: isLoggedIn.value,
+  loading: loading.value
 }));
 
 const newsSummary = computed(() => ({
@@ -447,12 +449,12 @@ function goMembership() {
 }
 
 function goWatchlist() {
-  router.push("/watchlist");
+  router.push(buildProfileModuleRoute("watchlist"));
 }
 
 function handleStickyPrimary() {
   if (!isLoggedIn.value) {
-    router.push({ path: "/auth", query: { redirect: "/home" } });
+    router.push({ path: "/auth", query: { redirect: buildProfileModuleRedirectPath("watchlist") } });
     return;
   }
   if (resolveVipStage(rawQuota.value)) {
