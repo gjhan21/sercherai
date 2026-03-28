@@ -194,6 +194,86 @@ export function buildStrategyConfidenceCalibrationSummary(explanation) {
   };
 }
 
+export function buildStrategyScenarioSnapshotRows(explanation, options = {}) {
+  const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 3;
+  const source = Array.isArray(explanation?.scenario_snapshots) && explanation.scenario_snapshots.length
+    ? explanation.scenario_snapshots
+    : explanation?.simulations?.[0]?.scenarios;
+  if (!Array.isArray(source)) {
+    return [];
+  }
+  return source
+    .map((item, index) => ({
+      key: `${toText(item?.scenario)}-${index}`,
+      scenario: toText(item?.scenario) || `scenario-${index + 1}`,
+      thesis: toText(item?.thesis) || "当前未补更多情景摘要。",
+      trigger: toText(item?.trigger) || toText(item?.risk_signal) || "等待更多触发条件",
+      action: toText(item?.action_suggestion) || toText(item?.action) || "继续观察",
+      invalidation: toText(item?.invalidation_signal),
+      confirmation: toText(item?.confirmation_signal),
+      window: toText(item?.expected_window)
+    }))
+    .filter((item) => item.scenario)
+    .slice(0, limit);
+}
+
+export function buildStrategyAgentOpinionRows(explanation, options = {}) {
+  const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 4;
+  if (!Array.isArray(explanation?.agent_opinions)) {
+    return [];
+  }
+  return explanation.agent_opinions
+    .map((item, index) => ({
+      key: `${toText(item?.role || item?.agent)}-${index}`,
+      role: toText(item?.role || item?.agent) || `agent-${index + 1}`,
+      stance: toText(item?.stance) || "WATCH",
+      confidence: Number(item?.confidence || 0),
+      summary: toText(item?.summary) || "当前未补更多角色意见。",
+      veto: item?.veto === true
+    }))
+    .filter((item) => item.role)
+    .slice(0, limit);
+}
+
+export function buildStrategyScenarioMetaSummary(explanation) {
+  const meta = explanation?.scenario_meta;
+  if (!meta || typeof meta !== "object") {
+    return null;
+  }
+  const primary = toText(meta.primary_scenario);
+  const action = toText(meta.consensus_action);
+  const vetoReason = toText(meta.veto_reason);
+  const vetoed = meta.vetoed === true;
+  if (!primary && !action && !vetoReason && !vetoed) {
+    return null;
+  }
+  return {
+    summary: vetoed
+      ? `veto: ${vetoReason || "风险角色阻止直接执行"}`
+      : firstMeaningfulStrategyText([action, primary]) || "当前未补更多情景元信息。",
+    note: [primary ? `主情景 ${primary}` : "", action ? `共识 ${action}` : ""].filter(Boolean).join(" · "),
+    vetoed
+  };
+}
+
+export function buildStrategyRelationshipSnapshotSummary(explanation) {
+  const snapshot = explanation?.relationship_snapshot;
+  if (!snapshot || typeof snapshot !== "object") {
+    return null;
+  }
+  const count = Number(snapshot.relationship_count || 0);
+  const labels = Array.isArray(snapshot.nodes)
+    ? snapshot.nodes.map((item) => toText(item?.label)).filter(Boolean).slice(0, 4)
+    : [];
+  if (count <= 0 && labels.length === 0) {
+    return null;
+  }
+  return {
+    summary: count > 0 ? `关系节点 ${count} 个` : "已生成关系快照",
+    note: labels.join(" / ")
+  };
+}
+
 export function buildStrategyRelatedEntities(explanation, options = {}) {
   const limit = Number.isFinite(Number(options.limit)) ? Number(options.limit) : 4;
   if (!Array.isArray(explanation?.related_entities)) {
@@ -528,6 +608,7 @@ export function mapStrategyVersionHistory(items, formatDateTime, options = {}) {
         firstMeaningfulStrategyText(item?.risk_flags) ||
         firstMeaningfulStrategyText(item?.invalidations) ||
         "当前未补更多边界说明。";
+      const scenarioMeta = buildStrategyScenarioMetaSummary(item);
       return {
         key: `${item?.publish_id || item?.job_id || item?.created_at || index}`,
         title:
@@ -542,6 +623,7 @@ export function mapStrategyVersionHistory(items, formatDateTime, options = {}) {
         note: [
           item?.confidence_reason || item?.reason_summary || "当前版本未补更多摘要。",
           formatStrategyMarketRegime(item?.market_regime),
+          scenarioMeta?.summary,
           item?.risk_boundary,
           riskText
         ]

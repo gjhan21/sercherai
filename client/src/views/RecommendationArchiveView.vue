@@ -300,6 +300,24 @@
               </div>
             </div>
 
+            <div v-if="item.l2Summary || item.relationshipSummary || item.agentOpinionRows.length" class="archive-proof-grid">
+              <article v-if="item.l2Summary" class="finance-list-card finance-list-card-panel">
+                <p>L2 情景摘要</p>
+                <strong>{{ item.l2Summary.summary }}</strong>
+                <span>{{ item.l2Summary.note || "当前未补更多主情景说明。" }}</span>
+              </article>
+              <article v-if="item.relationshipSummary" class="finance-list-card finance-list-card-panel">
+                <p>关系快照</p>
+                <strong>{{ item.relationshipSummary.summary }}</strong>
+                <span>{{ item.relationshipSummary.note || "当前未补更多关系节点说明。" }}</span>
+              </article>
+              <article v-if="item.agentOpinionRows.length" class="finance-list-card finance-list-card-panel">
+                <p>角色评审</p>
+                <strong>{{ item.agentOpinionRows[0].role }} · {{ item.agentOpinionRows[0].stance }}</strong>
+                <span>{{ item.agentOpinionRows[0].summary }}</span>
+              </article>
+            </div>
+
             <div v-if="item.originCards.length" class="archive-origin-grid">
               <article
                 v-for="origin in item.originCards"
@@ -417,11 +435,15 @@ import { getExperimentVariant } from "../lib/growth-experiments";
 import {
   buildStrategyConfidenceCalibrationSummary,
   buildFallbackStrategyVersionHistory,
+  buildStrategyAgentOpinionRows,
   buildStrategyHistoryCompareState,
   buildStrategyInsightSections,
   buildStrategyMetaText,
   buildStrategyOriginCards,
   buildStrategyProofTags,
+  buildStrategyRelationshipSnapshotSummary,
+  buildStrategyScenarioMetaSummary,
+  buildStrategyScenarioSnapshotRows,
   buildStrategyThesisCardRows,
   buildStrategyRiskHighlights,
   buildStrategyWatchSignalRows,
@@ -613,6 +635,11 @@ const archiveRows = computed(() =>
     const historicalThesis = buildStrategyThesisCardRows(explanation, "historical", { limit: 1 })[0];
     const watchSignal = buildStrategyWatchSignalRows(explanation, { limit: 1 })[0];
     const calibration = buildStrategyConfidenceCalibrationSummary(explanation);
+    const summarySource = historyCompare.selectedItem || explanation;
+    const scenarioMetaSummary = buildStrategyScenarioMetaSummary(summarySource);
+    const relationshipSummary = buildStrategyRelationshipSnapshotSummary(summarySource);
+    const agentOpinionRows = buildStrategyAgentOpinionRows(summarySource, { limit: 2 });
+    const scenarioRows = buildStrategyScenarioSnapshotRows(summarySource, { limit: 2 });
     return {
       id: item.id,
       name: `${item.symbol || "-"} ${item.name || ""}`.trim(),
@@ -621,7 +648,16 @@ const archiveRows = computed(() =>
       explanationSummary:
         firstMeaningfulStrategyText([historicalThesis?.summary, sections.whyNow, item.reason_summary]) || "暂无推荐理由",
       proofTags: buildArchiveProofTags(explanation),
-      consensusText: firstMeaningfulStrategyText([historicalThesis?.title, calibration?.summary, sections.proofSource]),
+      consensusText: firstMeaningfulStrategyText([
+        historicalThesis?.title,
+        scenarioMetaSummary?.summary,
+        scenarioRows[0]?.action,
+        calibration?.summary,
+        sections.proofSource
+      ]),
+      l2Summary: scenarioMetaSummary,
+      relationshipSummary,
+      agentOpinionRows,
       seedHighlights: Array.isArray(explanation.seed_highlights) ? explanation.seed_highlights.slice(0, 3) : [],
       riskHighlights: buildStrategyRiskHighlights(explanation, {
         limit: 3,

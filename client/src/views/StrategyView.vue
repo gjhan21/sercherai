@@ -290,6 +290,18 @@
                 <span>{{ activeStockScenarioCards.length }} 个场景</span>
               </div>
               <p class="explanation-note">{{ activeStockInsightSections.proofSource || "系统会从多个场景验证这次推荐。" }}</p>
+              <div v-if="activeStockScenarioMeta || activeStockRelationshipSummary" class="reason-support-grid" style="margin-bottom: 16px">
+                <article v-if="activeStockScenarioMeta" class="finance-list-card finance-list-card-panel">
+                  <p>L2 情景摘要</p>
+                  <strong>{{ activeStockScenarioMeta.summary }}</strong>
+                  <span>{{ activeStockScenarioMeta.note || "当前未补更多主情景说明。" }}</span>
+                </article>
+                <article v-if="activeStockRelationshipSummary" class="finance-list-card finance-list-card-panel">
+                  <p>关系快照</p>
+                  <strong>{{ activeStockRelationshipSummary.summary }}</strong>
+                  <span>{{ activeStockRelationshipSummary.note || "当前未补更多关系节点说明。" }}</span>
+                </article>
+              </div>
               <div class="scenario-grid">
                 <article
                   v-for="item in activeStockScenarioCards"
@@ -299,7 +311,11 @@
                   <p>{{ item.scenario }}</p>
                   <strong>{{ item.action }}</strong>
                   <span>{{ item.thesis }}</span>
-                  <em>风险 {{ item.risk_signal }} · 调整 {{ item.score_adjustment }}</em>
+                  <em>
+                    {{ item.confirmation ? `确认 ${item.confirmation}` : "等待更多确认信号" }}
+                    <template v-if="item.invalidation"> · 失效 {{ item.invalidation }}</template>
+                    <template v-else-if="item.window"> · 窗口 {{ item.window }}</template>
+                  </em>
                 </article>
               </div>
             </section>
@@ -312,12 +328,13 @@
               <div class="agent-opinion-list">
                 <article
                   v-for="item in activeStockAgentOpinions"
-                  :key="`stock-agent-${item.agent}`"
+                  :key="`stock-agent-${item.role}`"
                   class="agent-opinion-item finance-list-card finance-list-card-panel"
                 >
-                  <p>{{ item.agent }}</p>
+                  <p>{{ item.role }}</p>
                   <strong>{{ item.stance }} · {{ formatScore(item.confidence) }}</strong>
                   <span>{{ item.summary }}</span>
+                  <em v-if="item.veto">已触发 veto</em>
                 </article>
               </div>
             </section>
@@ -899,6 +916,18 @@
                 <span>{{ activeStockScenarioCards.length }} 个场景</span>
               </div>
               <p class="explanation-note">{{ activeStockInsightSections.proofSource || "系统会从多个场景验证这次推荐。" }}</p>
+              <div v-if="activeStockScenarioMeta || activeStockRelationshipSummary" class="reason-support-grid" style="margin-bottom: 16px">
+                <article v-if="activeStockScenarioMeta" class="finance-list-card finance-list-card-panel">
+                  <p>L2 情景摘要</p>
+                  <strong>{{ activeStockScenarioMeta.summary }}</strong>
+                  <span>{{ activeStockScenarioMeta.note || "当前未补更多主情景说明。" }}</span>
+                </article>
+                <article v-if="activeStockRelationshipSummary" class="finance-list-card finance-list-card-panel">
+                  <p>关系快照</p>
+                  <strong>{{ activeStockRelationshipSummary.summary }}</strong>
+                  <span>{{ activeStockRelationshipSummary.note || "当前未补更多关系节点说明。" }}</span>
+                </article>
+              </div>
               <div class="scenario-grid">
                 <article
                   v-for="item in activeStockScenarioCards"
@@ -908,7 +937,11 @@
                   <p>{{ item.scenario }}</p>
                   <strong>{{ item.action }}</strong>
                   <span>{{ item.thesis }}</span>
-                  <em>风险 {{ item.risk_signal }} · 调整 {{ item.score_adjustment }}</em>
+                  <em>
+                    {{ item.confirmation ? `确认 ${item.confirmation}` : "等待更多确认信号" }}
+                    <template v-if="item.invalidation"> · 失效 {{ item.invalidation }}</template>
+                    <template v-else-if="item.window"> · 窗口 {{ item.window }}</template>
+                  </em>
                 </article>
               </div>
             </section>
@@ -921,12 +954,13 @@
               <div class="agent-opinion-list">
                 <article
                   v-for="item in activeStockAgentOpinions"
-                  :key="`stock-agent-${item.agent}`"
+                  :key="`stock-agent-${item.role}`"
                   class="agent-opinion-item finance-list-card finance-list-card-panel"
                 >
-                  <p>{{ item.agent }}</p>
+                  <p>{{ item.role }}</p>
                   <strong>{{ item.stance }} · {{ formatScore(item.confidence) }}</strong>
                   <span>{{ item.summary }}</span>
+                  <em v-if="item.veto">已触发 veto</em>
                 </article>
               </div>
             </section>
@@ -1267,6 +1301,18 @@
                 <span>{{ activeFuturesScenarioCards.length }} 个场景</span>
               </div>
               <p class="explanation-note">{{ activeFuturesInsightSections.proofSource || "系统会在不同市场情景下验证策略。 " }}</p>
+              <div v-if="activeFuturesScenarioMeta || activeFuturesRelationshipSummary" class="reason-support-grid" style="margin-bottom: 16px">
+                <article v-if="activeFuturesScenarioMeta" class="finance-list-card finance-list-card-panel">
+                  <p>L2 情景摘要</p>
+                  <strong>{{ activeFuturesScenarioMeta.summary }}</strong>
+                  <span>{{ activeFuturesScenarioMeta.note || "当前未补更多主情景说明。" }}</span>
+                </article>
+                <article v-if="activeFuturesRelationshipSummary" class="finance-list-card finance-list-card-panel">
+                  <p>关系快照</p>
+                  <strong>{{ activeFuturesRelationshipSummary.summary }}</strong>
+                  <span>{{ activeFuturesRelationshipSummary.note || "当前未补更多关系节点说明。" }}</span>
+                </article>
+              </div>
               <div class="scenario-grid">
                 <article
                   v-for="item in activeFuturesScenarioCards"
@@ -1276,7 +1322,11 @@
                   <p>{{ item.scenario }}</p>
                   <strong>{{ item.action }}</strong>
                   <span>{{ item.thesis }}</span>
-                  <em>风险 {{ item.risk_signal }} · 调整 {{ item.score_adjustment }}</em>
+                  <em>
+                    {{ item.confirmation ? `确认 ${item.confirmation}` : "等待更多确认信号" }}
+                    <template v-if="item.invalidation"> · 失效 {{ item.invalidation }}</template>
+                    <template v-else-if="item.window"> · 窗口 {{ item.window }}</template>
+                  </em>
                 </article>
               </div>
             </section>
@@ -1289,12 +1339,13 @@
               <div class="agent-opinion-list">
                 <article
                   v-for="item in activeFuturesAgentOpinions"
-                  :key="`fut-agent-${item.agent}`"
+                  :key="`fut-agent-${item.role}`"
                   class="agent-opinion-item finance-list-card finance-list-card-panel"
                 >
-                  <p>{{ item.agent }}</p>
+                  <p>{{ item.role }}</p>
                   <strong>{{ item.stance }} · {{ formatScore(item.confidence) }}</strong>
                   <span>{{ item.summary }}</span>
+                  <em v-if="item.veto">已触发 veto</em>
                 </article>
               </div>
             </section>
@@ -1426,6 +1477,7 @@ import { getExperimentVariant } from "../lib/growth-experiments";
 import { shouldUseDemoFallback } from "../lib/fallback-policy";
 import {
   buildFallbackStrategyVersionHistory,
+  buildStrategyAgentOpinionRows,
   buildStrategyConfidenceCalibrationSummary,
   buildStrategyEventEvidenceCards,
   buildStrategyHistoryCompareState,
@@ -1434,8 +1486,11 @@ import {
   buildStrategyMetaText,
   buildStrategyOriginCards,
   buildStrategyProofTags,
+  buildStrategyRelationshipSnapshotSummary,
   buildStrategyResearchOutlineRows,
   buildStrategyRiskBoundaryText,
+  buildStrategyScenarioMetaSummary,
+  buildStrategyScenarioSnapshotRows,
   buildStrategyThesisCardRows,
   buildStrategyVersionDiff,
   buildStrategyWatchSignalRows,
@@ -1994,8 +2049,10 @@ const activeStockExplanationCards = computed(() => {
 
 const activeStockProofTags = computed(() => buildListProofTags(activeStockExplanation.value, { limit: 4 }));
 const activeStockSeedHighlights = computed(() => activeStockExplanation.value?.seed_highlights || []);
-const activeStockScenarioCards = computed(() => activeStockExplanation.value?.simulations?.[0]?.scenarios || []);
-const activeStockAgentOpinions = computed(() => activeStockExplanation.value?.agent_opinions || []);
+const activeStockScenarioCards = computed(() => buildStrategyScenarioSnapshotRows(activeStockExplanation.value));
+const activeStockScenarioMeta = computed(() => buildStrategyScenarioMetaSummary(activeStockExplanation.value));
+const activeStockRelationshipSummary = computed(() => buildStrategyRelationshipSnapshotSummary(activeStockExplanation.value));
+const activeStockAgentOpinions = computed(() => buildStrategyAgentOpinionRows(activeStockExplanation.value));
 const activeStockRiskCards = computed(() => buildStrategyRiskCards(activeStockExplanation.value));
 const activeStockOriginCards = computed(() => buildStrategyOriginCards(activeStockExplanation.value, formatDateTime));
 const activeStockVersionHistoryItems = computed(() => {
@@ -2200,8 +2257,10 @@ const activeFuturesSupplyChainSummaryCards = computed(() => {
 
 const activeFuturesProofTags = computed(() => buildListProofTags(activeFuturesExplanation.value, { limit: 4 }));
 const activeFuturesSeedHighlights = computed(() => activeFuturesExplanation.value?.seed_highlights || []);
-const activeFuturesScenarioCards = computed(() => activeFuturesExplanation.value?.simulations?.[0]?.scenarios || []);
-const activeFuturesAgentOpinions = computed(() => activeFuturesExplanation.value?.agent_opinions || []);
+const activeFuturesScenarioCards = computed(() => buildStrategyScenarioSnapshotRows(activeFuturesExplanation.value));
+const activeFuturesScenarioMeta = computed(() => buildStrategyScenarioMetaSummary(activeFuturesExplanation.value));
+const activeFuturesRelationshipSummary = computed(() => buildStrategyRelationshipSnapshotSummary(activeFuturesExplanation.value));
+const activeFuturesAgentOpinions = computed(() => buildStrategyAgentOpinionRows(activeFuturesExplanation.value));
 const activeFuturesRiskCards = computed(() => buildStrategyRiskCards(activeFuturesExplanation.value));
 const activeFuturesOriginCards = computed(() => buildStrategyOriginCards(activeFuturesExplanation.value, formatDateTime));
 const activeFuturesVersionHistoryItems = computed(() => {
