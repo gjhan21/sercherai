@@ -768,6 +768,34 @@ func TestBuildStockStrategyExplanationCarriesL2ScenarioSnapshots(t *testing.T) {
 	}
 }
 
+func TestBuildStockStrategyExplanationCarriesL2AgentOpinions(t *testing.T) {
+	ctx := strategyEngineAssetContext{
+		record: model.StrategyEnginePublishRecord{
+			PublishID:     "publish_l2_stock_agents_001",
+			JobID:         "job_l2_stock_agents_001",
+			TradeDate:     "2026-03-29",
+			Version:       1,
+			SelectedCount: 1,
+		},
+		asset: map[string]any{
+			"symbol":         "600519.SH",
+			"reason_summary": "趋势延续但高位分歧",
+			"risk_summary":   "跌破 5 日线失效",
+			"risk_flags":     []any{"高位分歧"},
+			"invalidations":  []any{"跌破 5 日线"},
+			"theme_tags":     []any{"白酒"},
+		},
+	}
+
+	explanation := buildStrategyExplanationFromContext(&ctx, "600519.SH", "", "stock-l2-v1", []string{"agent-review"})
+	if len(explanation.AgentOpinions) < 3 {
+		t.Fatalf("expected l2 agent opinions on explanation, got %+v", explanation.AgentOpinions)
+	}
+	if explanation.ScenarioMeta.ConsensusAction == "" {
+		t.Fatalf("expected scenario meta consensus action, got %+v", explanation.ScenarioMeta)
+	}
+}
+
 func TestBuildFuturesStrategyExplanationUsesLocalSnapshotWithoutRemoteFetch(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

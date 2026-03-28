@@ -452,14 +452,29 @@ func buildStrategyExplanationFromContext(
 	var relationshipSnapshot model.StrategyExplanationRelationshipSnapshot
 	var scenarioSnapshots []model.StrategyExplanationScenarioSnapshot
 	var scenarioMeta model.StrategyExplanationScenarioMeta
+	var l2AgentOpinions []model.StrategyExplanationAgentOpinion
 	if asString(ctx.asset["symbol"]) != "" {
 		researchOutline, activeThesis, historicalThesis, watchSignals = buildStockResearchBlocks(*ctx, assetKey)
 		relationshipSnapshot = buildStockRelationshipSnapshot(*ctx)
 		scenarioSnapshots, scenarioMeta = buildStockScenarioSnapshots(*ctx)
+		l2AgentOpinions, scenarioMeta = buildStockAgentOpinions(*ctx)
 	} else {
 		researchOutline, activeThesis, historicalThesis, watchSignals = buildFuturesResearchBlocks(*ctx, assetKey)
 		relationshipSnapshot = buildFuturesRelationshipSnapshot(*ctx)
 		scenarioSnapshots, scenarioMeta = buildFuturesScenarioSnapshots(*ctx)
+		l2AgentOpinions, scenarioMeta = buildFuturesAgentOpinions(*ctx)
+	}
+	if scenarioMeta.PrimaryScenario == "" {
+		scenarioMeta = buildScenarioMeta(scenarioSnapshots)
+	}
+	if len(l2AgentOpinions) == 0 {
+		l2AgentOpinions = agentOpinions
+	}
+	if scenarioMeta.ConsensusAction == "" && len(scenarioSnapshots) > 1 {
+		scenarioMeta.ConsensusAction = scenarioSnapshots[1].ActionSuggestion
+	}
+	if scenarioMeta.PrimaryScenario == "" && len(scenarioSnapshots) > 0 {
+		scenarioMeta.PrimaryScenario = scenarioSnapshots[0].Scenario
 	}
 
 	explanation := model.StrategyClientExplanation{
@@ -469,7 +484,7 @@ func buildStrategyExplanationFromContext(
 		GraphSnapshotID:  asString(report["graph_snapshot_id"]),
 		ConsensusSummary: asString(report["consensus_summary"]),
 		Simulations:      compactSimulations([]model.StrategyExplanationSimulation{simulation}),
-		AgentOpinions:    agentOpinions,
+		AgentOpinions:    l2AgentOpinions,
 		RiskFlags: compactStrings(append(
 			append(append([]string{}, ctx.record.Replay.WarningMessages...), ctx.record.Replay.Notes...),
 			stringSlice(ctx.asset["risk_flags"])...,
@@ -499,7 +514,7 @@ func buildStrategyExplanationFromContext(
 			SeedCount:      len(seedHighlights),
 			CandidateCount: len(sliceOfMaps(report["candidates"])) + len(sliceOfMaps(report["strategies"])),
 			SelectedCount:  ctx.record.SelectedCount,
-			AgentCount:     len(agentOpinions),
+			AgentCount:     maxInt(len(agentOpinions), len(l2AgentOpinions)),
 			ScenarioCount:  maxInt(len(simulation.Scenarios), len(scenarioSnapshots)),
 			FilterSteps:    filterSteps,
 		},
