@@ -441,7 +441,7 @@ async function fetchReviewAuditEvents() {
 async function fetchForecastReviewConfig() {
   try {
     const data = await listSystemConfigs({
-      keyword: "growth.forecast_l1.",
+      keyword: "growth.forecast_",
       page: 1,
       page_size: 50
     });
@@ -1223,7 +1223,7 @@ onBeforeUnmount(() => {
       <div class="section-header">
         <div>
           <h3 style="margin: 0">预测增强审核提示</h3>
-          <p class="muted" style="margin: 6px 0 0">L1 当前仅输出 advisory only 提示，不改变现有审核主流程。</p>
+          <p class="muted" style="margin: 6px 0 0">L1/L2 当前仅输出 advisory only 与 veto 提示，不改变现有审核主流程。</p>
         </div>
         <div class="inline-actions inline-actions--left">
           <el-tag :type="forecastReviewConfig?.enabled ? 'success' : 'info'" effect="plain">
@@ -1232,12 +1232,16 @@ onBeforeUnmount(() => {
           <el-tag :type="forecastReviewConfig?.explanationEnabled ? 'primary' : 'info'" effect="plain">
             {{ forecastReviewConfig?.explanationEnabled ? "explanation 增强开启" : "explanation 增强关闭" }}
           </el-tag>
+          <el-tag :type="forecastReviewConfig?.l2Enabled ? 'warning' : 'info'" effect="plain">
+            {{ forecastReviewConfig?.l2Enabled ? "L2 摘要开启" : "L2 摘要关闭" }}
+          </el-tag>
         </div>
       </div>
       <div class="toolbar" style="margin-bottom: 0">
         <el-text type="info">记忆反馈样本阈值：{{ forecastReviewConfig?.memoryFeedbackMinSamples ?? "-" }}</el-text>
         <el-text type="info">优先级阈值：{{ forecastReviewConfig?.advisoryPriorityThreshold ?? "-" }}</el-text>
-        <el-text type="warning">advisory only：仅提示高风险/低置信度样本，审批动作仍以现有流程为准。</el-text>
+        <el-text type="info">L2 veto 阈值：{{ forecastReviewConfig?.vetoConfidenceThreshold ?? "-" }}</el-text>
+        <el-text type="warning">advisory only：仅提示高风险/低置信度样本；veto 仅做只读提示，审批动作仍以现有流程为准。</el-text>
       </div>
     </div>
 

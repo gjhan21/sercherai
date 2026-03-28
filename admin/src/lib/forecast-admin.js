@@ -2,7 +2,11 @@ export const DEFAULT_FORECAST_ADMIN_CONFIG = {
   enabled: true,
   explanationEnabled: true,
   memoryFeedbackMinSamples: 5,
-  advisoryPriorityThreshold: 0.55
+  advisoryPriorityThreshold: 0.55,
+  l2Enabled: true,
+  relationshipSnapshotEnabled: true,
+  stableScenariosEnabled: true,
+  vetoConfidenceThreshold: 0.35
 };
 
 function parseConfigBool(raw, fallback) {
@@ -61,8 +65,13 @@ function collectExplanationNodes(raw, results) {
   const calibration = normalizeObject(value.confidence_calibration);
   const hasCalibration =
     Number.isFinite(Number(calibration.adjusted_confidence)) || Array.isArray(calibration.drivers);
+  const hasL2 =
+    (value.relationship_snapshot && typeof value.relationship_snapshot === "object") ||
+    (Array.isArray(value.scenario_snapshots) && value.scenario_snapshots.length > 0) ||
+    (value.scenario_meta && typeof value.scenario_meta === "object") ||
+    (Array.isArray(value.agent_opinions) && value.agent_opinions.length > 0);
 
-  if (hasResearch || hasActive || hasHistorical || hasWatch || hasMemory || hasCalibration) {
+  if (hasResearch || hasActive || hasHistorical || hasWatch || hasMemory || hasCalibration || hasL2) {
     results.push(value);
   }
 
@@ -90,6 +99,23 @@ export function parseForecastAdminConfigMap(map) {
         0.1,
         0.95
       ).toFixed(2)
+    ),
+    l2Enabled: parseConfigBool(source["growth.forecast_l2.enabled"], DEFAULT_FORECAST_ADMIN_CONFIG.l2Enabled),
+    relationshipSnapshotEnabled: parseConfigBool(
+      source["growth.forecast_l2.relationship_snapshot_enabled"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.relationshipSnapshotEnabled
+    ),
+    stableScenariosEnabled: parseConfigBool(
+      source["growth.forecast_l2.stable_scenarios_enabled"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.stableScenariosEnabled
+    ),
+    vetoConfidenceThreshold: Number(
+      parseConfigFloat(
+        source["growth.forecast_l2.veto_confidence_threshold"],
+        DEFAULT_FORECAST_ADMIN_CONFIG.vetoConfidenceThreshold,
+        0.05,
+        0.95
+      ).toFixed(2)
     )
   };
 }
@@ -99,7 +125,11 @@ export function buildForecastAdminConfigPayloads(config) {
     "growth.forecast_l1.enabled": config?.enabled,
     "growth.forecast_l1.explanation_enabled": config?.explanationEnabled,
     "growth.forecast_l1.memory_feedback_min_samples": config?.memoryFeedbackMinSamples,
-    "growth.forecast_l1.advisory_priority_threshold": config?.advisoryPriorityThreshold
+    "growth.forecast_l1.advisory_priority_threshold": config?.advisoryPriorityThreshold,
+    "growth.forecast_l2.enabled": config?.l2Enabled,
+    "growth.forecast_l2.relationship_snapshot_enabled": config?.relationshipSnapshotEnabled,
+    "growth.forecast_l2.stable_scenarios_enabled": config?.stableScenariosEnabled,
+    "growth.forecast_l2.veto_confidence_threshold": config?.vetoConfidenceThreshold
   });
   return [
     {
@@ -121,6 +151,26 @@ export function buildForecastAdminConfigPayloads(config) {
       config_key: "growth.forecast_l1.advisory_priority_threshold",
       config_value: normalized.advisoryPriorityThreshold.toFixed(2),
       description: "advisory priority 阈值（adjusted_confidence 低于该值视为高优先级样本）"
+    },
+    {
+      config_key: "growth.forecast_l2.enabled",
+      config_value: normalized.l2Enabled ? "true" : "false",
+      description: "股票/期货预测增强 L2 全局开关（仅影响 scenario / relationship / veto 摘要展示）"
+    },
+    {
+      config_key: "growth.forecast_l2.relationship_snapshot_enabled",
+      config_value: normalized.relationshipSnapshotEnabled ? "true" : "false",
+      description: "relationship snapshot 展示开关（只读，不改发布主流程）"
+    },
+    {
+      config_key: "growth.forecast_l2.stable_scenarios_enabled",
+      config_value: normalized.stableScenariosEnabled ? "true" : "false",
+      description: "bull/base/bear 稳定三情景展示开关（只读，不改发布主流程）"
+    },
+    {
+      config_key: "growth.forecast_l2.veto_confidence_threshold",
+      config_value: normalized.vetoConfidenceThreshold.toFixed(2),
+      description: "L2 veto 置信度阈值（低于该值仅做提示，不直接替代审核决策）"
     }
   ];
 }
@@ -147,6 +197,11 @@ export function buildForecastPublishSummary(detail, advisoryThreshold = DEFAULT_
   let thesisCardCount = 0;
   let memoryFeedbackCount = 0;
   let highAdvisoryCount = 0;
+  let scenarioSnapshotCount = 0;
+  let relationshipNodeCount = 0;
+  let vetoedCount = 0;
+  let agentOpinionCount = 0;
+  const primaryScenarios = new Set();
 
   uniqueNodes.forEach((item) => {
     researchOutlineCount += Array.isArray(item.research_outline) ? item.research_outline.length : 0;
@@ -166,6 +221,16 @@ export function buildForecastPublishSummary(detail, advisoryThreshold = DEFAULT_
     const adjusted = Number(calibration.adjusted_confidence);
     if (calibration.advisory_only === true && Number.isFinite(adjusted) && adjusted <= advisoryThreshold) {
       highAdvisoryCount += 1;
+    }
+    scenarioSnapshotCount += Array.isArray(item.scenario_snapshots) ? item.scenario_snapshots.length : 0;
+    relationshipNodeCount += Array.isArray(item.relationship_snapshot?.nodes) ? item.relationship_snapshot.nodes.length : 0;
+    agentOpinionCount += Array.isArray(item.agent_opinions) ? item.agent_opinions.length : 0;
+    if (item.scenario_meta?.vetoed === true) {
+      vetoedCount += 1;
+    }
+    const primary = String(item.scenario_meta?.primary_scenario || "").trim();
+    if (primary) {
+      primaryScenarios.add(primary);
     }
   });
 
@@ -189,7 +254,47 @@ export function buildForecastPublishSummary(detail, advisoryThreshold = DEFAULT_
     thesisCardCount,
     memoryFeedbackCount,
     highAdvisoryCount,
+    scenarioSnapshotCount,
+    relationshipNodeCount,
+    vetoedCount,
+    agentOpinionCount,
+    primaryScenarios: Array.from(primaryScenarios),
     payloadCount,
     coverageRatio
+  };
+}
+
+export function buildForecastL2Summary(raw) {
+  const nodes = [];
+  collectExplanationNodes(raw, nodes);
+  const explanation = nodes[0];
+  if (!explanation) {
+    return null;
+  }
+  const relationshipCount = Array.isArray(explanation.relationship_snapshot?.nodes)
+    ? explanation.relationship_snapshot.nodes.length
+    : Number(explanation.relationship_snapshot?.relationship_count || 0);
+  const scenarioCount = Array.isArray(explanation.scenario_snapshots) ? explanation.scenario_snapshots.length : 0;
+  const primaryScenario = String(explanation.scenario_meta?.primary_scenario || "").trim();
+  const consensusAction = String(explanation.scenario_meta?.consensus_action || "").trim();
+  const vetoed = explanation.scenario_meta?.vetoed === true;
+  const vetoReason = String(explanation.scenario_meta?.veto_reason || "").trim();
+  const topRoles = Array.isArray(explanation.agent_opinions)
+    ? explanation.agent_opinions
+        .map((item) => String(item?.role || item?.agent || "").trim())
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
+  if (!relationshipCount && !scenarioCount && !primaryScenario && !consensusAction && !topRoles.length && !vetoed) {
+    return null;
+  }
+  return {
+    relationshipCount,
+    scenarioCount,
+    primaryScenario,
+    consensusAction,
+    vetoed,
+    vetoReason,
+    topRoles
   };
 }

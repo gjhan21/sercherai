@@ -43,4 +43,7 @@ test("ReviewCenterView shows forecast advisory-only configuration summary", () =
   assert.match(text, /advisory only/);
   assert.match(text, /记忆反馈样本阈值/);
   assert.match(text, /优先级阈值/);
+  assert.match(text, /L2 摘要开启/);
+  assert.match(text, /L2 veto 阈值/);
+  assert.match(text, /veto 仅做只读提示/);
 });

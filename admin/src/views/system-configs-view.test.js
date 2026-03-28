@@ -40,6 +40,11 @@ test("SystemConfigsView exposes forecast enhancement config tab", () => {
   assert.match(text, /async function saveForecastConfig\(/);
   assert.match(text, /预测增强配置/);
   assert.match(text, /L1 仅做 explanation 增强与 advisory 提示/);
+  assert.match(text, /L2 仅补充 relationship snapshot \/ stable scenarios \/ veto 摘要展示/);
   assert.match(text, /growth\.forecast_l1\.enabled/);
   assert.match(text, /growth\.forecast_l1\.advisory_priority_threshold/);
+  assert.match(text, /growth\.forecast_l2\.enabled/);
+  assert.match(text, /growth\.forecast_l2\.relationship_snapshot_enabled/);
+  assert.match(text, /growth\.forecast_l2\.stable_scenarios_enabled/);
+  assert.match(text, /growth\.forecast_l2\.veto_confidence_threshold/);
 });

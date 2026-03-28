@@ -12,6 +12,7 @@ import {
   formatFuturesSelectionGraphEntityType,
   formatFuturesSelectionMarketRegime
 } from "../../lib/futures-selection";
+import { buildForecastL2Summary } from "../../lib/forecast-admin";
 
 const AGENT_LABELS = {
   trend: "趋势角色",
@@ -51,6 +52,7 @@ const defaultAgentProfile = computed(() => futuresAgentProfiles.value.find((item
 const defaultScenarioTemplate = computed(() => futuresScenarioTemplates.value.find((item) => item.is_default) || futuresScenarioTemplates.value[0] || null);
 const selectedRun = computed(() => runs.value.find((item) => item.run_id === selectedRunID.value) || runs.value[0] || null);
 const selectedRunContext = computed(() => selectedRun.value?.context_meta || {});
+const l2Summary = computed(() => buildForecastL2Summary(selectedRunContext.value));
 
 const agentRows = computed(() =>
   (defaultAgentProfile.value?.enabled_agents || []).map((agentKey) => ({
@@ -189,6 +191,24 @@ onMounted(fetchData);
           </el-descriptions-item>
           <el-descriptions-item label="图谱摘要">
             {{ selectedRunContext.graph_summary || "-" }}
+          </el-descriptions-item>
+        </el-descriptions>
+      </div>
+
+      <div class="card" v-loading="loading">
+        <div class="card-title">L2 只读摘要</div>
+        <el-descriptions :column="1" border size="small">
+          <el-descriptions-item label="主情景">
+            {{ l2Summary?.primaryScenario || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="共识动作">
+            {{ l2Summary?.consensusAction || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="关系节点">
+            {{ l2Summary?.relationshipCount ?? "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="Veto 提示">
+            {{ l2Summary?.vetoed ? l2Summary?.vetoReason || "已触发" : "无" }}
           </el-descriptions-item>
         </el-descriptions>
       </div>

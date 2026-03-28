@@ -116,7 +116,11 @@ const forecastForm = reactive({
   enabled: true,
   explanationEnabled: true,
   memoryFeedbackMinSamples: 5,
-  advisoryPriorityThreshold: 0.55
+  advisoryPriorityThreshold: 0.55,
+  l2Enabled: true,
+  relationshipSnapshotEnabled: true,
+  stableScenariosEnabled: true,
+  vetoConfidenceThreshold: 0.35
 });
 const canEditSystemConfigs = hasPermission("system_config.edit");
 
@@ -436,7 +440,7 @@ async function fetchFuturesScoreConfig() {
 async function fetchForecastConfig() {
   forecastLoading.value = true;
   try {
-    const data = await listSystemConfigs({ keyword: "growth.forecast_l1.", page: 1, page_size: 50 });
+    const data = await listSystemConfigs({ keyword: "growth.forecast_", page: 1, page_size: 50 });
     Object.assign(forecastForm, parseForecastAdminConfigMap(toConfigMap(data?.items || [])));
   } catch (error) {
     errorMessage.value = normalizeErrorMessage(error, "加载预测增强配置失败");
@@ -1162,6 +1166,14 @@ onMounted(refreshAll);
             style="margin-bottom: 12px"
           />
 
+          <el-alert
+            title="L2 仅补充 relationship snapshot / stable scenarios / veto 摘要展示，不替代审核决策。"
+            type="warning"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 12px"
+          />
+
           <el-form label-width="170px">
             <div class="form-grid">
               <el-form-item label="全局启用">
@@ -1189,6 +1201,25 @@ onMounted(refreshAll);
                   controls-position="right"
                 />
               </el-form-item>
+              <el-form-item label="L2 全局启用">
+                <el-switch v-model="forecastForm.l2Enabled" />
+              </el-form-item>
+              <el-form-item label="关系快照展示">
+                <el-switch v-model="forecastForm.relationshipSnapshotEnabled" />
+              </el-form-item>
+              <el-form-item label="稳定三情景展示">
+                <el-switch v-model="forecastForm.stableScenariosEnabled" />
+              </el-form-item>
+              <el-form-item label="L2 veto 阈值">
+                <el-input-number
+                  v-model="forecastForm.vetoConfidenceThreshold"
+                  :min="0.05"
+                  :max="0.95"
+                  :step="0.01"
+                  :precision="2"
+                  controls-position="right"
+                />
+              </el-form-item>
             </div>
           </el-form>
 
@@ -1197,6 +1228,10 @@ onMounted(refreshAll);
             <el-descriptions-item label="增强展示键">growth.forecast_l1.explanation_enabled</el-descriptions-item>
             <el-descriptions-item label="样本阈值键">growth.forecast_l1.memory_feedback_min_samples</el-descriptions-item>
             <el-descriptions-item label="优先级阈值键">growth.forecast_l1.advisory_priority_threshold</el-descriptions-item>
+            <el-descriptions-item label="L2 开关键">growth.forecast_l2.enabled</el-descriptions-item>
+            <el-descriptions-item label="关系快照键">growth.forecast_l2.relationship_snapshot_enabled</el-descriptions-item>
+            <el-descriptions-item label="三情景键">growth.forecast_l2.stable_scenarios_enabled</el-descriptions-item>
+            <el-descriptions-item label="Veto 阈值键">growth.forecast_l2.veto_confidence_threshold</el-descriptions-item>
           </el-descriptions>
         </div>
       </el-tab-pane>

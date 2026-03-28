@@ -28,7 +28,7 @@ import {
   updateFuturesStrategyStatus,
   updateStockRecommendationStatus
 } from "../api/admin";
-import { DEFAULT_FORECAST_ADMIN_CONFIG, buildForecastPublishSummary } from "../lib/forecast-admin";
+import { DEFAULT_FORECAST_ADMIN_CONFIG, buildForecastL2Summary, buildForecastPublishSummary } from "../lib/forecast-admin";
 import { sanitizeHTML } from "../lib/html";
 import { normalizeMarketCenterRouteState } from "../lib/market-data-admin";
 import { hasPermission } from "../lib/session";
@@ -142,6 +142,7 @@ const stockPublishDetailHTML = computed(() => sanitizeHTML(stockPublishDetail.va
 const stockForecastSummary = computed(() =>
   buildForecastPublishSummary(stockPublishDetail.value, DEFAULT_FORECAST_ADMIN_CONFIG.advisoryPriorityThreshold)
 );
+const stockForecastL2Summary = computed(() => buildForecastL2Summary(stockPublishDetail.value));
 
 const futuresLoading = ref(false);
 const futuresSubmitting = ref(false);
@@ -230,6 +231,7 @@ const futuresPublishDetailHTML = computed(() =>
 const futuresForecastSummary = computed(() =>
   buildForecastPublishSummary(futuresPublishDetail.value, DEFAULT_FORECAST_ADMIN_CONFIG.advisoryPriorityThreshold)
 );
+const futuresForecastL2Summary = computed(() => buildForecastL2Summary(futuresPublishDetail.value));
 
 const eventsLoading = ref(false);
 const eventsSubmitting = ref(false);
@@ -2376,7 +2378,17 @@ watch(
           <el-tag type="warning">高 advisory 样本 {{ stockForecastSummary.highAdvisoryCount }}</el-tag>
           <el-tag>观察信号 {{ stockForecastSummary.watchSignalCount }}</el-tag>
           <el-tag>记忆反馈 {{ stockForecastSummary.memoryFeedbackCount }}</el-tag>
+          <el-tag type="primary">L2 场景 {{ stockForecastSummary.scenarioSnapshotCount }}</el-tag>
+          <el-tag>关系节点 {{ stockForecastSummary.relationshipNodeCount }}</el-tag>
+          <el-tag :type="stockForecastSummary.vetoedCount > 0 ? 'danger' : 'info'">veto 提示 {{ stockForecastSummary.vetoedCount }}</el-tag>
         </div>
+        <p v-if="stockForecastL2Summary" class="muted" style="margin: 8px 0 0">
+          主情景 {{ stockForecastL2Summary.primaryScenario || "-" }} · 共识 {{ stockForecastL2Summary.consensusAction || "-" }} ·
+          角色 {{ stockForecastL2Summary.topRoles.join(" / ") || "-" }}
+          <template v-if="stockForecastL2Summary.vetoed">
+            · veto {{ stockForecastL2Summary.vetoReason || "风险角色阻止直接执行" }}
+          </template>
+        </p>
       </div>
 
       <div class="publish-detail-body" v-loading="stockPublishDetailLoading">
@@ -2634,7 +2646,17 @@ watch(
           <el-tag type="warning">高 advisory 样本 {{ futuresForecastSummary.highAdvisoryCount }}</el-tag>
           <el-tag>观察信号 {{ futuresForecastSummary.watchSignalCount }}</el-tag>
           <el-tag>记忆反馈 {{ futuresForecastSummary.memoryFeedbackCount }}</el-tag>
+          <el-tag type="primary">L2 场景 {{ futuresForecastSummary.scenarioSnapshotCount }}</el-tag>
+          <el-tag>关系节点 {{ futuresForecastSummary.relationshipNodeCount }}</el-tag>
+          <el-tag :type="futuresForecastSummary.vetoedCount > 0 ? 'danger' : 'info'">veto 提示 {{ futuresForecastSummary.vetoedCount }}</el-tag>
         </div>
+        <p v-if="futuresForecastL2Summary" class="muted" style="margin: 8px 0 0">
+          主情景 {{ futuresForecastL2Summary.primaryScenario || "-" }} · 共识 {{ futuresForecastL2Summary.consensusAction || "-" }} ·
+          角色 {{ futuresForecastL2Summary.topRoles.join(" / ") || "-" }}
+          <template v-if="futuresForecastL2Summary.vetoed">
+            · veto {{ futuresForecastL2Summary.vetoReason || "风险角色阻止直接执行" }}
+          </template>
+        </p>
       </div>
 
       <div class="publish-detail-body" v-loading="futuresPublishDetailLoading">

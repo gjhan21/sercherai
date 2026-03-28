@@ -64,10 +64,17 @@ test("MarketCenterView shows forecast enhancement summary in publish detail", ()
   const text = readView();
   assert.match(text, /forecast-admin/);
   assert.match(text, /buildForecastPublishSummary/);
+  assert.match(text, /buildForecastL2Summary/);
   assert.match(text, /stockForecastSummary = computed/);
   assert.match(text, /futuresForecastSummary = computed/);
+  assert.match(text, /stockForecastL2Summary = computed/);
+  assert.match(text, /futuresForecastL2Summary = computed/);
   assert.match(text, /预测增强摘要/);
   assert.match(text, /增强 explanation 覆盖/);
   assert.match(text, /高 advisory 样本/);
   assert.match(text, /观察信号/);
+  assert.match(text, /L2 场景/);
+  assert.match(text, /关系节点/);
+  assert.match(text, /veto 提示/);
+  assert.match(text, /主情景/);
 });
