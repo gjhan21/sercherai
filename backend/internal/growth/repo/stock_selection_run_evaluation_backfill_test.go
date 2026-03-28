@@ -89,3 +89,17 @@ func TestLoadStockSelectionEvaluationRunMetaFallsBackToRunContextAndTradeDate(t 
 		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }
+
+func TestNormalizeStockSelectionEvaluationSummary(t *testing.T) {
+	empty := normalizeStockSelectionEvaluationSummary(nil)
+	if empty["status"] != "PENDING" {
+		t.Fatalf("expected pending summary for empty input, got %+v", empty)
+	}
+
+	summary := normalizeStockSelectionEvaluationSummary(map[string]any{
+		"5": map[string]any{"return_pct": 0.04},
+	})
+	if summary["status"] != "COMPLETED" {
+		t.Fatalf("expected completed summary when payload exists, got %+v", summary)
+	}
+}

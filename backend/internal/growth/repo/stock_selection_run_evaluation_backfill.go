@@ -349,7 +349,7 @@ func (r *MySQLGrowthRepo) loadStockSelectionEvaluationSummary(runID string, symb
 			filtered = append(filtered, item)
 		}
 	}
-	return buildStockSelectionEvaluationSummary(filtered), nil
+	return normalizeStockSelectionEvaluationSummary(buildStockSelectionEvaluationSummary(filtered)), nil
 }
 
 func buildStockSelectionEvaluationRecords(
@@ -431,7 +431,7 @@ func buildStockSelectionEvaluationRecords(
 
 func buildStockSelectionEvaluationSummary(rows []model.StockSelectionRunEvaluation) map[string]any {
 	if len(rows) == 0 {
-		return nil
+		return normalizeStockSelectionEvaluationSummary(nil)
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		return rows[i].HorizonDay < rows[j].HorizonDay
@@ -484,7 +484,7 @@ func buildStockSelectionEvaluationSummary(rows []model.StockSelectionRunEvaluati
 		summary["message"] = "评估生成中，已回写部分 horizon"
 	}
 	summary["ready_count"] = readyCount
-	return summary
+	return normalizeStockSelectionEvaluationSummary(summary)
 }
 
 func buildStockSelectionEvaluationBarDateMap(bars []stockSelectionEvaluationBar) map[string]stockSelectionEvaluationBar {
@@ -572,6 +572,7 @@ func selectStockSelectionEvaluationBenchmarkSymbol(candidates []string, priceMap
 }
 
 func enrichStockSelectionEvaluationMetaFromSummary(explanation *model.StrategyClientExplanation, summary map[string]any) {
+	summary = normalizeStockSelectionEvaluationSummary(summary)
 	if explanation == nil || len(summary) == 0 {
 		return
 	}
@@ -584,6 +585,7 @@ func enrichStockSelectionEvaluationMetaFromSummary(explanation *model.StrategyCl
 }
 
 func enrichStockSelectionVersionHistoryEvaluationMeta(item *model.StrategyVersionHistoryItem, summary map[string]any) {
+	summary = normalizeStockSelectionEvaluationSummary(summary)
 	if item == nil || len(summary) == 0 {
 		return
 	}
@@ -604,4 +606,8 @@ func marshalStockSelectionEvaluationSummary(summary map[string]any) string {
 		return ""
 	}
 	return string(body)
+}
+
+func normalizeStockSelectionEvaluationSummary(summary map[string]any) map[string]any {
+	return normalizeExplanationEvaluationSummary(summary)
 }

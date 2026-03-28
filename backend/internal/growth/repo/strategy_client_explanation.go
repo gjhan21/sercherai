@@ -62,6 +62,7 @@ func (r *MySQLGrowthRepo) buildStockStrategyExplanation(item model.StockRecommen
 	))
 	if summary, summaryErr := r.loadStockSelectionEvaluationSummaryByContext(*ctx, item.Symbol); summaryErr == nil {
 		enrichStockSelectionEvaluationMetaFromSummary(&explanation, summary)
+		applyL1AdvisoryMemoryAdjustments(&explanation, summary)
 	}
 	if relatedEvents, eventCards, eventErr := r.listReviewedStockEventEvidence(item.Symbol, item.ValidFrom); eventErr == nil {
 		explanation.RelatedEvents = relatedEvents
@@ -390,6 +391,7 @@ func buildStrategyExplanationFromContext(
 	filterSteps []string,
 ) model.StrategyClientExplanation {
 	report := ctx.record.ReportSnapshot
+	evaluationMeta := normalizeExplanationEvaluationSummary(mapValue(report["evaluation_summary"]))
 	seedHighlights := extractSeedHighlights(ctx.job.Payload)
 	evidenceCards := buildExplanationEvidenceCards(sliceOfMaps(ctx.asset["evidence_cards"]))
 	relatedEntities := mergeExplanationRelatedEntities(
@@ -427,7 +429,7 @@ func buildStrategyExplanationFromContext(
 		researchOutline, activeThesis, historicalThesis, watchSignals = buildFuturesResearchBlocks(*ctx, assetKey)
 	}
 
-	return model.StrategyClientExplanation{
+	explanation := model.StrategyClientExplanation{
 		SeedSummary:      buildSeedSummary(seedHighlights, report),
 		SeedHighlights:   seedHighlights,
 		GraphSummary:     asString(report["graph_summary"]),
@@ -456,7 +458,7 @@ func buildStrategyExplanationFromContext(
 		WatchSignals:          watchSignals,
 		RelatedEntities:       relatedEntities,
 		MemoryFeedback:        buildExplanationMemoryFeedback(mapValue(report["memory_feedback"])),
-		EvaluationMeta:        mapValue(report["evaluation_summary"]),
+		EvaluationMeta:        evaluationMeta,
 		WorkloadSummary: model.StrategyWorkloadSummary{
 			SeedCount:      len(seedHighlights),
 			CandidateCount: len(sliceOfMaps(report["candidates"])) + len(sliceOfMaps(report["strategies"])),
@@ -472,6 +474,8 @@ func buildStrategyExplanationFromContext(
 		PublishVersion:  ctx.record.Version,
 		GeneratedAt:     firstNonEmpty(asString(report["generated_at"]), ctx.record.CreatedAt),
 	}
+	applyL1AdvisoryMemoryAdjustments(&explanation, evaluationMeta)
+	return explanation
 }
 
 func buildStrategyVersionHistoryItem(
