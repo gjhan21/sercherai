@@ -55,6 +55,8 @@ func (r *MySQLGrowthRepo) buildStockStrategyExplanation(item model.StockRecommen
 	if r.db == nil {
 		return explanation
 	}
+	l1Config := r.loadForecastL1RuntimeConfig()
+	l2Config := r.loadForecastL2RuntimeConfig()
 
 	ctx, err := r.findStrategyEngineAssetContext("stock-selection", item.Symbol, dateOnly(item.ValidFrom))
 	if err != nil || ctx == nil {
@@ -81,6 +83,8 @@ func (r *MySQLGrowthRepo) buildStockStrategyExplanation(item model.StockRecommen
 		explanation.RelatedEvents = relatedEvents
 		explanation.EventEvidenceCards = eventCards
 	}
+	applyForecastL1DisplayConfigToExplanation(&explanation, mapValue(ctx.record.ReportSnapshot["memory_feedback"]), l1Config)
+	applyForecastL2DisplayConfigToExplanation(&explanation, l2Config)
 	return explanation
 }
 
@@ -121,12 +125,14 @@ func (r *MySQLGrowthRepo) buildFuturesStrategyExplanation(item model.FuturesStra
 	if r.db == nil {
 		return explanation
 	}
+	l1Config := r.loadForecastL1RuntimeConfig()
+	l2Config := r.loadForecastL2RuntimeConfig()
 
 	ctx, err := r.findStrategyEngineAssetContext("futures-strategy", item.Contract, dateOnly(item.ValidFrom))
 	if err != nil || ctx == nil {
 		return explanation
 	}
-	return mergeStrategyExplanation(explanation, buildStrategyExplanationFromContext(
+	explanation = mergeStrategyExplanation(explanation, buildStrategyExplanationFromContext(
 		ctx,
 		item.Contract,
 		item.ReasonSummary,
@@ -139,6 +145,9 @@ func (r *MySQLGrowthRepo) buildFuturesStrategyExplanation(item model.FuturesStra
 			"风险与发布过滤",
 		},
 	))
+	applyForecastL1DisplayConfigToExplanation(&explanation, mapValue(ctx.record.ReportSnapshot["memory_feedback"]), l1Config)
+	applyForecastL2DisplayConfigToExplanation(&explanation, l2Config)
+	return explanation
 }
 
 func (r *MySQLGrowthRepo) findStrategyEngineAssetContext(jobType string, assetKey string, tradeDate string) (*strategyEngineAssetContext, error) {
@@ -452,18 +461,21 @@ func buildStrategyExplanationFromContext(
 	var relationshipSnapshot model.StrategyExplanationRelationshipSnapshot
 	var scenarioSnapshots []model.StrategyExplanationScenarioSnapshot
 	var scenarioMeta model.StrategyExplanationScenarioMeta
+	var scenarioSnapshotMeta model.StrategyExplanationScenarioMeta
+	var agentScenarioMeta model.StrategyExplanationScenarioMeta
 	var l2AgentOpinions []model.StrategyExplanationAgentOpinion
 	if asString(ctx.asset["symbol"]) != "" {
 		researchOutline, activeThesis, historicalThesis, watchSignals = buildStockResearchBlocks(*ctx, assetKey)
-		relationshipSnapshot = buildStockRelationshipSnapshot(*ctx)
-		scenarioSnapshots, scenarioMeta = buildStockScenarioSnapshots(*ctx)
-		l2AgentOpinions, scenarioMeta = buildStockAgentOpinions(*ctx)
+		relationshipSnapshot = buildStockRelationshipSnapshot(*ctx, relatedEntities)
+		scenarioSnapshots, scenarioSnapshotMeta = buildStockScenarioSnapshots(*ctx)
+		l2AgentOpinions, agentScenarioMeta = buildStockAgentOpinions(*ctx)
 	} else {
 		researchOutline, activeThesis, historicalThesis, watchSignals = buildFuturesResearchBlocks(*ctx, assetKey)
-		relationshipSnapshot = buildFuturesRelationshipSnapshot(*ctx)
-		scenarioSnapshots, scenarioMeta = buildFuturesScenarioSnapshots(*ctx)
-		l2AgentOpinions, scenarioMeta = buildFuturesAgentOpinions(*ctx)
+		relationshipSnapshot = buildFuturesRelationshipSnapshot(*ctx, relatedEntities, inventorySummary, structureSummary)
+		scenarioSnapshots, scenarioSnapshotMeta = buildFuturesScenarioSnapshots(*ctx)
+		l2AgentOpinions, agentScenarioMeta = buildFuturesAgentOpinions(*ctx)
 	}
+	scenarioMeta = mergeScenarioMeta(scenarioSnapshotMeta, agentScenarioMeta)
 	if scenarioMeta.PrimaryScenario == "" {
 		scenarioMeta = buildScenarioMeta(scenarioSnapshots)
 	}
@@ -474,7 +486,7 @@ func buildStrategyExplanationFromContext(
 		scenarioMeta.ConsensusAction = scenarioSnapshots[1].ActionSuggestion
 	}
 	if scenarioMeta.PrimaryScenario == "" && len(scenarioSnapshots) > 0 {
-		scenarioMeta.PrimaryScenario = scenarioSnapshots[0].Scenario
+		scenarioMeta.PrimaryScenario = preferredPrimaryScenario(scenarioSnapshots)
 	}
 
 	explanation := model.StrategyClientExplanation{

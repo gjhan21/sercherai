@@ -70,11 +70,44 @@ func buildScenarioMeta(items []model.StrategyExplanationScenarioSnapshot) model.
 			low = item.Confidence
 		}
 	}
+	primaryScenario := preferredPrimaryScenario(items)
 	return model.StrategyExplanationScenarioMeta{
-		PrimaryScenario:          items[0].Scenario,
+		PrimaryScenario:          primaryScenario,
 		ConsensusAction:          items[1].ActionSuggestion,
 		Vetoed:                   false,
 		VetoReason:               "",
 		ScenarioConfidenceSpread: high - low,
 	}
+}
+
+func preferredPrimaryScenario(items []model.StrategyExplanationScenarioSnapshot) string {
+	for _, item := range items {
+		if item.Scenario == "base" {
+			return item.Scenario
+		}
+	}
+	if len(items) == 0 {
+		return ""
+	}
+	return items[0].Scenario
+}
+
+func mergeScenarioMeta(snapshotMeta model.StrategyExplanationScenarioMeta, agentMeta model.StrategyExplanationScenarioMeta) model.StrategyExplanationScenarioMeta {
+	meta := snapshotMeta
+	if meta.PrimaryScenario == "" {
+		meta.PrimaryScenario = agentMeta.PrimaryScenario
+	}
+	if agentMeta.ConsensusAction != "" {
+		meta.ConsensusAction = agentMeta.ConsensusAction
+	}
+	if agentMeta.Vetoed {
+		meta.Vetoed = true
+	}
+	if agentMeta.VetoReason != "" {
+		meta.VetoReason = agentMeta.VetoReason
+	}
+	if meta.ScenarioConfidenceSpread == 0 {
+		meta.ScenarioConfidenceSpread = agentMeta.ScenarioConfidenceSpread
+	}
+	return meta
 }

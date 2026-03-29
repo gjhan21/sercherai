@@ -4244,6 +4244,8 @@ WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT'
 	}
 
 	items := make([]model.StrategyVersionHistoryItem, 0, len(contexts))
+	l1Config := r.loadForecastL1RuntimeConfig()
+	l2Config := r.loadForecastL2RuntimeConfig()
 	for _, ctx := range contexts {
 		historyItem := buildStrategyVersionHistoryItem(
 			ctx,
@@ -4260,6 +4262,8 @@ WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT'
 		if summary, summaryErr := r.loadStockSelectionEvaluationSummaryByContext(ctx, item.Symbol); summaryErr == nil {
 			enrichStockSelectionVersionHistoryEvaluationMeta(&historyItem, summary)
 		}
+		applyForecastL1DisplayConfigToVersionHistoryItem(&historyItem, mapValue(ctx.record.ReportSnapshot["memory_feedback"]), l1Config)
+		applyForecastL2DisplayConfigToVersionHistoryItem(&historyItem, l2Config)
 		items = append(items, historyItem)
 	}
 	applyStrategyVersionDiffToHistoryItems(items, contexts, item.Symbol)
@@ -4804,8 +4808,10 @@ func (r *MySQLGrowthRepo) GetFuturesStrategyVersionHistory(userID string, strate
 	}
 
 	items := make([]model.StrategyVersionHistoryItem, 0, len(contexts))
+	l1Config := r.loadForecastL1RuntimeConfig()
+	l2Config := r.loadForecastL2RuntimeConfig()
 	for _, ctx := range contexts {
-		items = append(items, buildStrategyVersionHistoryItem(
+		historyItem := buildStrategyVersionHistoryItem(
 			ctx,
 			asString(ctx.asset["reason_summary"]),
 			firstNonEmpty(asString(ctx.asset["strategy_version"]), explanation.StrategyVersion, "futures-mvp-v1"),
@@ -4816,7 +4822,10 @@ func (r *MySQLGrowthRepo) GetFuturesStrategyVersionHistory(userID string, strate
 				"情景推演",
 				"风险与发布过滤",
 			},
-		))
+		)
+		applyForecastL1DisplayConfigToVersionHistoryItem(&historyItem, mapValue(ctx.record.ReportSnapshot["memory_feedback"]), l1Config)
+		applyForecastL2DisplayConfigToVersionHistoryItem(&historyItem, l2Config)
+		items = append(items, historyItem)
 	}
 	applyStrategyVersionDiffToHistoryItems(items, contexts, strategy.Contract)
 	applyStrategyL1HistoryToHistoryItems(items, contexts, strategy.Contract)

@@ -21,6 +21,8 @@ const (
 	stockRecommendationDetailQueryPattern  = `(?s)SELECT d\.reco_id, d\.tech_score, d\.fund_score, d\.sentiment_score, d\.money_flow_score, d\.take_profit, d\.stop_loss, d\.risk_note\s+FROM stock_reco_details d`
 	futuresStrategyDetailQueryPattern      = `(?s)SELECT id, contract, name, direction, risk_level, position_range, valid_from, valid_to, status, reason_summary\s+FROM futures_strategies\s+WHERE id = \?`
 	futuresGuidanceQueryPattern            = `(?s)SELECT contract, guidance_direction, position_level, entry_range, take_profit_range, stop_loss_range, risk_level, invalid_condition, valid_to\s+FROM futures_guidances\s+WHERE contract = \?`
+	forecastL1ConfigQueryPattern           = `(?s)SELECT config_key, config_value\s+FROM system_configs\s+WHERE config_key LIKE 'growth\.forecast_l1\.%'`
+	forecastL2ConfigQueryPattern           = `(?s)SELECT config_key, config_value\s+FROM system_configs\s+WHERE config_key LIKE 'growth\.forecast_l2\.%'`
 )
 
 type strategyEngineAssetContextFixture struct {
@@ -132,6 +134,75 @@ func TestBuildStockStrategyExplanationUsesLocalSnapshotWithoutRemoteFetch(t *tes
 	}
 	if len(explanation.EventEvidenceCards) != 1 || explanation.EventEvidenceCards[0].Value != "白酒景气事件" {
 		t.Fatalf("expected event evidence cards, got %+v", explanation.EventEvidenceCards)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestBuildStockStrategyExplanationAppliesForecastL1ConfigFromSystemConfigs(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	record := buildExplanationPublishRecordDetail(
+		"publish_local_config_001",
+		"job_local_config_001",
+		15,
+		"2026-03-18",
+		[]string{"600519.SH"},
+		"本地快照图谱显示消费龙头资金回流。",
+		"三位代理一致认为继续跟踪。",
+		"本地快照理由",
+		"stock-local-v2",
+		[]string{"跌破 5 日线"},
+		[]string{"本地快照告警"},
+		[]string{},
+		[]string{"本地回放备注"},
+	)
+	record.ReportSnapshot["memory_feedback"] = map[string]any{
+		"summary":      "历史上同类题材更适合短验证窗口",
+		"sample_count": 8,
+		"suggestions":  []any{"缩短验证周期"},
+	}
+
+	repo := &MySQLGrowthRepo{db: db}
+
+	mock.ExpectQuery(forecastL1ConfigQueryPattern).
+		WillReturnRows(sqlmock.NewRows([]string{"config_key", "config_value"}).
+			AddRow("growth.forecast_l1.enabled", "true").
+			AddRow("growth.forecast_l1.explanation_enabled", "false"))
+	mock.ExpectQuery(forecastL2ConfigQueryPattern).
+		WillReturnRows(sqlmock.NewRows([]string{"config_key", "config_value"}))
+	mock.ExpectQuery(localAssetContextQueryPattern).
+		WithArgs("stock-selection").
+		WillReturnRows(newLocalAssetContextRows(buildStrategyEngineAssetContextFixture(record, record.AssetKeys)))
+	mock.ExpectQuery(stockEventEvidenceQueryPattern).
+		WithArgs("600519.SH", "600519.SH", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "event_type", "primary_symbol", "topic_label", "sector_label", "review_priority", "review_note", "published_at"}))
+
+	explanation := repo.buildStockStrategyExplanation(
+		model.StockRecommendation{
+			ID:              "reco_local_config_001",
+			Symbol:          "600519.SH",
+			ValidFrom:       "2026-03-18T09:35:00Z",
+			ReasonSummary:   "基础原因总结",
+			StrategyVersion: "stock-local-v2",
+		},
+		model.StockRecommendationDetail{
+			RecoID:   "reco_local_config_001",
+			RiskNote: "基础风险提示",
+		},
+	)
+
+	if len(explanation.ResearchOutline) != 0 || len(explanation.ActiveThesisCards) != 0 || len(explanation.WatchSignals) != 0 {
+		t.Fatalf("expected l1 explanation blocks to respect system config switch, got %+v", explanation)
+	}
+	if explanation.MemoryFeedback.Summary != "" || explanation.ConfidenceCalibration.AdjustedConfidence != 0 {
+		t.Fatalf("expected l1 memory/confidence blocks to respect system config switch, got %+v", explanation)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -811,6 +882,37 @@ func TestBuildStockStrategyExplanationCarriesL2AgentOpinions(t *testing.T) {
 	}
 }
 
+func TestBuildStockStrategyExplanationKeepsAgentDerivedVetoMeta(t *testing.T) {
+	ctx := strategyEngineAssetContext{
+		record: model.StrategyEnginePublishRecord{
+			PublishID:     "publish_l2_stock_veto_001",
+			JobID:         "job_l2_stock_veto_001",
+			TradeDate:     "2026-03-29",
+			Version:       1,
+			SelectedCount: 1,
+		},
+		asset: map[string]any{
+			"symbol":         "600519.SH",
+			"reason_summary": "趋势仍在但需要严格管控风险",
+			"risk_summary":   "跌破关键支撑失效",
+			"risk_flags":     []any{"高位分歧", "量能衰减", "外资回流减弱"},
+			"invalidations":  []any{"跌破关键支撑"},
+			"theme_tags":     []any{"白酒"},
+		},
+	}
+
+	explanation := buildStrategyExplanationFromContext(&ctx, "600519.SH", "", "stock-l2-v1", []string{"agent-review"})
+	if !explanation.ScenarioMeta.Vetoed {
+		t.Fatalf("expected agent-derived veto to survive scenario fallback, got %+v", explanation.ScenarioMeta)
+	}
+	if explanation.ScenarioMeta.VetoReason == "" {
+		t.Fatalf("expected veto reason to survive scenario fallback, got %+v", explanation.ScenarioMeta)
+	}
+	if explanation.ScenarioMeta.PrimaryScenario == "" {
+		t.Fatalf("expected primary scenario to remain available, got %+v", explanation.ScenarioMeta)
+	}
+}
+
 func TestBuildFuturesStrategyExplanationUsesLocalSnapshotWithoutRemoteFetch(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -1018,6 +1120,9 @@ func TestBuildFuturesStrategyExplanationSurfacesSupplyChainContext(t *testing.T)
 	relatedEntities := sliceOfMaps(raw["related_entities"])
 	if len(relatedEntities) < 5 {
 		t.Fatalf("expected futures explanation to merge asset and report related entities, got %+v", raw["related_entities"])
+	}
+	if explanation.RelationshipSnapshot.RelationshipCount < 9 {
+		t.Fatalf("expected futures relationship snapshot to include merged entities plus inventory/structure signals, got %+v", explanation.RelationshipSnapshot)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
