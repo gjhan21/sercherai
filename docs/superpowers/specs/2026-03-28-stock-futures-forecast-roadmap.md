@@ -198,9 +198,17 @@ L3 才考虑选择性深度模拟或外部引擎联动。
 
 当前正式执行顺序固定为：
 
-1. 先完成 `L1` 实施计划与开发
-2. `L2` 与 `L3` 先以正式 spec 形态冻结设计，不提前扩范围
-3. 后续线程统一按 handoff 文档衔接
+1. `L1` 已完成实施并落地到 `main`
+2. `L2` 已完成实施并落地到 `main`
+3. `L3` 仍以正式 spec 形态冻结设计，尚未进入实现
+4. 后续线程统一按 handoff 文档衔接，并以 `L3` 计划为下一阶段入口
+
+## 当前状态更新（2026-03-29）
+
+- `L1` 已完成：研究编排、active/historical thesis、memory feedback 消费、confidence calibration、四个真实入口接入、client 展示承接、admin 轻量嵌入均已在主分支落地。
+- `L2` 已完成：relationship snapshot、稳定 bull/base/bear 三情景、agent opinions/veto、四个真实入口接入、client 展示承接、admin 复用式可见性均已在主分支落地。
+- 当前未完成阶段为 `L3`。
+- 因此本路线图的下一步不再是解释是否要做 `L2`，而是决定是否开始 `L3` 的实施计划与开发。
 
 配套线程交接说明见：
 

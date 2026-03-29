@@ -10,6 +10,22 @@
 
 ---
 
+## Execution Status (2026-03-29)
+
+- `L2` 主线已在 `main` 落地，范围保持在既定 4 个读取入口内。
+- Task 1 ~ Task 6 已完成，且保持“非破坏性扩展 explanation / history，不改推荐发布主链”的边界。
+- 对应关键提交：
+  - `3e8c383 feat: add l2 relationship snapshot contracts`
+  - `d61b86c feat: add stable l2 scenario snapshots`
+  - `1b29758 feat: add l2 agent opinions and veto meta`
+  - `303c529 feat: wire l2 scenarios into insight and history`
+  - `aef4465 feat: surface l2 scenarios in client views`
+  - `f5cd039 feat: add l2 forecast visibility in admin`
+- fresh verification：
+  - `cd /Users/gjhan21/cursor/sercherai/backend && go test ./internal/growth/repo` -> PASS
+  - `cd /Users/gjhan21/cursor/sercherai/client && npm run build` -> PASS
+  - `cd /Users/gjhan21/cursor/sercherai/admin && npm run build` -> PASS
+
 ## Scope And Guardrails
 
 - 本计划只覆盖 `L2`，不提前实现 `L3`。

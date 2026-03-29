@@ -17,12 +17,12 @@
 
 当前结论已经固定：
 
-1. 先开发 `L1`
-2. `L2 / L3` 只先冻结设计，不提前实现
+1. `L1` 主线与后置 admin 轻量承接已落地到 `main`
+2. `L2` 主线与复用式 admin 可见性也已落地到 `main`
+3. 当前未启动的只剩 `L3`，仍处于“设计已冻结、实现未开始”状态
 3. 目标是增强现有股票推荐与期货策略体系，不另造一套平行主系统
 4. 借鉴 `MiroFish` 的是预测闭环思想，不是整套社交仿真产品形态
-5. admin 侧优先复用现有后台模块，不在 `L1` 新开独立预测增强后台中心
-6. `L1` 主线与后置 admin 承接均已落地到 `main`
+5. admin 侧继续优先复用现有后台模块，不新开独立预测增强后台中心
 
 ## 已定硬边界
 
@@ -50,7 +50,7 @@
 
 如果其中任意一项回答为“是，超出边界”，需要先停下来重新确认范围。
 
-## 当前实现状态（2026-03-28）
+## 当前实现状态（2026-03-29）
 
 ### 已完成
 
@@ -71,16 +71,26 @@
    - `/Users/gjhan21/cursor/sercherai/admin/src/views/SystemConfigsView.vue`
    - `/Users/gjhan21/cursor/sercherai/admin/src/views/MarketCenterView.vue`
    - `/Users/gjhan21/cursor/sercherai/admin/src/views/ReviewCenterView.vue`
+8. `L2` relationship snapshot、bull/base/bear 三情景、agent opinions/veto 已落地
+9. client 已承接 `L2` 三情景与关系快照展示
+10. admin 已承接 `L2` 开关、情景摘要、veto 只读展示
 
 ### 关键提交
 
 - `44b38ff Merge branch 'codex/stock-futures-forecast-l1'`
 - `6c8ca7e feat: add optional admin forecast controls`
+- `3e8c383 feat: add l2 relationship snapshot contracts`
+- `d61b86c feat: add stable l2 scenario snapshots`
+- `1b29758 feat: add l2 agent opinions and veto meta`
+- `303c529 feat: wire l2 scenarios into insight and history`
+- `aef4465 feat: surface l2 scenarios in client views`
+- `f5cd039 feat: add l2 forecast visibility in admin`
 
 ### 继续推进时的事实
 
 - 当前不需要再补独立 admin 规划入口
-- 如果继续做 `L1` 收尾，优先做文档、联调或远端集成，不要把范围扩成 `L2 / L3`
+- 当前不需要再继续补 `L1 / L2` 主线能力，除非是 bugfix、联调或展示收口
+- 如果继续推进新功能，下一阶段应切到 `L3` 的计划与开发，而不是重新解释 `L1 / L2`
 - `/Users/gjhan21/cursor/sercherai/admin/src/router/index.js:155-164` 的权限跳转问题仍是独立问题，不属于本主题范围
 
 ## 其他线程的推荐阅读顺序
@@ -93,29 +103,42 @@
 2. `/Users/gjhan21/cursor/sercherai/docs/superpowers/specs/2026-03-28-stock-futures-forecast-thread-handoff.md`
 3. `/Users/gjhan21/cursor/sercherai/docs/superpowers/specs/2026-03-28-stock-futures-forecast-admin-config-design.md`
 
-### 如果是准备开发 L1
+### 如果是准备查看当前已落地基线
 
 先读：
 
 1. `/Users/gjhan21/cursor/sercherai/docs/superpowers/specs/2026-03-28-stock-futures-forecast-roadmap.md`
 2. `/Users/gjhan21/cursor/sercherai/docs/superpowers/specs/2026-03-28-stock-futures-forecast-l1-design.md`
-3. `/Users/gjhan21/cursor/sercherai/docs/superpowers/specs/2026-03-28-stock-futures-forecast-admin-config-design.md`
-4. `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/strategy_engine_context_repo.go`
+3. `/Users/gjhan21/cursor/sercherai/docs/superpowers/specs/2026-03-28-stock-futures-forecast-l2-design.md`
+4. `/Users/gjhan21/cursor/sercherai/docs/superpowers/specs/2026-03-28-stock-futures-forecast-admin-config-design.md`
 5. `/Users/gjhan21/cursor/sercherai/backend/internal/growth/model/strategy_client_explanation.go`
 6. `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/strategy_client_explanation.go`
-7. `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/stock_selection_run_evaluation_backfill.go`
-8. `/Users/gjhan21/cursor/sercherai/client/src/api/market.js`
+7. `/Users/gjhan21/cursor/sercherai/client/src/lib/strategy-version.js`
+8. `/Users/gjhan21/cursor/sercherai/admin/src/lib/forecast-admin.js`
 
-### 如果是评估 L2 / L3 是否该启动
+### 如果是准备开发 L3
+
+先读：
+
+1. `/Users/gjhan21/cursor/sercherai/docs/superpowers/specs/2026-03-28-stock-futures-forecast-roadmap.md`
+2. `/Users/gjhan21/cursor/sercherai/docs/superpowers/specs/2026-03-28-stock-futures-forecast-l2-design.md`
+3. `/Users/gjhan21/cursor/sercherai/docs/superpowers/specs/2026-03-28-stock-futures-forecast-admin-config-design.md`
+4. `/Users/gjhan21/cursor/sercherai/docs/superpowers/specs/2026-03-28-stock-futures-forecast-l3-design.md`
+5. `/Users/gjhan21/cursor/sercherai/docs/superpowers/plans/2026-03-29-stock-futures-forecast-l2-implementation.md`
+6. `/Users/gjhan21/cursor/sercherai/backend/internal/growth/repo/strategy_client_explanation.go`
+7. `/Users/gjhan21/cursor/sercherai/client/src/views/StrategyView.vue`
+8. `/Users/gjhan21/cursor/sercherai/admin/src/views/MarketCenterView.vue`
+
+### 如果是评估 L3 是否该启动
 
 先读：
 
 1. 总纲
-2. `L1` 当前实现情况
+2. `L1 / L2` 当前实现情况
 3. Admin 配置规划
 4. 对应阶段 spec
 
-不要跳过 `L1` 直接实现 `L2 / L3`。
+不要绕开已落地的 `L1 / L2` 基线去另造平行系统。
 
 ## 其他线程必须遵守的边界
 

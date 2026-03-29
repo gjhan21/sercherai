@@ -20,6 +20,20 @@
 4. `L2` 才开始系统化扩展策略引擎相关配置。
 5. `L3` 才考虑独立“深推演 / 预测实验室”后台工作台。
 
+## 当前状态更新（2026-03-29）
+
+- `L1` 的 admin 轻量嵌入已完成并落地到 `main`：
+  - `/Users/gjhan21/cursor/sercherai/admin/src/views/SystemConfigsView.vue`
+  - `/Users/gjhan21/cursor/sercherai/admin/src/views/MarketCenterView.vue`
+  - `/Users/gjhan21/cursor/sercherai/admin/src/views/ReviewCenterView.vue`
+- `L2` 的 admin 复用式可见性与配置也已完成并落地到 `main`，继续沿用现有模块承接：
+  - `SystemConfigsView`
+  - `MarketCenterView`
+  - `ReviewCenterView`
+  - `stock-selection/*`
+  - `futures-selection/*`
+- 因此当前 admin 侧未完成部分主要只剩 `L3` 的更深运营与实验承接，不需要回头再讨论是否为 `L1 / L2` 新开后台中心。
+
 ## 当前 Admin 真实基线
 
 ### 已有页面级后台能力
