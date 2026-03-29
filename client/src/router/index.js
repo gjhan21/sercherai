@@ -8,6 +8,7 @@ const HomeView = () => import("../views/HomeView.vue");
 const SearchView = () => import("../views/SearchView.vue");
 const StrategyView = () => import("../views/StrategyView.vue");
 const RecommendationArchiveView = () => import("../views/RecommendationArchiveView.vue");
+const ForecastRunView = () => import("../views/ForecastRunView.vue");
 const MyWatchlistView = () => import("../views/MyWatchlistView.vue");
 const NewsView = () => import("../views/NewsView.vue");
 const CommunityView = () => import("../views/CommunityView.vue");
@@ -42,6 +43,7 @@ const routes = [
       { path: "search", name: "search", component: SearchView },
       { path: "strategies", name: "strategies", component: StrategyView },
       { path: "archive", name: "archive", component: RecommendationArchiveView },
+      { path: "forecast/runs/:id", name: "forecast-run", component: ForecastRunView, meta: { requiresAuth: true } },
       { path: "watchlist", redirect: buildProfileModuleRoute("watchlist") },
       { path: "news", name: "news", component: NewsView },
       { path: "community", name: "community", component: CommunityView },

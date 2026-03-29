@@ -51,6 +51,7 @@ const rhythmTaskSavingMap = ref({});
 const canViewNewsRhythm = hasPermission("news.view");
 const canEditMarket = hasPermission("market.edit");
 const canEditMarketRhythm = canEditMarket;
+const canViewForecastLab = hasPermission("forecast_l3.view");
 
 const stockLoading = ref(false);
 const stockSubmitting = ref(false);
@@ -292,6 +293,14 @@ function normalizeErrorMessage(error, fallback) {
 function clearMessages() {
   errorMessage.value = "";
   message.value = "";
+}
+
+function openForecastLab(targetType = "") {
+  const query = {};
+  if (String(targetType || "").trim()) {
+    query.target_type = targetType;
+  }
+  router.push({ name: "forecast-lab", query });
 }
 
 function ensureCanEditMarket() {
@@ -2389,6 +2398,14 @@ watch(
             · veto {{ stockForecastL2Summary.vetoReason || "风险角色阻止直接执行" }}
           </template>
         </p>
+        <div
+          v-if="canViewForecastLab"
+          class="publish-detail-summary"
+          style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px"
+        >
+          <span>L3 深推演实验室已独立，可查看股票对象的异步深推演报告、运行日志和质量回写。</span>
+          <el-button type="primary" plain @click="openForecastLab('STOCK')">打开深推演工作台</el-button>
+        </div>
       </div>
 
       <div class="publish-detail-body" v-loading="stockPublishDetailLoading">
@@ -2657,6 +2674,14 @@ watch(
             · veto {{ futuresForecastL2Summary.vetoReason || "风险角色阻止直接执行" }}
           </template>
         </p>
+        <div
+          v-if="canViewForecastLab"
+          class="publish-detail-summary"
+          style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px"
+        >
+          <span>L3 深推演实验室已独立，可查看期货对象的异步深推演报告、运行日志和质量回写。</span>
+          <el-button type="primary" plain @click="openForecastLab('FUTURES')">打开深推演工作台</el-button>
+        </div>
       </div>
 
       <div class="publish-detail-body" v-loading="futuresPublishDetailLoading">

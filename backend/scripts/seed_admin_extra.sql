@@ -365,3 +365,177 @@ ON DUPLICATE KEY UPDATE
   latency_ms = VALUES(latency_ms),
   message = VALUES(message),
   checked_at = VALUES(checked_at);
+
+INSERT INTO scheduler_job_definitions (id, job_name, display_name, module, cron_expr, status, last_run_at, updated_by, created_at, updated_at)
+VALUES
+  ('jobdef_forecast_l3_dispatch_pending', 'forecast_l3_dispatch_pending', 'Forecast L3 Pending Dispatch', 'GROWTH', '0 */10 * * * *', 'DISABLED', NULL, 'admin_001', NOW(), NOW()),
+  ('jobdef_forecast_l3_quality_backfill', 'forecast_l3_quality_backfill', 'Forecast L3 Quality Backfill', 'GROWTH', '0 15 * * * *', 'DISABLED', NULL, 'admin_001', NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+  display_name = VALUES(display_name),
+  module = VALUES(module),
+  cron_expr = VALUES(cron_expr),
+  status = VALUES(status),
+  updated_by = VALUES(updated_by),
+  updated_at = VALUES(updated_at);
+
+INSERT INTO system_configs (id, config_key, config_value, description, updated_by, updated_at)
+VALUES
+  ('cfg_growth_forecast_l3_enabled', 'growth.forecast_l3.enabled', 'true', 'enable forecast l3 runtime', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_admin_manual_enabled', 'growth.forecast_l3.admin_manual_enabled', 'true', 'allow admin manual forecast l3 runs', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_user_request_enabled', 'growth.forecast_l3.user_request_enabled', 'true', 'allow user-request forecast l3 runs', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_auto_priority_enabled', 'growth.forecast_l3.auto_priority_enabled', 'false', 'allow auto-priority forecast l3 runs', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_client_read_enabled', 'growth.forecast_l3.client_read_enabled', 'true', 'allow client read-side forecast l3 summary', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_require_vip_for_full_report', 'growth.forecast_l3.require_vip_for_full_report', 'true', 'require vip for full forecast l3 report', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_max_active_runs', 'growth.forecast_l3.max_active_runs', '3', 'max active forecast l3 runs', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_max_runs_per_day', 'growth.forecast_l3.max_runs_per_day', '48', 'max daily forecast l3 runs', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_max_user_runs_per_day', 'growth.forecast_l3.max_user_runs_per_day', '2', 'max user-request forecast l3 runs per day', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_min_priority_threshold', 'growth.forecast_l3.min_priority_threshold', '0.72', 'min priority threshold for forecast l3', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_dispatch_enabled', 'growth.forecast_l3.dispatch.enabled', 'true', 'enable forecast l3 dispatch worker', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_dispatch_interval_minutes', 'growth.forecast_l3.dispatch.interval_minutes', '8', 'dispatch worker interval minutes', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_quality_enabled', 'growth.forecast_l3.quality.enabled', 'true', 'enable forecast l3 quality worker', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_quality_interval_minutes', 'growth.forecast_l3.quality.interval_minutes', '30', 'quality worker interval minutes', 'admin_001', NOW()),
+  ('cfg_growth_forecast_l3_default_engine_key', 'growth.forecast_l3.default_engine_key', 'LOCAL_SYNTHESIS', 'default engine key for forecast l3', 'admin_001', NOW())
+ON DUPLICATE KEY UPDATE
+  config_value = VALUES(config_value),
+  description = VALUES(description),
+  updated_by = VALUES(updated_by),
+  updated_at = VALUES(updated_at);
+
+INSERT INTO strategy_forecast_l3_runs (
+  id, target_type, target_id, target_key, target_label, trigger_type,
+  request_user_id, operator_user_id, engine_key, status, priority_score,
+  reason, failure_reason, context_meta_json, summary_json, report_ref_json,
+  queued_at, started_at, finished_at, cancelled_at, created_at, updated_at
+)
+VALUES (
+  'l3run_demo_seed_001', 'STOCK', 'reco_demo_001', '600519.SH', '贵州茅台', 'ADMIN_MANUAL',
+  'admin_001', 'admin_001', 'LOCAL_SYNTHESIS', 'SUCCEEDED', 0.8800,
+  'seeded demo run', NULL,
+  JSON_OBJECT('source', 'seed', 'context', 'publish_history'),
+  JSON_OBJECT(
+    'run_id', 'l3run_demo_seed_001',
+    'status', 'SUCCEEDED',
+    'engine_key', 'LOCAL_SYNTHESIS',
+    'trigger_type', 'ADMIN_MANUAL',
+    'target_type', 'STOCK',
+    'target_key', '600519.SH',
+    'target_label', '贵州茅台',
+    'executive_summary', '趋势延续，但需要确认成交额是否继续放大。',
+    'primary_scenario', 'base',
+    'action_guidance', '先等确认，再考虑加仓。',
+    'confidence_label', 'MEDIUM',
+    'priority_score', 0.88,
+    'generated_at', DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 40 MINUTE), '%Y-%m-%dT%H:%i:%sZ'),
+    'report_available', TRUE
+  ),
+  JSON_OBJECT(
+    'run_id', 'l3run_demo_seed_001',
+    'report_id', 'l3report_demo_seed_001',
+    'status', 'SUCCEEDED',
+    'engine_key', 'LOCAL_SYNTHESIS',
+    'generated_at', DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 40 MINUTE), '%Y-%m-%dT%H:%i:%sZ'),
+    'requires_vip', TRUE,
+    'full_readable', FALSE
+  ),
+  DATE_SUB(NOW(), INTERVAL 55 MINUTE),
+  DATE_SUB(NOW(), INTERVAL 52 MINUTE),
+  DATE_SUB(NOW(), INTERVAL 40 MINUTE),
+  NULL,
+  DATE_SUB(NOW(), INTERVAL 55 MINUTE),
+  DATE_SUB(NOW(), INTERVAL 40 MINUTE)
+)
+ON DUPLICATE KEY UPDATE
+  status = VALUES(status),
+  priority_score = VALUES(priority_score),
+  reason = VALUES(reason),
+  context_meta_json = VALUES(context_meta_json),
+  summary_json = VALUES(summary_json),
+  report_ref_json = VALUES(report_ref_json),
+  queued_at = VALUES(queued_at),
+  started_at = VALUES(started_at),
+  finished_at = VALUES(finished_at),
+  updated_at = VALUES(updated_at);
+
+INSERT INTO strategy_forecast_l3_reports (
+  id, run_id, version, executive_summary, primary_scenario,
+  alternative_scenarios_json, trigger_checklist_json, invalidation_signals_json,
+  role_disagreements_json, action_guidance_json, markdown_body, html_body,
+  summary_json, created_at, updated_at
+)
+VALUES (
+  'l3report_demo_seed_001', 'l3run_demo_seed_001', 1, '趋势延续，但需要确认成交额是否继续放大。', 'base',
+  JSON_ARRAY(
+    JSON_OBJECT('name', 'bull', 'probability', 0.24, 'thesis', '量价继续共振', 'action', '顺势跟踪'),
+    JSON_OBJECT('name', 'bear', 'probability', 0.18, 'thesis', '高位分歧扩大', 'action', '收缩仓位')
+  ),
+  JSON_ARRAY(
+    JSON_OBJECT('label', '成交额', 'status', 'WATCH', 'note', '等待放量确认', 'trigger', '成交额继续放大'),
+    JSON_OBJECT('label', '资金回流', 'status', 'READY', 'note', '机构回流延续', 'trigger', '北向继续净流入')
+  ),
+  JSON_ARRAY('跌破关键均线', '北向资金明显转负'),
+  JSON_ARRAY(
+    JSON_OBJECT('role', 'RISK', 'stance', 'CAUTION', 'summary', '高位追涨赔率一般', 'veto', FALSE)
+  ),
+  JSON_ARRAY('先看确认', '缩短验证窗口'),
+  '# Forecast L3 Demo\n\n- Executive summary: trend remains intact.\n- Action: wait for confirmation.',
+  '<h1>Forecast L3 Demo</h1><p>Trend remains intact. Wait for confirmation.</p>',
+  JSON_OBJECT(
+    'run_id', 'l3run_demo_seed_001',
+    'status', 'SUCCEEDED',
+    'engine_key', 'LOCAL_SYNTHESIS',
+    'trigger_type', 'ADMIN_MANUAL',
+    'target_type', 'STOCK',
+    'target_key', '600519.SH',
+    'target_label', '贵州茅台',
+    'executive_summary', '趋势延续，但需要确认成交额是否继续放大。',
+    'primary_scenario', 'base',
+    'action_guidance', '先等确认，再考虑加仓。',
+    'confidence_label', 'MEDIUM',
+    'priority_score', 0.88,
+    'generated_at', DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 40 MINUTE), '%Y-%m-%dT%H:%i:%sZ'),
+    'report_available', TRUE
+  ),
+  DATE_SUB(NOW(), INTERVAL 40 MINUTE),
+  DATE_SUB(NOW(), INTERVAL 40 MINUTE)
+)
+ON DUPLICATE KEY UPDATE
+  executive_summary = VALUES(executive_summary),
+  primary_scenario = VALUES(primary_scenario),
+  alternative_scenarios_json = VALUES(alternative_scenarios_json),
+  trigger_checklist_json = VALUES(trigger_checklist_json),
+  invalidation_signals_json = VALUES(invalidation_signals_json),
+  role_disagreements_json = VALUES(role_disagreements_json),
+  action_guidance_json = VALUES(action_guidance_json),
+  markdown_body = VALUES(markdown_body),
+  html_body = VALUES(html_body),
+  summary_json = VALUES(summary_json),
+  updated_at = VALUES(updated_at);
+
+INSERT INTO strategy_forecast_l3_logs (id, run_id, step_key, status, message, payload_json, created_at)
+VALUES
+  ('l3log_demo_seed_001', 'l3run_demo_seed_001', 'LOAD_CONTEXT', 'SUCCESS', 'publish history and explanation loaded', JSON_OBJECT('sources', 4), DATE_SUB(NOW(), INTERVAL 53 MINUTE)),
+  ('l3log_demo_seed_002', 'l3run_demo_seed_001', 'RUN_DEEP_FORECAST', 'SUCCESS', 'local synthesis finished', JSON_OBJECT('engine', 'LOCAL_SYNTHESIS', 'roles', 4), DATE_SUB(NOW(), INTERVAL 45 MINUTE)),
+  ('l3log_demo_seed_003', 'l3run_demo_seed_001', 'BUILD_REPORT', 'SUCCESS', 'report persisted', JSON_OBJECT('report_id', 'l3report_demo_seed_001'), DATE_SUB(NOW(), INTERVAL 40 MINUTE))
+ON DUPLICATE KEY UPDATE
+  status = VALUES(status),
+  message = VALUES(message),
+  payload_json = VALUES(payload_json),
+  created_at = VALUES(created_at);
+
+INSERT INTO strategy_forecast_l3_learning_records (
+  id, run_id, target_type, target_key, scenario_hit, trigger_hit, invalidation_early,
+  bias_label, role_effectiveness_json, summary_text, created_at, updated_at
+)
+VALUES (
+  'l3learn_demo_seed_001', 'l3run_demo_seed_001', 'STOCK', '600519.SH', 1, 1, 0,
+  'NONE', JSON_OBJECT('RISK', 0.64, 'SUPPLY', 0.58, 'EVENT', 0.61), 'Demo learning record for seeded forecast l3 run.',
+  DATE_SUB(NOW(), INTERVAL 10 MINUTE), DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+)
+ON DUPLICATE KEY UPDATE
+  scenario_hit = VALUES(scenario_hit),
+  trigger_hit = VALUES(trigger_hit),
+  invalidation_early = VALUES(invalidation_early),
+  bias_label = VALUES(bias_label),
+  role_effectiveness_json = VALUES(role_effectiveness_json),
+  summary_text = VALUES(summary_text),
+  updated_at = VALUES(updated_at);

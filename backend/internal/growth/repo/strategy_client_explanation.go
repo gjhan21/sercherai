@@ -57,9 +57,13 @@ func (r *MySQLGrowthRepo) buildStockStrategyExplanation(item model.StockRecommen
 	}
 	l1Config := r.loadForecastL1RuntimeConfig()
 	l2Config := r.loadForecastL2RuntimeConfig()
+	l3Config := r.loadForecastL3RuntimeConfig()
 
 	ctx, err := r.findStrategyEngineAssetContext("stock-selection", item.Symbol, dateOnly(item.ValidFrom))
 	if err != nil || ctx == nil {
+		if l3Config.ClientReadEnabled {
+			r.attachLatestStrategyForecastL3ToExplanation(&explanation, model.StrategyForecastL3TargetTypeStock, item.Symbol)
+		}
 		return explanation
 	}
 	explanation = mergeStrategyExplanation(explanation, buildStrategyExplanationFromContext(
@@ -85,6 +89,9 @@ func (r *MySQLGrowthRepo) buildStockStrategyExplanation(item model.StockRecommen
 	}
 	applyForecastL1DisplayConfigToExplanation(&explanation, mapValue(ctx.record.ReportSnapshot["memory_feedback"]), l1Config)
 	applyForecastL2DisplayConfigToExplanation(&explanation, l2Config)
+	if l3Config.ClientReadEnabled {
+		r.attachLatestStrategyForecastL3ToExplanation(&explanation, model.StrategyForecastL3TargetTypeStock, item.Symbol)
+	}
 	return explanation
 }
 
@@ -127,9 +134,13 @@ func (r *MySQLGrowthRepo) buildFuturesStrategyExplanation(item model.FuturesStra
 	}
 	l1Config := r.loadForecastL1RuntimeConfig()
 	l2Config := r.loadForecastL2RuntimeConfig()
+	l3Config := r.loadForecastL3RuntimeConfig()
 
 	ctx, err := r.findStrategyEngineAssetContext("futures-strategy", item.Contract, dateOnly(item.ValidFrom))
 	if err != nil || ctx == nil {
+		if l3Config.ClientReadEnabled {
+			r.attachLatestStrategyForecastL3ToExplanation(&explanation, model.StrategyForecastL3TargetTypeFutures, item.Contract)
+		}
 		return explanation
 	}
 	explanation = mergeStrategyExplanation(explanation, buildStrategyExplanationFromContext(
@@ -147,6 +158,9 @@ func (r *MySQLGrowthRepo) buildFuturesStrategyExplanation(item model.FuturesStra
 	))
 	applyForecastL1DisplayConfigToExplanation(&explanation, mapValue(ctx.record.ReportSnapshot["memory_feedback"]), l1Config)
 	applyForecastL2DisplayConfigToExplanation(&explanation, l2Config)
+	if l3Config.ClientReadEnabled {
+		r.attachLatestStrategyForecastL3ToExplanation(&explanation, model.StrategyForecastL3TargetTypeFutures, item.Contract)
+	}
 	return explanation
 }
 
@@ -660,6 +674,8 @@ func buildStrategyVersionHistoryItem(
 		RiskFlags:             explanation.RiskFlags,
 		Invalidations:         explanation.Invalidations,
 		EvaluationMeta:        explanation.EvaluationMeta,
+		DeepForecastSummary:   cloneStrategyForecastL3SummaryPtr(explanation.DeepForecastSummary),
+		DeepForecastReportRef: cloneStrategyForecastL3ReportRefPtr(explanation.DeepForecastReportRef),
 		VersionDiff:           explanation.VersionDiff,
 		GeneratedAt:           explanation.GeneratedAt,
 	}
@@ -706,9 +722,111 @@ func buildFallbackVersionHistoryItem(
 		RiskFlags:             explanation.RiskFlags,
 		Invalidations:         explanation.Invalidations,
 		EvaluationMeta:        explanation.EvaluationMeta,
+		DeepForecastSummary:   cloneStrategyForecastL3SummaryPtr(explanation.DeepForecastSummary),
+		DeepForecastReportRef: cloneStrategyForecastL3ReportRefPtr(explanation.DeepForecastReportRef),
 		VersionDiff:           explanation.VersionDiff,
 		GeneratedAt:           firstNonEmpty(explanation.GeneratedAt, createdAt),
 	}
+}
+
+func (r *MySQLGrowthRepo) attachLatestStrategyForecastL3ToExplanation(
+	explanation *model.StrategyClientExplanation,
+	targetType string,
+	targetKey string,
+) {
+	if explanation == nil {
+		return
+	}
+	run, err := r.findLatestReadableStrategyForecastL3Run(targetType, targetKey)
+	if err != nil || strings.TrimSpace(run.ID) == "" {
+		return
+	}
+	explanation.DeepForecastSummary = cloneStrategyForecastL3SummaryPtr(&run.Summary)
+	explanation.DeepForecastReportRef = cloneStrategyForecastL3ReportRefPtr(run.ReportRef)
+}
+
+func (r *MySQLGrowthRepo) attachLatestStrategyForecastL3ToHistoryItems(
+	items []model.StrategyVersionHistoryItem,
+	targetType string,
+	targetKey string,
+) {
+	if len(items) == 0 {
+		return
+	}
+	run, err := r.findLatestReadableStrategyForecastL3Run(targetType, targetKey)
+	if err != nil || strings.TrimSpace(run.ID) == "" {
+		return
+	}
+	for index := range items {
+		items[index].DeepForecastSummary = cloneStrategyForecastL3SummaryPtr(&run.Summary)
+		items[index].DeepForecastReportRef = cloneStrategyForecastL3ReportRefPtr(run.ReportRef)
+	}
+}
+
+func (r *MySQLGrowthRepo) findLatestReadableStrategyForecastL3Run(targetType string, targetKey string) (model.StrategyForecastL3Run, error) {
+	if r == nil || r.db == nil || strings.TrimSpace(targetType) == "" || strings.TrimSpace(targetKey) == "" {
+		return model.StrategyForecastL3Run{}, sql.ErrNoRows
+	}
+	row := r.db.QueryRow(`
+SELECT
+	id,
+	target_type,
+	COALESCE(target_id, ''),
+	target_key,
+	COALESCE(target_label, ''),
+	trigger_type,
+	COALESCE(request_user_id, ''),
+	COALESCE(operator_user_id, ''),
+	engine_key,
+	status,
+	priority_score,
+	COALESCE(reason, ''),
+	COALESCE(failure_reason, ''),
+	COALESCE(CAST(context_meta_json AS CHAR), ''),
+	COALESCE(CAST(summary_json AS CHAR), ''),
+	COALESCE(CAST(report_ref_json AS CHAR), ''),
+	queued_at,
+	started_at,
+	finished_at,
+	cancelled_at,
+	created_at,
+	updated_at
+FROM strategy_forecast_l3_runs
+WHERE target_type = ?
+  AND target_key = ?
+  AND status IN (?, ?, ?)
+ORDER BY
+  CASE status
+    WHEN 'RUNNING' THEN 0
+    WHEN 'QUEUED' THEN 1
+    ELSE 2
+  END,
+  created_at DESC,
+  id DESC
+LIMIT 1`,
+		strings.TrimSpace(targetType),
+		strings.TrimSpace(targetKey),
+		model.StrategyForecastL3StatusRunning,
+		model.StrategyForecastL3StatusQueued,
+		model.StrategyForecastL3StatusSucceeded,
+	)
+	return scanStrategyForecastL3Run(row)
+}
+
+func cloneStrategyForecastL3SummaryPtr(input *model.StrategyForecastL3Summary) *model.StrategyForecastL3Summary {
+	if input == nil {
+		return nil
+	}
+	copyItem := *input
+	return &copyItem
+}
+
+func cloneStrategyForecastL3ReportRefPtr(input *model.StrategyForecastL3ReportRef) *model.StrategyForecastL3ReportRef {
+	if input == nil {
+		return nil
+	}
+	copyItem := *input
+	return &copyItem
 }
 
 func mergeStrategyExplanation(base model.StrategyClientExplanation, live model.StrategyClientExplanation) model.StrategyClientExplanation {

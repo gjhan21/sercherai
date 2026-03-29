@@ -31,9 +31,9 @@ type StrategyExplanationRelationshipEdge struct {
 }
 
 type StrategyExplanationRelationshipSnapshot struct {
-	AssetKey          string                              `json:"asset_key"`
-	AssetType         string                              `json:"asset_type"`
-	RelationshipCount int                                 `json:"relationship_count"`
+	AssetKey          string                                `json:"asset_key"`
+	AssetType         string                                `json:"asset_type"`
+	RelationshipCount int                                   `json:"relationship_count"`
 	Nodes             []StrategyExplanationRelationshipNode `json:"nodes"`
 	Edges             []StrategyExplanationRelationshipEdge `json:"edges"`
 }
@@ -202,6 +202,8 @@ type StrategyClientExplanation struct {
 	EventEvidenceCards    []StrategyExplanationEvidenceCard        `json:"event_evidence_cards"`
 	MemoryFeedback        StrategyExplanationMemoryFeedback        `json:"memory_feedback"`
 	EvaluationMeta        map[string]any                           `json:"evaluation_meta"`
+	DeepForecastSummary   *StrategyForecastL3Summary               `json:"deep_forecast_summary,omitempty"`
+	DeepForecastReportRef *StrategyForecastL3ReportRef             `json:"deep_forecast_report_ref,omitempty"`
 	VersionDiff           StrategyVersionDiff                      `json:"version_diff,omitempty"`
 	WorkloadSummary       StrategyWorkloadSummary                  `json:"workload_summary"`
 	StrategyVersion       string                                   `json:"strategy_version"`
@@ -243,6 +245,8 @@ type StrategyVersionHistoryItem struct {
 	RiskFlags             []string                                 `json:"risk_flags"`
 	Invalidations         []string                                 `json:"invalidations"`
 	EvaluationMeta        map[string]any                           `json:"evaluation_meta"`
+	DeepForecastSummary   *StrategyForecastL3Summary               `json:"deep_forecast_summary,omitempty"`
+	DeepForecastReportRef *StrategyForecastL3ReportRef             `json:"deep_forecast_report_ref,omitempty"`
 	VersionDiff           StrategyVersionDiff                      `json:"version_diff,omitempty"`
 	GeneratedAt           string                                   `json:"generated_at"`
 }

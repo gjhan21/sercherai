@@ -13,22 +13,26 @@ import (
 )
 
 type InMemoryGrowthRepo struct {
-	mu                       sync.Mutex
-	marketRhythmTasks        map[string]model.MarketRhythmTask
-	marketBackfillRuns       map[string]model.MarketBackfillRun
-	marketBackfillRunDetails map[string][]model.MarketBackfillRunDetail
-	marketUniverseSnapshots  map[string]model.MarketUniverseSnapshot
-	marketUniverseItems      map[string][]model.MarketUniverseSnapshotItem
-	stockEventClusters map[string]model.StockEventCluster
+	mu                        sync.Mutex
+	marketRhythmTasks         map[string]model.MarketRhythmTask
+	marketBackfillRuns        map[string]model.MarketBackfillRun
+	marketBackfillRunDetails  map[string][]model.MarketBackfillRunDetail
+	marketUniverseSnapshots   map[string]model.MarketUniverseSnapshot
+	marketUniverseItems       map[string][]model.MarketUniverseSnapshotItem
+	forecastL3Runs            map[string]model.StrategyForecastL3Run
+	forecastL3Reports         map[string]model.StrategyForecastL3Report
+	forecastL3Logs            map[string][]model.StrategyForecastL3Log
+	forecastL3Learning        map[string][]model.StrategyForecastL3LearningRecord
+	stockEventClusters        map[string]model.StockEventCluster
 	futuresInstrumentProfiles map[string]model.FuturesInstrumentProfile
-	reviewTasks        map[string]model.ReviewTask
-	communityTopics   map[string]model.CommunityTopicDetail
-	communityComments map[string]model.CommunityComment
-	communityReports  map[string]model.CommunityReport
-	communityReacts   map[string]struct{}
-	userMessages      map[string][]model.UserMessage
-	adminAuditEvents  map[string]model.AdminAuditEvent
-	workflowMessages  map[string]model.WorkflowMessage
+	reviewTasks               map[string]model.ReviewTask
+	communityTopics           map[string]model.CommunityTopicDetail
+	communityComments         map[string]model.CommunityComment
+	communityReports          map[string]model.CommunityReport
+	communityReacts           map[string]struct{}
+	userMessages              map[string][]model.UserMessage
+	adminAuditEvents          map[string]model.AdminAuditEvent
+	workflowMessages          map[string]model.WorkflowMessage
 }
 
 func NewInMemoryGrowthRepo() *InMemoryGrowthRepo {
@@ -96,6 +100,10 @@ func NewInMemoryGrowthRepo() *InMemoryGrowthRepo {
 				{ID: "musi_demo_003", SnapshotID: snapshot.ID, AssetType: "INDEX", InstrumentKey: "000300.SH", ExternalSymbol: "000300.SH", DisplayName: "沪深300", ExchangeCode: "SH", Status: "ACTIVE", CreatedAt: now},
 			},
 		},
+		forecastL3Runs:            make(map[string]model.StrategyForecastL3Run),
+		forecastL3Reports:         make(map[string]model.StrategyForecastL3Report),
+		forecastL3Logs:            make(map[string][]model.StrategyForecastL3Log),
+		forecastL3Learning:        make(map[string][]model.StrategyForecastL3LearningRecord),
 		stockEventClusters:        make(map[string]model.StockEventCluster),
 		futuresInstrumentProfiles: make(map[string]model.FuturesInstrumentProfile),
 		reviewTasks:               make(map[string]model.ReviewTask),

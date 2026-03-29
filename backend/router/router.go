@@ -57,6 +57,8 @@ func Register(r *gin.Engine) {
 		startDocFastIncrementalSyncWorker(growthSvc)
 		startTushareNewsIncrementalSyncWorker(growthSvc)
 		startVIPMembershipLifecycleWorker(growthSvc)
+		startForecastL3DispatchWorker(growthSvc)
+		startForecastL3QualityWorker(growthSvc)
 	}
 
 	v1 := r.Group("/api/v1")
@@ -181,6 +183,14 @@ func Register(r *gin.Engine) {
 			stocks.GET("/recommendations/:id/performance", userGrowthHandler.GetStockRecommendationPerformance)
 			stocks.GET("/recommendations/:id/insight", userGrowthHandler.GetStockRecommendationInsight)
 			stocks.GET("/recommendations/:id/version-history", userGrowthHandler.GetStockRecommendationVersionHistory)
+		}
+
+		forecast := v1.Group("/forecast")
+		forecast.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("USER", "ADMIN"))
+		{
+			forecast.POST("/runs", userGrowthHandler.CreateForecastL3Run)
+			forecast.GET("/runs", userGrowthHandler.ListForecastL3Runs)
+			forecast.GET("/runs/:id", userGrowthHandler.GetForecastL3RunDetail)
 		}
 
 		news := v1.Group("/news")
@@ -336,6 +346,17 @@ func Register(r *gin.Engine) {
 			adminMarketData.GET("/universe-snapshots", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.ListMarketUniverseSnapshots)
 			adminMarketData.GET("/universe-snapshots/:id", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.GetMarketUniverseSnapshot)
 			adminMarketData.GET("/coverage-summary", middleware.PermissionRequired(db, "market.view"), adminGrowthHandler.GetMarketCoverageSummary)
+		}
+
+		adminForecast := v1.Group("/admin/forecast")
+		adminForecast.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("ADMIN"))
+		{
+			adminForecast.GET("/runs", middleware.PermissionRequired(db, "forecast_l3.view"), adminGrowthHandler.ListForecastL3Runs)
+			adminForecast.POST("/runs", middleware.PermissionRequired(db, "forecast_l3.edit"), adminGrowthHandler.CreateForecastL3Run)
+			adminForecast.GET("/runs/:id", middleware.PermissionRequired(db, "forecast_l3.view"), adminGrowthHandler.GetForecastL3RunDetail)
+			adminForecast.POST("/runs/:id/retry", middleware.PermissionRequired(db, "forecast_l3.edit"), adminGrowthHandler.RetryForecastL3Run)
+			adminForecast.POST("/runs/:id/cancel", middleware.PermissionRequired(db, "forecast_l3.edit"), adminGrowthHandler.CancelForecastL3Run)
+			adminForecast.GET("/quality", middleware.PermissionRequired(db, "forecast_l3.view"), adminGrowthHandler.ListForecastL3Quality)
 		}
 
 		adminStocks := v1.Group("/admin/stocks")
@@ -587,6 +608,10 @@ const (
 	vipLifecycleJobName                  = "vip_membership_lifecycle"
 	vipLifecycleDefaultMinutes           = 30
 	vipLifecycleMaxMinutes               = 24 * 60
+	forecastL3DispatchJobName            = "forecast_l3_dispatch_pending"
+	forecastL3DispatchDefaultMinutes     = 5
+	forecastL3QualityJobName             = "forecast_l3_quality_backfill"
+	forecastL3QualityDefaultMinutes      = 60
 )
 
 func startDocFastIncrementalSyncWorker(growthSvc service.GrowthService) {
@@ -719,6 +744,92 @@ func runVIPMembershipLifecycleJob(growthSvc service.GrowthService, triggerSource
 	log.Printf("[scheduler] job success(%s): %s", vipLifecycleJobName, strings.TrimSpace(summary))
 }
 
+func startForecastL3DispatchWorker(growthSvc service.GrowthService) {
+	go func() {
+		log.Printf("[scheduler] start forecast l3 dispatch worker")
+		for {
+			enabled, intervalMinutes := loadForecastL3DispatchWorkerConfig(growthSvc)
+			if enabled {
+				runForecastL3DispatchJob(growthSvc, "SYSTEM_TIMER")
+			}
+			if intervalMinutes <= 0 {
+				intervalMinutes = forecastL3DispatchDefaultMinutes
+			}
+			time.Sleep(time.Duration(intervalMinutes) * time.Minute)
+		}
+	}()
+}
+
+func runForecastL3DispatchJob(growthSvc service.GrowthService, triggerSource string) {
+	count, runErr := growthSvc.ExecuteQueuedStrategyForecastL3Runs(10, "system")
+	status := "SUCCESS"
+	errorMessage := ""
+	if runErr != nil {
+		status = "FAILED"
+		errorMessage = runErr.Error()
+	}
+	summary := "executed forecast l3 runs: " + strconv.Itoa(count)
+	_, logErr := growthSvc.AdminCreateSchedulerJobRun(
+		forecastL3DispatchJobName,
+		triggerSource,
+		status,
+		summary,
+		errorMessage,
+		"system",
+	)
+	if logErr != nil {
+		log.Printf("[scheduler] create job run failed(%s): %v", forecastL3DispatchJobName, logErr)
+	}
+	if runErr != nil {
+		log.Printf("[scheduler] job failed(%s): %v", forecastL3DispatchJobName, runErr)
+		return
+	}
+	log.Printf("[scheduler] job success(%s): %s", forecastL3DispatchJobName, summary)
+}
+
+func startForecastL3QualityWorker(growthSvc service.GrowthService) {
+	go func() {
+		log.Printf("[scheduler] start forecast l3 quality worker")
+		for {
+			enabled, intervalMinutes := loadForecastL3QualityWorkerConfig(growthSvc)
+			if enabled {
+				runForecastL3QualityJob(growthSvc, "SYSTEM_TIMER")
+			}
+			if intervalMinutes <= 0 {
+				intervalMinutes = forecastL3QualityDefaultMinutes
+			}
+			time.Sleep(time.Duration(intervalMinutes) * time.Minute)
+		}
+	}()
+}
+
+func runForecastL3QualityJob(growthSvc service.GrowthService, triggerSource string) {
+	count, runErr := growthSvc.RunStrategyForecastL3QualityBackfill(20, "system")
+	status := "SUCCESS"
+	errorMessage := ""
+	if runErr != nil {
+		status = "FAILED"
+		errorMessage = runErr.Error()
+	}
+	summary := "quality backfill forecast l3 records: " + strconv.Itoa(count)
+	_, logErr := growthSvc.AdminCreateSchedulerJobRun(
+		forecastL3QualityJobName,
+		triggerSource,
+		status,
+		summary,
+		errorMessage,
+		"system",
+	)
+	if logErr != nil {
+		log.Printf("[scheduler] create job run failed(%s): %v", forecastL3QualityJobName, logErr)
+	}
+	if runErr != nil {
+		log.Printf("[scheduler] job failed(%s): %v", forecastL3QualityJobName, runErr)
+		return
+	}
+	log.Printf("[scheduler] job success(%s): %s", forecastL3QualityJobName, summary)
+}
+
 func loadDocFastIncrementalWorkerConfig(growthSvc service.GrowthService) (bool, int) {
 	enabled := true
 	intervalMinutes := docFastIncrementalDefaultMinutes
@@ -742,6 +853,58 @@ func loadDocFastIncrementalWorkerConfig(growthSvc service.GrowthService) (bool, 
 	}
 	if intervalMinutes > docFastIncrementalMaxMinutes {
 		intervalMinutes = docFastIncrementalMaxMinutes
+	}
+	return enabled, intervalMinutes
+}
+
+func loadForecastL3DispatchWorkerConfig(growthSvc service.GrowthService) (bool, int) {
+	enabled := false
+	intervalMinutes := forecastL3DispatchDefaultMinutes
+
+	items, _, err := growthSvc.AdminListSystemConfigs("growth.forecast_l3.", 1, 200)
+	if err != nil {
+		return enabled, intervalMinutes
+	}
+	for _, item := range items {
+		key := strings.ToLower(strings.TrimSpace(item.ConfigKey))
+		value := strings.TrimSpace(item.ConfigValue)
+		switch key {
+		case "growth.forecast_l3.enabled":
+			enabled = parseRouterBoolConfig(value, enabled)
+		case "growth.forecast_l3.dispatch.enabled":
+			enabled = parseRouterBoolConfig(value, enabled)
+		case "growth.forecast_l3.dispatch.interval_minutes":
+			intervalMinutes = parseRouterIntConfig(value, intervalMinutes)
+		}
+	}
+	if intervalMinutes <= 0 {
+		intervalMinutes = forecastL3DispatchDefaultMinutes
+	}
+	return enabled, intervalMinutes
+}
+
+func loadForecastL3QualityWorkerConfig(growthSvc service.GrowthService) (bool, int) {
+	enabled := false
+	intervalMinutes := forecastL3QualityDefaultMinutes
+
+	items, _, err := growthSvc.AdminListSystemConfigs("growth.forecast_l3.", 1, 200)
+	if err != nil {
+		return enabled, intervalMinutes
+	}
+	for _, item := range items {
+		key := strings.ToLower(strings.TrimSpace(item.ConfigKey))
+		value := strings.TrimSpace(item.ConfigValue)
+		switch key {
+		case "growth.forecast_l3.enabled":
+			enabled = parseRouterBoolConfig(value, enabled)
+		case "growth.forecast_l3.quality.enabled":
+			enabled = parseRouterBoolConfig(value, enabled)
+		case "growth.forecast_l3.quality.interval_minutes":
+			intervalMinutes = parseRouterIntConfig(value, intervalMinutes)
+		}
+	}
+	if intervalMinutes <= 0 {
+		intervalMinutes = forecastL3QualityDefaultMinutes
 	}
 	return enabled, intervalMinutes
 }

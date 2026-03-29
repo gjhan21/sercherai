@@ -68,6 +68,22 @@
             <button class="primary-btn finance-primary-btn" type="button" :disabled="stockDetailLoading || !activeStockView" @click="refreshActiveStockDetail">
               {{ stockDetailLoading ? "同步中..." : "刷新详情" }}
             </button>
+            <button
+              class="ghost-btn finance-ghost-btn"
+              type="button"
+              :disabled="forecastActionLoading || !activeStockView"
+              @click="requestActiveStockDeepForecast"
+            >
+              {{ forecastActionLoading ? "提交中..." : "发起深推演" }}
+            </button>
+            <button
+              class="ghost-btn finance-ghost-btn"
+              type="button"
+              :disabled="!activeStockDeepForecast?.runID"
+              @click="openForecastRun(activeStockDeepForecast?.runID)"
+            >
+              查看深推演
+            </button>
             <button class="ghost-btn finance-ghost-btn" type="button" :disabled="!activeStockView" @click="openStrategyCommunity">
               看股票讨论
             </button>
@@ -225,6 +241,9 @@
                 <p>{{ item.title }}</p>
                 <strong>{{ item.version }}</strong>
                 <span>{{ item.note }}</span>
+                <em v-if="item.deepForecast" class="strategy-history-forecast-tag">
+                  深推演 {{ item.deepForecast.statusLabel }}
+                </em>
               </button>
             </div>
             <div v-if="activeStockHistoryCompare?.diff" class="strategy-version-box compact finance-card-pale">
@@ -252,6 +271,57 @@
               </div>
             </div>
           </div>
+
+          <section class="strategy-explanation-box finance-card-pale">
+            <div class="stock-news-head">
+              <p>深推演</p>
+              <span>{{ activeStockDeepForecast?.statusLabel || "当前无 L3" }}</span>
+            </div>
+            <p class="explanation-summary">
+              {{ activeStockDeepForecast?.summary || "当前还没有这条股票推荐的深推演结果，先按 L2 理由链继续阅读。" }}
+            </p>
+            <div class="reason-support-grid">
+              <article class="finance-list-card finance-list-card-panel">
+                <p>主情景</p>
+                <strong>{{ activeStockDeepForecast?.scenario || "-" }}</strong>
+                <span>{{ activeStockDeepForecast?.actionGuidance || "等待更多动作建议。" }}</span>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>报告状态</p>
+                <strong>{{ activeStockDeepForecast?.reportAvailable ? "已有报告" : "等待生成" }}</strong>
+                <span>
+                  {{
+                    activeStockDeepForecast?.generatedAt
+                      ? `生成 ${formatDateTime(activeStockDeepForecast.generatedAt)}`
+                      : "当前未返回更多生成时间。"
+                  }}
+                </span>
+              </article>
+              <article class="finance-list-card finance-list-card-panel">
+                <p>查看动作</p>
+                <strong>{{ activeStockDeepForecast?.runID ? "可打开详情页" : "可先发起请求" }}</strong>
+                <span>{{ activeStockDeepForecast?.note || "L3 只作为增强层，不替代当前推荐主链。" }}</span>
+              </article>
+            </div>
+            <div class="focus-link-row">
+              <button
+                type="button"
+                class="ghost-btn finance-ghost-btn"
+                :disabled="forecastActionLoading || !activeStockView"
+                @click="requestActiveStockDeepForecast"
+              >
+                {{ forecastActionLoading ? "提交中..." : "发起深推演" }}
+              </button>
+              <button
+                type="button"
+                class="ghost-btn finance-ghost-btn"
+                :disabled="!activeStockDeepForecast?.runID"
+                @click="openForecastRun(activeStockDeepForecast?.runID)"
+              >
+                查看深推演
+              </button>
+            </div>
+          </section>
 
           <div v-if="activeStockExplanation" class="strategy-explanation-stack">
             <section class="strategy-explanation-box finance-card-pale">
@@ -492,6 +562,22 @@
               <button type="button" class="ghost-btn finance-ghost-btn" :disabled="futuresInsightLoading" @click="refreshActiveFuturesInsight">
                 {{ futuresInsightLoading ? "同步中..." : "刷新期货详情" }}
               </button>
+              <button
+                type="button"
+                class="ghost-btn finance-ghost-btn"
+                :disabled="forecastActionLoading || !activeFuturesView"
+                @click="requestActiveFuturesDeepForecast"
+              >
+                {{ forecastActionLoading ? "提交中..." : "发起深推演" }}
+              </button>
+              <button
+                type="button"
+                class="ghost-btn finance-ghost-btn"
+                :disabled="!activeFuturesDeepForecast?.runID"
+                @click="openForecastRun(activeFuturesDeepForecast?.runID)"
+              >
+                查看深推演
+              </button>
               <button type="button" class="ghost-btn finance-ghost-btn" :disabled="!activeFuturesView" @click="openFuturesCommunity">
                 看期货讨论
               </button>
@@ -499,6 +585,17 @@
                 围绕当前期货发观点
               </button>
               <button type="button" class="ghost-btn finance-ghost-btn" @click="openActiveFuturesDetailDialog">完整查看</button>
+            </div>
+            <div class="tracking-status-box finance-card-surface">
+              <div class="tracking-status-head">
+                <p>期货深推演</p>
+                <span class="status tracking-badge finance-pill" :class="activeFuturesDeepForecast?.tone || 'muted'">
+                  {{ activeFuturesDeepForecast?.statusLabel || "当前无 L3" }}
+                </span>
+              </div>
+              <p class="tracking-status-summary">
+                {{ activeFuturesDeepForecast?.summary || "当前还没有这条期货策略的深推演结果，先按当前 guidance 和 L2 解释阅读。" }}
+              </p>
             </div>
           </div>
           <StatePanel
@@ -1452,6 +1549,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import StatePanel from "../components/StatePanel.vue";
+import { createForecastRun } from "../api/forecast";
 import {
   getFuturesStrategyInsight,
   getFuturesStrategyVersionHistory,
@@ -1476,6 +1574,7 @@ import {
 import { getExperimentVariant } from "../lib/growth-experiments";
 import { shouldUseDemoFallback } from "../lib/fallback-policy";
 import {
+  buildStrategyDeepForecastSummary,
   buildFallbackStrategyVersionHistory,
   buildStrategyAgentOpinionRows,
   buildStrategyConfidenceCalibrationSummary,
@@ -1516,6 +1615,7 @@ const errorMessage = ref("");
 const lastUpdatedAt = ref("");
 const memberStageLoading = ref(false);
 const isVIPUser = ref(false);
+const forecastActionLoading = ref(false);
 
 const useDemoFallback = shouldUseDemoFallback();
 
@@ -2055,6 +2155,7 @@ const activeStockRelationshipSummary = computed(() => buildStrategyRelationshipS
 const activeStockAgentOpinions = computed(() => buildStrategyAgentOpinionRows(activeStockExplanation.value));
 const activeStockRiskCards = computed(() => buildStrategyRiskCards(activeStockExplanation.value));
 const activeStockOriginCards = computed(() => buildStrategyOriginCards(activeStockExplanation.value, formatDateTime));
+const activeStockDeepForecast = computed(() => buildStrategyDeepForecastSummary(activeStockExplanation.value));
 const activeStockVersionHistoryItems = computed(() => {
   const stockID = activeStockView.value?.id;
   const items = stockID ? stockVersionHistoryMap.value[stockID] : [];
@@ -2263,6 +2364,7 @@ const activeFuturesRelationshipSummary = computed(() => buildStrategyRelationshi
 const activeFuturesAgentOpinions = computed(() => buildStrategyAgentOpinionRows(activeFuturesExplanation.value));
 const activeFuturesRiskCards = computed(() => buildStrategyRiskCards(activeFuturesExplanation.value));
 const activeFuturesOriginCards = computed(() => buildStrategyOriginCards(activeFuturesExplanation.value, formatDateTime));
+const activeFuturesDeepForecast = computed(() => buildStrategyDeepForecastSummary(activeFuturesExplanation.value));
 const activeFuturesVersionHistoryItems = computed(() => {
   const strategyID = activeFuturesView.value?.id;
   const items = strategyID ? futuresVersionHistoryMap.value[strategyID] : [];
@@ -3858,6 +3960,85 @@ function goStrategyNews() {
   navigateWithStrategyTracking("/news", "focus_news", {
     ctaLabel: "去资讯页"
   });
+}
+
+function redirectToForecastAuth() {
+  router.push({
+    path: "/auth",
+    query: { redirect: route.fullPath || "/strategies" }
+  });
+}
+
+function openForecastRun(runID) {
+  const id = String(runID || "").trim();
+  if (!id) {
+    return;
+  }
+  router.push({
+    name: "forecast-run",
+    params: { id },
+    query: { from: route.fullPath || "/strategies" }
+  });
+}
+
+async function requestActiveStockDeepForecast() {
+  if (!activeStockBase.value?.id || !activeStockBase.value?.symbol) {
+    return;
+  }
+  if (!isLoggedIn.value) {
+    redirectToForecastAuth();
+    return;
+  }
+  forecastActionLoading.value = true;
+  stockDetailErrorMessage.value = "";
+  try {
+    const run = await createForecastRun({
+      target_type: "STOCK",
+      target_id: activeStockBase.value.id,
+      target_key: activeStockBase.value.symbol,
+      target_label: activeStockBase.value.name || activeStockBase.value.symbol,
+      trigger_type: "USER_REQUEST",
+      priority_score: 0.8,
+      reason: activeStockBase.value.reason_summary || activeStockInsightSections.value.whyNow || ""
+    });
+    if (run?.id) {
+      openForecastRun(run.id);
+    }
+  } catch (error) {
+    stockDetailErrorMessage.value = parseErrorMessage(error);
+  } finally {
+    forecastActionLoading.value = false;
+  }
+}
+
+async function requestActiveFuturesDeepForecast() {
+  if (!activeFuturesBase.value?.id || !activeFuturesBase.value?.contract) {
+    return;
+  }
+  if (!isLoggedIn.value) {
+    redirectToForecastAuth();
+    return;
+  }
+  forecastActionLoading.value = true;
+  futuresInsightErrorMessage.value = "";
+  try {
+    const run = await createForecastRun({
+      target_type: "FUTURES",
+      target_id: activeFuturesBase.value.id,
+      target_key: activeFuturesBase.value.contract,
+      target_label: activeFuturesBase.value.name || activeFuturesBase.value.contract,
+      trigger_type: "USER_REQUEST",
+      priority_score: 0.8,
+      reason: activeFuturesBase.value.reason_summary || activeFuturesInsightSections.value.whyNow || ""
+    });
+    if (run?.id) {
+      openForecastRun(run.id);
+    }
+  } catch (error) {
+    futuresInsightErrorMessage.value = parseErrorMessage(error);
+  } finally {
+    forecastActionLoading.value = false;
+  }
 }
 
 function focusStock(id) {

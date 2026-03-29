@@ -120,7 +120,22 @@ const forecastForm = reactive({
   l2Enabled: true,
   relationshipSnapshotEnabled: true,
   stableScenariosEnabled: true,
-  vetoConfidenceThreshold: 0.35
+  vetoConfidenceThreshold: 0.35,
+  l3Enabled: false,
+  l3AdminManualEnabled: true,
+  l3UserRequestEnabled: false,
+  l3AutoPriorityEnabled: false,
+  l3ClientReadEnabled: true,
+  l3RequireVipForFullReport: true,
+  l3MaxActiveRuns: 2,
+  l3MaxRunsPerDay: 24,
+  l3MaxUserRunsPerDay: 1,
+  l3MinPriorityThreshold: 0.7,
+  l3DispatchEnabled: true,
+  l3DispatchIntervalMinutes: 5,
+  l3QualityEnabled: true,
+  l3QualityIntervalMinutes: 60,
+  l3DefaultEngineKey: "LOCAL_SYNTHESIS"
 });
 const canEditSystemConfigs = hasPermission("system_config.edit");
 
@@ -1144,7 +1159,7 @@ onMounted(refreshAll);
       <el-tab-pane label="预测增强配置" name="forecast-l1">
         <div class="card" v-loading="forecastLoading">
           <div class="section-head">
-            <div class="section-title">股票/期货预测增强 L1</div>
+            <div class="section-title">股票/期货预测增强配置</div>
             <div class="toolbar" style="margin-bottom: 0">
               <el-button :loading="forecastLoading" @click="fetchForecastConfig">刷新</el-button>
               <el-button
@@ -1174,7 +1189,16 @@ onMounted(refreshAll);
             style="margin-bottom: 12px"
           />
 
+          <el-alert
+            title="L3 深推演只做异步增强：排队、编排、报告和学习回写都独立运行，没有结果时客户端与后台继续回退到 L2。"
+            type="success"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 12px"
+          />
+
           <el-form label-width="170px">
+            <div class="section-title" style="margin-bottom: 12px">L1 / L2 展示增强</div>
             <div class="form-grid">
               <el-form-item label="全局启用">
                 <el-switch v-model="forecastForm.enabled" />
@@ -1221,6 +1245,96 @@ onMounted(refreshAll);
                 />
               </el-form-item>
             </div>
+
+            <div class="section-title" style="margin: 18px 0 12px">L3 深推演运行开关</div>
+            <div class="form-grid">
+              <el-form-item label="L3 全局启用">
+                <el-switch v-model="forecastForm.l3Enabled" />
+              </el-form-item>
+              <el-form-item label="管理员手动触发">
+                <el-switch v-model="forecastForm.l3AdminManualEnabled" />
+              </el-form-item>
+              <el-form-item label="用户主动请求">
+                <el-switch v-model="forecastForm.l3UserRequestEnabled" />
+              </el-form-item>
+              <el-form-item label="自动优先样本">
+                <el-switch v-model="forecastForm.l3AutoPriorityEnabled" />
+              </el-form-item>
+              <el-form-item label="客户端读链摘要">
+                <el-switch v-model="forecastForm.l3ClientReadEnabled" />
+              </el-form-item>
+              <el-form-item label="完整报告需 VIP">
+                <el-switch v-model="forecastForm.l3RequireVipForFullReport" />
+              </el-form-item>
+              <el-form-item label="最大并发任务">
+                <el-input-number
+                  v-model="forecastForm.l3MaxActiveRuns"
+                  :min="1"
+                  :max="50"
+                  :step="1"
+                  controls-position="right"
+                />
+              </el-form-item>
+              <el-form-item label="每日总任务上限">
+                <el-input-number
+                  v-model="forecastForm.l3MaxRunsPerDay"
+                  :min="1"
+                  :max="500"
+                  :step="1"
+                  controls-position="right"
+                />
+              </el-form-item>
+              <el-form-item label="每用户每日上限">
+                <el-input-number
+                  v-model="forecastForm.l3MaxUserRunsPerDay"
+                  :min="1"
+                  :max="20"
+                  :step="1"
+                  controls-position="right"
+                />
+              </el-form-item>
+              <el-form-item label="最小 priority 阈值">
+                <el-input-number
+                  v-model="forecastForm.l3MinPriorityThreshold"
+                  :min="0.1"
+                  :max="0.99"
+                  :step="0.01"
+                  :precision="2"
+                  controls-position="right"
+                />
+              </el-form-item>
+            </div>
+
+            <div class="section-title" style="margin: 18px 0 12px">Worker 与引擎</div>
+            <div class="form-grid">
+              <el-form-item label="Dispatch Worker">
+                <el-switch v-model="forecastForm.l3DispatchEnabled" />
+              </el-form-item>
+              <el-form-item label="Dispatch 间隔(分钟)">
+                <el-input-number
+                  v-model="forecastForm.l3DispatchIntervalMinutes"
+                  :min="1"
+                  :max="240"
+                  :step="1"
+                  controls-position="right"
+                />
+              </el-form-item>
+              <el-form-item label="Quality Worker">
+                <el-switch v-model="forecastForm.l3QualityEnabled" />
+              </el-form-item>
+              <el-form-item label="Quality 间隔(分钟)">
+                <el-input-number
+                  v-model="forecastForm.l3QualityIntervalMinutes"
+                  :min="5"
+                  :max="1440"
+                  :step="5"
+                  controls-position="right"
+                />
+              </el-form-item>
+              <el-form-item label="默认引擎键">
+                <el-input v-model="forecastForm.l3DefaultEngineKey" placeholder="LOCAL_SYNTHESIS" />
+              </el-form-item>
+            </div>
           </el-form>
 
           <el-descriptions :column="1" border size="small">
@@ -1232,6 +1346,22 @@ onMounted(refreshAll);
             <el-descriptions-item label="关系快照键">growth.forecast_l2.relationship_snapshot_enabled</el-descriptions-item>
             <el-descriptions-item label="三情景键">growth.forecast_l2.stable_scenarios_enabled</el-descriptions-item>
             <el-descriptions-item label="Veto 阈值键">growth.forecast_l2.veto_confidence_threshold</el-descriptions-item>
+            <el-descriptions-item label="L3 开关键">growth.forecast_l3.enabled</el-descriptions-item>
+            <el-descriptions-item label="管理员触发键">growth.forecast_l3.admin_manual_enabled</el-descriptions-item>
+            <el-descriptions-item label="用户请求键">growth.forecast_l3.user_request_enabled</el-descriptions-item>
+            <el-descriptions-item label="自动排队键">growth.forecast_l3.auto_priority_enabled</el-descriptions-item>
+            <el-descriptions-item label="客户端读链键">growth.forecast_l3.client_read_enabled</el-descriptions-item>
+            <el-descriptions-item label="VIP 报告权限键">growth.forecast_l3.require_vip_for_full_report</el-descriptions-item>
+            <el-descriptions-item label="并发上限键">growth.forecast_l3.max_active_runs</el-descriptions-item>
+            <el-descriptions-item label="每日总量键">growth.forecast_l3.max_runs_per_day</el-descriptions-item>
+            <el-descriptions-item label="单用户上限键">growth.forecast_l3.max_user_runs_per_day</el-descriptions-item>
+            <el-descriptions-item label="priority 阈值键">growth.forecast_l3.min_priority_threshold</el-descriptions-item>
+            <el-descriptions-item label="Dispatch 开关键">growth.forecast_l3.dispatch.enabled</el-descriptions-item>
+            <el-descriptions-item label="Dispatch 间隔键">growth.forecast_l3.dispatch.interval_minutes</el-descriptions-item>
+            <el-descriptions-item label="Quality 开关键">growth.forecast_l3.quality.enabled</el-descriptions-item>
+            <el-descriptions-item label="Quality 间隔键">growth.forecast_l3.quality.interval_minutes</el-descriptions-item>
+            <el-descriptions-item label="默认引擎键">growth.forecast_l3.default_engine_key</el-descriptions-item>
+            <el-descriptions-item label="默认引擎值">LOCAL_SYNTHESIS</el-descriptions-item>
           </el-descriptions>
         </div>
       </el-tab-pane>

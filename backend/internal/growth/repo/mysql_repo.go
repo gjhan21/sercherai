@@ -4224,12 +4224,13 @@ WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT'
 		return nil, detailErr
 	}
 	explanation := r.buildStockStrategyExplanation(item, detail)
+	l3Config := r.loadForecastL3RuntimeConfig()
 	contexts, err := r.listStrategyEngineAssetContexts("stock-selection", item.Symbol, defaultVersionHistoryLimit)
 	if err != nil {
 		return nil, err
 	}
 	if len(contexts) == 0 {
-		return []model.StrategyVersionHistoryItem{
+		items := []model.StrategyVersionHistoryItem{
 			buildFallbackVersionHistoryItem(
 				explanation.PublishID,
 				explanation.JobID,
@@ -4240,7 +4241,11 @@ WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT'
 				item.ReasonSummary,
 				explanation,
 			),
-		}, nil
+		}
+		if l3Config.ClientReadEnabled {
+			r.attachLatestStrategyForecastL3ToHistoryItems(items, model.StrategyForecastL3TargetTypeStock, item.Symbol)
+		}
+		return items, nil
 	}
 
 	items := make([]model.StrategyVersionHistoryItem, 0, len(contexts))
@@ -4268,6 +4273,9 @@ WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT'
 	}
 	applyStrategyVersionDiffToHistoryItems(items, contexts, item.Symbol)
 	applyStrategyL1HistoryToHistoryItems(items, contexts, item.Symbol)
+	if l3Config.ClientReadEnabled {
+		r.attachLatestStrategyForecastL3ToHistoryItems(items, model.StrategyForecastL3TargetTypeStock, item.Symbol)
+	}
 	return items, nil
 }
 
@@ -4788,12 +4796,13 @@ func (r *MySQLGrowthRepo) GetFuturesStrategyVersionHistory(userID string, strate
 	}
 	guidance, _ := r.getLatestFuturesGuidanceByContract(strategy.Contract)
 	explanation := r.buildFuturesStrategyExplanation(strategy, guidance)
+	l3Config := r.loadForecastL3RuntimeConfig()
 	contexts, err := r.listStrategyEngineAssetContexts("futures-strategy", strategy.Contract, defaultVersionHistoryLimit)
 	if err != nil {
 		return nil, err
 	}
 	if len(contexts) == 0 {
-		return []model.StrategyVersionHistoryItem{
+		items := []model.StrategyVersionHistoryItem{
 			buildFallbackVersionHistoryItem(
 				explanation.PublishID,
 				explanation.JobID,
@@ -4804,7 +4813,11 @@ func (r *MySQLGrowthRepo) GetFuturesStrategyVersionHistory(userID string, strate
 				strategy.ReasonSummary,
 				explanation,
 			),
-		}, nil
+		}
+		if l3Config.ClientReadEnabled {
+			r.attachLatestStrategyForecastL3ToHistoryItems(items, model.StrategyForecastL3TargetTypeFutures, strategy.Contract)
+		}
+		return items, nil
 	}
 
 	items := make([]model.StrategyVersionHistoryItem, 0, len(contexts))
@@ -4829,6 +4842,9 @@ func (r *MySQLGrowthRepo) GetFuturesStrategyVersionHistory(userID string, strate
 	}
 	applyStrategyVersionDiffToHistoryItems(items, contexts, strategy.Contract)
 	applyStrategyL1HistoryToHistoryItems(items, contexts, strategy.Contract)
+	if l3Config.ClientReadEnabled {
+		r.attachLatestStrategyForecastL3ToHistoryItems(items, model.StrategyForecastL3TargetTypeFutures, strategy.Contract)
+	}
 	return items, nil
 }
 

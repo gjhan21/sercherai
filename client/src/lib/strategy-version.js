@@ -596,6 +596,76 @@ export function buildStrategyOriginCards(source, formatDateTime) {
   return cards.slice(0, 3);
 }
 
+function formatDeepForecastStatusLabel(status) {
+  return (
+    {
+      QUEUED: "排队中",
+      RUNNING: "推演中",
+      SUCCEEDED: "已完成",
+      FAILED: "已失败",
+      CANCELLED: "已取消"
+    }[toText(status).toUpperCase()] || "L3 状态"
+  );
+}
+
+function formatDeepForecastStatusTone(status) {
+  return (
+    {
+      QUEUED: "queued",
+      RUNNING: "running",
+      SUCCEEDED: "success",
+      FAILED: "failed",
+      CANCELLED: "muted"
+    }[toText(status).toUpperCase()] || "muted"
+  );
+}
+
+export function buildStrategyDeepForecastSummary(source) {
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+  const summary = source.deep_forecast_summary || source.summary;
+  const reportRef = source.deep_forecast_report_ref || source.report_ref;
+  if ((!summary || typeof summary !== "object") && (!reportRef || typeof reportRef !== "object")) {
+    return null;
+  }
+
+  const runID = toText(summary?.run_id || summary?.runID || reportRef?.run_id || reportRef?.runID);
+  const reportID = toText(reportRef?.report_id || reportRef?.reportID);
+  const status = toText(summary?.status || reportRef?.status).toUpperCase();
+  const scenario = toText(summary?.primary_scenario || summary?.primaryScenario);
+  const actionGuidance = toText(summary?.action_guidance || summary?.actionGuidance);
+  const executiveSummary = toText(summary?.executive_summary || summary?.executiveSummary);
+  const generatedAt = toText(summary?.generated_at || summary?.generatedAt || reportRef?.generated_at || reportRef?.generatedAt);
+  const targetLabel = toText(summary?.target_label || summary?.targetLabel);
+  const reportAvailable = Boolean(summary?.report_available ?? summary?.reportAvailable ?? reportID);
+  const requiresVIP = reportRef?.requires_vip === true || reportRef?.requiresVIP === true;
+  const fullReadable = reportRef?.full_readable === true || reportRef?.fullReadable === true;
+
+  return {
+    runID,
+    reportID,
+    status,
+    statusLabel: formatDeepForecastStatusLabel(status),
+    tone: formatDeepForecastStatusTone(status),
+    summary:
+      executiveSummary ||
+      firstMeaningfulStrategyText([
+        scenario ? `主情景 ${scenario}` : "",
+        actionGuidance
+      ]) ||
+      "当前未补更多深推演摘要。",
+    scenario,
+    actionGuidance,
+    generatedAt,
+    targetLabel,
+    reportAvailable,
+    requiresVIP,
+    fullReadable,
+    note: [scenario ? `主情景 ${scenario}` : "", actionGuidance].filter(Boolean).join(" · ")
+  };
+}
+
 export function mapStrategyVersionHistory(items, formatDateTime, options = {}) {
   if (!Array.isArray(items)) {
     return [];
@@ -620,6 +690,7 @@ export function mapStrategyVersionHistory(items, formatDateTime, options = {}) {
         publishVersion: Number(item?.publish_version || 0),
         tradeDate: item?.trade_date || "",
         versionDiff: normalizeStrategyVersionDiff(item?.version_diff),
+        deepForecast: buildStrategyDeepForecastSummary(item),
         note: [
           item?.confidence_reason || item?.reason_summary || "当前版本未补更多摘要。",
           formatStrategyMarketRegime(item?.market_regime),
@@ -654,6 +725,8 @@ export function buildFallbackStrategyVersionHistory(explanation, options = {}) {
         risk_boundary: explanation.risk_boundary,
         theme_tags: explanation.theme_tags,
         sector_tags: explanation.sector_tags,
+        deep_forecast_summary: explanation.deep_forecast_summary,
+        deep_forecast_report_ref: explanation.deep_forecast_report_ref,
         risk_flags: explanation.risk_flags,
         invalidations: explanation.invalidations,
         evaluation_meta: explanation.evaluation_meta

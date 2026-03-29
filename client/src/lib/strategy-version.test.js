@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildStrategyDeepForecastSummary,
   buildStrategyResearchOutlineRows,
   buildStrategyThesisCardRows,
   buildStrategyWatchSignalRows,
@@ -8,7 +9,8 @@ import {
   buildStrategyScenarioSnapshotRows,
   buildStrategyAgentOpinionRows,
   buildStrategyScenarioMetaSummary,
-  buildStrategyRelationshipSnapshotSummary
+  buildStrategyRelationshipSnapshotSummary,
+  mapStrategyVersionHistory
 } from "./strategy-version.js";
 
 test("buildStrategyConfidenceCalibrationSummary returns advisory label", () => {
@@ -66,4 +68,51 @@ test("l2 helpers build scenario and veto summaries", () => {
     }).summary,
     "关系节点 3 个"
   );
+});
+
+test("buildStrategyDeepForecastSummary normalizes deep forecast fields", () => {
+  const result = buildStrategyDeepForecastSummary({
+    deep_forecast_summary: {
+      run_id: "l3run_demo_001",
+      status: "SUCCEEDED",
+      executive_summary: "深推演确认主情景仍然有效。",
+      primary_scenario: "bull",
+      action_guidance: "沿确认信号执行",
+      generated_at: "2026-03-29T12:30:00Z",
+      report_available: true
+    },
+    deep_forecast_report_ref: {
+      run_id: "l3run_demo_001",
+      report_id: "l3report_demo_001",
+      requires_vip: true,
+      full_readable: false
+    }
+  });
+
+  assert.equal(result.runID, "l3run_demo_001");
+  assert.equal(result.statusLabel, "已完成");
+  assert.match(result.summary, /主情景/);
+  assert.equal(result.reportID, "l3report_demo_001");
+});
+
+test("mapStrategyVersionHistory carries deep forecast summary", () => {
+  const result = mapStrategyVersionHistory([
+    {
+      publish_id: "publish_001",
+      publish_version: 3,
+      strategy_version: "stock-v3",
+      reason_summary: "版本理由",
+      deep_forecast_summary: {
+        run_id: "l3run_history_001",
+        status: "RUNNING",
+        executive_summary: "深推演仍在运行。",
+        primary_scenario: "base",
+        action_guidance: "等待更多确认",
+        generated_at: "2026-03-29T13:00:00Z"
+      }
+    }
+  ]);
+
+  assert.equal(result[0].deepForecast.runID, "l3run_history_001");
+  assert.equal(result[0].deepForecast.statusLabel, "推演中");
 });

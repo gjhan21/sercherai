@@ -27,6 +27,7 @@ const WorkflowMessagesView = () => import("../views/WorkflowMessagesView.vue");
 const AuditLogsView = () => import("../views/AuditLogsView.vue");
 const MembershipCenterView = () => import("../views/MembershipCenterView.vue");
 const MarketCenterView = () => import("../views/MarketCenterView.vue");
+const ForecastLabView = () => import("../views/ForecastLabView.vue");
 const ExperimentAnalyticsView = () => import("../views/ExperimentAnalyticsView.vue");
 const StockSelectionOverviewView = () => import("../views/stock-selection/StockSelectionOverviewView.vue");
 const StockSelectionRunsView = () => import("../views/stock-selection/StockSelectionRunsView.vue");
@@ -176,6 +177,12 @@ const routes = [
         name: "market-center",
         component: MarketCenterView,
         meta: { permission: "market.view" }
+      },
+      {
+        path: "forecast-lab",
+        name: "forecast-lab",
+        component: ForecastLabView,
+        meta: { permission: "forecast_l3.view" }
       },
       {
         path: "experiment-analytics",

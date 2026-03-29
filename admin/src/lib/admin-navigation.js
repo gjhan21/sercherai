@@ -11,6 +11,7 @@ export const adminNavigationItems = [
   { name: "news", label: "新闻管理", to: "/news", permission: "news.view" },
   { name: "community", label: "社区审核", to: "/community", permission: "community.view" },
   { name: "market-center", label: "策略中心", to: "/market-center", permission: "market.view" },
+  { name: "forecast-lab", label: "深推演实验室", to: "/forecast-lab", permission: "forecast_l3.view" },
   { name: "stock-selection", label: "智能选股", to: "/stock-selection/overview", permission: "stock_selection.view" },
   { name: "futures-selection", label: "智能期货", to: "/futures-selection/overview", permission: "futures_selection.view" },
   { name: "data-sources", label: "数据源管理", to: "/data-sources/governance", permission: "data_source.view" },

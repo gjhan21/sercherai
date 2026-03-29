@@ -30,6 +30,42 @@ test("parseForecastAdminConfigMap reads switches and thresholds from config map"
   assert.equal(config.vetoConfidenceThreshold, 0.31);
 });
 
+test("parseForecastAdminConfigMap also reads L3 runtime switches and limits", () => {
+  const config = parseForecastAdminConfigMap({
+    "growth.forecast_l3.enabled": "true",
+    "growth.forecast_l3.admin_manual_enabled": "true",
+    "growth.forecast_l3.user_request_enabled": "false",
+    "growth.forecast_l3.auto_priority_enabled": "true",
+    "growth.forecast_l3.client_read_enabled": "true",
+    "growth.forecast_l3.require_vip_for_full_report": "false",
+    "growth.forecast_l3.max_active_runs": "6",
+    "growth.forecast_l3.max_runs_per_day": "40",
+    "growth.forecast_l3.max_user_runs_per_day": "3",
+    "growth.forecast_l3.min_priority_threshold": "0.74",
+    "growth.forecast_l3.dispatch.enabled": "true",
+    "growth.forecast_l3.dispatch.interval_minutes": "8",
+    "growth.forecast_l3.quality.enabled": "true",
+    "growth.forecast_l3.quality.interval_minutes": "45",
+    "growth.forecast_l3.default_engine_key": "LOCAL_SYNTHESIS"
+  });
+
+  assert.equal(config.l3Enabled, true);
+  assert.equal(config.l3AdminManualEnabled, true);
+  assert.equal(config.l3UserRequestEnabled, false);
+  assert.equal(config.l3AutoPriorityEnabled, true);
+  assert.equal(config.l3ClientReadEnabled, true);
+  assert.equal(config.l3RequireVipForFullReport, false);
+  assert.equal(config.l3MaxActiveRuns, 6);
+  assert.equal(config.l3MaxRunsPerDay, 40);
+  assert.equal(config.l3MaxUserRunsPerDay, 3);
+  assert.equal(config.l3MinPriorityThreshold, 0.74);
+  assert.equal(config.l3DispatchEnabled, true);
+  assert.equal(config.l3DispatchIntervalMinutes, 8);
+  assert.equal(config.l3QualityEnabled, true);
+  assert.equal(config.l3QualityIntervalMinutes, 45);
+  assert.equal(config.l3DefaultEngineKey, "LOCAL_SYNTHESIS");
+});
+
 test("buildForecastAdminConfigPayloads emits stable system config keys", () => {
   const payloads = buildForecastAdminConfigPayloads({
     enabled: true,
@@ -43,7 +79,7 @@ test("buildForecastAdminConfigPayloads emits stable system config keys", () => {
   });
 
   assert.deepEqual(
-    payloads.map((item) => item.config_key),
+    payloads.slice(0, 8).map((item) => item.config_key),
     [
       "growth.forecast_l1.enabled",
       "growth.forecast_l1.explanation_enabled",
@@ -58,6 +94,61 @@ test("buildForecastAdminConfigPayloads emits stable system config keys", () => {
   assert.equal(payloads[2].config_value, "7");
   assert.equal(payloads[3].config_value, "0.61");
   assert.equal(payloads[7].config_value, "0.28");
+  assert.equal(payloads.length, 23);
+});
+
+test("buildForecastAdminConfigPayloads emits stable L3 runtime config keys", () => {
+  const payloads = buildForecastAdminConfigPayloads({
+    enabled: true,
+    explanationEnabled: false,
+    memoryFeedbackMinSamples: 7,
+    advisoryPriorityThreshold: 0.61,
+    l2Enabled: true,
+    relationshipSnapshotEnabled: true,
+    stableScenariosEnabled: true,
+    vetoConfidenceThreshold: 0.28,
+    l3Enabled: true,
+    l3AdminManualEnabled: true,
+    l3UserRequestEnabled: true,
+    l3AutoPriorityEnabled: false,
+    l3ClientReadEnabled: true,
+    l3RequireVipForFullReport: true,
+    l3MaxActiveRuns: 4,
+    l3MaxRunsPerDay: 48,
+    l3MaxUserRunsPerDay: 2,
+    l3MinPriorityThreshold: 0.72,
+    l3DispatchEnabled: true,
+    l3DispatchIntervalMinutes: 8,
+    l3QualityEnabled: true,
+    l3QualityIntervalMinutes: 30,
+    l3DefaultEngineKey: "LOCAL_SYNTHESIS"
+  });
+
+  assert.deepEqual(
+    payloads.slice(8).map((item) => item.config_key),
+    [
+      "growth.forecast_l3.enabled",
+      "growth.forecast_l3.admin_manual_enabled",
+      "growth.forecast_l3.user_request_enabled",
+      "growth.forecast_l3.auto_priority_enabled",
+      "growth.forecast_l3.client_read_enabled",
+      "growth.forecast_l3.require_vip_for_full_report",
+      "growth.forecast_l3.max_active_runs",
+      "growth.forecast_l3.max_runs_per_day",
+      "growth.forecast_l3.max_user_runs_per_day",
+      "growth.forecast_l3.min_priority_threshold",
+      "growth.forecast_l3.dispatch.enabled",
+      "growth.forecast_l3.dispatch.interval_minutes",
+      "growth.forecast_l3.quality.enabled",
+      "growth.forecast_l3.quality.interval_minutes",
+      "growth.forecast_l3.default_engine_key"
+    ]
+  );
+  assert.equal(payloads[8].config_value, "true");
+  assert.equal(payloads[13].config_value, "true");
+  assert.equal(payloads[14].config_value, "4");
+  assert.equal(payloads[17].config_value, "0.72");
+  assert.equal(payloads[22].config_value, "LOCAL_SYNTHESIS");
 });
 
 test("buildForecastPublishSummary summarizes enhanced explanation coverage", () => {

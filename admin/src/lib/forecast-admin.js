@@ -6,7 +6,22 @@ export const DEFAULT_FORECAST_ADMIN_CONFIG = {
   l2Enabled: true,
   relationshipSnapshotEnabled: true,
   stableScenariosEnabled: true,
-  vetoConfidenceThreshold: 0.35
+  vetoConfidenceThreshold: 0.35,
+  l3Enabled: false,
+  l3AdminManualEnabled: true,
+  l3UserRequestEnabled: false,
+  l3AutoPriorityEnabled: false,
+  l3ClientReadEnabled: true,
+  l3RequireVipForFullReport: true,
+  l3MaxActiveRuns: 2,
+  l3MaxRunsPerDay: 24,
+  l3MaxUserRunsPerDay: 1,
+  l3MinPriorityThreshold: 0.7,
+  l3DispatchEnabled: true,
+  l3DispatchIntervalMinutes: 5,
+  l3QualityEnabled: true,
+  l3QualityIntervalMinutes: 60,
+  l3DefaultEngineKey: "LOCAL_SYNTHESIS"
 };
 
 function parseConfigBool(raw, fallback) {
@@ -37,6 +52,11 @@ function parseConfigFloat(raw, fallback, min, max) {
     return fallback;
   }
   return Math.max(min, Math.min(max, parsed));
+}
+
+function parseConfigText(raw, fallback = "") {
+  const text = String(raw ?? "").trim();
+  return text || fallback;
 }
 
 function normalizeObject(value) {
@@ -116,7 +136,78 @@ export function parseForecastAdminConfigMap(map) {
         0.05,
         0.95
       ).toFixed(2)
-    )
+    ),
+    l3Enabled: parseConfigBool(source["growth.forecast_l3.enabled"], DEFAULT_FORECAST_ADMIN_CONFIG.l3Enabled),
+    l3AdminManualEnabled: parseConfigBool(
+      source["growth.forecast_l3.admin_manual_enabled"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3AdminManualEnabled
+    ),
+    l3UserRequestEnabled: parseConfigBool(
+      source["growth.forecast_l3.user_request_enabled"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3UserRequestEnabled
+    ),
+    l3AutoPriorityEnabled: parseConfigBool(
+      source["growth.forecast_l3.auto_priority_enabled"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3AutoPriorityEnabled
+    ),
+    l3ClientReadEnabled: parseConfigBool(
+      source["growth.forecast_l3.client_read_enabled"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3ClientReadEnabled
+    ),
+    l3RequireVipForFullReport: parseConfigBool(
+      source["growth.forecast_l3.require_vip_for_full_report"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3RequireVipForFullReport
+    ),
+    l3MaxActiveRuns: parseConfigInt(
+      source["growth.forecast_l3.max_active_runs"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3MaxActiveRuns,
+      1,
+      50
+    ),
+    l3MaxRunsPerDay: parseConfigInt(
+      source["growth.forecast_l3.max_runs_per_day"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3MaxRunsPerDay,
+      1,
+      500
+    ),
+    l3MaxUserRunsPerDay: parseConfigInt(
+      source["growth.forecast_l3.max_user_runs_per_day"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3MaxUserRunsPerDay,
+      1,
+      20
+    ),
+    l3MinPriorityThreshold: Number(
+      parseConfigFloat(
+        source["growth.forecast_l3.min_priority_threshold"],
+        DEFAULT_FORECAST_ADMIN_CONFIG.l3MinPriorityThreshold,
+        0.1,
+        0.99
+      ).toFixed(2)
+    ),
+    l3DispatchEnabled: parseConfigBool(
+      source["growth.forecast_l3.dispatch.enabled"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3DispatchEnabled
+    ),
+    l3DispatchIntervalMinutes: parseConfigInt(
+      source["growth.forecast_l3.dispatch.interval_minutes"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3DispatchIntervalMinutes,
+      1,
+      240
+    ),
+    l3QualityEnabled: parseConfigBool(
+      source["growth.forecast_l3.quality.enabled"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3QualityEnabled
+    ),
+    l3QualityIntervalMinutes: parseConfigInt(
+      source["growth.forecast_l3.quality.interval_minutes"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3QualityIntervalMinutes,
+      5,
+      1440
+    ),
+    l3DefaultEngineKey: parseConfigText(
+      source["growth.forecast_l3.default_engine_key"],
+      DEFAULT_FORECAST_ADMIN_CONFIG.l3DefaultEngineKey
+    ).toUpperCase()
   };
 }
 
@@ -129,7 +220,22 @@ export function buildForecastAdminConfigPayloads(config) {
     "growth.forecast_l2.enabled": config?.l2Enabled,
     "growth.forecast_l2.relationship_snapshot_enabled": config?.relationshipSnapshotEnabled,
     "growth.forecast_l2.stable_scenarios_enabled": config?.stableScenariosEnabled,
-    "growth.forecast_l2.veto_confidence_threshold": config?.vetoConfidenceThreshold
+    "growth.forecast_l2.veto_confidence_threshold": config?.vetoConfidenceThreshold,
+    "growth.forecast_l3.enabled": config?.l3Enabled,
+    "growth.forecast_l3.admin_manual_enabled": config?.l3AdminManualEnabled,
+    "growth.forecast_l3.user_request_enabled": config?.l3UserRequestEnabled,
+    "growth.forecast_l3.auto_priority_enabled": config?.l3AutoPriorityEnabled,
+    "growth.forecast_l3.client_read_enabled": config?.l3ClientReadEnabled,
+    "growth.forecast_l3.require_vip_for_full_report": config?.l3RequireVipForFullReport,
+    "growth.forecast_l3.max_active_runs": config?.l3MaxActiveRuns,
+    "growth.forecast_l3.max_runs_per_day": config?.l3MaxRunsPerDay,
+    "growth.forecast_l3.max_user_runs_per_day": config?.l3MaxUserRunsPerDay,
+    "growth.forecast_l3.min_priority_threshold": config?.l3MinPriorityThreshold,
+    "growth.forecast_l3.dispatch.enabled": config?.l3DispatchEnabled,
+    "growth.forecast_l3.dispatch.interval_minutes": config?.l3DispatchIntervalMinutes,
+    "growth.forecast_l3.quality.enabled": config?.l3QualityEnabled,
+    "growth.forecast_l3.quality.interval_minutes": config?.l3QualityIntervalMinutes,
+    "growth.forecast_l3.default_engine_key": config?.l3DefaultEngineKey
   });
   return [
     {
@@ -171,6 +277,81 @@ export function buildForecastAdminConfigPayloads(config) {
       config_key: "growth.forecast_l2.veto_confidence_threshold",
       config_value: normalized.vetoConfidenceThreshold.toFixed(2),
       description: "L2 veto 置信度阈值（低于该值仅做提示，不直接替代审核决策）"
+    },
+    {
+      config_key: "growth.forecast_l3.enabled",
+      config_value: normalized.l3Enabled ? "true" : "false",
+      description: "L3 深推演全局开关（异步增强层，不替代推荐主链）"
+    },
+    {
+      config_key: "growth.forecast_l3.admin_manual_enabled",
+      config_value: normalized.l3AdminManualEnabled ? "true" : "false",
+      description: "允许管理员手动触发 L3 深推演"
+    },
+    {
+      config_key: "growth.forecast_l3.user_request_enabled",
+      config_value: normalized.l3UserRequestEnabled ? "true" : "false",
+      description: "允许前台用户主动请求 L3 深推演"
+    },
+    {
+      config_key: "growth.forecast_l3.auto_priority_enabled",
+      config_value: normalized.l3AutoPriorityEnabled ? "true" : "false",
+      description: "允许按高优先级样本自动排队 L3 深推演"
+    },
+    {
+      config_key: "growth.forecast_l3.client_read_enabled",
+      config_value: normalized.l3ClientReadEnabled ? "true" : "false",
+      description: "允许客户端 explanation/history 读取 L3 摘要引用"
+    },
+    {
+      config_key: "growth.forecast_l3.require_vip_for_full_report",
+      config_value: normalized.l3RequireVipForFullReport ? "true" : "false",
+      description: "是否要求 VIP 才可阅读完整 L3 报告"
+    },
+    {
+      config_key: "growth.forecast_l3.max_active_runs",
+      config_value: String(normalized.l3MaxActiveRuns),
+      description: "L3 同时运行中的最大任务数"
+    },
+    {
+      config_key: "growth.forecast_l3.max_runs_per_day",
+      config_value: String(normalized.l3MaxRunsPerDay),
+      description: "L3 全站每日最大运行数"
+    },
+    {
+      config_key: "growth.forecast_l3.max_user_runs_per_day",
+      config_value: String(normalized.l3MaxUserRunsPerDay),
+      description: "单用户每日最大 L3 请求数"
+    },
+    {
+      config_key: "growth.forecast_l3.min_priority_threshold",
+      config_value: normalized.l3MinPriorityThreshold.toFixed(2),
+      description: "自动排队进入 L3 的最小 priority 阈值"
+    },
+    {
+      config_key: "growth.forecast_l3.dispatch.enabled",
+      config_value: normalized.l3DispatchEnabled ? "true" : "false",
+      description: "L3 dispatch worker 开关"
+    },
+    {
+      config_key: "growth.forecast_l3.dispatch.interval_minutes",
+      config_value: String(normalized.l3DispatchIntervalMinutes),
+      description: "L3 dispatch worker 轮询间隔（分钟）"
+    },
+    {
+      config_key: "growth.forecast_l3.quality.enabled",
+      config_value: normalized.l3QualityEnabled ? "true" : "false",
+      description: "L3 quality backfill worker 开关"
+    },
+    {
+      config_key: "growth.forecast_l3.quality.interval_minutes",
+      config_value: String(normalized.l3QualityIntervalMinutes),
+      description: "L3 quality backfill worker 间隔（分钟）"
+    },
+    {
+      config_key: "growth.forecast_l3.default_engine_key",
+      config_value: normalized.l3DefaultEngineKey,
+      description: "L3 默认深推演引擎键"
     }
   ];
 }

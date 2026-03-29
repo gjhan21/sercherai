@@ -795,6 +795,30 @@ export function syncMarketNewsSource(payload) {
   return http.post("/admin/news/market-sync", payload, SYNC_REQUEST_CONFIG);
 }
 
+export function listForecastRuns(params) {
+  return http.get("/admin/forecast/runs", { params: buildParams(params) });
+}
+
+export function createForecastRun(payload) {
+  return http.post("/admin/forecast/runs", payload);
+}
+
+export function getForecastRunDetail(id) {
+  return http.get(`/admin/forecast/runs/${encodeURIComponent(id)}`);
+}
+
+export function retryForecastRun(id, payload) {
+  return http.post(`/admin/forecast/runs/${encodeURIComponent(id)}/retry`, payload);
+}
+
+export function cancelForecastRun(id, payload) {
+  return http.post(`/admin/forecast/runs/${encodeURIComponent(id)}/cancel`, payload);
+}
+
+export function listForecastQualitySummaries(params) {
+  return http.get("/admin/forecast/quality", { params: buildParams(params) });
+}
+
 export function listQuantTopStocks(params) {
   return http.get("/admin/stocks/quant/top", { params: buildParams(params) });
 }

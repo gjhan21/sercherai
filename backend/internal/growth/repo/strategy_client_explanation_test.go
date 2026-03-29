@@ -23,6 +23,8 @@ const (
 	futuresGuidanceQueryPattern            = `(?s)SELECT contract, guidance_direction, position_level, entry_range, take_profit_range, stop_loss_range, risk_level, invalid_condition, valid_to\s+FROM futures_guidances\s+WHERE contract = \?`
 	forecastL1ConfigQueryPattern           = `(?s)SELECT config_key, config_value\s+FROM system_configs\s+WHERE config_key LIKE 'growth\.forecast_l1\.%'`
 	forecastL2ConfigQueryPattern           = `(?s)SELECT config_key, config_value\s+FROM system_configs\s+WHERE config_key LIKE 'growth\.forecast_l2\.%'`
+	forecastL3ReadConfigQueryPattern       = `(?s)SELECT config_key, config_value\s+FROM system_configs\s+WHERE config_key LIKE 'growth\.forecast_l3\.%'`
+	forecastL3LatestRunQueryPattern        = `(?s)SELECT\s+id,\s*target_type,\s*COALESCE\(target_id, ''\),\s*target_key,.*FROM strategy_forecast_l3_runs\s+WHERE target_type = \?\s+AND target_key = \?\s+AND status IN \(\?,\s*\?,\s*\?\)\s+ORDER BY.*LIMIT 1`
 )
 
 type strategyEngineAssetContextFixture struct {
@@ -210,6 +212,107 @@ func TestBuildStockStrategyExplanationAppliesForecastL1ConfigFromSystemConfigs(t
 	}
 }
 
+func TestBuildStockStrategyExplanationAttachesDeepForecastSummary(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+
+	mock.ExpectQuery(forecastL1ConfigQueryPattern).
+		WillReturnRows(sqlmock.NewRows([]string{"config_key", "config_value"}))
+	mock.ExpectQuery(forecastL2ConfigQueryPattern).
+		WillReturnRows(sqlmock.NewRows([]string{"config_key", "config_value"}))
+	mock.ExpectQuery(forecastL3ReadConfigQueryPattern).
+		WillReturnRows(sqlmock.NewRows([]string{"config_key", "config_value"}).
+			AddRow("growth.forecast_l3.client_read_enabled", "true"))
+	mock.ExpectQuery(localAssetContextQueryPattern).
+		WithArgs("stock-selection").
+		WillReturnRows(newLocalAssetContextRows())
+	mock.ExpectQuery(forecastL3LatestRunQueryPattern).
+		WithArgs(
+			model.StrategyForecastL3TargetTypeStock,
+			"600519.SH",
+			model.StrategyForecastL3StatusRunning,
+			model.StrategyForecastL3StatusQueued,
+			model.StrategyForecastL3StatusSucceeded,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"target_type",
+			"target_id",
+			"target_key",
+			"target_label",
+			"trigger_type",
+			"request_user_id",
+			"operator_user_id",
+			"engine_key",
+			"status",
+			"priority_score",
+			"reason",
+			"failure_reason",
+			"context_meta_json",
+			"summary_json",
+			"report_ref_json",
+			"queued_at",
+			"started_at",
+			"finished_at",
+			"cancelled_at",
+			"created_at",
+			"updated_at",
+		}).AddRow(
+			"l3run_attach_001",
+			"STOCK",
+			"reco_attach_001",
+			"600519.SH",
+			"贵州茅台",
+			"USER_REQUEST",
+			"user_001",
+			"",
+			"LOCAL_SYNTHESIS",
+			"RUNNING",
+			0.83,
+			"需要深推演",
+			"",
+			`{"source":"client"}`,
+			`{"run_id":"l3run_attach_001","status":"RUNNING","engine_key":"LOCAL_SYNTHESIS","trigger_type":"USER_REQUEST","target_type":"STOCK","target_key":"600519.SH","target_label":"贵州茅台","executive_summary":"深推演正在补齐角色分歧。","primary_scenario":"base","action_guidance":"等待主情景确认","confidence_label":"MEDIUM","priority_score":0.83,"generated_at":"2026-03-29T12:00:00Z","report_available":false}`,
+			`{"run_id":"l3run_attach_001","report_id":"l3report_attach_001","status":"RUNNING","engine_key":"LOCAL_SYNTHESIS","generated_at":"2026-03-29T12:00:00Z","requires_vip":true,"full_readable":false}`,
+			time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 3, 29, 12, 1, 0, 0, time.UTC),
+			nil,
+			nil,
+			time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 3, 29, 12, 1, 0, 0, time.UTC),
+		))
+
+	explanation := repo.buildStockStrategyExplanation(
+		model.StockRecommendation{
+			ID:              "reco_attach_001",
+			Symbol:          "600519.SH",
+			ValidFrom:       "2026-03-29T09:35:00Z",
+			ReasonSummary:   "当前推荐继续观察",
+			StrategyVersion: "stock-live-v3",
+		},
+		model.StockRecommendationDetail{
+			RecoID:   "reco_attach_001",
+			RiskNote: "仓位保持克制",
+		},
+	)
+
+	if explanation.DeepForecastSummary == nil || explanation.DeepForecastSummary.RunID != "l3run_attach_001" {
+		t.Fatalf("expected explanation to carry deep forecast summary, got %+v", explanation.DeepForecastSummary)
+	}
+	if explanation.DeepForecastReportRef == nil || explanation.DeepForecastReportRef.ReportID != "l3report_attach_001" {
+		t.Fatalf("expected explanation to carry deep forecast report ref, got %+v", explanation.DeepForecastReportRef)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
 func TestBuildStockStrategyExplanationIncludesRealContextSummary(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -350,7 +453,11 @@ func TestBuildStockStrategyExplanationBackfillsFromRemotePublishRecordUsingLocal
 		case r.Method == http.MethodGet && r.URL.Path == "/internal/v1/publish/records/"+record.PublishID:
 			_ = json.NewEncoder(w).Encode(record)
 		case strings.HasPrefix(r.URL.Path, "/internal/v1/jobs/"):
-			t.Fatalf("unexpected remote job fetch: %s", r.URL.Path)
+			_ = json.NewEncoder(w).Encode(model.StrategyEngineJobRecord{
+				JobID:     record.JobID,
+				JobType:   "stock-selection",
+				CreatedAt: record.CreatedAt,
+			})
 		default:
 			http.NotFound(w, r)
 		}
@@ -526,7 +633,11 @@ func TestGetStockRecommendationVersionHistoryUsesBackfilledLocalContexts(t *test
 		case r.Method == http.MethodGet && r.URL.Path == "/internal/v1/publish/records/"+record.PublishID:
 			_ = json.NewEncoder(w).Encode(record)
 		case strings.HasPrefix(r.URL.Path, "/internal/v1/jobs/"):
-			t.Fatalf("unexpected remote job fetch: %s", r.URL.Path)
+			_ = json.NewEncoder(w).Encode(model.StrategyEngineJobRecord{
+				JobID:     record.JobID,
+				JobType:   "stock-selection",
+				CreatedAt: record.CreatedAt,
+			})
 		default:
 			http.NotFound(w, r)
 		}
@@ -612,6 +723,188 @@ func TestGetStockRecommendationVersionHistoryUsesBackfilledLocalContexts(t *test
 	}
 	if strings.Join(items[0].Invalidations, ",") != "跌破前低后废止" {
 		t.Fatalf("unexpected version history invalidations: %+v", items[0].Invalidations)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGetStockRecommendationVersionHistoryAttachesDeepForecastSummary(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	record := buildExplanationPublishRecordDetail(
+		"publish_l3_history_001",
+		"job_l3_history_001",
+		18,
+		"2026-03-28",
+		[]string{"600519.SH"},
+		"本地版本摘要",
+		"本地版本共识",
+		"本地版本理由",
+		"stock-local-v8",
+		[]string{"跌破结构位"},
+		[]string{"本地版本告警"},
+		[]string{},
+		[]string{"本地版本备注"},
+	)
+
+	repo := &MySQLGrowthRepo{db: db}
+	validFrom := time.Date(2026, 3, 28, 10, 30, 0, 0, time.UTC)
+
+	mock.ExpectQuery(stockRecommendationVersionQueryPattern).
+		WithArgs("reco_l3_history_001").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "symbol", "valid_from", "reason_summary", "strategy_version"}).
+			AddRow("reco_l3_history_001", "600519.SH", validFrom, "客户端当前推荐说明", "stock-live-v8"))
+	mock.ExpectQuery(stockRecommendationDetailQueryPattern).
+		WithArgs("reco_l3_history_001").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"reco_id", "tech_score", "fund_score", "sentiment_score", "money_flow_score", "take_profit", "stop_loss", "risk_note",
+		}).AddRow(
+			"reco_l3_history_001", 88.0, 90.0, 84.0, 86.0, "上涨 8% 分批止盈", "跌破支撑位止损", "仓位保持克制",
+		))
+	mock.ExpectQuery(forecastL3ReadConfigQueryPattern).
+		WillReturnRows(sqlmock.NewRows([]string{"config_key", "config_value"}).
+			AddRow("growth.forecast_l3.client_read_enabled", "true"))
+	mock.ExpectQuery(localAssetContextQueryPattern).
+		WithArgs("stock-selection").
+		WillReturnRows(newLocalAssetContextRows(buildStrategyEngineAssetContextFixture(record, record.AssetKeys)))
+	mock.ExpectQuery(stockEventEvidenceQueryPattern).
+		WithArgs("600519.SH", "600519.SH", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "title", "event_type", "primary_symbol", "topic_label", "sector_label", "review_priority", "review_note", "published_at"}))
+	mock.ExpectQuery(forecastL3LatestRunQueryPattern).
+		WithArgs(
+			model.StrategyForecastL3TargetTypeStock,
+			"600519.SH",
+			model.StrategyForecastL3StatusRunning,
+			model.StrategyForecastL3StatusQueued,
+			model.StrategyForecastL3StatusSucceeded,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"target_type",
+			"target_id",
+			"target_key",
+			"target_label",
+			"trigger_type",
+			"request_user_id",
+			"operator_user_id",
+			"engine_key",
+			"status",
+			"priority_score",
+			"reason",
+			"failure_reason",
+			"context_meta_json",
+			"summary_json",
+			"report_ref_json",
+			"queued_at",
+			"started_at",
+			"finished_at",
+			"cancelled_at",
+			"created_at",
+			"updated_at",
+		}).AddRow(
+			"l3run_history_attach_001",
+			"STOCK",
+			"reco_l3_history_001",
+			"600519.SH",
+			"贵州茅台",
+			"ADMIN_MANUAL",
+			"admin_001",
+			"admin_001",
+			"LOCAL_SYNTHESIS",
+			"SUCCEEDED",
+			0.91,
+			"manual deep forecast",
+			"",
+			`{"source":"admin"}`,
+			`{"run_id":"l3run_history_attach_001","status":"SUCCEEDED","engine_key":"LOCAL_SYNTHESIS","trigger_type":"ADMIN_MANUAL","target_type":"STOCK","target_key":"600519.SH","target_label":"贵州茅台","executive_summary":"深推演确认主情景延续。","primary_scenario":"bull","action_guidance":"沿确认信号执行","confidence_label":"HIGH","priority_score":0.91,"generated_at":"2026-03-29T12:30:00Z","report_available":true}`,
+			`{"run_id":"l3run_history_attach_001","report_id":"l3report_history_attach_001","status":"SUCCEEDED","engine_key":"LOCAL_SYNTHESIS","generated_at":"2026-03-29T12:30:00Z","requires_vip":true,"full_readable":false}`,
+			time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 3, 29, 12, 1, 0, 0, time.UTC),
+			time.Date(2026, 3, 29, 12, 30, 0, 0, time.UTC),
+			nil,
+			time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 3, 29, 12, 30, 0, 0, time.UTC),
+		))
+	mock.ExpectQuery(forecastL3ReadConfigQueryPattern).
+		WillReturnRows(sqlmock.NewRows([]string{"config_key", "config_value"}).
+			AddRow("growth.forecast_l3.client_read_enabled", "true"))
+	mock.ExpectQuery(localAssetContextQueryPattern).
+		WithArgs("stock-selection").
+		WillReturnRows(newLocalAssetContextRows(buildStrategyEngineAssetContextFixture(record, record.AssetKeys)))
+	mock.ExpectQuery(forecastL3LatestRunQueryPattern).
+		WithArgs(
+			model.StrategyForecastL3TargetTypeStock,
+			"600519.SH",
+			model.StrategyForecastL3StatusRunning,
+			model.StrategyForecastL3StatusQueued,
+			model.StrategyForecastL3StatusSucceeded,
+		).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"target_type",
+			"target_id",
+			"target_key",
+			"target_label",
+			"trigger_type",
+			"request_user_id",
+			"operator_user_id",
+			"engine_key",
+			"status",
+			"priority_score",
+			"reason",
+			"failure_reason",
+			"context_meta_json",
+			"summary_json",
+			"report_ref_json",
+			"queued_at",
+			"started_at",
+			"finished_at",
+			"cancelled_at",
+			"created_at",
+			"updated_at",
+		}).AddRow(
+			"l3run_history_attach_001",
+			"STOCK",
+			"reco_l3_history_001",
+			"600519.SH",
+			"贵州茅台",
+			"ADMIN_MANUAL",
+			"admin_001",
+			"admin_001",
+			"LOCAL_SYNTHESIS",
+			"SUCCEEDED",
+			0.91,
+			"manual deep forecast",
+			"",
+			`{"source":"admin"}`,
+			`{"run_id":"l3run_history_attach_001","status":"SUCCEEDED","engine_key":"LOCAL_SYNTHESIS","trigger_type":"ADMIN_MANUAL","target_type":"STOCK","target_key":"600519.SH","target_label":"贵州茅台","executive_summary":"深推演确认主情景延续。","primary_scenario":"bull","action_guidance":"沿确认信号执行","confidence_label":"HIGH","priority_score":0.91,"generated_at":"2026-03-29T12:30:00Z","report_available":true}`,
+			`{"run_id":"l3run_history_attach_001","report_id":"l3report_history_attach_001","status":"SUCCEEDED","engine_key":"LOCAL_SYNTHESIS","generated_at":"2026-03-29T12:30:00Z","requires_vip":true,"full_readable":false}`,
+			time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 3, 29, 12, 1, 0, 0, time.UTC),
+			time.Date(2026, 3, 29, 12, 30, 0, 0, time.UTC),
+			nil,
+			time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC),
+			time.Date(2026, 3, 29, 12, 30, 0, 0, time.UTC),
+		))
+
+	items, err := repo.GetStockRecommendationVersionHistory("user_l3_history_001", "reco_l3_history_001")
+	if err != nil {
+		t.Fatalf("GetStockRecommendationVersionHistory returned error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected one version history item, got %+v", items)
+	}
+	if items[0].DeepForecastSummary == nil || items[0].DeepForecastSummary.RunID != "l3run_history_attach_001" {
+		t.Fatalf("expected version history to carry deep forecast summary, got %+v", items[0].DeepForecastSummary)
+	}
+	if items[0].DeepForecastReportRef == nil || items[0].DeepForecastReportRef.ReportID != "l3report_history_attach_001" {
+		t.Fatalf("expected version history to carry deep forecast report ref, got %+v", items[0].DeepForecastReportRef)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -828,10 +1121,10 @@ func TestBuildFallbackVersionHistoryItemCarriesL2Fields(t *testing.T) {
 func TestBuildStockStrategyExplanationCarriesL2ScenarioSnapshots(t *testing.T) {
 	ctx := strategyEngineAssetContext{
 		record: model.StrategyEnginePublishRecord{
-			PublishID: "publish_l2_stock_001",
-			JobID:     "job_l2_stock_001",
-			TradeDate: "2026-03-29",
-			Version:   1,
+			PublishID:     "publish_l2_stock_001",
+			JobID:         "job_l2_stock_001",
+			TradeDate:     "2026-03-29",
+			Version:       1,
 			SelectedCount: 1,
 		},
 		asset: map[string]any{

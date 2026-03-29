@@ -296,7 +296,37 @@
                   <p>{{ history.title }}</p>
                   <strong>{{ history.version }}</strong>
                   <span>{{ history.note }}</span>
+                  <em v-if="history.deepForecast" class="archive-history-forecast-tag">
+                    深推演 {{ history.deepForecast.statusLabel }}
+                  </em>
                 </button>
+              </div>
+            </div>
+
+            <div class="archive-version-box finance-card-pale">
+              <div class="archive-version-head">
+                <p>深推演状态</p>
+                <span>{{ item.deepForecast?.statusLabel || "当前无 L3" }}</span>
+              </div>
+              <p class="archive-explanation-summary">
+                {{ item.deepForecast?.summary || "当前还没有这条历史样本的深推演结果，先按理由、结果和后续处理完成复盘。" }}
+              </p>
+              <div class="archive-version-grid">
+                <article class="finance-list-card finance-list-card-panel">
+                  <p>主情景</p>
+                  <strong>{{ item.deepForecast?.scenario || "-" }}</strong>
+                  <span>{{ item.deepForecast?.actionGuidance || "等待更多动作建议。" }}</span>
+                </article>
+                <article class="finance-list-card finance-list-card-panel">
+                  <p>生成时间</p>
+                  <strong>{{ item.deepForecast?.generatedAt ? formatDateTime(item.deepForecast.generatedAt) : "-" }}</strong>
+                  <span>{{ item.deepForecast?.reportAvailable ? "已有报告" : "等待结果" }}</span>
+                </article>
+                <article class="finance-list-card finance-list-card-panel">
+                  <p>查看动作</p>
+                  <strong>{{ item.deepForecast?.runID ? "可打开详情页" : "可先发起请求" }}</strong>
+                  <span>{{ item.deepForecast?.note || "L3 只作为增强层，不替代现有档案主链。" }}</span>
+                </article>
               </div>
             </div>
 
@@ -360,6 +390,22 @@
             <p class="archive-source-note">{{ item.sourceNote }}</p>
 
             <div class="archive-actions-row">
+              <button
+                type="button"
+                class="ghost-btn finance-ghost-btn"
+                :disabled="forecastActionLoading === item.id"
+                @click="requestArchiveForecast(item)"
+              >
+                {{ forecastActionLoading === item.id ? "提交中..." : "发起深推演" }}
+              </button>
+              <button
+                type="button"
+                class="ghost-btn finance-ghost-btn"
+                :disabled="!item.deepForecast?.runID"
+                @click="openForecastRun(item.deepForecast?.runID)"
+              >
+                查看深推演
+              </button>
               <button type="button" class="ghost-btn finance-ghost-btn" @click="goStrategies">去策略中心</button>
             </div>
           </article>
@@ -418,6 +464,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import StatePanel from "../components/StatePanel.vue";
+import { createForecastRun } from "../api/forecast";
 import { getMembershipQuota } from "../api/membership";
 import {
   getStockRecommendationInsight,
@@ -433,6 +480,7 @@ import {
 } from "../lib/growth-analytics";
 import { getExperimentVariant } from "../lib/growth-experiments";
 import {
+  buildStrategyDeepForecastSummary,
   buildStrategyConfidenceCalibrationSummary,
   buildFallbackStrategyVersionHistory,
   buildStrategyAgentOpinionRows,
@@ -598,6 +646,7 @@ const archiveMembershipExperimentVariant = getExperimentVariant("archive_members
 const loading = ref(false);
 const errorMessage = ref("");
 const lastUpdatedAt = ref("");
+const forecastActionLoading = ref("");
 const selectedStatus = ref("ALL");
 const selectedSource = ref("ALL");
 const rawItems = ref(useDemoFallback ? [...fallbackRecommendations] : []);
@@ -640,6 +689,7 @@ const archiveRows = computed(() =>
     const relationshipSummary = buildStrategyRelationshipSnapshotSummary(summarySource);
     const agentOpinionRows = buildStrategyAgentOpinionRows(summarySource, { limit: 2 });
     const scenarioRows = buildStrategyScenarioSnapshotRows(summarySource, { limit: 2 });
+    const deepForecast = buildStrategyDeepForecastSummary(explanation);
     return {
       id: item.id,
       name: `${item.symbol || "-"} ${item.name || ""}`.trim(),
@@ -665,6 +715,7 @@ const archiveRows = computed(() =>
       }),
       metaText: buildArchiveMetaText(explanation),
       versionDiff: historyCompare.diff,
+      deepForecast,
       versionHistoryItems: versionHistoryItems.slice(0, 3),
       selectedHistoryKey: historyCompare.selectedKey,
       selectedHistoryTitle: historyCompare.selectedTitle,
@@ -1025,6 +1076,48 @@ function goStrategies() {
 
 function goHome() {
   router.push("/home");
+}
+
+function openForecastRun(runID) {
+  const id = String(runID || "").trim();
+  if (!id) {
+    return;
+  }
+  router.push({
+    name: "forecast-run",
+    params: { id },
+    query: { from: "/archive" }
+  });
+}
+
+async function requestArchiveForecast(item) {
+  if (!item?.id || !item?.symbol) {
+    return;
+  }
+  if (!isLoggedIn.value) {
+    router.push({ path: "/auth", query: { redirect: "/archive" } });
+    return;
+  }
+  forecastActionLoading.value = item.id;
+  errorMessage.value = "";
+  try {
+    const run = await createForecastRun({
+      target_type: "STOCK",
+      target_id: item.id,
+      target_key: item.symbol,
+      target_label: item.name,
+      trigger_type: "USER_REQUEST",
+      priority_score: 0.8,
+      reason: item.reason_summary || item.reason || ""
+    });
+    if (run?.id) {
+      openForecastRun(run.id);
+    }
+  } catch (error) {
+    errorMessage.value = parseErrorMessage(error);
+  } finally {
+    forecastActionLoading.value = "";
+  }
 }
 
 function rememberArchiveMembershipEntry(targetKey, metadata = {}) {

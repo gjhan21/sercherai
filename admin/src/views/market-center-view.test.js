@@ -77,4 +77,7 @@ test("MarketCenterView shows forecast enhancement summary in publish detail", ()
   assert.match(text, /关系节点/);
   assert.match(text, /veto 提示/);
   assert.match(text, /主情景/);
+  assert.match(text, /L3 深推演实验室/);
+  assert.match(text, /forecast-lab/);
+  assert.match(text, /打开深推演工作台/);
 });
