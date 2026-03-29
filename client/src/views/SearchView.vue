@@ -31,6 +31,16 @@
           进入详情
         </button>
         <button
+          v-if="isLoggedIn && isForecastable(bestMatch.group.key)"
+          type="button"
+          class="finance-mini-btn finance-mini-btn-primary"
+          style="background: #0f172a; border-color: #0f172a;"
+          :disabled="submitting"
+          @click="requestForecast(bestMatch.group.key, bestMatch.item)"
+        >
+          {{ submitting ? "提交分析中..." : "一键深度推演" }}
+        </button>
+        <button
           v-if="activeTab !== bestMatch.group.key"
           type="button"
           class="finance-mini-btn finance-mini-btn-soft"
@@ -138,6 +148,7 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { searchGlobal, searchGlobalPublic } from "../api/search";
+import { createForecastRun } from "../api/forecast";
 import StatePanel from "../components/StatePanel.vue";
 import { useClientAuth } from "../lib/client-auth";
 import {
@@ -163,6 +174,7 @@ const errorMessage = ref("");
 const searchResult = ref(null);
 const activeTab = ref("all");
 const focusKey = ref("");
+const submitting = ref(false);
 let latestRequestID = 0;
 let highlightTimer = null;
 
@@ -308,6 +320,39 @@ function openSearchItem(groupKey, item) {
 
 function activateTab(tabKey) {
   activeTab.value = tabKey;
+}
+
+function isForecastable(groupKey) {
+  return groupKey === "stocks" || groupKey === "strategies";
+}
+
+async function requestForecast(groupKey, item) {
+  if (!isLoggedIn.value) {
+    router.push("/login?redirect=" + encodeURIComponent(route.fullPath));
+    return;
+  }
+  if (submitting.value) return;
+  submitting.value = true;
+  errorMessage.value = "";
+
+  try {
+    const targetType = groupKey === "stocks" ? "stock" : "futures_strategy";
+    const data = await createForecastRun({
+      target_type: targetType,
+      target_id: item.id,
+      target_key: item.id,
+      target_label: item.title,
+      trigger_type: "USER_REQUEST"
+    });
+    const runId = data?.id || data?.run?.id;
+    if (runId) {
+      router.push("/forecast/runs/" + runId);
+    }
+  } catch (error) {
+    errorMessage.value = error?.message || "深度推演请求失败，请重试";
+  } finally {
+    submitting.value = false;
+  }
 }
 </script>
 

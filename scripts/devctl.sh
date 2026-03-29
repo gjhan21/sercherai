@@ -235,7 +235,8 @@ if [ -f "\$CLIENT_ENV_FILE" ]; then
 fi
 CLIENT_HOST="\${CLIENT_HOST:-0.0.0.0}"
 CLIENT_PORT="\${CLIENT_PORT:-$(service_port client)}"
-cd "$ROOT_DIR/client" && exec npm run dev -- --host "\${CLIENT_HOST}" --port "\${CLIENT_PORT}"
+VITE_PROXY_TARGET="\${VITE_PROXY_TARGET:-$(service_url backend)}"
+cd "$ROOT_DIR/client" && exec env VITE_PROXY_TARGET="\${VITE_PROXY_TARGET}" npm run dev -- --host "\${CLIENT_HOST}" --port "\${CLIENT_PORT}"
 EOF
       ;;
     *)
