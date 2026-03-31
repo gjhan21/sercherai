@@ -16,6 +16,7 @@ const PcCommunityComposeView = () => import("../views/PcCommunityComposeView.vue
 const PcMembershipView = () => import("../views/PcMembershipView.vue");
 const PcProfileView = () => import("../views/PcProfileView.vue");
 const PcForecastRunView = () => import("../views/PcForecastRunView.vue");
+const PcDemoView = () => import("../views/PcDemoView.vue");
 
 
 const routes = [
@@ -52,7 +53,8 @@ const routes = [
       { path: "membership", name: "pc-membership", component: PcMembershipView, meta: { requiresAuth: true } },
       { path: "profile", name: "pc-profile", component: PcProfileView, meta: { requiresAuth: true } },
       { path: "profile/watchlist", name: "pc-profile-watchlist", component: PcWatchlistView, meta: { requiresAuth: true } },
-      { path: "forecast/runs/:id", name: "forecast-run", component: PcForecastRunView, meta: { requiresAuth: true } }
+      { path: "forecast/runs/:id", name: "forecast-run", component: PcForecastRunView, meta: { requiresAuth: true } },
+      { path: "demo", name: "pc-demo", component: PcDemoView }
 
     ]
   },
