@@ -117,12 +117,12 @@ func resolveStrategyForecastL3PrimaryScenario(targetType string, roles []strateg
 func buildStrategyForecastL3ExecutiveSummary(targetLabel string, pack strategyForecastL3ResearchPack, primaryScenario string) string {
 	base := strings.TrimSpace(pack.CoreThesis)
 	if base == "" {
-		base = "Current evidence supports a monitored base-case path."
+		base = "当前全链条证据依然支持重点监测原定推演路径。"
 	}
 	if strings.TrimSpace(targetLabel) == "" {
-		return fmt.Sprintf("%s Primary scenario: %s.", base, primaryScenario)
+		return fmt.Sprintf("%s 核心主线推演: %s", base, primaryScenario)
 	}
-	return fmt.Sprintf("%s Primary scenario for %s: %s.", base, targetLabel, primaryScenario)
+	return fmt.Sprintf("%s 关于 %s 的核心主线推演: %s", base, targetLabel, primaryScenario)
 }
 
 func buildStrategyForecastL3ActionGuidance(pack strategyForecastL3ResearchPack, primaryScenario string) []string {
@@ -237,36 +237,50 @@ func buildStrategyForecastL3Markdown(
 	report model.StrategyForecastL3Report,
 ) string {
 	lines := []string{
-		"# Forecast L3 Report",
+		"# 深度推演 L3 报告",
 		"",
-		"## Executive Summary",
+		"## 执行摘要与核心论点",
 		report.ExecutiveSummary,
-		"",
-		"## Primary Scenario",
-		report.PrimaryScenario,
-		"",
-		"## Trigger Checklist",
 	}
+	if len(pack.RelatedHighlights) > 0 || len(pack.HistoricalNotes) > 0 {
+		lines = append(lines, "", "## 核心论据与事实依据")
+		for _, item := range uniqueForecastL3Strings(pack.RelatedHighlights) {
+			lines = append(lines, "- [事件/异动] "+item)
+		}
+		for _, item := range uniqueForecastL3Strings(pack.HistoricalNotes) {
+			lines = append(lines, "- [历史追踪] "+item)
+		}
+	}
+	lines = append(lines, "", "## 主线推演", report.PrimaryScenario)
+	if len(report.AlternativeScenarios) > 0 {
+		lines = append(lines, "", "## 后续发展预测 (Alternative Scenarios)")
+		for _, alt := range report.AlternativeScenarios {
+			prob := fmt.Sprintf("%.0f%%", alt.Probability*100)
+			lines = append(lines, fmt.Sprintf("- **%s (发生概率: %s)**: %s", alt.Name, prob, alt.Thesis))
+			lines = append(lines, fmt.Sprintf("  - *操作指引*: %s", alt.Action))
+		}
+	}
+	lines = append(lines, "", "## 触发与验证清单")
 	for _, item := range report.TriggerChecklist {
 		lines = append(lines, fmt.Sprintf("- %s: %s", item.Label, firstNonEmpty(item.Note, item.Trigger)))
 	}
-	lines = append(lines, "", "## Invalidation Signals")
+	lines = append(lines, "", "## 失效信号与观测点")
 	for _, item := range report.InvalidationSignals {
 		lines = append(lines, "- "+item)
 	}
-	lines = append(lines, "", "## Role Disagreements")
+	lines = append(lines, "", "## 推演因子分歧分析")
 	for _, item := range report.RoleDisagreements {
-		lines = append(lines, fmt.Sprintf("- %s (%s): %s", item.Role, firstNonEmpty(item.Stance, "N/A"), item.Summary))
+		lines = append(lines, fmt.Sprintf("- %s (%s): %s", item.Role, firstNonEmpty(item.Stance, "无"), item.Summary))
 	}
-	lines = append(lines, "", "## Action Guidance")
+	lines = append(lines, "", "## 综合应对与操作指引")
 	for _, item := range report.ActionGuidance {
 		lines = append(lines, "- "+item)
 	}
 	if strings.TrimSpace(pack.RiskBoundary) != "" {
-		lines = append(lines, "", "## Risk Boundary", pack.RiskBoundary)
+		lines = append(lines, "", "## 风险边界控制", pack.RiskBoundary)
 	}
 	if strings.TrimSpace(run.Reason) != "" {
-		lines = append(lines, "", "## Trigger Reason", run.Reason)
+		lines = append(lines, "", "## 推演触发缘由", run.Reason)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -277,31 +291,49 @@ func buildStrategyForecastL3HTML(
 	report model.StrategyForecastL3Report,
 ) string {
 	var builder strings.Builder
-	builder.WriteString("<h1>Forecast L3 Report</h1>")
-	builder.WriteString("<h2>Executive Summary</h2><p>" + htmlEscape(report.ExecutiveSummary) + "</p>")
-	builder.WriteString("<h2>Primary Scenario</h2><p>" + htmlEscape(report.PrimaryScenario) + "</p>")
-	builder.WriteString("<h2>Trigger Checklist</h2><ul>")
+	builder.WriteString("<h1>深度推演 L3 报告</h1>")
+	builder.WriteString("<h2>执行摘要与核心论点</h2><p>" + htmlEscape(report.ExecutiveSummary) + "</p>")
+	if len(pack.RelatedHighlights) > 0 || len(pack.HistoricalNotes) > 0 {
+		builder.WriteString("<h2>核心论据与事实依据</h2><ul>")
+		for _, item := range uniqueForecastL3Strings(pack.RelatedHighlights) {
+			builder.WriteString("<li>[事件/异动] " + htmlEscape(item) + "</li>")
+		}
+		for _, item := range uniqueForecastL3Strings(pack.HistoricalNotes) {
+			builder.WriteString("<li>[历史追踪] " + htmlEscape(item) + "</li>")
+		}
+		builder.WriteString("</ul>")
+	}
+	builder.WriteString("<h2>主线推演</h2><p>" + htmlEscape(report.PrimaryScenario) + "</p>")
+	if len(report.AlternativeScenarios) > 0 {
+		builder.WriteString("<h2>后续发展预测 (Alternative Scenarios)</h2><ul>")
+		for _, alt := range report.AlternativeScenarios {
+			prob := fmt.Sprintf("%.0f%%", alt.Probability*100)
+			builder.WriteString("<li><strong>" + htmlEscape(alt.Name) + " (发生概率: " + prob + ")</strong>: " + htmlEscape(alt.Thesis) + "<br/><em>操作指引:</em> " + htmlEscape(alt.Action) + "</li>")
+		}
+		builder.WriteString("</ul>")
+	}
+	builder.WriteString("<h2>触发与验证清单</h2><ul>")
 	for _, item := range report.TriggerChecklist {
 		builder.WriteString("<li>" + htmlEscape(item.Label) + ": " + htmlEscape(firstNonEmpty(item.Note, item.Trigger)) + "</li>")
 	}
-	builder.WriteString("</ul><h2>Invalidation Signals</h2><ul>")
+	builder.WriteString("</ul><h2>失效信号与观测点</h2><ul>")
 	for _, item := range report.InvalidationSignals {
 		builder.WriteString("<li>" + htmlEscape(item) + "</li>")
 	}
-	builder.WriteString("</ul><h2>Role Disagreements</h2><ul>")
+	builder.WriteString("</ul><h2>推演因子分歧分析</h2><ul>")
 	for _, item := range report.RoleDisagreements {
-		builder.WriteString("<li>" + htmlEscape(item.Role) + " (" + htmlEscape(firstNonEmpty(item.Stance, "N/A")) + "): " + htmlEscape(item.Summary) + "</li>")
+		builder.WriteString("<li>" + htmlEscape(item.Role) + " (" + htmlEscape(firstNonEmpty(item.Stance, "无")) + "): " + htmlEscape(item.Summary) + "</li>")
 	}
-	builder.WriteString("</ul><h2>Action Guidance</h2><ul>")
+	builder.WriteString("</ul><h2>综合应对与操作指引</h2><ul>")
 	for _, item := range report.ActionGuidance {
 		builder.WriteString("<li>" + htmlEscape(item) + "</li>")
 	}
 	builder.WriteString("</ul>")
 	if strings.TrimSpace(pack.RiskBoundary) != "" {
-		builder.WriteString("<h2>Risk Boundary</h2><p>" + htmlEscape(pack.RiskBoundary) + "</p>")
+		builder.WriteString("<h2>风险边界控制</h2><p>" + htmlEscape(pack.RiskBoundary) + "</p>")
 	}
 	if strings.TrimSpace(run.Reason) != "" {
-		builder.WriteString("<h2>Trigger Reason</h2><p>" + htmlEscape(run.Reason) + "</p>")
+		builder.WriteString("<h2>推演触发缘由</h2><p>" + htmlEscape(run.Reason) + "</p>")
 	}
 	return builder.String()
 }

@@ -180,7 +180,7 @@
             {{ currentPagination.loading ? "加载中..." : canLoadMore ? "继续加载" : "已显示全部" }}
           </button>
           <button type="button" class="h5-btn" @click="goArchive">查看历史档案</button>
-          <button type="button" class="h5-btn-ghost" @click="router.push('/strategies')">去看策略</button>
+          <button type="button" class="h5-btn-ghost" @click="router.push({ name: 'h5-strategies' })">去看策略</button>
         </div>
       </H5SectionBlock>
     </template>
@@ -191,7 +191,7 @@
       :primary-label="primaryActionLabel"
       :secondary-label="activeArticleID ? '返回资讯' : '去策略页'"
       @primary="goPrimaryAction"
-      @secondary="activeArticleID ? closeArticle() : router.push('/strategies')"
+      @secondary="activeArticleID ? closeArticle() : router.push({ name: 'h5-strategies' })"
     />
   </div>
 </template>
@@ -557,7 +557,7 @@ async function refreshPage() {
 }
 
 function goArchive() {
-  router.push("/archive");
+  router.push({ name: "h5-archive" });
 }
 
 async function handleDownloadAttachment(item) {
@@ -582,15 +582,15 @@ async function handleDownloadAttachment(item) {
 
 function goPrimaryAction() {
   if (!isLoggedIn.value) {
-    router.push({ path: "/auth", query: { redirect: route.fullPath } });
+    router.push({ name: "h5-auth", query: { redirect: route.fullPath } });
     return;
   }
   if (articleAccessState.value.locked) {
-    router.push("/membership");
+    router.push({ name: "h5-membership" });
     return;
   }
   if (activeArticleID.value) {
-    router.push("/strategies");
+    router.push({ name: "h5-strategies" });
     return;
   }
   if (leadArticle.value?.id) {
@@ -600,7 +600,7 @@ function goPrimaryAction() {
 
 function goSecondaryAction() {
   if (articleAccessState.value.locked) {
-    router.push("/strategies");
+    router.push({ name: "h5-strategies" });
     return;
   }
   closeArticle();

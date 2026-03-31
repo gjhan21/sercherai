@@ -9,8 +9,11 @@
         <div>
           <p class="hero-kicker">Forecast L3</p>
           <h1 class="section-title">{{ targetTitle }}</h1>
-          <p class="section-subtitle">
-            查看异步深推演的运行状态、结构化报告和关键步骤日志。
+          <p class="section-subtitle h5-hide-desktop">
+            查看异步深推演结果、逻辑论证和后续发展预测。
+          </p>
+          <p class="section-subtitle h5-show-desktop">
+            查看异步深推演详情，包括研究包、结构化报告和完整运行日志。
           </p>
           <p v-if="loading" class="api-state">正在同步深推演结果...</p>
           <p v-else-if="errorMessage" class="api-state warning">{{ errorMessage }}</p>
@@ -135,6 +138,25 @@
             </div>
           </section>
 
+          <section v-if="report.alternative_scenarios?.length" class="forecast-report-section finance-card-surface">
+            <div class="stock-news-head">
+              <p>后续发展预测</p>
+              <span>{{ report.alternative_scenarios.length }} 种可能</span>
+            </div>
+            <div class="scenario-grid">
+              <article
+                v-for="alt in report.alternative_scenarios"
+                :key="alt.name"
+                class="scenario-item finance-list-card finance-list-card-panel"
+              >
+                <p>{{ alt.name }}</p>
+                <strong>概率 {{ (alt.probability * 100).toFixed(0) }}%</strong>
+                <span style="margin-bottom:6px">{{ alt.thesis }}</span>
+                <em>操作指引: {{ alt.action }}</em>
+              </article>
+            </div>
+          </section>
+
           <section v-if="report.trigger_checklist?.length" class="forecast-report-section finance-card-surface">
             <div class="stock-news-head">
               <p>触发检查清单</p>
@@ -239,12 +261,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import StatePanel from "../components/StatePanel.vue";
-import { getForecastRunDetail } from "../api/forecast";
-import { getMembershipQuota } from "../api/membership";
-import { buildStrategyDeepForecastSummary } from "../lib/strategy-version";
+import StatePanel from "../../../components/StatePanel.vue";
+import { getForecastRunDetail } from "../../../api/forecast";
+import { getMembershipQuota } from "../../../api/membership";
+import { buildStrategyDeepForecastSummary } from "../../../lib/strategy-version";
 
 const route = useRoute();
 const router = useRouter();
@@ -322,18 +344,41 @@ const statePanelDescription = computed(() => {
   return forecastSummary.value?.summary || "请稍后刷新查看运行结果。";
 });
 
-async function loadDetail() {
-  loading.value = true;
+let pollTimer = null;
+function cleanPoll() {
+  if (pollTimer) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+}
+
+async function loadDetail(quiet = false) {
+  if (!quiet) loading.value = true;
   errorMessage.value = "";
   try {
     const data = await getForecastRunDetail(route.params.id);
     detail.value = data || null;
+
+    const currentStatus = data?.run?.status || "";
+    if (currentStatus === "QUEUED" || currentStatus === "RUNNING") {
+      cleanPoll();
+      pollTimer = setTimeout(() => {
+        loadDetail(true);
+      }, 5000);
+    } else {
+      cleanPoll();
+    }
   } catch (error) {
     errorMessage.value = error?.message || "深推演详情加载失败";
+    cleanPoll();
   } finally {
-    loading.value = false;
+    if (!quiet) loading.value = false;
   }
 }
+
+onBeforeUnmount(() => {
+  cleanPoll();
+});
 
 async function loadVIPState() {
   try {
@@ -345,10 +390,20 @@ async function loadVIPState() {
 }
 
 function resolveVIPStage(quota) {
-  const membership = quota?.membership || quota || {};
-  const level = String(membership?.tier || membership?.level || membership?.plan_key || "").toUpperCase();
-  const status = String(membership?.status || "").toUpperCase();
-  return Boolean(level.includes("VIP") || status === "ACTIVE");
+  const activationState = String(quota?.activation_state || "").toUpperCase();
+  if (activationState === "ACTIVE") {
+    return true;
+  }
+  const vipStatus = String(quota?.vip_status || "").toUpperCase();
+  if (vipStatus === "ACTIVE") {
+    return true;
+  }
+  const memberLevel = String(quota?.member_level || "").toUpperCase();
+  if (memberLevel.startsWith("VIP")) {
+    const remainingDays = Number(quota?.vip_remaining_days);
+    return !Number.isFinite(remainingDays) || remainingDays > 0;
+  }
+  return false;
 }
 
 function formatDateTime(value) {
@@ -417,6 +472,23 @@ onMounted(() => {
   gap: 16px;
 }
 
+.reason-support-grid,
+.scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.scenario-item {
+  display: grid;
+  gap: 6px;
+}
+
+.agent-opinion-list {
+  display: grid;
+  gap: 10px;
+}
+
 .forecast-summary-text {
   margin: 0;
   color: var(--color-text-main);
@@ -456,9 +528,15 @@ onMounted(() => {
   line-height: 1.7;
 }
 
-@media (max-width: 960px) {
-  .forecast-run-layout {
-    grid-template-columns: 1fr;
-  }
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
+
+.finance-hero-stat-card {
+  display: grid;
+  gap: 4px;
+}
+
 </style>

@@ -18,6 +18,7 @@ const forecastL3RunListQueryPattern = `(?s)SELECT\s+id,\s*target_type,\s*COALESC
 const forecastL3RunByIDQueryPattern = `(?s)SELECT\s+id,\s*target_type,\s*COALESCE\(target_id, ''\),\s*target_key,.*FROM strategy_forecast_l3_runs\s+WHERE id = \?`
 const forecastL3ReportByRunIDQueryPattern = `(?s)SELECT\s+id,\s*run_id,\s*version,\s*COALESCE\(executive_summary, ''\),.*FROM strategy_forecast_l3_reports\s+WHERE run_id = \?\s+ORDER BY version DESC LIMIT 1`
 const forecastL3LogsByRunIDQueryPattern = `(?s)SELECT\s+id,\s*run_id,\s*step_key,\s*status,\s*COALESCE\(message, ''\),.*FROM strategy_forecast_l3_logs\s+WHERE run_id = \?\s+ORDER BY created_at ASC, id ASC`
+const forecastL3VIPUserQueryPattern = `SELECT member_level, kyc_status, vip_expire_at FROM users WHERE id = \?`
 
 func expectForecastL3CreateGuards(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(forecastL3ConfigQueryPattern).
@@ -279,6 +280,149 @@ func TestGetStrategyForecastL3RunDetailAggregatesReportAndLogs(t *testing.T) {
 	}
 	if len(detail.Logs) != 1 || detail.Logs[0].StepKey != "BUILD_RESEARCH_PACK" {
 		t.Fatalf("expected detail logs to be loaded, got %+v", detail.Logs)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestGetStrategyForecastL3RunDetailForUserHidesFullReportForNonVIP(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+	mock.ExpectQuery(forecastL3RunByIDQueryPattern).
+		WithArgs("l3run_demo_001").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"target_type",
+			"target_id",
+			"target_key",
+			"target_label",
+			"trigger_type",
+			"request_user_id",
+			"operator_user_id",
+			"engine_key",
+			"status",
+			"priority_score",
+			"reason",
+			"failure_reason",
+			"context_meta_json",
+			"summary_json",
+			"report_ref_json",
+			"queued_at",
+			"started_at",
+			"finished_at",
+			"cancelled_at",
+			"created_at",
+			"updated_at",
+		}).AddRow(
+			"l3run_demo_001",
+			"STOCK",
+			"reco_001",
+			"600519.SH",
+			"贵州茅台",
+			"USER_REQUEST",
+			"user_nonvip_001",
+			"",
+			"LOCAL_SYNTHESIS",
+			"SUCCEEDED",
+			0.86,
+			"user deep forecast",
+			"",
+			`{"source":"client"}`,
+			`{"run_id":"l3run_demo_001","status":"SUCCEEDED","engine_key":"LOCAL_SYNTHESIS","trigger_type":"USER_REQUEST","target_type":"STOCK","target_key":"600519.SH","target_label":"贵州茅台","executive_summary":"摘要仍然可读。","primary_scenario":"base","action_guidance":"先等确认信号","confidence_label":"MEDIUM","priority_score":0.86,"generated_at":"2026-03-29T11:00:00Z","report_available":true}`,
+			`{"run_id":"l3run_demo_001","report_id":"l3report_demo_001","status":"SUCCEEDED","engine_key":"LOCAL_SYNTHESIS","generated_at":"2026-03-29T11:00:00Z","requires_vip":true,"full_readable":true}`,
+			time.Date(2026, 3, 29, 10, 30, 0, 0, time.UTC),
+			time.Date(2026, 3, 29, 10, 31, 0, 0, time.UTC),
+			time.Date(2026, 3, 29, 11, 0, 0, 0, time.UTC),
+			nil,
+			time.Date(2026, 3, 29, 10, 30, 0, 0, time.UTC),
+			time.Date(2026, 3, 29, 11, 0, 0, 0, time.UTC),
+		))
+	mock.ExpectQuery(forecastL3ReportByRunIDQueryPattern).
+		WithArgs("l3run_demo_001").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"run_id",
+			"version",
+			"executive_summary",
+			"primary_scenario",
+			"alternative_scenarios_json",
+			"trigger_checklist_json",
+			"invalidation_signals_json",
+			"role_disagreements_json",
+			"action_guidance_json",
+			"markdown_body",
+			"html_body",
+			"summary_json",
+			"created_at",
+			"updated_at",
+		}).AddRow(
+			"l3report_demo_001",
+			"l3run_demo_001",
+			1,
+			"摘要仍然可读。",
+			"base",
+			`[{"name":"bull","probability":0.22,"thesis":"补涨延续","action":"跟随"}]`,
+			`[{"label":"量能","status":"WATCH","note":"继续跟踪","trigger":"放量确认"}]`,
+			`["跌破关键支撑"]`,
+			`[{"role":"RISK","stance":"CAUTION","summary":"回撤风险放大","veto":false}]`,
+			`["等量能确认"]`,
+			"# 完整深推演正文",
+			"<h1>完整深推演正文</h1>",
+			`{"run_id":"l3run_demo_001","status":"SUCCEEDED","engine_key":"LOCAL_SYNTHESIS","trigger_type":"USER_REQUEST","target_type":"STOCK","target_key":"600519.SH","target_label":"贵州茅台","executive_summary":"摘要仍然可读。","primary_scenario":"base","action_guidance":"先等确认信号","confidence_label":"MEDIUM","priority_score":0.86,"generated_at":"2026-03-29T11:00:00Z","report_available":true}`,
+			time.Date(2026, 3, 29, 11, 0, 0, 0, time.UTC),
+			time.Date(2026, 3, 29, 11, 0, 0, 0, time.UTC),
+		))
+	mock.ExpectQuery(forecastL3LogsByRunIDQueryPattern).
+		WithArgs("l3run_demo_001").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"run_id",
+			"step_key",
+			"status",
+			"message",
+			"payload_json",
+			"created_at",
+		}).AddRow(
+			"log_demo_001",
+			"l3run_demo_001",
+			"BUILD_RESEARCH_PACK",
+			"SUCCESS",
+			"context ready",
+			`{"sources":4}`,
+			time.Date(2026, 3, 29, 10, 32, 0, 0, time.UTC),
+		))
+	mock.ExpectQuery(forecastL3ConfigQueryPattern).
+		WillReturnRows(sqlmock.NewRows([]string{"config_key", "config_value"}).
+			AddRow("growth.forecast_l3.require_vip_for_full_report", "true"))
+	mock.ExpectQuery(forecastL3VIPUserQueryPattern).
+		WithArgs("user_nonvip_001").
+		WillReturnRows(sqlmock.NewRows([]string{"member_level", "kyc_status", "vip_expire_at"}).
+			AddRow("FREE", "PASSED", nil))
+
+	detail, err := repo.GetStrategyForecastL3RunDetailForUser("l3run_demo_001", "user_nonvip_001")
+	if err != nil {
+		t.Fatalf("GetStrategyForecastL3RunDetailForUser() error = %v", err)
+	}
+	if detail.Report == nil {
+		t.Fatalf("expected report snapshot in detail, got %+v", detail)
+	}
+	if detail.Report.ExecutiveSummary == "" {
+		t.Fatalf("expected executive summary to remain readable, got %+v", detail.Report)
+	}
+	if detail.Report.MarkdownBody != "" || detail.Report.HTMLBody != "" {
+		t.Fatalf("expected full report body to be stripped for non-vip user, got %+v", detail.Report)
+	}
+	if detail.Run.ReportRef == nil || detail.Run.ReportRef.FullReadable {
+		t.Fatalf("expected report ref to mark full report unreadable, got %+v", detail.Run.ReportRef)
+	}
+	if len(detail.Logs) != 1 {
+		t.Fatalf("expected logs to remain available, got %+v", detail.Logs)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)

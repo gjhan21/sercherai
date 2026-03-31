@@ -166,8 +166,8 @@
 <script setup>
 import { reactive, ref } from "vue";
 import { useRouter, useRoute } from "vue-router";
-import StatePanel from "../components/StatePanel.vue";
-import { createCommunityTopic } from "../api/community";
+import StatePanel from "../../../components/StatePanel.vue";
+import { createCommunityTopic } from "../../../api/community";
 
 const router = useRouter();
 const route = useRoute();
@@ -352,14 +352,4 @@ function validateForm() {
   gap: 10px;
 }
 
-@media (max-width: 768px) {
-  .compose-hero,
-  .compose-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .compose-hero-actions {
-    min-width: 0;
-  }
-}
 </style>

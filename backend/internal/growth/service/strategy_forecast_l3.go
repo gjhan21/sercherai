@@ -10,12 +10,20 @@ func (s *growthService) ListStrategyForecastL3Runs(requestUserID string, status 
 	return s.repo.ListStrategyForecastL3Runs(requestUserID, status, targetType, triggerType, page, pageSize)
 }
 
+func (s *growthService) GetLatestStrategyForecastL3Run(targetType string, targetID string) (model.StrategyForecastL3Run, error) {
+	return s.repo.GetLatestStrategyForecastL3Run(targetType, targetID)
+}
+
 func (s *growthService) GetStrategyForecastL3Run(runID string) (model.StrategyForecastL3Run, error) {
 	return s.repo.GetStrategyForecastL3Run(runID)
 }
 
 func (s *growthService) GetStrategyForecastL3RunDetail(runID string) (model.StrategyForecastL3RunDetail, error) {
 	return s.repo.GetStrategyForecastL3RunDetail(runID)
+}
+
+func (s *growthService) GetStrategyForecastL3RunDetailForUser(runID string, userID string) (model.StrategyForecastL3RunDetail, error) {
+	return s.repo.GetStrategyForecastL3RunDetailForUser(runID, userID)
 }
 
 func (s *growthService) RetryStrategyForecastL3Run(runID string, operatorUserID string, reason string) (model.StrategyForecastL3Run, error) {

@@ -1548,8 +1548,8 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import StatePanel from "../components/StatePanel.vue";
-import { createForecastRun } from "../api/forecast";
+import StatePanel from "../../../components/StatePanel.vue";
+import { createForecastRun } from "../../../api/forecast";
 import {
   getFuturesStrategyInsight,
   getFuturesStrategyVersionHistory,
@@ -1561,18 +1561,18 @@ import {
   listFuturesStrategies,
   listMarketEvents,
   listStockRecommendations
-} from "../api/market";
-import { getMembershipQuota } from "../api/membership";
-import { listNewsArticles } from "../api/news";
+} from "../../../api/market";
+import { getMembershipQuota } from "../../../api/membership";
+import { listNewsArticles } from "../../../api/news";
 import {
   rememberExperimentAttributionSource,
   rememberPendingExperimentJourneySource,
   promotePendingExperimentJourneySources,
   trackExperimentEvent,
   trackExperimentExposureOnce
-} from "../lib/growth-analytics";
-import { getExperimentVariant } from "../lib/growth-experiments";
-import { shouldUseDemoFallback } from "../lib/fallback-policy";
+} from "../../../lib/growth-analytics";
+import { getExperimentVariant } from "../../../lib/growth-experiments";
+import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
 import {
   buildStrategyDeepForecastSummary,
   buildFallbackStrategyVersionHistory,
@@ -1595,15 +1595,15 @@ import {
   buildStrategyWatchSignalRows,
   firstMeaningfulStrategyText,
   mapStrategyVersionHistory
-} from "../lib/strategy-version";
+} from "../../../lib/strategy-version";
 import {
   buildCommunityComposeRoute,
   buildCommunityListRoute,
   findEntityIDByTarget
-} from "../lib/community-entry-links";
-import { useClientAuth } from "../lib/client-auth";
-import { buildProfileModulePath } from "../lib/profile-modules";
-import { WATCHLIST_EVENT, isWatchedStock, removeWatchedStock, saveWatchedStock } from "../lib/watchlist";
+} from "../../../lib/community-entry-links";
+import { useClientAuth } from "../../../lib/client-auth";
+import { buildProfileModulePath } from "../../../lib/profile-modules";
+import { WATCHLIST_EVENT, isWatchedStock, removeWatchedStock, saveWatchedStock } from "../../../lib/watchlist";
 
 const route = useRoute();
 const router = useRouter();

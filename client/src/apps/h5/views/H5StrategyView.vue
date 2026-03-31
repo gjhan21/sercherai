@@ -124,6 +124,37 @@
           </article>
         </div>
       </section>
+      <section v-if="activeStockPerformanceSummary" class="strategy-detail-card">
+        <div class="strategy-feed-head">
+          <div>
+            <strong>历史业绩</strong>
+            <p>基于回测和实盘记录的策略有效性参考。</p>
+          </div>
+        </div>
+        <div class="strategy-performance-bar">
+          {{ activeStockPerformanceSummary }}
+        </div>
+      </section>
+
+      <section v-if="activeStockAgentOpinions.length" class="strategy-detail-card">
+        <div class="strategy-feed-head">
+          <div>
+            <strong>投研评审</strong>
+            <p>多位 AI 投研专家对该策略的交叉验证结论。</p>
+          </div>
+        </div>
+        <div class="strategy-agent-strip">
+          <div v-for="agent in activeStockAgentOpinions" :key="agent.key" class="strategy-agent-card">
+            <div class="strategy-agent-head">
+              <strong>{{ agent.role }}</strong>
+              <span class="strategy-badge mini" :class="agent.stance === 'BULL' ? 'brand' : 'gold'">
+                {{ agent.stance }} {{ (agent.confidence * 100).toFixed(0) }}%
+              </span>
+            </div>
+            <p>{{ agent.summary }}</p>
+          </div>
+        </div>
+      </section>
 
       <section class="strategy-detail-card">
         <div class="strategy-feed-head">
@@ -146,6 +177,27 @@
         </div>
       </section>
 
+      <section v-if="activeStockScenarioCards.length" class="strategy-detail-card">
+        <div class="strategy-feed-head">
+          <div>
+            <strong>情景推演</strong>
+            <p>{{ activeStockScenarioMeta?.summary || "针对不同市场环境的应对方案。" }}</p>
+          </div>
+        </div>
+        <div class="strategy-scenario-list">
+          <div v-for="item in activeStockScenarioCards" :key="item.key" class="strategy-scenario-item">
+            <div class="strategy-scenario-head">
+              <strong>{{ item.scenario }}</strong>
+            </div>
+            <p>{{ item.thesis }}</p>
+            <div class="strategy-scenario-meta">
+              <span>触发: {{ item.trigger }}</span>
+              <span>动作: {{ item.action }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="strategy-detail-card">
         <div class="strategy-feed-head">
           <div>
@@ -157,6 +209,24 @@
           <strong>{{ detailRiskTitle }}</strong>
           <p>{{ detailRiskText }}</p>
         </article>
+      </section>
+
+      <section v-if="activeStockDeepForecast" class="strategy-detail-card">
+        <div class="strategy-feed-head">
+          <div>
+            <strong>L3 深推演总结</strong>
+            <span class="strategy-badge mini" :class="activeStockDeepForecast.tone">{{ activeStockDeepForecast.statusLabel }}</span>
+          </div>
+        </div>
+        <div class="strategy-forecast-summary" :class="activeStockDeepForecast.tone">
+          <p>{{ activeStockDeepForecast.summary }}</p>
+          <div v-if="activeStockDeepForecast.note" class="strategy-forecast-note">
+            {{ activeStockDeepForecast.note }}
+          </div>
+          <button v-if="activeStockDeepForecast.reportAvailable" type="button" class="h5-btn block" @click="openForecastRun(activeStockDeepForecast.runID)">
+            查看完整推演报告
+          </button>
+        </div>
       </section>
 
       <section class="strategy-detail-card">
@@ -188,10 +258,27 @@
       </section>
 
       <section class="strategy-actions-card">
+        <template v-if="activeKind === 'stock'">
+          <button type="button" class="h5-btn block" :disabled="loading" @click="requestActiveStockDeepForecast">
+            {{ activeStockDeepForecast?.runID ? "重新发起深推演" : "发起深推演" }}
+          </button>
+          <button type="button" class="h5-btn-secondary block" :disabled="!activeStockDeepForecast?.runID" @click="openForecastRun(activeStockDeepForecast?.runID)">
+            查看深推演
+          </button>
+        </template>
+        <template v-else-if="activeKind === 'futures'">
+          <button type="button" class="h5-btn block" :disabled="loading" @click="requestActiveFuturesDeepForecast">
+            {{ activeFuturesDeepForecast?.runID ? "重新发起深推演" : "发起深推演" }}
+          </button>
+          <button type="button" class="h5-btn-secondary block" :disabled="!activeFuturesDeepForecast?.runID" @click="openForecastRun(activeFuturesDeepForecast?.runID)">
+            查看深推演
+          </button>
+        </template>
         <button type="button" class="h5-btn block" :disabled="detailPrimaryDisabled" @click="handlePrimaryAction">
           {{ primaryActionLabel }}
         </button>
         <button v-if="showWatchlistEntry" type="button" class="h5-btn-secondary block" @click="goWatchlist">去我的 &gt; 我的关注</button>
+
         <button type="button" class="h5-btn-secondary block" @click="router.push('/membership')">查看会员权益</button>
         <button type="button" class="h5-btn-ghost block" @click="closeDetail">返回观点流</button>
       </section>
@@ -223,13 +310,16 @@ import {
   getMarketEventDetail,
   getStockRecommendationDetail,
   getStockRecommendationInsight,
+  getStockRecommendationPerformance,
   getStockRecommendationVersionHistory,
   listFuturesStrategies,
   listMarketEvents,
   listStockRecommendations
 } from "../../../api/market";
 import { getMembershipQuota } from "../../../api/membership";
+import { createForecastRun } from "../../../api/forecast";
 import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
+
 import { buildProfileModuleRoute } from "../../../lib/profile-modules";
 import { WATCHLIST_EVENT, isWatchedStock, removeWatchedStock, saveWatchedStock } from "../../../lib/watchlist";
 import { useClientAuth } from "../../../shared/auth/client-auth";
@@ -240,8 +330,13 @@ import {
   buildStrategyInsightSections,
   buildStrategyMetaText,
   buildStrategyProofTags,
+  buildStrategyDeepForecastSummary,
+  buildStrategyAgentOpinionRows,
+  buildStrategyScenarioSnapshotRows,
+  buildStrategyScenarioMetaSummary,
   mapStrategyVersionHistory
 } from "../../../lib/strategy-version";
+
 import { formatDateTime, mapRiskLevel, resolveVipStage, toArray } from "../lib/formatters";
 import { mergeRecordById } from "../lib/page-state";
 import { buildStrategyFeedModel } from "../lib/strategy-feed.js";
@@ -275,6 +370,8 @@ const rawEvents = ref(useDemoFallback ? [...fallbackMarketEvents] : []);
 const stockDetailMap = ref(useDemoFallback ? { ...fallbackStockDetails } : {});
 const stockInsightMap = ref(useDemoFallback ? { ...fallbackStockInsights } : {});
 const stockVersionMap = ref({});
+const stockPerformanceMap = ref({});
+const stockPerformanceStatsMap = ref({});
 const futuresInsightMap = ref(useDemoFallback ? {
   fs_local_001: {
     strategy: { id: "fs_local_001", contract: "IF2603", name: "股指趋势跟踪", direction: "LONG", risk_level: "MEDIUM", reason_summary: "趋势与量价结构一致，等待突破确认后执行。" },
@@ -284,7 +381,10 @@ const futuresInsightMap = ref(useDemoFallback ? {
 } : {});
 const futuresVersionMap = ref({});
 const eventDetailMap = ref(useDemoFallback ? Object.fromEntries(fallbackMarketEvents.map((item) => [item.id, item])) : {});
+const pendingStockForecastRunIDMap = ref({});
+const pendingFuturesForecastRunIDMap = ref({});
 const watchVersion = ref(0);
+
 
 const tabs = [
   { key: "stock", label: "股票策略" },
@@ -373,6 +473,64 @@ const activeStockInsight = computed(() => stockInsightMap.value[activeDetailID.v
 const activeFuturesBundle = computed(() => futuresInsightMap.value[activeDetailID.value] || null);
 const activeEventDetail = computed(() => eventDetailMap.value[activeDetailID.value] || activeEvent.value || null);
 const isVIPUser = computed(() => resolveVipStage(rawQuota.value));
+
+const activeStockDeepForecast = computed(() => {
+  const base = buildStrategyDeepForecastSummary(activeStockInsight.value);
+  const pendingRunID = activeDetailID.value
+    ? (pendingStockForecastRunIDMap.value[activeDetailID.value] || "")
+    : "";
+  if (base) {
+    return { ...base, runID: base.runID || pendingRunID };
+  }
+  if (pendingRunID) {
+    return {
+      runID: pendingRunID,
+      status: "QUEUED",
+      statusLabel: "排队中",
+      tone: "queued",
+      summary: "深推演已提交，正在排队处理中。",
+      reportAvailable: false
+    };
+  }
+  return null;
+});
+
+const activeStockAgentOpinions = computed(() => buildStrategyAgentOpinionRows(activeStockInsight.value));
+const activeStockScenarioCards = computed(() => buildStrategyScenarioSnapshotRows(activeStockInsight.value));
+const activeStockScenarioMeta = computed(() => buildStrategyScenarioMetaSummary(activeStockInsight.value));
+
+const activeStockPerformanceSummary = computed(() => {
+  const stockID = activeDetailID.value;
+  if (stockID && activeKind.value === "stock") {
+    const stats = stockPerformanceStatsMap.value[stockID];
+    if (stats) {
+      return `样本 ${stats.sample_days || 0} 日 · 胜率 ${(stats.win_rate * 100).toFixed(1)}% · 累计 ${(stats.cumulative_return * 100).toFixed(2)}% · 超额 ${(stats.excess_return * 100).toFixed(2)}%`;
+    }
+  }
+  return null;
+});
+
+const activeFuturesDeepForecast = computed(() => {
+  const base = buildStrategyDeepForecastSummary(activeFuturesBundle.value?.explanation);
+  const pendingRunID = activeDetailID.value
+    ? (pendingFuturesForecastRunIDMap.value[activeDetailID.value] || "")
+    : "";
+  if (base) {
+    return { ...base, runID: base.runID || pendingRunID };
+  }
+  if (pendingRunID) {
+    return {
+      runID: pendingRunID,
+      status: "QUEUED",
+      statusLabel: "排队中",
+      tone: "queued",
+      summary: "深推演已提交，正在排队处理中。",
+      reportAvailable: false
+    };
+  }
+  return null;
+});
+
 
 const listHeroDescription = computed(() => {
   if (activeKind.value === "event") {
@@ -654,6 +812,12 @@ async function loadDetail(kind, id) {
         [id]: mapStrategyVersionHistory(versionResult.value?.items || [], formatDateTime)
       };
     }
+
+    const performanceResult = await getStockRecommendationPerformance(id).catch(() => null);
+    if (performanceResult) {
+      stockPerformanceMap.value = { ...stockPerformanceMap.value, [id]: performanceResult.points };
+      stockPerformanceStatsMap.value = { ...stockPerformanceStatsMap.value, [id]: performanceResult.stats };
+    }
     return;
   }
   if (kind === "futures") {
@@ -698,7 +862,7 @@ function handlePrimaryAction() {
     toggleActiveStockWatch();
     return;
   }
-  router.push("/membership");
+  router.push({ name: "h5-membership" });
 }
 
 function handleSecondaryAction() {
@@ -752,11 +916,91 @@ function toggleActiveStockWatch() {
 }
 
 function goWatchlist() {
-  router.push(buildProfileModuleRoute("watchlist"));
+  router.push({ name: "h5-profile-watchlist" });
 }
 
+function openForecastRun(runID) {
+  const id = String(runID || "").trim();
+  if (!id) return;
+  router.push({
+    name: "forecast-run",
+    params: { id },
+    query: { from: route.fullPath }
+  });
+}
+
+function redirectToAuth() {
+  router.push({
+    name: "h5-auth",
+    query: { redirect: route.fullPath }
+  });
+}
+
+async function requestActiveStockDeepForecast() {
+  if (!activeDetailID.value || !activeStock.value) return;
+  if (!isLoggedIn.value) {
+    redirectToAuth();
+    return;
+  }
+  loading.value = true;
+  try {
+    const run = await createForecastRun({
+      target_type: "STOCK",
+      target_id: activeStock.value.id,
+      target_key: activeStock.value.symbol,
+      target_label: activeStock.value.name || activeStock.value.symbol,
+      trigger_type: "USER_REQUEST",
+      priority_score: 0.8,
+      reason: activeStock.value.reason_summary || ""
+    });
+    if (run?.id) {
+      pendingStockForecastRunIDMap.value = {
+        ...pendingStockForecastRunIDMap.value,
+        [activeDetailID.value]: run.id
+      };
+      openForecastRun(run.id);
+    }
+  } catch (error) {
+    console.error("Failed to request stock deep forecast:", error);
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function requestActiveFuturesDeepForecast() {
+  if (!activeDetailID.value || !activeFutures.value) return;
+  if (!isLoggedIn.value) {
+    redirectToAuth();
+    return;
+  }
+  loading.value = true;
+  try {
+    const run = await createForecastRun({
+      target_type: "FUTURES",
+      target_id: activeFutures.value.id,
+      target_key: activeFutures.value.contract,
+      target_label: activeFutures.value.name || activeFutures.value.contract,
+      trigger_type: "USER_REQUEST",
+      priority_score: 0.8,
+      reason: activeFutures.value.reason_summary || ""
+    });
+    if (run?.id) {
+      pendingFuturesForecastRunIDMap.value = {
+        ...pendingFuturesForecastRunIDMap.value,
+        [activeDetailID.value]: run.id
+      };
+      openForecastRun(run.id);
+    }
+  } catch (error) {
+    console.error("Failed to request futures deep forecast:", error);
+  } finally {
+    loading.value = false;
+  }
+}
+
+
 function goNews() {
-  router.push("/news");
+  router.push({ name: "h5-news" });
 }
 
 watch(() => route.query.id, (value) => {
@@ -1237,6 +1481,101 @@ onBeforeUnmount(() => {
   .strategy-actions-card .block:last-child {
     grid-column: 1 / -1;
   }
+}
+
+.strategy-performance-bar {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(20, 52, 95, 0.05), transparent);
+  color: var(--h5-brand);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.strategy-agent-strip {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+
+.strategy-agent-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.strategy-agent-card {
+  flex: 0 0 240px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(20, 52, 95, 0.04);
+  border: 1px solid rgba(16, 42, 86, 0.06);
+  display: grid;
+  gap: 8px;
+}
+
+.strategy-agent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.strategy-agent-head strong {
+  font-size: 13px;
+  color: var(--h5-text);
+}
+
+.strategy-badge.mini {
+  min-height: 20px;
+  padding: 0 6px;
+  font-size: 10px;
+}
+
+.strategy-scenario-list {
+  display: grid;
+  gap: 12px;
+}
+
+.strategy-scenario-item {
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(16, 42, 86, 0.06);
+  display: grid;
+  gap: 8px;
+}
+
+.strategy-scenario-head strong {
+  font-size: 14px;
+  color: var(--h5-brand);
+}
+
+.strategy-scenario-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--h5-text-soft);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.strategy-forecast-summary {
+  padding: 16px;
+  border-radius: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.strategy-forecast-summary.queued { background: rgba(16, 42, 86, 0.04); color: var(--h5-text-soft); }
+.strategy-forecast-summary.running { background: rgba(20, 52, 95, 0.06); color: var(--h5-brand); }
+.strategy-forecast-summary.success { background: rgba(20, 162, 74, 0.06); color: #1a7f37; }
+
+.strategy-forecast-note {
+  font-size: 12px;
+  opacity: 0.8;
+  font-style: italic;
 }
 
 @media (max-width: 374px) {

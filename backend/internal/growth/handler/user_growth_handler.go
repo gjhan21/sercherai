@@ -121,46 +121,6 @@ func (h *UserGrowthHandler) UpdateUserProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
-func (h *UserGrowthHandler) GetKYCStatus(c *gin.Context) {
-	userID, ok := requireUserID(c)
-	if !ok {
-		return
-	}
-	profile, err := h.service.GetUserProfile(userID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "user not found", Data: struct{}{}})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
-		return
-	}
-	c.JSON(http.StatusOK, dto.OK(gin.H{"kyc_status": profile.KYCStatus}))
-}
-
-func (h *UserGrowthHandler) SubmitKYC(c *gin.Context) {
-	userID, ok := requireUserID(c)
-	if !ok {
-		return
-	}
-	var req dto.KYCSubmitRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
-		return
-	}
-	status, err := h.service.SubmitUserKYC(userID, req.RealName, req.IDNumber, "MANUAL")
-	if err != nil {
-		msg := strings.ToLower(err.Error())
-		if strings.Contains(msg, "approved") || strings.Contains(msg, "pending") {
-			c.JSON(http.StatusConflict, dto.APIResponse{Code: 40901, Message: err.Error(), Data: struct{}{}})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
-		return
-	}
-	c.JSON(http.StatusOK, dto.OK(gin.H{"kyc_status": status}))
-}
-
 func (h *UserGrowthHandler) ListRechargeRecords(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
@@ -886,12 +846,8 @@ func (h *UserGrowthHandler) ListFuturesArbitrage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	page, pageSize := parsePage(c)
@@ -909,12 +865,8 @@ func (h *UserGrowthHandler) GetFuturesArbitrageDetail(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	id := c.Param("id")
@@ -935,12 +887,8 @@ func (h *UserGrowthHandler) ListArbitrageOpportunities(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	page, pageSize := parsePage(c)
@@ -959,12 +907,8 @@ func (h *UserGrowthHandler) CreateFuturesAlert(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	var req dto.FuturesAlertRequest
@@ -985,12 +929,8 @@ func (h *UserGrowthHandler) ListFuturesReviews(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	page, pageSize := parsePage(c)
@@ -1007,12 +947,8 @@ func (h *UserGrowthHandler) GetFuturesGuidance(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	contract := c.Param("contract")
@@ -1065,7 +1001,7 @@ func (h *UserGrowthHandler) ListStockRecommendations(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
 		return
 	}
@@ -1076,9 +1012,6 @@ func (h *UserGrowthHandler) ListStockRecommendations(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		maskStockRecommendations(items)
-	}
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
@@ -1087,12 +1020,8 @@ func (h *UserGrowthHandler) GetStockRecommendationDetail(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	id := c.Param("id")
@@ -1113,12 +1042,8 @@ func (h *UserGrowthHandler) GetStockRecommendationPerformance(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	id := c.Param("id")
@@ -1139,12 +1064,8 @@ func (h *UserGrowthHandler) GetStockRecommendationInsight(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	id := c.Param("id")
@@ -1157,6 +1078,20 @@ func (h *UserGrowthHandler) GetStockRecommendationInsight(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
+
+	// 动态合并最新的 L3 推演状态
+	if latestRun, err := h.service.GetLatestStrategyForecastL3Run(model.StrategyForecastL3TargetTypeStock, id); err == nil && latestRun.ID != "" {
+		if item.Explanation.DeepForecastSummary == nil || latestRun.CreatedAt > item.Explanation.DeepForecastSummary.GeneratedAt {
+			summary := latestRun.Summary
+			if summary.RunID == "" {
+				summary.RunID = latestRun.ID
+			}
+			summary.Status = latestRun.Status
+			summary.GeneratedAt = latestRun.CreatedAt
+			item.Explanation.DeepForecastSummary = &summary
+		}
+	}
+
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
@@ -1165,12 +1100,8 @@ func (h *UserGrowthHandler) GetStockRecommendationVersionHistory(c *gin.Context)
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	id := c.Param("id")
@@ -1213,7 +1144,7 @@ func (h *UserGrowthHandler) ListFuturesStrategies(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
 		return
 	}
@@ -1225,9 +1156,6 @@ func (h *UserGrowthHandler) ListFuturesStrategies(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		maskFuturesStrategies(items)
-	}
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
@@ -1236,12 +1164,8 @@ func (h *UserGrowthHandler) GetFuturesStrategyDetail(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	id := c.Param("id")
@@ -1262,12 +1186,8 @@ func (h *UserGrowthHandler) GetFuturesStrategyInsight(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	id := c.Param("id")
@@ -1288,12 +1208,8 @@ func (h *UserGrowthHandler) GetFuturesStrategyVersionHistory(c *gin.Context) {
 	if !ok {
 		return
 	}
-	profile, ok := h.loadAccessProfile(c, userID)
+	_, ok = h.loadAccessProfile(c, userID)
 	if !ok {
-		return
-	}
-	if strings.ToUpper(profile.KYCStatus) != "APPROVED" {
-		c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "kyc required", Data: struct{}{}})
 		return
 	}
 	id := c.Param("id")

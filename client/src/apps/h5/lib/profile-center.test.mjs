@@ -63,20 +63,20 @@ test("buildProfileCenterModel prioritizes activation, unread messages, and invit
 
   assert.equal(model.hero.displayName, "138****5678");
   assert.equal(model.hero.memberLevel, "VIP 1");
-  assert.equal(model.hero.activationState, "待实名激活");
+  assert.equal(model.hero.activationState, "已激活");
   assert.deepEqual(model.hero.metrics, [
-    { label: "实名", value: "审核中", note: "支付后待完成" },
+    { label: "会员状态", value: "VIP 1", note: "权益正常使用" },
     { label: "消息", value: "1 条", note: "未读待处理" },
     { label: "邀请", value: "3 人", note: "7日注册" }
   ]);
 
-  assert.equal(model.todos[0].id, "kyc");
-  assert.equal(model.todos[0].actionLabel, "去实名");
+  assert.equal(model.todos[0].id, "membership");
+  assert.equal(model.todos[0].actionLabel, "去会员页");
   assert.equal(model.serviceCards[0].id, "membership");
   assert.equal(model.serviceCards[1].id, "messages");
   assert.equal(model.inviteOverview.primaryCode, "VIP2026");
-  assert.equal(model.sticky.primaryTarget, "kyc");
-  assert.equal(model.sticky.primaryLabel, "提交实名");
+  assert.equal(model.sticky.primaryTarget, "messages");
+  assert.equal(model.sticky.primaryLabel, "处理消息");
 });
 
 test("buildProfileCenterModel keeps readable fallbacks without account data", () => {

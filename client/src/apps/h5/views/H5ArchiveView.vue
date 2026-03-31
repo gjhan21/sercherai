@@ -458,19 +458,19 @@ function handlePrimaryAction() {
 }
 
 function goAuth() {
-  router.push({ path: "/auth", query: { redirect: "/archive" } });
+  router.push({ name: "h5-auth", query: { redirect: "/m/archive" } });
 }
 
 function goMembership() {
-  router.push("/membership");
+  router.push({ name: "h5-membership" });
 }
 
 function goNews() {
-  router.push("/news");
+  router.push({ name: "h5-news" });
 }
 
 function goStrategies() {
-  router.push("/strategies");
+  router.push({ name: "h5-strategies" });
 }
 
 function goWatchlist() {

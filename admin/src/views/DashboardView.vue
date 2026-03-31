@@ -28,7 +28,7 @@ const updatedAt = ref("");
 const overview = ref({
   total_users: 0,
   active_users: 0,
-  kyc_approved_users: 0,
+  active_vip_users: 0,
   vip_users: 0,
   active_subscriptions: 0,
   pending_membership_orders: 0,
@@ -52,7 +52,7 @@ const ops = ref({
 const coreCards = computed(() => [
   { label: "总用户数", value: overview.value.total_users },
   { label: "活跃用户", value: overview.value.active_users },
-  { label: "实名通过", value: overview.value.kyc_approved_users },
+  { label: "活跃VIP", value: overview.value.active_vip_users },
   { label: "VIP 用户", value: overview.value.vip_users },
   { label: "生效订阅", value: overview.value.active_subscriptions },
   { label: "待处理会员订单", value: overview.value.pending_membership_orders },

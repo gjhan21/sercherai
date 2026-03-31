@@ -32,7 +32,7 @@
                   type="search"
                   name="pc_global_search"
                   maxlength="40"
-                  placeholder="搜索股票、期货策略和资讯"
+                  placeholder="输入股票/期货的代码或名称，体验 AI 智能分析与推演"
                   @focus="handleSearchFocus"
                   @keydown.esc.prevent="handleEscapeSearch"
                 />
@@ -86,7 +86,9 @@
               </template>
 
               <div class="pc-search-actions">
-                <button type="button" class="pc-search-more" @click="openSearchResultsPage()">查看更多搜索结果</button>
+                <button type="button" class="pc-search-more" @click="openSearchResultsPage()">
+                  🚀 查看 "{{ activeSearchKeyword }}" 的探索结果与 AI 深度推演
+                </button>
               </div>
             </div>
           </div>

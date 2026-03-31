@@ -5,7 +5,6 @@ import {
   getUserCenterOverview,
   listUsers,
   resetUserPassword,
-  updateUserKYCStatus,
   updateUserMemberLevel,
   updateUserSubscription,
   updateUserStatus
@@ -22,7 +21,6 @@ const message = ref("");
 
 const filters = reactive({
   status: "",
-  kyc_status: "",
   member_level: "",
   registration_source: ""
 });
@@ -49,14 +47,11 @@ const userTableRef = ref(null);
 const selectedRows = ref([]);
 
 const draftStatusMap = ref({});
-const draftKYCMap = ref({});
 const draftLevelMap = ref({});
 
 const batchStatus = ref("ACTIVE");
-const batchKYCStatus = ref("APPROVED");
 const batchMemberLevel = ref("VIP1");
 const batchUpdatingStatus = ref(false);
-const batchUpdatingKYC = ref(false);
 const batchUpdatingLevel = ref(false);
 
 const batchResultVisible = ref(false);
@@ -96,7 +91,6 @@ const passwordForm = reactive({
 });
 
 const statusOptions = ["ACTIVE", "DISABLED", "BANNED"];
-const kycStatusOptions = ["PENDING", "APPROVED", "REJECTED"];
 const registrationSourceOptions = [
   { value: "DIRECT", label: "自然注册" },
   { value: "INVITED", label: "邀请注册" }
@@ -108,7 +102,6 @@ const canEditUsers = hasPermission("users.edit");
 const selectedCount = computed(() => selectedRows.value.length);
 const failedBatchRows = computed(() => batchResultRows.value.filter((row) => row.result === "FAILED"));
 const canBatchUpdateStatus = computed(() => selectedCount.value > 0 && batchStatus.value.trim() !== "");
-const canBatchUpdateKYC = computed(() => selectedCount.value > 0 && batchKYCStatus.value.trim() !== "");
 const canBatchUpdateLevel = computed(() => selectedCount.value > 0 && batchMemberLevel.value.trim() !== "");
 const batchResultStats = computed(() => {
   const stats = {
@@ -215,15 +208,12 @@ function syncCenterSubscriptionDraft(rows = []) {
 
 function syncDrafts() {
   const statusMap = {};
-  const kycMap = {};
   const levelMap = {};
   users.value.forEach((user) => {
     statusMap[user.id] = user.status || "ACTIVE";
-    kycMap[user.id] = user.kyc_status || "PENDING";
     levelMap[user.id] = user.member_level || "FREE";
   });
   draftStatusMap.value = statusMap;
-  draftKYCMap.value = kycMap;
   draftLevelMap.value = levelMap;
 }
 
@@ -246,7 +236,7 @@ function ensureCanEditUsers() {
   if (canEditUsers) {
     return true;
   }
-  errorMessage.value = "当前账号只有查看权限，无法修改用户状态、KYC、会员等级、密码或订阅配置";
+  errorMessage.value = "当前账号只有查看权限，无法修改用户状态、会员等级、密码或订阅配置";
   return false;
 }
 
@@ -269,7 +259,6 @@ async function fetchUsers(options = {}) {
   try {
     const listParams = {
       status: filters.status,
-      kyc_status: filters.kyc_status,
       member_level: filters.member_level,
       registration_source: filters.registration_source,
       page: page.value,
@@ -279,7 +268,6 @@ async function fetchUsers(options = {}) {
       listUsers(listParams),
       getUserSourceSummary({
         status: filters.status,
-        kyc_status: filters.kyc_status,
         member_level: filters.member_level,
         registration_source: filters.registration_source
       })
@@ -321,24 +309,6 @@ async function handleUpdateStatus(user) {
   }
 }
 
-async function handleUpdateKYC(user) {
-  if (!ensureCanEditUsers()) {
-    return;
-  }
-  const target = (draftKYCMap.value[user.id] || "").trim();
-  if (!target || target === user.kyc_status) {
-    return;
-  }
-  errorMessage.value = "";
-  message.value = "";
-  try {
-    await updateUserKYCStatus(user.id, target);
-    await fetchUsers({ keepMessage: true });
-    message.value = `用户 ${user.id} KYC 状态已更新为 ${target}`;
-  } catch (error) {
-    errorMessage.value = error.message || "更新 KYC 状态失败";
-  }
-}
 
 async function handleUpdateMemberLevel(user) {
   if (!ensureCanEditUsers()) {
@@ -409,11 +379,6 @@ async function handleResetUserPassword() {
 
 function mapDisplayStatus(raw, type = "") {
   const normalized = (raw || "").toUpperCase();
-  if (type === "kyc") {
-    if (normalized === "APPROVED") return "已认证";
-    if (normalized === "PENDING") return "审核中";
-    if (normalized === "REJECTED") return "未通过";
-  }
   if (type === "payment") {
     if (normalized === "PAID" || normalized === "SUCCESS") return "已支付";
     if (normalized === "PENDING") return "处理中";
@@ -673,20 +638,6 @@ async function handleBatchUpdateStatus() {
   });
 }
 
-async function handleBatchUpdateKYC() {
-  await runBatchUpdate({
-    title: "批量更新 KYC 状态结果",
-    action: "批量更新KYC",
-    actionKey: "KYC_STATUS",
-    targetValue: batchKYCStatus.value,
-    loadingRef: batchUpdatingKYC,
-    emptyTargetMessage: "请先选择目标 KYC 状态",
-    currentValue: (user) => user.kyc_status,
-    skippedReason: "KYC 状态已是目标值",
-    successReason: (target) => `KYC 状态已更新为 ${target}`,
-    executor: updateUserKYCStatus
-  });
-}
 
 async function handleBatchUpdateLevel() {
   await runBatchUpdate({
@@ -713,10 +664,6 @@ async function executeBatchResultRow(row) {
   if (actionKey === "USER_STATUS") {
     await updateUserStatus(row.id, target);
     return `状态已更新为 ${target}`;
-  }
-  if (actionKey === "KYC_STATUS") {
-    await updateUserKYCStatus(row.id, target);
-    return `KYC 状态已更新为 ${target}`;
   }
   if (actionKey === "MEMBER_LEVEL") {
     await updateUserMemberLevel(row.id, target);
@@ -840,7 +787,6 @@ function buildCSVRows(items) {
     "phone",
     "email",
     "status",
-    "kyc_status",
     "member_level",
     "registration_source",
     "inviter_user_id",
@@ -853,7 +799,6 @@ function buildCSVRows(items) {
     item.phone || "",
     item.email || "",
     item.status || "",
-    item.kyc_status || "",
     item.member_level || "",
     item.registration_source || "",
     item.inviter_user_id || "",
@@ -879,7 +824,6 @@ async function exportFilteredCSV() {
   try {
     const params = new URLSearchParams();
     if (filters.status) params.set("status", filters.status);
-    if (filters.kyc_status) params.set("kyc_status", filters.kyc_status);
     if (filters.member_level.trim()) params.set("member_level", filters.member_level.trim());
     if (filters.registration_source) params.set("registration_source", filters.registration_source);
 
@@ -924,7 +868,6 @@ function applyFilters() {
 
 function resetFilters() {
   filters.status = "";
-  filters.kyc_status = "";
   filters.member_level = "";
   filters.registration_source = "";
   page.value = 1;
@@ -946,13 +889,6 @@ function statusTagType(status) {
   return "info";
 }
 
-function kycTagType(status) {
-  const normalized = (status || "").toUpperCase();
-  if (normalized === "APPROVED") return "success";
-  if (normalized === "REJECTED") return "danger";
-  if (normalized === "PENDING") return "warning";
-  return "info";
-}
 
 onMounted(fetchUsers);
 </script>
@@ -962,7 +898,7 @@ onMounted(fetchUsers);
     <div class="page-header">
       <div>
         <h1 class="page-title">用户管理</h1>
-        <p class="muted">用户状态、实名状态、会员等级维护</p>
+        <p class="muted">用户状态、会员等级维护</p>
       </div>
       <el-button :loading="loading" @click="fetchUsers">刷新</el-button>
     </div>
@@ -986,9 +922,6 @@ onMounted(fetchUsers);
       <div class="toolbar">
         <el-select v-model="filters.status" clearable placeholder="全部用户状态" style="width: 160px">
           <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
-        </el-select>
-        <el-select v-model="filters.kyc_status" clearable placeholder="全部 KYC 状态" style="width: 170px">
-          <el-option v-for="item in kycStatusOptions" :key="item" :label="item" :value="item" />
         </el-select>
         <el-input v-model="filters.member_level" clearable placeholder="会员等级，如 VIP1" style="width: 180px" />
         <el-select
@@ -1041,20 +974,6 @@ onMounted(fetchUsers);
           </el-popconfirm>
         </div>
 
-        <div class="field-stack">
-          <el-select v-model="batchKYCStatus" style="width: 140px">
-            <el-option v-for="item in kycStatusOptions" :key="item" :label="item" :value="item" />
-          </el-select>
-          <el-popconfirm
-            width="300"
-            :title="`确认将选中用户 KYC 状态批量更新为 ${batchKYCStatus || '-'} 吗？`"
-            @confirm="handleBatchUpdateKYC"
-          >
-            <template #reference>
-              <el-button :loading="batchUpdatingKYC" :disabled="!canBatchUpdateKYC">批量更新KYC</el-button>
-            </template>
-          </el-popconfirm>
-        </div>
 
         <div class="field-stack">
           <el-input v-model="batchMemberLevel" placeholder="目标会员等级" style="width: 140px" />
@@ -1122,19 +1041,6 @@ onMounted(fetchUsers);
           </template>
         </el-table-column>
 
-        <el-table-column label="KYC 状态" min-width="300">
-          <template #default="{ row }">
-            <div class="inline-actions">
-              <el-tag :type="kycTagType(row.kyc_status)">{{ row.kyc_status || "-" }}</el-tag>
-              <template v-if="canEditUsers">
-                <el-select v-model="draftKYCMap[row.id]" style="width: 120px">
-                  <el-option v-for="item in kycStatusOptions" :key="item" :label="item" :value="item" />
-                </el-select>
-                <el-button size="small" @click="handleUpdateKYC(row)">保存</el-button>
-              </template>
-            </div>
-          </template>
-        </el-table-column>
 
         <el-table-column label="会员等级" min-width="260">
           <template #default="{ row }">
@@ -1249,9 +1155,6 @@ onMounted(fetchUsers);
           </el-descriptions-item>
           <el-descriptions-item label="会员等级">
             {{ centerData.membership_quota?.member_level || centerData.user_profile?.member_level || "-" }}
-          </el-descriptions-item>
-          <el-descriptions-item label="KYC状态">
-            {{ mapDisplayStatus(centerData.user_profile?.kyc_status, "kyc") }}
           </el-descriptions-item>
           <el-descriptions-item label="邮箱">
             {{ centerData.user_profile?.email || "-" }}

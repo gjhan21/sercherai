@@ -221,7 +221,7 @@ func (r *InMemoryGrowthRepo) GetUserProfile(userID string) (model.UserProfile, e
 		Email:              "demo@sercherai.local",
 		KYCStatus:          "PENDING",
 		MemberLevel:        "VIP1",
-		ActivationState:    "PAID_PENDING_KYC",
+		ActivationState:    "ACTIVE",
 		VIPStartedAt:       "2026-02-20T00:00:00+08:00",
 		VIPExpireAt:        "2026-03-20T23:59:59+08:00",
 		VIPStatus:          "ACTIVE",
@@ -288,7 +288,7 @@ func (r *InMemoryGrowthRepo) GetUserAccessProfile(userID string) (model.UserAcce
 		Status:          "ACTIVE",
 		KYCStatus:       "PENDING",
 		MemberLevel:     "VIP1",
-		ActivationState: "PAID_PENDING_KYC",
+		ActivationState: "ACTIVE",
 	}, nil
 }
 
@@ -296,7 +296,7 @@ func (r *InMemoryGrowthRepo) GetMembershipQuota(userID string) (model.Membership
 	return model.MembershipQuota{
 		MemberLevel:            "VIP1",
 		KYCStatus:              "PENDING",
-		ActivationState:        "PAID_PENDING_KYC",
+		ActivationState:        "ACTIVE",
 		PeriodKey:              "2026-02",
 		DocReadLimit:           100,
 		DocReadUsed:            24,
@@ -627,6 +627,24 @@ func (r *InMemoryGrowthRepo) GetFuturesStrategyVersionHistory(userID string, str
 			GeneratedAt:      firstNonEmpty(insight.Explanation.GeneratedAt, insight.GeneratedAt),
 		},
 	}, nil
+}
+
+func (r *InMemoryGrowthRepo) GetLatestStrategyForecastL3Run(targetType string, targetID string) (model.StrategyForecastL3Run, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var latest model.StrategyForecastL3Run
+	for _, run := range r.forecastL3Runs {
+		if run.TargetType == targetType && run.TargetID == targetID {
+			if latest.ID == "" || run.CreatedAt > latest.CreatedAt {
+				latest = run
+			}
+		}
+	}
+	if latest.ID == "" {
+		return model.StrategyForecastL3Run{}, sql.ErrNoRows
+	}
+	return latest, nil
 }
 
 func (r *InMemoryGrowthRepo) ListMembershipProducts(status string, page int, pageSize int) ([]model.MembershipProduct, int, error) {
@@ -1673,7 +1691,7 @@ func (r *InMemoryGrowthRepo) AdminUpdateFuturesStrategyStatus(id string, status 
 	return nil
 }
 
-func (r *InMemoryGrowthRepo) AdminListUsers(status string, kycStatus string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error) {
+func (r *InMemoryGrowthRepo) AdminListUsers(status string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error) {
 	registrationSource = strings.ToUpper(strings.TrimSpace(registrationSource))
 	items := []model.AdminUser{
 		{
@@ -1683,7 +1701,7 @@ func (r *InMemoryGrowthRepo) AdminListUsers(status string, kycStatus string, mem
 			Status:             "ACTIVE",
 			KYCStatus:          "PENDING",
 			MemberLevel:        "VIP1",
-			ActivationState:    "PAID_PENDING_KYC",
+			ActivationState:    "ACTIVE",
 			RegistrationSource: "INVITED",
 			InviterUserID:      "u_demo_inviter",
 			InviteCode:         "DEMO2026",
@@ -1715,7 +1733,7 @@ func (r *InMemoryGrowthRepo) AdminListUsers(status string, kycStatus string, mem
 	return filtered, len(filtered), nil
 }
 
-func (r *InMemoryGrowthRepo) AdminGetUserSourceSummary(status string, kycStatus string, memberLevel string, registrationSource string) (model.AdminUserSourceSummary, error) {
+func (r *InMemoryGrowthRepo) AdminGetUserSourceSummary(status string, memberLevel string, registrationSource string) (model.AdminUserSourceSummary, error) {
 	summary := model.AdminUserSourceSummary{
 		TotalUsers:            2,
 		DirectUsers:           1,
@@ -1962,9 +1980,8 @@ func (r *InMemoryGrowthRepo) AdminResetUserPasswordHash(id string, passwordHash 
 func (r *InMemoryGrowthRepo) AdminDashboardOverview() (model.AdminDashboardOverview, error) {
 	return model.AdminDashboardOverview{
 		TotalUsers:              1200,
-		ActiveUsers:             1080,
-		KYCApprovedUsers:        860,
-		VIPUsers:                320,
+		ActiveUsers:             785,
+		VIPUsers:                210,
 		ActiveSubscriptions:     486,
 		PendingMembershipOrders: 9,
 		TodayNewUsers:           26,

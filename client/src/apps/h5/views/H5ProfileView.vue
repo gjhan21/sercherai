@@ -140,30 +140,6 @@
       </div>
     </section>
 
-    <section v-if="canSubmitKYC || rawQuota.activation_state === 'PAID_PENDING_KYC'" ref="kycSectionRef" class="profile-card profile-card-accent">
-      <div class="profile-section-head compact">
-        <div>
-          <strong>实名激活</strong>
-          <span>支付完成后，优先补齐实名，审核通过即自动生效</span>
-        </div>
-      </div>
-
-      <div class="profile-kyc-hero">
-        <div>
-          <strong>{{ activationStateText }}</strong>
-          <p>{{ kycHelperText }}</p>
-        </div>
-        <span class="profile-status-pill gold">{{ kycStatusText }}</span>
-      </div>
-
-      <form v-if="canSubmitKYC" class="profile-kyc-form" @submit.prevent="handleSubmitKYC">
-        <input v-model.trim="kycForm.real_name" type="text" placeholder="请输入真实姓名" />
-        <input v-model.trim="kycForm.id_number" type="text" placeholder="请输入身份证号" />
-        <button type="submit" class="h5-btn block" :disabled="kycSubmitting">{{ kycSubmitting ? "提交中..." : "提交实名信息" }}</button>
-      </form>
-
-      <p v-if="kycMessage" class="profile-inline-note">{{ kycMessage }}</p>
-    </section>
 
     <section class="profile-card">
       <div class="profile-section-head">
@@ -298,12 +274,11 @@ import {
   listMembershipOrders,
   listMessages,
   listShareLinks,
-  readMessage,
-  submitKYC
+  readMessage
 } from "../../../api/userCenter";
 import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
 import { buildProfileModuleRoute, normalizeProfileModuleSection } from "../../../lib/profile-modules";
-import { formatDateTime, mapActivationState, mapKYCStatus, toArray } from "../lib/formatters";
+import { formatDateTime, mapActivationState, toArray } from "../lib/formatters";
 import {
   fallbackInviteRecords,
   fallbackInviteSummary,
@@ -329,14 +304,10 @@ const rawMessages = ref(useDemoFallback ? [...fallbackMessages] : []);
 const rawShareLinks = ref(useDemoFallback ? [...fallbackShareLinks] : []);
 const rawInviteRecords = ref(useDemoFallback ? [...fallbackInviteRecords] : []);
 const rawInviteSummary = ref(useDemoFallback ? { ...fallbackInviteSummary } : {});
-const kycForm = ref({ real_name: "", id_number: "" });
-const kycSubmitting = ref(false);
-const kycMessage = ref("");
 const inviteMessage = ref("");
 const creatingShareLink = ref(false);
 const messageSectionRef = ref(null);
 const inviteSectionRef = ref(null);
-const kycSectionRef = ref(null);
 const moduleSectionRef = ref(null);
 const watchlistEntryRef = ref(null);
 
@@ -350,13 +321,7 @@ const profileModel = computed(() => buildProfileCenterModel({
   inviteSummary: rawInviteSummary.value
 }));
 
-const canSubmitKYC = computed(() => ["PENDING", "REJECTED", ""].includes(String(rawProfile.value?.kyc_status || "").toUpperCase()) && rawQuota.value?.activation_state === "PAID_PENDING_KYC");
-const kycStatusText = computed(() => mapKYCStatus(rawProfile.value?.kyc_status || rawQuota.value?.kyc_status));
-const activationStateText = computed(() => mapActivationState(rawQuota.value?.activation_state || rawProfile.value?.activation_state));
-const kycHelperText = computed(() => canSubmitKYC.value
-  ? "提交实名后，系统审核通过会自动激活当前高级权益。"
-  : "如果实名审核仍在进行中，这里会持续同步最新状态。");
-const stickyDescription = computed(() => kycMessage.value || inviteMessage.value || loadError.value || profileModel.value.sticky.description);
+const stickyDescription = computed(() => inviteMessage.value || loadError.value || profileModel.value.sticky.description);
 const activeProfileSection = computed(() => normalizeProfileModuleSection(route.query.section));
 const profileModuleCards = computed(() => [
   {
@@ -417,29 +382,6 @@ async function loadProfilePage() {
   loading.value = false;
 }
 
-async function handleSubmitKYC() {
-  if (!canSubmitKYC.value || kycSubmitting.value) {
-    return;
-  }
-  kycSubmitting.value = true;
-  kycMessage.value = "";
-  try {
-    const result = await submitKYC({
-      real_name: kycForm.value.real_name,
-      id_number: kycForm.value.id_number
-    });
-    rawProfile.value = {
-      ...rawProfile.value,
-      kyc_status: result?.kyc_status || "PENDING"
-    };
-    kycMessage.value = "实名资料已提交，审核通过后会自动激活高级权益。";
-    await loadProfilePage();
-  } catch (error) {
-    kycMessage.value = error?.message || "实名提交失败";
-  } finally {
-    kycSubmitting.value = false;
-  }
-}
 
 async function handleReadMessage(item) {
   if (!item?.id) {
@@ -482,19 +424,19 @@ async function copyInviteLink(item) {
 }
 
 function goMembership() {
-  router.push("/membership");
+  router.push({ name: "h5-membership" });
 }
 
 function goStrategies() {
-  router.push("/strategies");
+  router.push({ name: "h5-strategies" });
 }
 
 function goNews() {
-  router.push("/news");
+  router.push({ name: "h5-news" });
 }
 
 function goWatchlistDetail() {
-  router.push("/profile/watchlist");
+  router.push({ name: "h5-profile-watchlist" });
 }
 
 function scrollIntoSection(targetRef) {
@@ -528,10 +470,6 @@ function handleTargetAction(target) {
   }
   if (target === "messages") {
     scrollIntoSection(messageSectionRef);
-    return;
-  }
-  if (target === "kyc") {
-    scrollIntoSection(kycSectionRef);
     return;
   }
   loadProfilePage();
@@ -655,15 +593,6 @@ onMounted(async () => {
 .profile-service-copy strong,
 .profile-service-copy p,
 .profile-message-item p,
-.profile-message-topline strong,
-.profile-message-topline span,
-.profile-invite-code strong,
-.profile-invite-code p,
-.profile-share-item p,
-.profile-share-item strong,
-.profile-inline-note,
-.profile-kyc-hero strong,
-.profile-kyc-hero p,
 .profile-shortcut strong,
 .profile-shortcut small {
   margin: 0;
@@ -841,24 +770,13 @@ onMounted(async () => {
   gap: 8px;
 }
 
-.profile-todo-copy strong,
-.profile-service-copy strong,
-.profile-message-topline strong,
-.profile-share-item strong,
-.profile-invite-code strong,
-.profile-kyc-hero strong {
+.profile-share-item strong {
   color: #16263d;
   font-size: 15px;
   line-height: 1.45;
 }
 
 .profile-todo-copy p,
-.profile-service-copy p,
-.profile-message-item p,
-.profile-invite-item p,
-.profile-share-item p,
-.profile-invite-code p,
-.profile-kyc-hero p,
 .profile-inline-note {
   color: #5f7088;
   font-size: 13px;

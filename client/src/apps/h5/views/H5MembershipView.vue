@@ -26,11 +26,6 @@
 
       <div class="membership-status-grid">
         <article class="membership-status-item">
-          <span>实名状态</span>
-          <strong>{{ kycStatusText }}</strong>
-          <p>{{ todoTitle }}</p>
-        </article>
-        <article class="membership-status-item">
           <span>剩余天数</span>
           <strong>{{ remainingDaysText }}</strong>
           <p>{{ vipExpireText }}</p>
@@ -227,7 +222,6 @@ import {
   formatDateTime,
   formatMoney,
   mapActivationState,
-  mapKYCStatus,
   mapMemberLevel,
   mapPayChannel,
   mapPaymentStatus,
@@ -263,27 +257,18 @@ const payChannels = [
 
 const currentLevelText = computed(() => mapMemberLevel(rawQuota.value?.member_level, rawQuota.value?.member_level));
 const vipStatusText = computed(() => mapVIPStatus(rawQuota.value?.vip_status, rawQuota.value?.member_level));
-const kycStatusText = computed(() => mapKYCStatus(rawQuota.value?.kyc_status));
 const activationStateText = computed(() => mapActivationState(rawQuota.value?.activation_state));
 const remainingDaysText = computed(() => `${Math.max(0, Number(rawQuota.value?.vip_remaining_days || 0))} 天`);
 const vipExpireText = computed(() => rawQuota.value?.vip_expire_at ? `到期 ${formatDateTime(rawQuota.value.vip_expire_at)}` : "暂未开通");
 const payChannelLabel = computed(() => mapPayChannel(payChannel.value));
 const latestPaymentURL = computed(() => resolvePaymentActionURL(latestPaymentAction.value));
 
-const heroTitle = computed(() => {
-  if (rawQuota.value?.activation_state === "PAID_PENDING_KYC") {
-    return `${currentLevelText.value} 已支付，待实名激活`;
-  }
-  return resolveVipStage(rawQuota.value) ? `${currentLevelText.value} 已开通，可继续升级` : "选定套餐后即可发起支付";
-});
+const heroTitle = computed(() => resolveVipStage(rawQuota.value) ? `${currentLevelText.value} 已开通，可继续升级` : "选定套餐后即可发起支付");
 const heroDescription = computed(() => {
-  if (rawQuota.value?.activation_state === "PAID_PENDING_KYC") {
-    return "当前最优先的动作是完成实名，审核通过后高级权益会自动生效。";
-  }
   if (resolveVipStage(rawQuota.value)) {
     return "当前权益已经生效，可以继续管理账户状态，也可以切到更高阶方案。";
   }
-  return "像中国 App 收银台一样，先看推荐方案，再在一个动作区里完成支付。";
+  return "先看推荐方案，再在一个动作区里完成支付。";
 });
 
 const valueCards = computed(() => [
@@ -326,18 +311,12 @@ const orderCards = computed(() => rawOrders.value.slice(0, 4).map((item) => ({
 })));
 
 const todoTitle = computed(() => {
-  if (rawQuota.value?.activation_state === "PAID_PENDING_KYC") {
-    return "待实名激活";
-  }
   if (!resolveVipStage(rawQuota.value)) {
     return "待支付开通";
   }
   return "权益生效中";
 });
 const todoDescription = computed(() => {
-  if (rawQuota.value?.activation_state === "PAID_PENDING_KYC") {
-    return "前往我的页提交实名信息，审核通过后自动激活。";
-  }
   if (!resolveVipStage(rawQuota.value)) {
     return selectedPlan.value ? `当前建议先支付 ${selectedPlan.value.displayName}。` : "优先选择合适套餐并完成支付。";
   }
@@ -345,9 +324,6 @@ const todoDescription = computed(() => {
 });
 
 const focusActionLabel = computed(() => {
-  if (rawQuota.value?.activation_state === "PAID_PENDING_KYC") {
-    return "去完成实名";
-  }
   if (resolveVipStage(rawQuota.value) && selectedPlan.value?.current) {
     return "查看我的账户";
   }
@@ -356,9 +332,6 @@ const focusActionLabel = computed(() => {
 const focusActionDisabled = computed(() => Boolean(selectedPlan.value?.id && orderingProductID.value === selectedPlan.value.id));
 
 const stickyTitle = computed(() => {
-  if (rawQuota.value?.activation_state === "PAID_PENDING_KYC") {
-    return "支付已完成，下一步先完成实名激活";
-  }
   if (resolveVipStage(rawQuota.value)) {
     return selectedPlan.value?.current ? "当前方案已生效，可继续管理账户状态" : "权益已生效，仍可切换更高阶方案";
   }
@@ -473,10 +446,6 @@ function openLatestPaymentPage() {
 }
 
 function handleFocusAction() {
-  if (rawQuota.value?.activation_state === "PAID_PENDING_KYC") {
-    router.push("/profile");
-    return;
-  }
   if (resolveVipStage(rawQuota.value) && selectedPlan.value?.current) {
     router.push("/profile");
     return;

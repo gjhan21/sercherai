@@ -1,5 +1,5 @@
 <template>
-  <section class="search-page fade-up" :class="{ 'search-page-h5': isH5SearchSurface }">
+  <section class="search-page fade-up">
     <header class="search-hero card">
       <div>
         <div class="finance-pill-row">
@@ -147,10 +147,10 @@
 <script setup>
 import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { searchGlobal, searchGlobalPublic } from "../api/search";
-import { createForecastRun } from "../api/forecast";
-import StatePanel from "../components/StatePanel.vue";
-import { useClientAuth } from "../lib/client-auth";
+import { searchGlobal, searchGlobalPublic } from "../../../api/search";
+import { createForecastRun } from "../../../api/forecast";
+import StatePanel from "../../../components/StatePanel.vue";
+import { useClientAuth } from "../../../lib/client-auth";
 import {
   buildGlobalSearchGroups,
   buildSearchPreviewGroups,
@@ -164,7 +164,7 @@ import {
   resolveGlobalSearchScopeLabel,
   resolveSearchInitialTab,
   shouldRequestGlobalSearch
-} from "../lib/global-search";
+} from "../../../lib/global-search";
 
 const route = useRoute();
 const router = useRouter();
@@ -179,7 +179,6 @@ let latestRequestID = 0;
 let highlightTimer = null;
 
 const keyword = computed(() => normalizeGlobalSearchKeyword(route.query.q || ""));
-const isH5SearchSurface = computed(() => String(route.name || "").startsWith("h5-"));
 const groups = computed(() => buildGlobalSearchGroups(searchResult.value));
 const totalCount = computed(() => getGlobalSearchTotal(searchResult.value));
 const scopeLabel = computed(() => resolveGlobalSearchScopeLabel(searchResult.value?.scope));
@@ -336,7 +335,7 @@ async function requestForecast(groupKey, item) {
   errorMessage.value = "";
 
   try {
-    const targetType = groupKey === "stocks" ? "stock" : "futures_strategy";
+    const targetType = groupKey === "stocks" ? "STOCK" : "FUTURES";
     const data = await createForecastRun({
       target_type: targetType,
       target_id: item.id,
@@ -344,11 +343,20 @@ async function requestForecast(groupKey, item) {
       target_label: item.title,
       trigger_type: "USER_REQUEST"
     });
-    const runId = data?.id || data?.run?.id;
+    // 调试日志：捕获返回结构
+    console.log("[Forecast] Create run response:", data);
+    
+    // 鲁棒提取 ID
+    const runId = data?.id || data?.run_id || data?.runID || (data?.run?.id);
+    
     if (runId) {
       router.push("/forecast/runs/" + runId);
+    } else {
+      console.warn("[Forecast] Run created but no ID found in response", data);
+      errorMessage.value = "推演已发起，但未能获取运行编号，请在个人中心查看。";
     }
   } catch (error) {
+    console.error("[Forecast] Request failed:", error);
     errorMessage.value = error?.message || "深度推演请求失败，请重试";
   } finally {
     submitting.value = false;
@@ -540,138 +548,5 @@ async function requestForecast(groupKey, item) {
 .search-group-empty {
   margin: 0;
   color: var(--color-text-soft);
-}
-
-.search-page-h5 {
-  gap: 14px;
-}
-
-.search-page-h5 .search-hero,
-.search-page-h5 .search-tabs,
-.search-page-h5 .search-group-card,
-.search-page-h5 .search-best-match {
-  border-radius: 18px;
-}
-
-.search-page-h5 .search-hero {
-  padding: 18px 16px;
-  border: 1px solid rgba(24, 56, 108, 0.08);
-  background:
-    radial-gradient(circle at top right, rgba(202, 162, 74, 0.16), transparent 26%),
-    linear-gradient(180deg, rgba(248, 251, 255, 0.98), rgba(239, 245, 254, 0.96));
-}
-
-.search-page-h5 .search-tabs {
-  padding: 10px;
-  border: 1px solid rgba(24, 56, 108, 0.08);
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 18px 38px rgba(15, 35, 73, 0.08);
-}
-
-.search-page-h5 .search-overview {
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid rgba(24, 56, 108, 0.08);
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 16px 32px rgba(15, 35, 73, 0.06);
-}
-
-.search-page-h5 .search-overview-item {
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 16px;
-}
-
-.search-page-h5 .search-overview-item strong {
-  font-size: 16px;
-}
-
-.search-page-h5 .search-tab {
-  min-height: 40px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.search-page-h5 .search-best-match {
-  padding: 18px 16px;
-  border-color: rgba(24, 56, 108, 0.1);
-  background:
-    radial-gradient(circle at top right, rgba(202, 162, 74, 0.12), transparent 24%),
-    linear-gradient(180deg, rgba(248, 251, 255, 0.98), rgba(239, 245, 254, 0.94));
-  box-shadow: 0 18px 40px rgba(12, 31, 64, 0.08);
-}
-
-.search-page-h5 .search-best-match-copy h2 {
-  font-size: 22px;
-  line-height: 1.36;
-}
-
-.search-page-h5 .search-group-card {
-  padding: 18px 16px;
-  border: 1px solid rgba(24, 56, 108, 0.08);
-  background: linear-gradient(180deg, rgba(248, 251, 255, 0.98), rgba(239, 245, 254, 0.96));
-  box-shadow: 0 18px 38px rgba(15, 35, 73, 0.08);
-}
-
-.search-page-h5 .search-result-card {
-  border-radius: 16px;
-  padding: 12px 13px;
-}
-
-.search-page-h5 .search-result-head {
-  gap: 8px;
-}
-
-.search-page-h5 .search-result-head h3 {
-  font-size: 15px;
-  line-height: 1.45;
-}
-
-.search-page-h5 .search-result-head span {
-  font-size: 11px;
-}
-
-.search-page-h5 .search-result-card p {
-  display: -webkit-box;
-  overflow: hidden;
-  margin: 8px 0 0;
-  color: var(--color-text-sub);
-  font-size: 13px;
-  line-height: 1.6;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-@media (max-width: 768px) {
-  .search-hero,
-  .search-best-match,
-  .search-result-head {
-    flex-direction: column;
-  }
-
-  .search-overview {
-    grid-template-columns: 1fr;
-  }
-
-  .search-tab {
-    flex: 1 1 calc(50% - 10px);
-    justify-content: space-between;
-  }
-
-  .search-best-match-actions {
-    width: 100%;
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-
-  .search-page-h5 .search-hero-meta,
-  .search-page-h5 .search-best-match-actions {
-    width: 100%;
-  }
-
-  .search-page-h5 .search-best-match-actions .finance-mini-btn {
-    flex: 1 1 calc(50% - 10px);
-    justify-content: center;
-  }
 }
 </style>

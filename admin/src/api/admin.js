@@ -110,12 +110,6 @@ export function updateUserMemberLevel(id, memberLevel) {
   });
 }
 
-export function updateUserKYCStatus(id, kycStatus) {
-  return http.put(`/admin/users/${encodeURIComponent(id)}/kyc-status`, {
-    kyc_status: kycStatus
-  });
-}
-
 export function resetUserPassword(id, password) {
   return http.put(`/admin/users/${encodeURIComponent(id)}/password`, {
     password

@@ -17,7 +17,6 @@ type GrowthRepo interface {
 	ListRewardRecords(userID string, page int, pageSize int) ([]model.RewardRecord, int, error)
 	GetUserProfile(userID string) (model.UserProfile, error)
 	UpdateUserProfileEmail(userID string, email string) error
-	SubmitUserKYC(userID string, realName string, idNumber string, provider string) (string, error)
 	ListSubscriptions(userID string, page int, pageSize int) ([]model.Subscription, int, error)
 	CreateSubscription(userID string, subType string, scope string, frequency string) (string, error)
 	UpdateSubscription(userID string, id string, frequency string, status string) error
@@ -52,8 +51,10 @@ type GrowthRepo interface {
 	GetFuturesStrategyVersionHistory(userID string, strategyID string) ([]model.StrategyVersionHistoryItem, error)
 	CreateStrategyForecastL3Run(input model.StrategyForecastL3RunCreateInput) (model.StrategyForecastL3Run, error)
 	ListStrategyForecastL3Runs(requestUserID string, status string, targetType string, triggerType string, page int, pageSize int) ([]model.StrategyForecastL3Run, int, error)
+	GetLatestStrategyForecastL3Run(targetType string, targetID string) (model.StrategyForecastL3Run, error)
 	GetStrategyForecastL3Run(runID string) (model.StrategyForecastL3Run, error)
 	GetStrategyForecastL3RunDetail(runID string) (model.StrategyForecastL3RunDetail, error)
+	GetStrategyForecastL3RunDetailForUser(runID string, userID string) (model.StrategyForecastL3RunDetail, error)
 	RetryStrategyForecastL3Run(runID string, operatorUserID string, reason string) (model.StrategyForecastL3Run, error)
 	CancelStrategyForecastL3Run(runID string, operatorUserID string, reason string) (model.StrategyForecastL3Run, error)
 	ListStrategyForecastL3Logs(runID string) ([]model.StrategyForecastL3Log, error)
@@ -219,8 +220,8 @@ type GrowthRepo interface {
 	AdminEnsureMarketRhythmTasks(taskDate string) ([]model.MarketRhythmTask, error)
 	AdminUpdateMarketRhythmTask(id string, owner string, notes string, sourceLinks []string, status string) (model.MarketRhythmTask, error)
 	AdminUpdateMarketRhythmTaskStatus(id string, status string, owner string, notes string) (model.MarketRhythmTask, error)
-	AdminListUsers(status string, kycStatus string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error)
-	AdminGetUserSourceSummary(status string, kycStatus string, memberLevel string, registrationSource string) (model.AdminUserSourceSummary, error)
+	AdminListUsers(status string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error)
+	AdminGetUserSourceSummary(status string, memberLevel string, registrationSource string) (model.AdminUserSourceSummary, error)
 	AdminListBrowseHistories(userID string, contentType string, keyword string, page int, pageSize int) ([]model.AdminBrowseHistory, int, error)
 	AdminGetBrowseHistorySummary() (model.AdminBrowseHistorySummary, error)
 	AdminGetBrowseHistoryTrend(days int) ([]model.AdminBrowseTrendPoint, error)
@@ -229,7 +230,6 @@ type GrowthRepo interface {
 	AdminCreateUserMessages(userIDs []string, title string, content string, messageType string) (int, []model.AdminMessageSendFailure, error)
 	AdminUpdateUserStatus(id string, status string) error
 	AdminUpdateUserMemberLevel(id string, memberLevel string) error
-	AdminUpdateUserKYCStatus(id string, kycStatus string) error
 	AdminResetUserPasswordHash(id string, passwordHash string) error
 	AdminDashboardOverview() (model.AdminDashboardOverview, error)
 	AdminCreateOperationLog(module string, action string, targetType string, targetID string, operatorUserID string, beforeValue string, afterValue string, reason string) error

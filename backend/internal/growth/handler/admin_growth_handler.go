@@ -1636,10 +1636,9 @@ func (h *AdminGrowthHandler) UpdateMarketEvent(c *gin.Context) {
 func (h *AdminGrowthHandler) ListUsers(c *gin.Context) {
 	page, pageSize := parsePage(c)
 	status := c.Query("status")
-	kycStatus := c.Query("kyc_status")
 	memberLevel := c.Query("member_level")
 	registrationSource := c.Query("registration_source")
-	items, total, err := h.service.AdminListUsers(status, kycStatus, memberLevel, registrationSource, page, pageSize)
+	items, total, err := h.service.AdminListUsers(status, memberLevel, registrationSource, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
@@ -1649,10 +1648,9 @@ func (h *AdminGrowthHandler) ListUsers(c *gin.Context) {
 
 func (h *AdminGrowthHandler) UserSourceSummary(c *gin.Context) {
 	status := c.Query("status")
-	kycStatus := c.Query("kyc_status")
 	memberLevel := c.Query("member_level")
 	registrationSource := c.Query("registration_source")
-	item, err := h.service.AdminGetUserSourceSummary(status, kycStatus, memberLevel, registrationSource)
+	item, err := h.service.AdminGetUserSourceSummary(status, memberLevel, registrationSource)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
@@ -1769,7 +1767,7 @@ func (h *AdminGrowthHandler) CreateUserMessages(c *gin.Context) {
 
 	targetUserIDs := uniqueNonEmptyStrings(req.UserIDs)
 	if len(targetUserIDs) == 0 {
-		users, _, err := h.service.AdminListUsers("ACTIVE", "", "", "", 1, 10000)
+		users, _, err := h.service.AdminListUsers("ACTIVE", "", "", 1, 10000)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 			return
@@ -1988,10 +1986,9 @@ func (h *AdminGrowthHandler) UpdateUserSubscription(c *gin.Context) {
 
 func (h *AdminGrowthHandler) ExportUsersCSV(c *gin.Context) {
 	status := c.Query("status")
-	kycStatus := c.Query("kyc_status")
 	memberLevel := c.Query("member_level")
 	registrationSource := c.Query("registration_source")
-	items, _, err := h.service.AdminListUsers(status, kycStatus, memberLevel, registrationSource, 1, 10000)
+	items, _, err := h.service.AdminListUsers(status, memberLevel, registrationSource, 1, 10000)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
@@ -1999,14 +1996,13 @@ func (h *AdminGrowthHandler) ExportUsersCSV(c *gin.Context) {
 
 	var buf bytes.Buffer
 	writer := csv.NewWriter(&buf)
-	_ = writer.Write([]string{"id", "phone", "email", "status", "kyc_status", "member_level", "registration_source", "inviter_user_id", "invite_code", "invite_registered_at", "created_at"})
+	_ = writer.Write([]string{"id", "phone", "email", "status", "member_level", "registration_source", "inviter_user_id", "invite_code", "invite_registered_at", "created_at"})
 	for _, it := range items {
 		_ = writer.Write([]string{
 			it.ID,
 			it.Phone,
 			it.Email,
 			it.Status,
-			it.KYCStatus,
 			it.MemberLevel,
 			it.RegistrationSource,
 			it.InviterUserID,
@@ -2055,20 +2051,6 @@ func (h *AdminGrowthHandler) UpdateUserMemberLevel(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
-func (h *AdminGrowthHandler) UpdateUserKYCStatus(c *gin.Context) {
-	id := c.Param("id")
-	var req dto.UpdateUserKYCStatusRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
-		return
-	}
-	if err := h.service.AdminUpdateUserKYCStatus(id, req.KYCStatus); err != nil {
-		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
-		return
-	}
-	h.writeOperationLog(c, "USER", "UPDATE_KYC_STATUS", "USER", id, "", req.KYCStatus, "")
-	c.JSON(http.StatusOK, dto.OK(struct{}{}))
-}
 
 func (h *AdminGrowthHandler) ResetUserPassword(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))

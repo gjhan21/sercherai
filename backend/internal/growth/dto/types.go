@@ -11,7 +11,7 @@ type TrackExperimentEventRequest struct {
 	EventType     string                 `json:"event_type" binding:"required,oneof=EXPOSURE CLICK UPGRADE_INTENT PAYMENT_SUCCESS RENEWAL_SUCCESS"`
 	PageKey       string                 `json:"page_key" binding:"required"`
 	TargetKey     string                 `json:"target_key"`
-	UserStage     string                 `json:"user_stage" binding:"omitempty,oneof=VISITOR REGISTERED VIP EXPIRED PAID_PENDING_KYC UNKNOWN"`
+	UserStage     string                 `json:"user_stage" binding:"omitempty,oneof=VISITOR REGISTERED VIP EXPIRED UNKNOWN"`
 	AnonymousID   string                 `json:"anonymous_id"`
 	SessionID     string                 `json:"session_id"`
 	Pathname      string                 `json:"pathname"`
@@ -24,7 +24,7 @@ type ExperimentAttributionRequest struct {
 	VariantKey    string                 `json:"variant_key" binding:"required"`
 	PageKey       string                 `json:"page_key" binding:"required"`
 	TargetKey     string                 `json:"target_key"`
-	UserStage     string                 `json:"user_stage" binding:"omitempty,oneof=VISITOR REGISTERED VIP EXPIRED PAID_PENDING_KYC UNKNOWN"`
+	UserStage     string                 `json:"user_stage" binding:"omitempty,oneof=VISITOR REGISTERED VIP EXPIRED UNKNOWN"`
 	AnonymousID   string                 `json:"anonymous_id"`
 	SessionID     string                 `json:"session_id"`
 	Pathname      string                 `json:"pathname"`
@@ -218,9 +218,6 @@ type UpdateUserMemberLevelRequest struct {
 	MemberLevel string `json:"member_level" binding:"required"`
 }
 
-type UpdateUserKYCStatusRequest struct {
-	KYCStatus string `json:"kyc_status" binding:"required,oneof=PENDING APPROVED REJECTED"`
-}
 
 type AdminUserMessageCreateRequest struct {
 	UserIDs []string `json:"user_ids"`
@@ -233,10 +230,6 @@ type UpdateUserProfileRequest struct {
 	Email string `json:"email" binding:"required,email"`
 }
 
-type KYCSubmitRequest struct {
-	RealName string `json:"real_name" binding:"required"`
-	IDNumber string `json:"id_number" binding:"required"`
-}
 
 type SubscriptionCreateRequest struct {
 	Type      string `json:"type" binding:"required,oneof=STOCK_RECO FUTURES_STRATEGY ARBITRAGE EVENT"`

@@ -110,8 +110,6 @@ func Register(r *gin.Engine) {
 		{
 			user.GET("/profile", userGrowthHandler.GetUserProfile)
 			user.PUT("/profile", userGrowthHandler.UpdateUserProfile)
-			user.GET("/kyc/status", userGrowthHandler.GetKYCStatus)
-			user.POST("/kyc/submit", userGrowthHandler.SubmitKYC)
 
 			user.GET("/browse-history", userGrowthHandler.ListBrowseHistory)
 			user.DELETE("/browse-history/:id", userGrowthHandler.DeleteBrowseHistoryItem)
@@ -508,7 +506,6 @@ func Register(r *gin.Engine) {
 			adminUsers.PUT("/:id/subscriptions/:sub_id", middleware.PermissionRequired(db, "users.edit"), adminGrowthHandler.UpdateUserSubscription)
 			adminUsers.PUT("/:id/status", middleware.PermissionRequired(db, "users.edit"), adminGrowthHandler.UpdateUserStatus)
 			adminUsers.PUT("/:id/member-level", middleware.PermissionRequired(db, "users.edit"), adminGrowthHandler.UpdateUserMemberLevel)
-			adminUsers.PUT("/:id/kyc-status", middleware.PermissionRequired(db, "users.edit"), adminGrowthHandler.UpdateUserKYCStatus)
 			adminUsers.PUT("/:id/password", middleware.PermissionRequired(db, "users.edit"), adminGrowthHandler.ResetUserPassword)
 		}
 

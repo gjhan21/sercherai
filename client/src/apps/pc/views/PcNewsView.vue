@@ -328,129 +328,35 @@
       </aside>
     </div>
 
-    <section v-if="isMobileView && isDetailModalOpen" class="mobile-detail-panel">
-      <header class="mobile-detail-head">
-        <button type="button" class="mobile-nav-btn finance-mini-btn finance-mini-btn-card" @click="closeDetailModal">返回</button>
-        <div>
-          <p>{{ currentCategory.label }}详情</p>
-          <h2>{{ selectedArticleTitle }}</h2>
-        </div>
-        <button
-          type="button"
-          class="mobile-nav-btn finance-mini-btn finance-mini-btn-accent"
-          :disabled="detailLoading"
-          @click="refreshActiveArticleDetail"
-        >
-          {{ detailLoading ? "同步中" : "刷新" }}
-        </button>
-      </header>
-
-      <div class="mobile-detail-body">
-        <article v-if="activeArticle" class="mobile-detail-card">
-          <div class="mobile-info-block">
-            <p class="mobile-info-row">
-              <span>标题</span>
-              <strong>{{ selectedArticleTitle }}</strong>
-            </p>
-            <p class="mobile-info-row">
-              <span>日期</span>
-              <strong>{{ selectedPublishedAt }}</strong>
-            </p>
-            <p class="mobile-info-row">
-              <span>发布人</span>
-              <strong>{{ selectedPublisher }}</strong>
-            </p>
-          </div>
-          <div class="mobile-detail-actions">
-            <button type="button" class="finance-mini-btn finance-mini-btn-soft" @click="openCommunityFromNews">
-              看资讯讨论
-            </button>
-            <button type="button" class="finance-mini-btn finance-mini-btn-accent" @click="openNewsDiscussionComposer">
-              围绕本文发观点
-            </button>
-          </div>
-
-          <template v-if="activeArticleDetail">
-            <section class="mobile-content-box">
-              <p class="mobile-block-title">内容</p>
-              <p class="mobile-detail-summary">{{ activeArticleDetail.summary }}</p>
-              <div v-if="canReadActiveArticle" class="mobile-detail-content" v-html="activeArticleDetail.contentHTML"></div>
-              <div v-else class="mobile-lock-card">
-                <strong>{{ activeArticleLockTitle }}</strong>
-                <span>{{ activeArticleLockDesc }}</span>
-                <div class="mobile-lock-actions">
-                  <button type="button" class="finance-primary-btn" @click="handleNewsPrimaryAction('mobile_lock_primary')">{{ newsPrimaryActionText }}</button>
-                  <button type="button" class="ghost-btn finance-ghost-btn" @click="handleNewsSecondaryAction">
-                    {{ newsSecondaryActionText }}
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            <div class="mobile-attachment-box">
-              <p class="mobile-block-title">附件</p>
-              <div v-if="canReadActiveArticle && activeAttachments.length" class="mobile-attachment-list">
-                <button
-                  v-for="item in activeAttachments"
-                  :key="item.id || item.file_url || item.file_name"
-                  type="button"
-                  class="mobile-attachment-item"
-                  :disabled="downloadingAttachmentID === (item.id || item.file_url || '')"
-                  @click="handleDownloadAttachment(item)"
-                >
-                  <span>{{ item.file_name || "未命名附件" }}</span>
-                  <small>{{ formatAttachmentSize(item.file_size) }}</small>
-                </button>
-              </div>
-              <p v-else class="mobile-empty-inline finance-empty-inline">
-                {{ canReadActiveArticle ? "暂无附件" : "开通对应权限后可查看附件" }}
-              </p>
-            </div>
-          </template>
-          <template v-else>
-            <section class="mobile-content-box">
-              <p class="mobile-block-title">内容</p>
-              <p class="mobile-loading-tip">详情加载中...</p>
-            </section>
-            <div class="mobile-attachment-box">
-              <p class="mobile-block-title">附件</p>
-              <p class="mobile-empty-inline finance-empty-inline">详情加载后可查看附件</p>
-            </div>
-          </template>
-        </article>
-        <div v-else class="mobile-empty-box finance-empty-box">暂无可查看文章</div>
-        <p v-if="detailErrorMessage" class="mobile-detail-error">{{ detailErrorMessage }}</p>
-      </div>
-    </section>
   </section>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import StatePanel from "../components/StatePanel.vue";
-import { getMembershipQuota } from "../api/membership";
+import StatePanel from "../../../components/StatePanel.vue";
+import { getMembershipQuota } from "../../../api/membership";
 import {
   getAttachmentSignedURL,
   getNewsArticleDetail,
   listNewsArticles,
   listNewsAttachments,
   listNewsCategories
-} from "../api/news";
-import { useClientAuth } from "../lib/client-auth";
+} from "../../../api/news";
+import { useClientAuth } from "../../../lib/client-auth";
 import {
   promotePendingExperimentJourneySources,
   rememberExperimentAttributionSource,
   rememberPendingExperimentJourneySource
-} from "../lib/growth-analytics";
-import { getExperimentVariant } from "../lib/growth-experiments";
+} from "../../../lib/growth-analytics";
+import { getExperimentVariant } from "../../../lib/growth-experiments";
 import {
   buildCommunityComposeRoute,
   buildCommunityListRoute,
   findNewsArticleLocation
-} from "../lib/community-entry-links";
-import { buildProfileModuleRoute } from "../lib/profile-modules";
-import { getAccessToken } from "../lib/session";
+} from "../../../lib/community-entry-links";
+import { buildProfileModuleRoute } from "../../../lib/profile-modules";
+import { getAccessToken } from "../../../lib/session";
 
 const categoryTemplates = [
   {
@@ -496,8 +402,6 @@ const activeArticleID = ref("");
 const detailLoading = ref(false);
 const detailErrorMessage = ref("");
 const downloadingAttachmentID = ref("");
-const isDetailModalOpen = ref(false);
-const isMobileView = ref(false);
 const memberStageLoading = ref(false);
 const isVIPUser = ref(false);
 
@@ -744,25 +648,6 @@ watch(
   { immediate: true }
 );
 
-watch(
-  () => isMobileView.value,
-  (mobile) => {
-    if (!mobile) {
-      isDetailModalOpen.value = false;
-    }
-  }
-);
-
-watch(
-  () => [isDetailModalOpen.value, isMobileView.value],
-  ([opened, mobile]) => {
-    if (typeof document === "undefined") {
-      return;
-    }
-    document.body.style.overflow = opened && mobile ? "hidden" : "";
-  },
-  { immediate: true }
-);
 
 watch(
   () => route.query.keyword,
@@ -1087,9 +972,6 @@ function mergeFeedRows(currentRows, nextRows) {
 
 function openArticle(id) {
   activeArticleID.value = id;
-  if (isMobileView.value) {
-    isDetailModalOpen.value = true;
-  }
 }
 
 function syncRequestedArticleSelection() {
@@ -1107,21 +989,8 @@ function syncRequestedArticleSelection() {
   if (activeArticleID.value !== location.articleID) {
     activeArticleID.value = location.articleID;
   }
-  if (isMobileView.value) {
-    isDetailModalOpen.value = true;
-  }
 }
 
-function closeDetailModal() {
-  isDetailModalOpen.value = false;
-}
-
-function syncViewport() {
-  if (typeof window === "undefined") {
-    return;
-  }
-  isMobileView.value = window.innerWidth <= 980;
-}
 
 async function loadActiveArticleDetail(options = {}) {
   const { silent = false } = options;
@@ -1452,21 +1321,11 @@ function sanitizeArticleHTML(rawHTML) {
 }
 
 onMounted(() => {
-  syncViewport();
-  if (typeof window !== "undefined") {
-    window.addEventListener("resize", syncViewport);
-  }
   loadMembershipStage();
   loadNewsData();
 });
 
 onBeforeUnmount(() => {
-  if (typeof window !== "undefined") {
-    window.removeEventListener("resize", syncViewport);
-  }
-  if (typeof document !== "undefined") {
-    document.body.style.overflow = "";
-  }
 });
 </script>
 
@@ -1960,310 +1819,4 @@ h3 {
   color: var(--color-text-sub);
 }
 
-@media (max-width: 980px) {
-  .news-focus-layout,
-  .news-hero,
-  .news-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .news-focus-head,
-  .news-featured-head,
-  .news-hero {
-    display: grid;
-  }
-
-  .news-feature-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .news-focus-actions {
-    justify-content: flex-start;
-  }
-
-  .side {
-    display: grid;
-    gap: 12px;
-  }
-
-  .detail-card {
-    display: none;
-  }
-
-  .detail-head {
-    flex-direction: column;
-  }
-
-  .detail-head-actions {
-    justify-content: flex-start;
-  }
-
-  .mobile-detail-panel {
-    position: fixed;
-    inset: 0;
-    z-index: 66;
-    background: linear-gradient(180deg, var(--color-surface-soft) 0%, var(--color-champagne-100) 100%);
-    display: grid;
-    grid-template-rows: auto 1fr;
-  }
-
-  .mobile-detail-head {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    padding: 10px;
-    border-bottom: 1px solid var(--color-border-soft);
-    background: var(--color-surface-card-top);
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .mobile-detail-head p {
-    margin: 0;
-    font-size: 11px;
-    color: var(--color-text-sub);
-  }
-
-  .mobile-detail-head h2 {
-    margin: 2px 0 0;
-    font-size: 15px;
-    font-family: var(--font-serif);
-    color: var(--color-text-main);
-    line-height: 1.4;
-    overflow-wrap: anywhere;
-  }
-
-  .mobile-nav-btn {
-    width: auto;
-  }
-
-  .mobile-nav-btn:disabled {
-    opacity: 0.72;
-  }
-
-  .mobile-detail-body {
-    overflow-y: auto;
-    padding: 10px;
-  }
-
-  .mobile-detail-card {
-    border: 1px solid var(--color-border-soft-heavy);
-    border-radius: 14px;
-    padding: 12px;
-    background: var(--color-surface-card-top);
-  }
-
-  .mobile-info-block {
-    border: 1px solid var(--color-border-soft-strong);
-    border-radius: 11px;
-    background: var(--color-surface-panel-soft);
-    padding: 9px;
-    display: grid;
-    gap: 8px;
-  }
-
-  .mobile-detail-actions {
-    margin-top: 10px;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  .mobile-info-row {
-    margin: 0;
-    display: grid;
-    gap: 3px;
-  }
-
-  .mobile-info-row span {
-    font-size: 11px;
-    color: var(--color-text-sub);
-  }
-
-  .mobile-info-row strong {
-    font-size: 14px;
-    line-height: 1.45;
-    color: var(--color-text-main);
-    overflow-wrap: anywhere;
-  }
-
-  .mobile-content-box {
-    margin-top: 10px;
-  }
-
-  .mobile-block-title {
-    margin: 0;
-    font-size: 12px;
-    color: var(--color-text-sub);
-  }
-
-  .mobile-detail-summary {
-    margin: 7px 0 0;
-    font-size: 13px;
-    line-height: 1.65;
-    color: var(--color-text-main);
-  }
-
-  .mobile-detail-content {
-    margin: 8px 0 0;
-    font-size: 14px;
-    line-height: 1.72;
-    color: var(--color-text-main);
-  }
-
-  .mobile-lock-card {
-    margin-top: 8px;
-    border-radius: 12px;
-    border: 1px solid var(--color-line-gold);
-    background: var(--color-surface-gold-soft);
-    padding: 10px;
-    display: grid;
-    gap: 6px;
-  }
-
-  .mobile-lock-card strong,
-  .mobile-lock-card span {
-    display: block;
-  }
-
-  .mobile-lock-card strong {
-    font-size: 14px;
-    line-height: 1.5;
-    color: var(--color-text-main);
-  }
-
-  .mobile-lock-card span {
-    font-size: 12px;
-    line-height: 1.6;
-    color: var(--color-text-sub);
-  }
-
-  .mobile-lock-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  .mobile-lock-actions .ghost-btn {
-    background: var(--color-surface-card-elevated);
-  }
-
-  .mobile-detail-content :deep(p) {
-    margin: 0 0 10px;
-  }
-
-  .mobile-detail-content :deep(ul),
-  .mobile-detail-content :deep(ol) {
-    margin: 6px 0 10px 18px;
-    padding: 0;
-  }
-
-  .mobile-detail-content :deep(li) {
-    margin-bottom: 4px;
-  }
-
-  .mobile-detail-content :deep(a) {
-    color: var(--color-pine-700);
-    text-decoration: underline;
-  }
-
-  .mobile-detail-content :deep(img) {
-    max-width: 100%;
-    height: auto;
-    border-radius: 8px;
-  }
-
-  .mobile-attachment-box {
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px solid var(--color-border-soft);
-  }
-
-  .mobile-attachment-list {
-    margin-top: 8px;
-    display: grid;
-    gap: 6px;
-  }
-
-  .mobile-attachment-item {
-    border: 1px solid var(--color-border-soft);
-    border-radius: 9px;
-    padding: 8px 9px;
-    background: var(--color-surface-panel-soft);
-    color: var(--color-text-main);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    text-align: left;
-  }
-
-  .mobile-attachment-item:disabled {
-    opacity: 0.72;
-    cursor: not-allowed;
-  }
-
-  .mobile-attachment-item small {
-    font-size: 11px;
-    color: var(--color-text-sub);
-  }
-
-  .mobile-empty-inline,
-  .mobile-empty-box {
-    margin: 8px 0 0;
-    font-size: 12px;
-    color: var(--color-text-sub);
-  }
-
-  .mobile-loading-tip {
-    margin: 10px 0 0;
-    font-size: 12px;
-    color: var(--color-text-sub);
-  }
-
-  .mobile-detail-error {
-    margin: 10px 2px 0;
-    font-size: 12px;
-    color: var(--color-fall);
-  }
-}
-
-@media (max-width: 640px) {
-  .sub-nav {
-    display: flex;
-    gap: 8px;
-    overflow-x: auto;
-    padding: 8px;
-    scrollbar-width: none;
-  }
-
-  .sub-nav::-webkit-scrollbar {
-    display: none;
-  }
-
-  .sub-item {
-    flex: 0 0 auto;
-    min-width: 112px;
-  }
-
-  .feed-footer {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .feed-footer button {
-    width: 100%;
-  }
-
-  .mobile-detail-actions {
-    grid-template-columns: 1fr;
-  }
-
-  h3 {
-    font-size: 16px;
-  }
-}
 </style>

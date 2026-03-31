@@ -417,18 +417,18 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
-import StatePanel from "../components/StatePanel.vue";
+import StatePanel from "../../../components/StatePanel.vue";
 import {
   listCommunityTopics,
   listMyCommunityComments,
   listMyCommunityTopics
-} from "../api/community";
-import { useClientAuth } from "../lib/client-auth";
+} from "../../../api/community";
+import { useClientAuth } from "../../../lib/client-auth";
 import {
   buildCommunityComposeRouteFromQuery,
   resolveCommunityEntryContext
-} from "../lib/community-entry-links";
-import { normalizeCommunityLoadError } from "../lib/community-error";
+} from "../../../lib/community-entry-links";
+import { normalizeCommunityLoadError } from "../../../lib/community-error";
 
 const router = useRouter();
 const route = useRoute();
@@ -1149,38 +1149,4 @@ function formatDateTime(value) {
   white-space: nowrap;
 }
 
-@media (max-width: 1080px) {
-  .community-topic-metrics,
-  .community-topic-grid,
-  .community-entry-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .community-hero,
-  .community-topic-head,
-  .community-comment-focus-head {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .community-hero-actions {
-    min-width: 0;
-  }
-
-  .community-topic-side {
-    justify-items: start;
-    text-align: left;
-  }
-
-  .community-topic-metrics,
-  .community-topic-grid,
-  .community-entry-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .community-filter-row {
-    flex-direction: column;
-  }
-}
 </style>

@@ -110,7 +110,6 @@ function formatUserStageLabel(value) {
     REGISTERED: "注册用户",
     VIP: "已激活会员",
     EXPIRED: "过期会员",
-    PAID_PENDING_KYC: "付费待实名激活",
     UNKNOWN: "未记录"
   };
   return labels[key] || key;

@@ -1,9 +1,9 @@
 const TAB_ITEMS = [
-  { path: "/home", label: "首页", icon: "home" },
-  { path: "/news", label: "资讯", icon: "news" },
-  { path: "/strategies", label: "策略", icon: "insight" },
-  { path: "/membership", label: "会员", icon: "vip" },
-  { path: "/profile", label: "我的", icon: "user" }
+  { path: "/m/home", label: "首页", icon: "home" },
+  { path: "/m/news", label: "资讯", icon: "news" },
+  { path: "/m/strategies", label: "策略", icon: "insight" },
+  { path: "/m/membership", label: "会员", icon: "vip" },
+  { path: "/m/profile", label: "我的", icon: "user" }
 ];
 
 function toURL(input = "") {
@@ -23,8 +23,9 @@ export function resolveShellScene(path) {
   const targetURL = toURL(path);
   const pathname = targetURL.pathname;
   const section = String(targetURL.searchParams.get("section") || "").trim().toLowerCase();
+  const cleanPath = pathname.replace(/^\/m/, "");
 
-  if (pathname.startsWith("/watchlist")) {
+  if (cleanPath.startsWith("/watchlist")) {
     return {
       section: "我的",
       title: "我的关注详情",
@@ -33,7 +34,7 @@ export function resolveShellScene(path) {
     };
   }
 
-  if (pathname.startsWith("/archive")) {
+  if (cleanPath.startsWith("/archive")) {
     return {
       section: "档案",
       title: "历史档案",
@@ -42,7 +43,7 @@ export function resolveShellScene(path) {
     };
   }
 
-  if (pathname.startsWith("/news")) {
+  if (cleanPath.startsWith("/news")) {
     return {
       section: "资讯",
       title: "市场资讯",
@@ -51,7 +52,7 @@ export function resolveShellScene(path) {
     };
   }
 
-  if (pathname.startsWith("/strategies")) {
+  if (cleanPath.startsWith("/strategies")) {
     return {
       section: "策略",
       title: "精选观点",
@@ -60,7 +61,7 @@ export function resolveShellScene(path) {
     };
   }
 
-  if (pathname.startsWith("/membership")) {
+  if (cleanPath.startsWith("/membership")) {
     return {
       section: "会员",
       title: "会员中心",
@@ -69,7 +70,7 @@ export function resolveShellScene(path) {
     };
   }
 
-  if (pathname.startsWith("/profile")) {
+  if (cleanPath.startsWith("/profile")) {
     if (section === "watchlist") {
       return {
         section: "我的",

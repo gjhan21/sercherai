@@ -241,9 +241,9 @@
 <script setup>
 import { computed, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { login, register } from "../api/auth";
-import { setClientAuthSession } from "../lib/client-auth";
-import { buildProfileModuleRedirectPath } from "../lib/profile-modules";
+import { login, register } from "../../../api/auth";
+import { setClientAuthSession } from "../../../lib/client-auth";
+import { buildProfileModuleRedirectPath } from "../../../lib/profile-modules";
 
 const route = useRoute();
 const router = useRouter();
@@ -690,39 +690,4 @@ async function handleSubmit(mode) {
   gap: 8px;
 }
 
-@media (max-width: 980px) {
-  .auth-focus,
-  .auth-main-layout,
-  .auth-dual-grid,
-  .auth-card-grid,
-  .auth-footer-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 760px) {
-  .auth-page {
-    padding: 16px 10px 24px;
-  }
-
-  .auth-focus,
-  .auth-entry-card,
-  .auth-block-card,
-  .auth-side-card {
-    border-radius: 16px;
-  }
-
-  .auth-card-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .auth-form-head {
-    flex-direction: column;
-  }
-
-  .submit-btn,
-  .quick-login button {
-    width: 100%;
-  }
-}
 </style>

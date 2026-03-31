@@ -609,7 +609,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import StatePanel from "../components/StatePanel.vue";
+import StatePanel from "../../../components/StatePanel.vue";
 import {
   getFuturesGuidance,
   getStockRecommendationDetail,
@@ -617,17 +617,17 @@ import {
   getStockRecommendationPerformance,
   listFuturesArbitrage,
   listStockRecommendations
-} from "../api/market";
-import { listNewsArticles, listNewsCategories } from "../api/news";
-import { getMembershipQuota, listMembershipProducts } from "../api/membership";
-import { useClientAuth } from "../lib/client-auth";
-import { shouldUseDemoFallback } from "../lib/fallback-policy";
+} from "../../../api/market";
+import { listNewsArticles, listNewsCategories } from "../../../api/news";
+import { getMembershipQuota, listMembershipProducts } from "../../../api/membership";
+import { useClientAuth } from "../../../lib/client-auth";
+import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
 import {
   rememberExperimentAttributionSource,
   rememberPendingExperimentJourneySource,
   promotePendingExperimentJourneySources
-} from "../lib/growth-analytics";
-import { getExperimentVariant } from "../lib/growth-experiments";
+} from "../../../lib/growth-analytics";
+import { getExperimentVariant } from "../../../lib/growth-experiments";
 import {
   buildStrategyConfidenceCalibrationSummary,
   buildStrategyInsightSections,
@@ -636,13 +636,13 @@ import {
   buildStrategyThesisCardRows,
   buildStrategyWatchSignalRows,
   firstMeaningfulStrategyText
-} from "../lib/strategy-version";
+} from "../../../lib/strategy-version";
 import {
   buildCommunityComposeRoute,
   buildCommunityListRoute
-} from "../lib/community-entry-links";
-import { buildProfileModuleRedirectPath, buildProfileModuleRoute } from "../lib/profile-modules";
-import { WATCHLIST_EVENT, isWatchedStock, saveWatchedStock, removeWatchedStock } from "../lib/watchlist";
+} from "../../../lib/community-entry-links";
+import { buildProfileModuleRedirectPath, buildProfileModuleRoute } from "../../../lib/profile-modules";
+import { WATCHLIST_EVENT, isWatchedStock, saveWatchedStock, removeWatchedStock } from "../../../lib/watchlist";
 
 const fallbackStockRecommendations = [
   {

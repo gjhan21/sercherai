@@ -9,7 +9,7 @@ import {
   fallbackRechargeRecords,
   fallbackShareLinks,
   fallbackSubscriptions
-} from "../../../views/profile/fallback";
+} from "../../../lib/profile/fallback";
 
 export {
   fallbackBrowseHistory,

@@ -506,16 +506,16 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import StatePanel from "../components/StatePanel.vue";
-import { getMembershipQuota } from "../api/membership";
-import { getStockRecommendationInsight, getStockRecommendationVersionHistory } from "../api/market";
-import { useClientAuth } from "../lib/client-auth";
+import StatePanel from "../../../components/StatePanel.vue";
+import { getMembershipQuota } from "../../../api/membership";
+import { getStockRecommendationInsight, getStockRecommendationVersionHistory } from "../../../api/market";
+import { useClientAuth } from "../../../lib/client-auth";
 import {
   rememberExperimentAttributionSource,
   rememberPendingExperimentJourneySource,
   promotePendingExperimentJourneySources
-} from "../lib/growth-analytics";
-import { getExperimentVariant } from "../lib/growth-experiments";
+} from "../../../lib/growth-analytics";
+import { getExperimentVariant } from "../../../lib/growth-experiments";
 import {
   buildStrategyBatchText,
   buildStrategyHistoryCompareState,
@@ -527,8 +527,8 @@ import {
   findMatchedStrategyHistoryItem,
   mapStrategyVersionHistory,
   toStrategyTradeDate
-} from "../lib/strategy-version";
-import { WATCHLIST_EVENT, listWatchedStocks, removeWatchedStock, syncWatchedStockSnapshot } from "../lib/watchlist";
+} from "../../../lib/strategy-version";
+import { WATCHLIST_EVENT, listWatchedStocks, removeWatchedStock, syncWatchedStockSnapshot } from "../../../lib/watchlist";
 
 const router = useRouter();
 const { isLoggedIn } = useClientAuth();
@@ -2054,58 +2054,4 @@ onBeforeUnmount(() => {
   color: var(--color-fall);
 }
 
-@media (max-width: 1080px) {
-  .watchlist-focus-layout,
-  .watchlist-hero,
-  .watchlist-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .watchlist-focus-head,
-  .watchlist-priority-head {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .watchlist-focus-actions {
-    justify-content: flex-start;
-  }
-
-  .watchlist-side-stack {
-    position: static;
-  }
-}
-
-@media (max-width: 720px) {
-  .watchlist-priority-badges,
-  .watchlist-summary,
-  .watchlist-priority-grid,
-  .watchlist-change-guide-grid,
-  .watchlist-metrics,
-  .watchlist-update-grid,
-  .watchlist-change-grid,
-  .watchlist-change-timeline,
-  .watchlist-proof-grid,
-  .watchlist-version-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .watchlist-priority-badges {
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .watchlist-priority-badges::-webkit-scrollbar {
-    display: none;
-  }
-
-  .watchlist-item-head,
-  .watchlist-focus-head,
-  .watchlist-priority-head,
-  .section-head,
-  .watchlist-actions-row,
-  .watchlist-version-head {
-    flex-direction: column;
-  }
-}
 </style>

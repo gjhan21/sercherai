@@ -13,8 +13,8 @@
 
           <div class="h5-header-actions">
             <span v-if="isLoggedIn" class="h5-user">{{ accountLabel }}</span>
-            <RouterLink v-if="!isLoggedIn" class="h5-header-link" :to="{ path: '/auth', query: { redirect: route.fullPath } }">
-              登录
+            <RouterLink v-if="!isLoggedIn" class="h5-header-link" :to="{ name: 'h5-auth', query: { redirect: route.fullPath } }">
+              注册 / 登录
             </RouterLink>
             <button v-else type="button" class="h5-header-link" :disabled="loggingOut" @click="handleLogout">
               {{ loggingOut ? '退出中' : '退出' }}
@@ -40,7 +40,7 @@
                 type="search"
                 name="h5_global_search"
                 maxlength="40"
-                placeholder="搜索股票、期货策略和资讯"
+                placeholder="输入股票/期货的代码或名称，体验 AI 智能分析与推演"
                 @focus="handleSearchFocus"
                 @keydown.esc.prevent="handleEscapeSearch"
               />
@@ -94,7 +94,9 @@
             </template>
 
             <div class="h5-search-actions">
-              <button type="button" class="h5-search-more" @click="openSearchResultsPage()">查看更多搜索结果</button>
+              <button type="button" class="h5-search-more" @click="openSearchResultsPage()">
+                🚀 查看 "{{ activeSearchKeyword }}" 的探索结果与 AI 深度推演
+              </button>
             </div>
           </div>
         </div>
@@ -374,7 +376,7 @@ async function handleLogout() {
   } finally {
     clearClientAuthSession();
     loggingOut.value = false;
-    await router.replace("/auth");
+    await router.replace({ name: "h5-auth" });
   }
 }
 </script>

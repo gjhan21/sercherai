@@ -69,7 +69,7 @@ func (h *UserGrowthHandler) GetForecastL3RunDetail(c *gin.Context) {
 	if !ok {
 		return
 	}
-	detail, err := h.service.GetStrategyForecastL3RunDetail(c.Param("id"))
+	detail, err := h.service.GetStrategyForecastL3RunDetailForUser(c.Param("id"), userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "forecast run not found", Data: struct{}{}})
@@ -89,7 +89,11 @@ func isForecastL3BadRequest(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(err.Error()), "invalid strategy forecast l3 input")
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "invalid") || 
+		strings.Contains(msg, "required") || 
+		strings.Contains(msg, "limit reached") ||
+		strings.Contains(msg, "disabled")
 }
 
 func firstNonEmpty(values ...string) string {

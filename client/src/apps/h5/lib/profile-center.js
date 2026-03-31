@@ -2,7 +2,6 @@ import {
   formatDateTime,
   mapActivationState,
   mapInviteStatus,
-  mapKYCStatus,
   mapMemberLevel,
   mapMessageType,
   mapPaymentStatus,
@@ -46,7 +45,6 @@ function getLatestOrder(orders = []) {
 function buildHero({ profile = {}, quota = {}, unreadCount = 0, inviteSummary = {} }) {
   const memberLevel = mapMemberLevel(profile?.member_level, quota?.member_level);
   const activationState = mapActivationState(quota?.activation_state || profile?.activation_state);
-  const kycStatus = mapKYCStatus(profile?.kyc_status || quota?.kyc_status);
   const registeredCount = Number(inviteSummary?.last_7d_registered_count || 0);
 
   return {
@@ -54,16 +52,14 @@ function buildHero({ profile = {}, quota = {}, unreadCount = 0, inviteSummary = 
     memberLevel,
     activationState,
     vipStatus: mapVIPStatus(quota?.vip_status, quota?.member_level || profile?.member_level),
-    description: activationState === "待实名激活"
-      ? "支付已经完成，补齐实名后会自动激活当前高级权益。"
-      : resolveVipStage(quota)
-        ? "账户状态已同步，常用入口、消息提醒和邀请关系都集中在这里。"
-        : "先确认会员状态，再继续查看消息、订单和邀请转化。",
+    description: resolveVipStage(quota)
+      ? "账户状态已同步，常用入口、消息提醒和邀请关系都集中在这里。"
+      : "先确认会员状态，再继续查看消息、订单和邀请转化。",
     metrics: [
       {
-        label: "实名",
-        value: kycStatus,
-        note: activationState === "待实名激活" ? "支付后待完成" : "账户安全基础"
+        label: "会员状态",
+        value: memberLevel,
+        note: activationState === "已激活" ? "权益正常使用" : "待生效"
       },
       {
         label: "消息",
@@ -80,29 +76,17 @@ function buildHero({ profile = {}, quota = {}, unreadCount = 0, inviteSummary = 
 }
 
 function buildTodos({ quota = {}, unreadCount = 0, inviteSummary = {} }) {
-  const activationState = String(quota?.activation_state || "").toUpperCase();
   const isVipActive = resolveVipStage(quota);
   const todos = [];
 
-  if (activationState === "PAID_PENDING_KYC") {
-    todos.push({
-      id: "kyc",
-      title: "完成实名激活",
-      desc: "当前订单已支付，下一步优先提交实名，审核通过后高级权益自动生效。",
-      badge: "高优先级",
-      tone: "gold",
-      actionLabel: "去实名"
-    });
-  } else {
-    todos.push({
-      id: "membership",
-      title: isVipActive ? "确认当前会员权益" : "先开通会员权益",
-      desc: isVipActive ? "检查有效期、激活状态和当前可继续使用的权限。" : "先确认适合的套餐与当前待完成动作。",
-      badge: isVipActive ? "会员中心" : "优先处理",
-      tone: isVipActive ? "brand" : "gold",
-      actionLabel: "去会员页"
-    });
-  }
+  todos.push({
+    id: "membership",
+    title: isVipActive ? "确认当前会员权益" : "先开通会员权益",
+    desc: isVipActive ? "检查有效期、激活状态和当前可继续使用的权限。" : "先确认适合的套餐与当前待完成动作。",
+    badge: isVipActive ? "会员中心" : "优先处理",
+    tone: isVipActive ? "brand" : "gold",
+    actionLabel: "去会员页"
+  });
 
   todos.push({
     id: "messages",
@@ -209,15 +193,6 @@ function buildInviteOverview({ inviteSummary = {}, shareLinks = [] }) {
 }
 
 function buildSticky({ quota = {}, unreadCount = 0 }) {
-  const activationState = String(quota?.activation_state || "").toUpperCase();
-  if (activationState === "PAID_PENDING_KYC") {
-    return {
-      title: "先完成实名激活，再继续账户操作",
-      description: "审核通过后，高级权益会自动生效。",
-      primaryLabel: "提交实名",
-      primaryTarget: "kyc"
-    };
-  }
   if (!resolveVipStage(quota)) {
     return {
       title: "先确认会员状态，再处理其他账户动作",

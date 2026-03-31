@@ -12,7 +12,7 @@
           <div>
             <h1>{{ displayProfile.name }}</h1>
             <p>
-              {{ vipInfo.level }} · {{ activationStateLabel }} · KYC {{ displayProfile.kycStatus }} · 最近更新
+              {{ vipInfo.level }} · {{ activationStateLabel }} · 最近更新
               {{ lastUpdatedAt || "-" }}
             </p>
           </div>
@@ -31,7 +31,7 @@
         <article class="finance-hero-stat-card">
           <span>会员状态</span>
           <strong>{{ vipInfo.level }} · {{ activationStateLabel }}</strong>
-          <p>KYC {{ displayProfile.kycStatus }} · 当前阅读和支付链会按此状态承接。</p>
+          <p>当前阅读和支付链会按此状态承接。</p>
         </article>
         <article class="finance-hero-stat-card">
           <span>未读消息</span>
@@ -274,14 +274,8 @@
           <div class="vip-panel">
             <article class="vip-main">
               <p class="vip-level">{{ vipInfo.level }}</p>
-              <h3>{{ isPaidPendingKYC ? activationPromptTitle : `VIP 有效期至 ${vipInfo.expireAt}` }}</h3>
-              <p>
-                {{
-                  isPaidPendingKYC
-                    ? activationPromptDesc
-                    : `下次续费时间：${vipInfo.nextRenewAt}，剩余 ${vipInfo.remainingDays} 天`
-                }}
-              </p>
+              <h3>VIP 有效期至 {{ vipInfo.expireAt }}</h3>
+              <p>下次续费时间：{{ vipInfo.nextRenewAt }}，剩余 {{ vipInfo.remainingDays }} 天</p>
             </article>
             <div class="summary-grid">
               <article v-for="item in vipMetrics" :key="item.label" class="finance-summary-pill">
@@ -295,42 +289,6 @@
               <h4>{{ item.title }}</h4>
               <p>{{ item.desc }}</p>
             </article>
-          </div>
-          <div v-if="isPaidPendingKYC" class="activation-panel">
-            <div class="activation-copy finance-card-surface">
-              <p class="section-kicker">待实名激活</p>
-              <h4>{{ activationPromptTitle }}</h4>
-              <p>{{ activationPromptDesc }}</p>
-              <div class="activation-tags">
-                <span class="finance-pill finance-pill-roomy finance-pill-info">会员等级 {{ vipInfo.level }}</span>
-                <span class="finance-pill finance-pill-roomy finance-pill-info">激活状态 {{ activationStateLabel }}</span>
-                <span class="finance-pill finance-pill-roomy finance-pill-info">KYC {{ displayProfile.kycStatus }}</span>
-              </div>
-            </div>
-            <div class="activation-form-wrap finance-card-surface">
-              <p v-if="kycActionError" class="state-box finance-note-strip finance-note-strip-warning">{{ kycActionError }}</p>
-              <p v-else-if="kycActionMessage" class="state-box finance-note-strip finance-note-strip-info">{{ kycActionMessage }}</p>
-              <p v-if="!canSubmitKYC" class="state-box finance-note-strip finance-note-strip-info">
-                {{
-                  currentKYCStatusRaw === "PENDING"
-                    ? "实名材料已提交，审核通过后会自动激活高级权益。"
-                    : "当前状态无需重复提交实名材料。"
-                }}
-              </p>
-              <form v-else class="kyc-form" @submit.prevent="handleSubmitKYC">
-                <label>
-                  真实姓名
-                  <input v-model.trim="kycForm.real_name" placeholder="请输入真实姓名" />
-                </label>
-                <label>
-                  身份证号
-                  <input v-model.trim="kycForm.id_number" placeholder="请输入身份证号" />
-                </label>
-                <button type="submit" :disabled="kycSubmitting">
-                  {{ kycSubmitting ? "提交中..." : "提交实名信息" }}
-                </button>
-              </form>
-            </div>
           </div>
         </template>
 
@@ -371,20 +329,6 @@
             </table>
           </div>
 
-          <div class="payment-mobile">
-            <article v-for="item in paymentRecords" :key="`m-${item.orderNo}`" class="finance-list-card finance-list-card-panel">
-              <div class="top-line">
-                <p>{{ item.product }}</p>
-                <span>{{ item.amount }}</span>
-              </div>
-              <div class="meta-line finance-meta-line">
-                <span>{{ item.time }}</span>
-                <span>{{ item.method }}</span>
-                <span class="status finance-pill finance-pill-compact" :class="paymentStatusClass(item.status)">{{ item.status }}</span>
-              </div>
-              <p class="order">订单号：{{ item.orderNo }}</p>
-            </article>
-          </div>
         </template>
 
         <template v-else-if="activeModule === 'reading'">
@@ -594,7 +538,6 @@
               </div>
             </article>
           </div>
-
           <div class="payment-table-wrap finance-table-wrap">
             <table class="payment-table finance-data-table">
               <thead>
@@ -618,24 +561,6 @@
             </table>
           </div>
 
-          <div class="payment-mobile">
-            <article v-if="inviteRecords.length === 0" class="finance-list-card finance-list-card-panel">
-              <div class="top-line">
-                <p>暂无邀请记录</p>
-              </div>
-            </article>
-            <article v-for="item in inviteRecords" :key="`invite-${item.id}`" class="finance-list-card finance-list-card-panel">
-              <div class="top-line">
-                <p>{{ item.inviteeUser }}</p>
-                <span>{{ item.status }}</span>
-              </div>
-              <div class="meta-line">
-                <span>注册：{{ item.registerAt }}</span>
-                <span>首单：{{ item.firstPayAt }}</span>
-                <span>风控：{{ item.riskFlag }}</span>
-              </div>
-            </article>
-          </div>
         </template>
 
         <template v-else>
@@ -725,7 +650,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import StatePanel from "../components/StatePanel.vue";
+import StatePanel from "../../../components/StatePanel.vue";
 import {
   createShareLink,
   createSubscription,
@@ -740,17 +665,16 @@ import {
   listShareLinks,
   listSubscriptions,
   readMessage,
-  submitKYC,
   updateSubscription
-} from "../api/userCenter";
-import { shouldUseDemoFallback } from "../lib/fallback-policy";
+} from "../../../api/userCenter";
+import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
 import {
   modules,
   shareChannelOptions,
   subscriptionFrequencyOptions,
   subscriptionTypeOptions,
   timeRanges
-} from "./profile/constants";
+} from "../../../lib/profile/constants";
 import {
   buildInviteURL,
   copyText,
@@ -762,7 +686,6 @@ import {
   mapInviteLinkStatus,
   mapInviteRiskFlag,
   mapInviteStatus,
-  mapKYCStatus,
   mapMemberLevel,
   mapMessageReadStatus,
   mapMessageType,
@@ -781,7 +704,7 @@ import {
   subscriptionStatusClass,
   toArray,
   toTimestamp
-} from "./profile/helpers";
+} from "../../../lib/profile/helpers";
 import {
   fallbackBrowseHistory,
   fallbackInviteRecords,
@@ -793,8 +716,8 @@ import {
   fallbackRechargeRecords,
   fallbackShareLinks,
   fallbackSubscriptions
-} from "./profile/fallback";
-import { buildProfileModuleRoute, normalizeProfileModuleSection } from "../lib/profile-modules";
+} from "../../../lib/profile/fallback";
+import { buildProfileModuleRoute, normalizeProfileModuleSection } from "../../../lib/profile-modules";
 
 const useDemoFallback = shouldUseDemoFallback();
 const route = useRoute();
@@ -824,13 +747,6 @@ const newSubscriptionForm = ref({
   frequency: "DAILY",
   scope: "ALL"
 });
-const kycForm = ref({
-  real_name: "",
-  id_number: ""
-});
-const kycSubmitting = ref(false);
-const kycActionMessage = ref("");
-const kycActionError = ref("");
 
 const rawProfile = ref(useDemoFallback ? { ...fallbackProfile } : {});
 const rawQuota = ref(useDemoFallback ? { ...fallbackQuota } : {});
@@ -844,51 +760,13 @@ const rawInviteRecords = ref(useDemoFallback ? [...fallbackInviteRecords] : []);
 const rawInviteSummary = ref(useDemoFallback ? { ...fallbackInviteSummary } : {});
 
 const currentModule = computed(() => modules.find((item) => item.key === activeModule.value) || modules[0]);
-const currentKYCStatusRaw = computed(() =>
-  String(rawQuota.value?.kyc_status || rawProfile.value?.kyc_status || "").toUpperCase()
-);
-const currentActivationState = computed(() => {
-  const activationState = String(
-    rawProfile.value?.activation_state || rawQuota.value?.activation_state || ""
-  ).toUpperCase();
-  if (activationState) {
-    return activationState;
-  }
-  const level = String(rawProfile.value?.member_level || rawQuota.value?.member_level || "").toUpperCase();
-  if (!level.startsWith("VIP")) {
-    return "NON_MEMBER";
-  }
-  const vipStatus = String(rawQuota.value?.vip_status || rawProfile.value?.vip_status || "").toUpperCase();
-  if (vipStatus === "EXPIRED") {
-    return "NON_MEMBER";
-  }
-  return currentKYCStatusRaw.value === "APPROVED" || currentKYCStatusRaw.value === "VERIFIED"
-    ? "ACTIVE"
-    : "PAID_PENDING_KYC";
-});
+const currentActivationState = computed(() => "ACTIVE");
 const activationStateLabel = computed(() => mapActivationState(currentActivationState.value));
-const isPaidPendingKYC = computed(() => currentActivationState.value === "PAID_PENDING_KYC");
-const canSubmitKYC = computed(() => isPaidPendingKYC.value && currentKYCStatusRaw.value !== "PENDING");
-const activationPromptTitle = computed(() =>
-  currentKYCStatusRaw.value === "REJECTED"
-    ? "实名未通过，请重新提交后激活高级权益"
-    : "会员已开通，待实名激活高级权益"
-);
-const activationPromptDesc = computed(() => {
-  if (currentKYCStatusRaw.value === "PENDING") {
-    return "实名材料已提交，审核通过后会自动激活完整策略档案、VIP 资讯、盘中跟踪与复盘能力。";
-  }
-  if (currentKYCStatusRaw.value === "REJECTED") {
-    return "你的会员资格仍然保留，但高级权益会继续冻结，直到重新提交实名并审核通过。";
-  }
-  return "你已经完成会员支付，但完整策略档案、VIP 资讯和跟踪能力会在实名通过后统一激活。";
-});
 
 const displayProfile = computed(() => ({
   name: rawProfile.value?.id ? `用户 ${rawProfile.value.id}` : "当前用户",
   phone: rawProfile.value?.phone || "-",
   email: rawProfile.value?.email || "-",
-  kycStatus: mapKYCStatus(currentKYCStatusRaw.value),
   memberLevel: rawProfile.value?.member_level || rawQuota.value?.member_level || "FREE"
 }));
 
@@ -965,9 +843,7 @@ const vipInfo = computed(() => {
   const remainingDays = Number.isFinite(serverRemaining) && serverRemaining > 0 ? serverRemaining : computedRemaining;
   const expireAt = formatDateTime(expireRaw);
   const nextRenewAt = expireAt;
-  const status = isPaidPendingKYC.value
-    ? "待实名激活"
-    : mapVIPStatus(rawQuota.value?.vip_status || rawProfile.value?.vip_status, displayProfile.value.memberLevel);
+  const status = mapVIPStatus(rawQuota.value?.vip_status || rawProfile.value?.vip_status, displayProfile.value.memberLevel);
 
   return {
     level: levelText,
@@ -989,8 +865,7 @@ const vipMetrics = computed(() => [
   {
     label: "资讯订阅余量",
     value: `${rawQuota.value?.news_subscribe_remaining ?? 0}`
-  },
-  { label: "KYC状态", value: displayProfile.value.kycStatus }
+  }
 ]);
 
 const vipBenefits = computed(() => [
@@ -1014,9 +889,7 @@ const vipBenefits = computed(() => [
   },
   {
     title: "会员续费状态",
-    desc: isPaidPendingKYC.value
-      ? `${activationPromptDesc.value} 当前到期时间：${vipInfo.value.expireAt}。`
-      : `当前会员状态：${vipInfo.value.status}，到期时间：${vipInfo.value.expireAt}。`
+    desc: `当前会员状态：${vipInfo.value.status}，到期时间：${vipInfo.value.expireAt}。`
   }
 ]);
 
@@ -1203,20 +1076,6 @@ const profileRhythmStatus = computed(() => {
       secondaryAction: { type: "module", value: "payment", label: "查看支付明细" }
     };
   }
-  if (isPaidPendingKYC.value) {
-    return {
-      tone: "warning",
-      eyebrow: "待实名激活",
-      title: activationPromptTitle.value,
-      desc: `${activationPromptDesc.value} 当前实名状态：${displayProfile.value.kycStatus}。`,
-      primaryAction: {
-        type: "module",
-        value: "vip",
-        label: currentKYCStatusRaw.value === "PENDING" ? "查看激活进度" : "提交实名信息"
-      },
-      secondaryAction: { type: "route", value: "/archive", label: "先看公开历史样本" }
-    };
-  }
   if (unreadMessageCount.value > 0) {
     return {
       tone: "info",
@@ -1248,54 +1107,6 @@ const profileRhythmStatus = computed(() => {
 });
 
 const profileCadenceEntries = computed(() => {
-  if (isPaidPendingKYC.value) {
-    return [
-      {
-        slot: "08:30",
-        title: "先把实名激活动作补齐",
-        desc: "完整主推荐解释链会在实名通过后开启，先把激活动作放在今天的第一步。",
-        highlight: "入口：个人中心 VIP 模块",
-        supporting: `实名状态 ${displayProfile.value.kycStatus}`,
-        primaryAction: {
-          type: "module",
-          value: "vip",
-          label: currentKYCStatusRaw.value === "PENDING" ? "查看激活进度" : "提交实名信息"
-        },
-        secondaryAction: { type: "route", value: "/strategies", label: "先看公开主推荐" }
-      },
-      {
-        slot: "11:30",
-        title: "午盘继续看公开资讯",
-        desc: `当前有效订阅 ${activeSubscriptionCount.value} 项，实名完成前仍可先用公开资讯查看盘中变化。`,
-        highlight: "入口：资讯页",
-        supporting: "高级资讯权限待实名后激活",
-        primaryAction: { type: "route", value: "/news", label: "进入资讯页" },
-        secondaryAction: { type: "module", value: "subscription", label: "调整订阅" }
-      },
-      {
-        slot: "15:30",
-        title: "先保留收盘后的回访习惯",
-        desc:
-          unreadMessageCount.value > 0
-            ? `先去我的关注，再回来处理 ${unreadMessageCount.value} 条通知，避免节奏断掉。`
-            : "先去我的关注保留收盘回访习惯，等实名后再接回完整解释能力。",
-        highlight: "入口：我的关注",
-        supporting: "高级跟踪能力待实名后激活",
-        primaryAction: { type: "route", value: "/profile/watchlist", label: "进入我的关注" },
-        secondaryAction: { type: "module", value: "message", label: "处理通知" }
-      },
-      {
-        slot: "周末",
-        title: "先用公开样本继续复盘",
-        desc: "周末先去历史档案看公开兑现样本，再回个人中心确认实名激活进度。",
-        highlight: "入口：历史档案",
-        supporting: `支付 ${paymentRecords.value.length} 条 · 激活状态 ${activationStateLabel.value}`,
-        primaryAction: { type: "route", value: "/archive", label: "进入历史档案" },
-        secondaryAction: { type: "module", value: "vip", label: "回看激活状态" }
-      }
-    ];
-  }
-
   return [
     {
       slot: "08:30",
@@ -1355,16 +1166,6 @@ const otherInfos = computed(() => [
     ]
   },
   {
-    title: "会员与配额",
-    rows: [
-      { key: "会员等级", value: vipInfo.value.level },
-      { key: "激活状态", value: activationStateLabel.value },
-      { key: "实名状态", value: displayProfile.value.kycStatus },
-      { key: "文档配额剩余", value: `${rawQuota.value?.doc_read_remaining ?? 0}` },
-      { key: "资讯订阅剩余", value: `${rawQuota.value?.news_subscribe_remaining ?? 0}` }
-    ]
-  },
-  {
     title: "记录统计",
     rows: [
       { key: "支付记录", value: `${paymentRecords.value.length} 条` },
@@ -1394,14 +1195,6 @@ const todos = computed(() => [
         actionLabel: "去会员中心",
         action: { type: "route", value: "/membership" }
       }
-    : isPaidPendingKYC.value
-      ? {
-          title: "完成实名激活",
-          note: activationPromptDesc.value,
-          level: "high",
-          actionLabel: currentKYCStatusRaw.value === "PENDING" ? "查看激活进度" : "提交实名信息",
-          action: { type: "module", value: "vip" }
-        }
     : {
         title: isVIPActive.value ? "确认会员有效期" : "完成会员升级决策",
         note: isVIPActive.value
@@ -1433,13 +1226,11 @@ const todos = computed(() => [
 const quickActions = computed(() => [
   {
     title: "会员权益中心",
-    desc: isPaidPendingKYC.value
-      ? `当前 ${vipInfo.value.level} 已开通，但还在等待实名激活。`
-      : isVIPActive.value
+    desc: isVIPActive.value
         ? `当前 ${vipInfo.value.level} 生效中，适合随时检查续费和权益。`
-      : "当前还没进入会员节奏，先看方案与权益差异。",
-    actionLabel: isPaidPendingKYC.value ? "完成实名激活" : isVIPActive.value ? "查看会员页" : "去升级会员",
-    action: isPaidPendingKYC.value ? { type: "module", value: "vip" } : { type: "route", value: "/membership" }
+        : "当前还没进入会员节奏，先看方案与权益差异。",
+    actionLabel: isVIPActive.value ? "查看会员页" : "去升级会员",
+    action: { type: "route", value: "/membership" }
   },
   {
     title: "午盘订阅设置",
@@ -1475,7 +1266,7 @@ const quickActions = computed(() => [
 const profileOutstandingCount = computed(() => {
   let count = 0;
   if (pendingPaymentCount.value > 0) count += 1;
-  if (isPaidPendingKYC.value) count += 1;
+  if (isVIPActive.value) count += 1;
   if (!isVIPActive.value) count += 1;
   if (unreadMessageCount.value > 0) count += 1;
   return count;
@@ -1544,7 +1335,6 @@ const profileModuleCards = computed(() => [
 const profileAccountSummaryRows = computed(() => [
   { label: "账户身份", value: `${displayProfile.value.name} · ${vipInfo.value.level}` },
   { label: "会员状态", value: `${vipInfo.value.status} · 到期 ${vipInfo.value.expireAt}` },
-  { label: "实名状态", value: `${displayProfile.value.kycStatus} · ${activationStateLabel.value}` },
   { label: "消息与订阅", value: `未读 ${unreadMessageCount.value} 条 · 生效订阅 ${activeSubscriptionCount.value} 项` }
 ]);
 const profilePendingRows = computed(() => {
@@ -1553,12 +1343,6 @@ const profilePendingRows = computed(() => {
     rows.push({
       title: "先处理待支付订单",
       desc: `当前还有 ${pendingPaymentCount.value} 笔订单处理中，建议先回会员中心完成支付。`
-    });
-  }
-  if (isPaidPendingKYC.value) {
-    rows.push({
-      title: "完成实名激活",
-      desc: activationPromptDesc.value
     });
   }
   if (unreadMessageCount.value > 0) {
@@ -1592,11 +1376,6 @@ const profileStatusRows = computed(() => [
     label: "会员有效期",
     value: vipInfo.value.expireAt,
     note: `剩余 ${vipInfo.value.remainingDays} 天`
-  },
-  {
-    label: "实名进度",
-    value: displayProfile.value.kycStatus,
-    note: isPaidPendingKYC.value ? activationPromptDesc.value : "当前实名状态不阻塞高级能力。"
   },
   {
     label: "未读通知",
@@ -1824,45 +1603,6 @@ async function handleReadMessage(item) {
     loadError.value = error?.message || "标记已读失败";
   } finally {
     setMessageSaving(item.id, false);
-  }
-}
-
-async function handleSubmitKYC() {
-  if (!canSubmitKYC.value || kycSubmitting.value) {
-    return;
-  }
-  const payload = {
-    real_name: String(kycForm.value.real_name || "").trim(),
-    id_number: String(kycForm.value.id_number || "").trim()
-  };
-  if (!payload.real_name || !payload.id_number) {
-    kycActionError.value = "请先填写真实姓名和身份证号";
-    kycActionMessage.value = "";
-    return;
-  }
-  kycSubmitting.value = true;
-  kycActionMessage.value = "";
-  kycActionError.value = "";
-  try {
-    const result = await submitKYC(payload);
-    const nextStatus = String(result?.kyc_status || "PENDING").toUpperCase();
-    rawProfile.value = {
-      ...rawProfile.value,
-      kyc_status: nextStatus
-    };
-    rawQuota.value = {
-      ...rawQuota.value,
-      kyc_status: nextStatus
-    };
-    kycActionMessage.value =
-      nextStatus === "PENDING"
-        ? "实名材料已提交，审核通过后会自动激活高级权益。"
-        : `实名状态已更新为 ${mapKYCStatus(nextStatus)}`;
-    await loadUserCenterData();
-  } catch (error) {
-    kycActionError.value = error?.message || "提交实名失败";
-  } finally {
-    kycSubmitting.value = false;
   }
 }
 
@@ -2517,42 +2257,6 @@ h1 {
   gap: 8px;
 }
 
-.kyc-form {
-  display: grid;
-  gap: 10px;
-}
-
-.kyc-form label {
-  display: grid;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--color-text-sub);
-}
-
-.kyc-form input {
-  width: 100%;
-  border-radius: 10px;
-  border: 1px solid rgba(176, 188, 208, 0.92);
-  padding: 10px 12px;
-  font: inherit;
-  background: var(--color-surface-card-elevated);
-  color: var(--color-text-main);
-}
-
-.kyc-form button {
-  border: 0;
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-weight: 600;
-  color: #fff;
-  cursor: pointer;
-  background: var(--gradient-primary);
-}
-
-.kyc-form button:disabled {
-  cursor: not-allowed;
-  opacity: 0.72;
-}
 
 .payment-table {
   min-width: 760px;
@@ -2582,9 +2286,6 @@ h1 {
   border-color: rgba(178, 58, 42, 0.14);
 }
 
-.payment-mobile {
-  display: none;
-}
 
 .payment-mobile article,
 .log-list article,
@@ -2887,206 +2588,4 @@ h1 {
   margin-top: 10px;
 }
 
-@media (max-width: 1080px) {
-  .profile-focus-head,
-  .profile-guide-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .query-nav {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .rhythm-head {
-    grid-template-columns: 1fr;
-  }
-
-  .subscription-create {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .rhythm-grid,
-  .vip-panel,
-  .activation-panel,
-  .subscription-grid,
-  .other-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 980px) {
-  .account-card,
-  .profile-workbench-layout,
-  .query-head,
-  .bottom-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .profile-side-rail {
-    position: static;
-  }
-}
-
-@media (max-width: 760px) {
-  .account-card,
-  .profile-focus-card,
-  .profile-side-card,
-  .rhythm-card,
-  .query-card,
-  .todo-card,
-  .quick-card {
-    border-radius: 14px;
-    padding: 12px;
-  }
-
-  .identity {
-    align-items: flex-start;
-    gap: 8px;
-  }
-
-  .avatar {
-    width: 50px;
-    height: 50px;
-    border-radius: 14px;
-    font-size: 21px;
-  }
-
-  h1 {
-    font-size: 20px;
-  }
-
-  .identity p {
-    line-height: 1.5;
-    font-size: 12px;
-  }
-
-  .actions {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-  }
-
-  .actions button {
-    width: 100%;
-    padding: 8px 10px;
-  }
-
-  .profile-focus-actions {
-    justify-content: stretch;
-  }
-
-  .profile-focus-actions button {
-    width: 100%;
-  }
-
-  .range-switch,
-  .query-nav {
-    display: flex;
-    overflow-x: auto;
-    padding-bottom: 2px;
-    scrollbar-width: none;
-  }
-
-  .range-switch::-webkit-scrollbar,
-  .query-nav::-webkit-scrollbar {
-    display: none;
-  }
-
-  .range-switch button,
-  .query-nav button {
-    flex: 0 0 auto;
-    min-width: 86px;
-    padding: 8px 10px;
-  }
-
-  .query-tip {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-  }
-
-  .vip-main h3 {
-    font-size: 20px;
-  }
-
-  .summary-grid strong {
-    font-size: 17px;
-  }
-
-  .summary-grid,
-  .benefits-grid,
-  .activation-panel,
-  .profile-overview-grid,
-  .profile-status-grid,
-  .quick-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .subscription-create {
-    grid-template-columns: 1fr;
-  }
-
-  .subscription-create .scope-input {
-    grid-column: auto;
-  }
-
-  .subscription-actions {
-    flex-direction: column;
-  }
-
-  .invite-create {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .invite-create button {
-    width: 100%;
-  }
-
-  .top-line {
-    align-items: flex-start;
-  }
-
-  .top-line span {
-    flex-shrink: 0;
-  }
-
-  .kv-list p {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-  }
-
-  .kv-list strong {
-    text-align: left;
-  }
-
-  .todo-card li {
-    grid-template-columns: auto 1fr;
-  }
-
-  .todo-actions {
-    grid-column: 1 / -1;
-    justify-self: stretch;
-  }
-
-  .todo-actions button,
-  .quick-item button {
-    width: 100%;
-  }
-
-  .payment-table-wrap {
-    display: none;
-  }
-
-  .payment-mobile {
-    display: grid;
-    gap: 8px;
-  }
-}
 </style>

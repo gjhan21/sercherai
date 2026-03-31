@@ -296,7 +296,7 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import StatePanel from "../components/StatePanel.vue";
+import StatePanel from "../../../components/StatePanel.vue";
 import {
   createCommunityComment,
   createCommunityReaction,
@@ -304,9 +304,9 @@ import {
   deleteCommunityReaction,
   getCommunityTopicDetail,
   listCommunityComments
-} from "../api/community";
-import { useClientAuth } from "../lib/client-auth";
-import { buildLinkedContentRoute } from "../lib/community-entry-links";
+} from "../../../api/community";
+import { useClientAuth } from "../../../lib/client-auth";
+import { buildLinkedContentRoute } from "../../../lib/community-entry-links";
 
 const route = useRoute();
 const router = useRouter();
@@ -951,31 +951,4 @@ function formatDateTime(value) {
   border-left: 2px solid var(--color-border-soft);
 }
 
-@media (max-width: 1080px) {
-  .topic-core-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .topic-hero {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .topic-hero-actions {
-    min-width: 0;
-  }
-
-  .topic-core-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .topic-comment-top {
-    flex-direction: column;
-  }
-
-  .topic-comment-side {
-    justify-content: flex-start;
-  }
-}
 </style>

@@ -5,7 +5,6 @@
         <div class="finance-pill-row">
           <span class="finance-pill finance-pill-compact finance-pill-neutral">会员页</span>
           <span class="finance-pill finance-pill-compact finance-pill-info">升级价值解释</span>
-          <span class="finance-pill finance-pill-compact finance-pill-info">实名激活前置</span>
         </div>
         <div>
           <p class="hero-kicker">会员中心</p>
@@ -27,7 +26,7 @@
         <article class="finance-hero-stat-card">
           <span>当前状态</span>
           <strong>{{ currentLevelLabel }} · {{ activationStateLabel }}</strong>
-          <p>先确认是否待实名激活、待续费或已正常开通。</p>
+          <p>确认是否待支付、待续费或已正常开通。</p>
         </article>
         <article class="finance-hero-stat-card">
           <span>深读价值</span>
@@ -138,7 +137,7 @@
           <header class="section-head compact">
             <div>
               <h2 class="section-title">当前状态卡</h2>
-              <p class="section-subtitle">待实名激活、待支付、已开通等状态会优先显示。</p>
+              <p class="section-subtitle">待支付、已开通等状态会优先显示。</p>
             </div>
           </header>
           <div class="membership-side-list finance-card-stack">
@@ -448,28 +447,6 @@
         </template>
       </StatePanel>
 
-      <div class="order-mobile-list">
-        <article v-for="item in orderRows" :key="`mobile-${item.orderNo}`" class="finance-list-card">
-          <div class="top-line">
-            <p>{{ item.productName }}</p>
-            <span>{{ item.amount }}</span>
-          </div>
-          <div class="meta-line finance-meta-line">
-            <span>{{ item.payChannel }}</span>
-            <span>{{ item.time }}</span>
-            <span class="badge finance-pill finance-pill-compact" :class="item.statusClass">{{ item.statusLabel }}</span>
-          </div>
-          <p class="order-no">订单号：{{ item.orderNo }}</p>
-          <button
-            v-if="canResumePayment(item)"
-            type="button"
-            class="mini-btn finance-mini-btn finance-mini-btn-primary"
-            @click="openLatestPaymentPage"
-          >
-            继续支付
-          </button>
-        </article>
-      </div>
     </article>
   </section>
 </template>
@@ -477,26 +454,26 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import StatePanel from "../components/StatePanel.vue";
+import StatePanel from "../../../components/StatePanel.vue";
 import {
   createMembershipOrder,
   getMembershipQuota,
   listMembershipOrders,
   listMembershipProducts
-} from "../api/membership";
-import { getStockRecommendationInsight, listStockRecommendations } from "../api/market";
-import { shouldUseDemoFallback } from "../lib/fallback-policy";
+} from "../../../api/membership";
+import { getStockRecommendationInsight, listStockRecommendations } from "../../../api/market";
+import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
 import {
   clearExperimentAttributionSources,
   createExperimentContext,
   listExperimentAttributionSources,
   trackExperimentEvent,
   trackExperimentExposureOnce
-} from "../lib/growth-analytics";
-import { getExperimentVariant } from "../lib/growth-experiments";
-import { buildProfileModulePath } from "../lib/profile-modules";
-import { buildStrategySnapshotCard } from "../lib/strategy-version";
-import { WATCHLIST_EVENT, listWatchedStocks } from "../lib/watchlist";
+} from "../../../lib/growth-analytics";
+import { getExperimentVariant } from "../../../lib/growth-experiments";
+import { buildProfileModulePath } from "../../../lib/profile-modules";
+import { buildStrategySnapshotCard } from "../../../lib/strategy-version";
+import { WATCHLIST_EVENT, listWatchedStocks } from "../../../lib/watchlist";
 
 const fallbackProducts = [
   {
@@ -527,8 +504,7 @@ const fallbackProducts = [
 
 const fallbackQuota = {
   member_level: "VIP1",
-  kyc_status: "PENDING",
-  activation_state: "PAID_PENDING_KYC",
+  activation_state: "ACTIVE",
   period_key: "2026-02",
   doc_read_limit: 100,
   doc_read_used: 24,
@@ -621,14 +597,6 @@ const rawOrders = ref(useDemoFallback ? [...fallbackOrders] : []);
 
 const currentMemberLevel = computed(() => String(rawQuota.value?.member_level || "FREE").toUpperCase());
 const currentActivationState = computed(() => {
-  const activationState = String(rawQuota.value?.activation_state || "").toUpperCase();
-  if (activationState) {
-    return activationState;
-  }
-  const level = String(rawQuota.value?.member_level || "").toUpperCase();
-  if (!level.startsWith("VIP")) {
-    return "NON_MEMBER";
-  }
   return String(rawQuota.value?.vip_status || "").toUpperCase() === "ACTIVE" ? "ACTIVE" : "NON_MEMBER";
 });
 const productMap = computed(() => {
@@ -679,18 +647,9 @@ const currentPlanName = computed(() => {
 });
 
 const currentLevelLabel = computed(() => `等级：${mapLevelLabel(currentMemberLevel.value)}`);
-const isPaidPendingKYC = computed(() => currentActivationState.value === "PAID_PENDING_KYC");
-const vipStatusLabel = computed(() =>
-  isPaidPendingKYC.value ? "待实名激活" : mapVIPStatus(rawQuota.value?.vip_status, rawQuota.value?.member_level)
-);
+const vipStatusLabel = computed(() => mapVIPStatus(rawQuota.value?.vip_status, rawQuota.value?.member_level));
 const activationStateLabel = computed(() => mapActivationState(currentActivationState.value));
-const heroSubtitle = computed(() => {
-  if (isPaidPendingKYC.value) {
-    return "支付完成后，可继续查看订单和配额，并按提示完成实名激活。";
-  }
-  return "可查看套餐权益、订单记录，并直接创建会员订单。";
-});
-const kycStatusLabel = computed(() => mapKYCStatus(rawQuota.value?.kyc_status));
+const heroSubtitle = computed(() => "可查看套餐权益、订单记录，并直接创建会员订单。");
 const vipExpireText = computed(() => formatDateTime(rawQuota.value?.vip_expire_at));
 const vipRemainDaysText = computed(() => `${Math.max(0, Number(rawQuota.value?.vip_remaining_days || 0))} 天`);
 const isVIPExpired = computed(() => String(rawQuota.value?.vip_status || "").toUpperCase() === "EXPIRED");
@@ -710,14 +669,6 @@ const membershipExperimentLabel = computed(() =>
 );
 
 const quotaCards = computed(() => [
-  {
-    label: "激活状态",
-    value: activationStateLabel.value
-  },
-  {
-    label: "实名状态",
-    value: kycStatusLabel.value
-  },
   {
     label: "VIP状态",
     value: vipStatusLabel.value
@@ -806,23 +757,8 @@ const latestTrackedOrder = computed(() =>
   orderRows.value.find((item) => item.orderNo === latestPaymentOrderNo.value) || null
 );
 const latestPaymentCTA = computed(() => `继续去${mapPayChannel(latestPaymentAction.value?.channel)}支付`);
-const summarySteps = computed(() =>
-  isPaidPendingKYC.value
-    ? ["1 会员已开通", "2 去个人中心提交实名", "3 审核通过后自动激活高级权益"]
-    : ["1 选择支付方式", "2 选择套餐并下单", "3 支付后回到本页刷新"]
-);
+const summarySteps = computed(() => ["1 选择支付方式", "2 选择套餐并下单", "3 支付后回到本页刷新"]);
 const membershipJourney = computed(() => {
-  if (isPaidPendingKYC.value) {
-    return {
-      title: "会员已开通，先完成实名再激活高级权益",
-      desc: "你已经完成支付，但完整策略档案、VIP资讯、盘中跟踪和复盘能力仍会在实名通过后统一激活。",
-      summaryLabel: "当前状态",
-      summaryValue: "待实名激活",
-      summaryNote: `实名状态 ${kycStatusLabel.value} · 会员等级 ${mapLevelLabel(currentMemberLevel.value)}`,
-      primaryAction: { label: "去个人中心实名", to: "/profile" },
-      secondaryAction: { label: "先看公开历史样本", to: "/archive" }
-    };
-  }
   if (isVIPActive.value) {
     return {
       title: isProofVariant.value
@@ -866,16 +802,6 @@ const membershipJourney = computed(() => {
   };
 });
 const renewalExperimentPanel = computed(() => {
-  if (isPaidPendingKYC.value) {
-    return {
-      tone: "warning",
-      eyebrow: membershipExperimentLabel.value,
-      title: "请先完成实名激活",
-      desc: "支付已经完成，下一步先补齐实名信息，让高级内容和跟踪能力正式生效。",
-      primaryAction: { label: "去个人中心实名", to: "/profile" },
-      secondaryAction: { label: "看公开历史样本", to: "/archive" }
-    };
-  }
   if (isVIPExpired.value) {
     return {
       tone: "warning",
@@ -912,46 +838,6 @@ const renewalExperimentPanel = computed(() => {
   };
 });
 const cadenceEntries = computed(() => {
-  if (isPaidPendingKYC.value) {
-    return [
-      {
-        slot: "08:30",
-        title: "先完成实名激活",
-        desc: "完整主推荐解释链会在实名通过后打开，先去个人中心补齐实名信息。",
-        highlight: "入口：个人中心",
-        supporting: `实名状态：${kycStatusLabel.value}`,
-        primary: { label: "去个人中心实名", to: "/profile" },
-        secondary: { label: "先看公开主推荐", to: "/strategies" }
-      },
-      {
-        slot: "11:30",
-        title: "公开资讯继续跟进",
-        desc: "实名通过前仍可继续看公开资讯，不打断你的日常回访节奏。",
-        highlight: "入口：资讯页",
-        supporting: "VIP资讯会在实名后自动激活",
-        primary: { label: "进入资讯页", to: "/news" },
-        secondary: { label: "查看历史样本", to: "/archive" }
-      },
-      {
-        slot: "15:30",
-        title: "先保留关注习惯",
-        desc: "我的关注和公开历史样本仍可继续使用，等实名完成后再接回完整会员解释能力。",
-        highlight: "入口：我的关注",
-        supporting: "高级跟踪能力待实名后激活",
-        primary: { label: "进入我的关注", to: watchlistModuleRoute },
-        secondary: { label: "去个人中心实名", to: "/profile" }
-      },
-      {
-        slot: "周末",
-        title: "用公开样本继续验证价值",
-        desc: "实名通过前，先用公开历史档案保持复盘习惯，避免回访链断掉。",
-        highlight: "入口：历史档案",
-        supporting: "完整复盘与更深解释待实名后开启",
-        primary: { label: "进入历史档案", to: "/archive" },
-        secondary: { label: "回个人中心实名", to: "/profile" }
-      }
-    ];
-  }
   const watchlistEntry = isVIPActive.value
     ? "会员收盘后回到我的关注页，继续跟进持仓与候选。"
     : "注册用户先在我的关注里形成自己的观察清单。";
@@ -1154,9 +1040,6 @@ const membershipPageGuideRows = computed(() => [
   }
 ]);
 const membershipActivationGuideDesc = computed(() => {
-  if (isPaidPendingKYC.value) {
-    return `当前实名状态：${kycStatusLabel.value}。完成实名后会统一激活完整策略档案、VIP资讯、盘中跟踪和复盘能力。`;
-  }
   if (isVIPActive.value) {
     return "当前状态已可直接使用今日内容，建议回到策略、资讯、关注和档案页继续查看。";
   }
@@ -1167,10 +1050,8 @@ const membershipActivationGuideDesc = computed(() => {
 });
 const membershipCurrentTodoRows = computed(() => [
   {
-    title: isPaidPendingKYC.value ? "先完成实名激活" : "当前状态已可直接查看后续内容",
-    desc: isPaidPendingKYC.value
-      ? membershipActivationGuideDesc.value
-      : "当前可以直接去策略、资讯、关注和档案页把会员节奏跑起来。"
+    title: "当前状态已可直接查看后续内容",
+    desc: "当前可以直接去策略、资讯、关注和档案页把会员节奏跑起来。"
   },
   {
     title: pendingOrderCount.value > 0 ? "当前仍有待支付订单" : "当前没有待支付订单",
@@ -1198,14 +1079,6 @@ const membershipStatus = computed(() => {
       label: "需处理",
       title: "会员数据同步失败",
       desc: loadError.value
-    };
-  }
-  if (isPaidPendingKYC.value) {
-    return {
-      tone: "warning",
-      label: "待激活",
-      title: "会员已开通，待实名激活高级权益",
-      desc: `当前实名状态：${kycStatusLabel.value}。完成实名后会统一激活完整策略档案、VIP资讯、盘中跟踪和复盘能力。`
     };
   }
   if (latestTrackedOrder.value?.statusRaw === "PAID" || latestTrackedOrder.value?.statusRaw === "SUCCESS") {
@@ -1282,9 +1155,6 @@ const orderSummaryCards = computed(() => {
 });
 
 function resolveMembershipExperimentStage() {
-  if (isPaidPendingKYC.value) {
-    return "PAID_PENDING_KYC";
-  }
   if (isVIPActive.value) {
     return "VIP";
   }
@@ -1338,7 +1208,7 @@ function trackMembershipExposure() {
     current_level: currentMemberLevel.value,
     vip_status: String(rawQuota.value?.vip_status || "").toUpperCase(),
     activation_state: currentActivationState.value,
-    kyc_status: String(rawQuota.value?.kyc_status || "").toUpperCase()
+    kyc_status: "APPROVED"
   };
   trackExperimentExposureOnce({
     experimentKey: "membership_copy",
@@ -1773,19 +1643,11 @@ function mapVIPStatus(value, level) {
   return "未开通";
 }
 
-function mapKYCStatus(value) {
-  const normalized = String(value || "").toUpperCase();
-  if (normalized === "APPROVED" || normalized === "VERIFIED") return "已实名";
-  if (normalized === "PENDING") return "待实名";
-  if (normalized === "REJECTED") return "实名未通过";
-  return normalized || "未实名";
-}
 
 function mapActivationState(value) {
   const normalized = String(value || "").toUpperCase();
   if (normalized === "ACTIVE") return "已激活";
-  if (normalized === "PAID_PENDING_KYC") return "待实名激活";
-  return "未开通";
+  return "已开通";
 }
 
 function mapLatestStrategySnapshot(recommendation, insight) {
@@ -2537,106 +2399,4 @@ ul {
   opacity: 0.72;
 }
 
-.order-mobile-list {
-  display: none;
-  margin-top: 10px;
-  gap: 8px;
-}
-
-.order-mobile-list article {
-  min-width: 0;
-}
-
-.top-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.top-line p {
-  margin: 0;
-  font-weight: 600;
-}
-
-.top-line span {
-  color: var(--color-pine-700);
-  font-weight: 600;
-}
-
-.order-no {
-  margin: 7px 0 0;
-  color: var(--color-text-sub);
-  font-size: 12px;
-}
-
-.order-mobile-actions {
-  margin-top: 8px;
-}
-
-@media (max-width: 980px) {
-  .member-hero,
-  .membership-focus-layout,
-  .membership-focus-head,
-  .cadence-head,
-  .plans,
-  .cadence-grid,
-  .insight-stage-grid,
-  .insight-value-grid,
-  .runtime-proof-grid,
-  .membership-status-grid,
-  .membership-explain-grid,
-  .summary-grid,
-  .order-summary-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 760px) {
-  .member-hero,
-  .membership-focus-head,
-  .cadence-head {
-    grid-template-columns: 1fr;
-  }
-
-  .hero-pill {
-    width: fit-content;
-  }
-
-  .membership-focus-actions {
-    justify-content: stretch;
-  }
-
-  .membership-focus-actions button,
-  .plan button {
-    width: 100%;
-  }
-
-  .ability-head {
-    display: none;
-  }
-
-  .ability-head,
-  .ability-row {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .ability-row span:first-child {
-    grid-column: 1 / -1;
-    font-weight: 600;
-    color: var(--color-text-main);
-  }
-
-  .order-table-wrap {
-    display: none;
-  }
-
-  .order-mobile-list {
-    display: grid;
-  }
-
-  .order-mobile-actions .mini-btn {
-    width: 100%;
-  }
-}
 </style>

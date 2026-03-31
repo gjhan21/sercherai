@@ -145,6 +145,39 @@ LIMIT ? OFFSET ?`, queryArgs...)
 	return items, total, nil
 }
 
+func (r *MySQLGrowthRepo) GetLatestStrategyForecastL3Run(targetType string, targetID string) (model.StrategyForecastL3Run, error) {
+	row := r.db.QueryRow(`
+SELECT
+	id,
+	target_type,
+	COALESCE(target_id, ''),
+	target_key,
+	COALESCE(target_label, ''),
+	trigger_type,
+	COALESCE(request_user_id, ''),
+	COALESCE(operator_user_id, ''),
+	engine_key,
+	status,
+	priority_score,
+	COALESCE(reason, ''),
+	COALESCE(failure_reason, ''),
+	COALESCE(CAST(context_meta_json AS CHAR), ''),
+	COALESCE(CAST(summary_json AS CHAR), ''),
+	COALESCE(CAST(report_ref_json AS CHAR), ''),
+	queued_at,
+	started_at,
+	finished_at,
+	cancelled_at,
+	created_at,
+	updated_at
+FROM strategy_forecast_l3_runs
+WHERE target_type = ? AND target_id = ?
+ORDER BY created_at DESC, id DESC
+LIMIT 1`, targetType, targetID)
+
+	return scanStrategyForecastL3Run(row)
+}
+
 func (r *MySQLGrowthRepo) GetStrategyForecastL3Run(runID string) (model.StrategyForecastL3Run, error) {
 	row := r.db.QueryRow(`
 SELECT
@@ -196,6 +229,14 @@ func (r *MySQLGrowthRepo) GetStrategyForecastL3RunDetail(runID string) (model.St
 		detail.Report = &report
 	}
 	return detail, nil
+}
+
+func (r *MySQLGrowthRepo) GetStrategyForecastL3RunDetailForUser(runID string, userID string) (model.StrategyForecastL3RunDetail, error) {
+	detail, err := r.GetStrategyForecastL3RunDetail(runID)
+	if err != nil {
+		return model.StrategyForecastL3RunDetail{}, err
+	}
+	return r.applyStrategyForecastL3UserReadPolicy(detail, userID)
 }
 
 func (r *MySQLGrowthRepo) RetryStrategyForecastL3Run(runID string, operatorUserID string, reason string) (model.StrategyForecastL3Run, error) {
@@ -463,6 +504,10 @@ func (r *InMemoryGrowthRepo) GetStrategyForecastL3RunDetail(runID string) (model
 		detail.Report = &reportCopy
 	}
 	return detail, nil
+}
+
+func (r *InMemoryGrowthRepo) GetStrategyForecastL3RunDetailForUser(runID string, userID string) (model.StrategyForecastL3RunDetail, error) {
+	return r.GetStrategyForecastL3RunDetail(runID)
 }
 
 func (r *InMemoryGrowthRepo) RetryStrategyForecastL3Run(runID string, operatorUserID string, reason string) (model.StrategyForecastL3Run, error) {
@@ -867,6 +912,43 @@ func buildStrategyForecastL3QueuedRun(input model.StrategyForecastL3RunCreateInp
 		ReportAvailable: false,
 	}
 	return run, now, nil
+}
+
+func (r *MySQLGrowthRepo) applyStrategyForecastL3UserReadPolicy(detail model.StrategyForecastL3RunDetail, userID string) (model.StrategyForecastL3RunDetail, error) {
+	if detail.Run.ReportRef == nil {
+		return detail, nil
+	}
+	if !detail.Run.ReportRef.RequiresVIP {
+		detail.Run.ReportRef.FullReadable = true
+		return detail, nil
+	}
+
+	config := r.loadForecastL3RuntimeConfig()
+	if !config.RequireVIPForFullReport {
+		detail.Run.ReportRef.FullReadable = true
+		return detail, nil
+	}
+
+	isVIP := false
+	trimmedUserID := strings.TrimSpace(userID)
+	if trimmedUserID != "" {
+		var err error
+		isVIP, err = r.isVIPUser(trimmedUserID)
+		if err != nil {
+			return model.StrategyForecastL3RunDetail{}, err
+		}
+	}
+	if isVIP {
+		detail.Run.ReportRef.FullReadable = true
+		return detail, nil
+	}
+
+	detail.Run.ReportRef.FullReadable = false
+	if detail.Report != nil {
+		detail.Report.MarkdownBody = ""
+		detail.Report.HTMLBody = ""
+	}
+	return detail, nil
 }
 
 func buildStrategyForecastL3RunFilters(requestUserID string, status string, targetType string, triggerType string) (string, []interface{}) {

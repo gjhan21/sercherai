@@ -429,7 +429,7 @@ LIMIT 1`, userID).Scan(
 		profile.VIPExpireAt = vipExpireAt.Time.Format(time.RFC3339)
 	}
 	profile.VIPStatus, profile.VIPRemainingDays = resolveVIPStatusAndDays(profile.MemberLevel, vipExpireAt)
-	profile.ActivationState = resolveMembershipActivationState(profile.MemberLevel, profile.KYCStatus, vipExpireAt)
+	profile.ActivationState = resolveMembershipActivationState(profile.MemberLevel, vipExpireAt)
 	profile.RegistrationSource = registrationSource
 	if inviterUserID.Valid {
 		profile.InviterUserID = inviterUserID.String
@@ -451,37 +451,6 @@ func (r *MySQLGrowthRepo) UpdateUserProfileEmail(userID string, email string) er
 	return err
 }
 
-func (r *MySQLGrowthRepo) SubmitUserKYC(userID string, realName string, idNumber string, provider string) (string, error) {
-	var status string
-	if err := r.db.QueryRow("SELECT kyc_status FROM users WHERE id = ?", userID).Scan(&status); err != nil {
-		return "", err
-	}
-	status = strings.ToUpper(strings.TrimSpace(status))
-	if status == "APPROVED" {
-		return "", errors.New("kyc already approved")
-	}
-	if status == "PENDING" {
-		return "", errors.New("kyc pending")
-	}
-
-	kycID := newID("kyc")
-	now := time.Now()
-	if provider == "" {
-		provider = "MANUAL"
-	}
-	_, err := r.db.Exec(`
-INSERT INTO kyc_records (id, user_id, real_name, id_number, provider, status, reason, submitted_at, reviewed_at)
-VALUES (?, ?, ?, ?, ?, 'PENDING', NULL, ?, NULL)`,
-		kycID, userID, realName, idNumber, provider, now,
-	)
-	if err != nil {
-		return "", err
-	}
-	if _, err := r.db.Exec("UPDATE users SET kyc_status = 'PENDING', updated_at = ? WHERE id = ?", now, userID); err != nil {
-		return "", err
-	}
-	return "PENDING", nil
-}
 
 func (r *MySQLGrowthRepo) ListSubscriptions(userID string, page int, pageSize int) ([]model.Subscription, int, error) {
 	offset := (page - 1) * pageSize
@@ -598,7 +567,7 @@ func (r *MySQLGrowthRepo) GetUserAccessProfile(userID string) (model.UserAccessP
 	if err != nil {
 		return model.UserAccessProfile{}, err
 	}
-	profile.ActivationState = resolveMembershipActivationState(profile.MemberLevel, profile.KYCStatus, vipExpireAt)
+	profile.ActivationState = resolveMembershipActivationState(profile.MemberLevel, vipExpireAt)
 	return profile, nil
 }
 
@@ -683,7 +652,7 @@ WHERE user_id = ? AND period_key = ?`,
 	return model.MembershipQuota{
 		MemberLevel:            memberLevel,
 		KYCStatus:              kycStatus,
-		ActivationState:        resolveMembershipActivationState(memberLevel, kycStatus, vipExpireAt),
+		ActivationState:        resolveMembershipActivationState(memberLevel, vipExpireAt),
 		PeriodKey:              periodKey,
 		DocReadLimit:           limitDoc,
 		DocReadUsed:            usedDoc,
@@ -7024,21 +6993,16 @@ VALUES (?, ?, ?, ?, ?, 'UNREAD', ?)`)
 	return sent, failures, nil
 }
 
-func (r *MySQLGrowthRepo) AdminListUsers(status string, kycStatus string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error) {
+func (r *MySQLGrowthRepo) AdminListUsers(status string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error) {
 	offset := (page - 1) * pageSize
 	args := []interface{}{}
 	status = strings.ToUpper(strings.TrimSpace(status))
-	kycStatus = strings.ToUpper(strings.TrimSpace(kycStatus))
 	memberLevel = strings.TrimSpace(memberLevel)
 	registrationSource = strings.ToUpper(strings.TrimSpace(registrationSource))
 	filter := " WHERE 1=1"
 	if status != "" {
 		filter += " AND u.status = ?"
 		args = append(args, status)
-	}
-	if kycStatus != "" {
-		filter += " AND u.kyc_status = ?"
-		args = append(args, kycStatus)
 	}
 	if memberLevel != "" {
 		filter += " AND u.member_level = ?"
@@ -7118,18 +7082,17 @@ LIMIT ? OFFSET ?`
 		if invitedAt.Valid {
 			item.InviteRegisteredAt = invitedAt.Time.Format(time.RFC3339)
 		}
-		item.ActivationState = resolveMembershipActivationState(item.MemberLevel, item.KYCStatus, vipExpireAt)
+		item.ActivationState = resolveMembershipActivationState(item.MemberLevel, vipExpireAt)
 		item.CreatedAt = createdAt.Format(time.RFC3339)
 		items = append(items, item)
 	}
 	return items, total, nil
 }
 
-func (r *MySQLGrowthRepo) AdminGetUserSourceSummary(status string, kycStatus string, memberLevel string, registrationSource string) (model.AdminUserSourceSummary, error) {
+func (r *MySQLGrowthRepo) AdminGetUserSourceSummary(status string, memberLevel string, registrationSource string) (model.AdminUserSourceSummary, error) {
 	result := model.AdminUserSourceSummary{}
 	args := []interface{}{}
 	status = strings.ToUpper(strings.TrimSpace(status))
-	kycStatus = strings.ToUpper(strings.TrimSpace(kycStatus))
 	memberLevel = strings.TrimSpace(memberLevel)
 	registrationSource = strings.ToUpper(strings.TrimSpace(registrationSource))
 
@@ -7137,10 +7100,6 @@ func (r *MySQLGrowthRepo) AdminGetUserSourceSummary(status string, kycStatus str
 	if status != "" {
 		filter += " AND u.status = ?"
 		args = append(args, status)
-	}
-	if kycStatus != "" {
-		filter += " AND u.kyc_status = ?"
-		args = append(args, kycStatus)
 	}
 	if memberLevel != "" {
 		filter += " AND u.member_level = ?"
@@ -7237,10 +7196,6 @@ func (r *MySQLGrowthRepo) AdminUpdateUserMemberLevel(id string, memberLevel stri
 	return err
 }
 
-func (r *MySQLGrowthRepo) AdminUpdateUserKYCStatus(id string, kycStatus string) error {
-	_, err := r.db.Exec("UPDATE users SET kyc_status = ?, updated_at = ? WHERE id = ?", kycStatus, time.Now(), id)
-	return err
-}
 
 func (r *MySQLGrowthRepo) AdminResetUserPasswordHash(id string, passwordHash string) error {
 	result, err := r.db.Exec("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", passwordHash, time.Now(), id)
@@ -7267,9 +7222,6 @@ func (r *MySQLGrowthRepo) AdminDashboardOverview() (model.AdminDashboardOverview
 		return result, err
 	}
 	if err := r.db.QueryRow("SELECT COUNT(*) FROM users WHERE status = 'ACTIVE'").Scan(&result.ActiveUsers); err != nil {
-		return result, err
-	}
-	if err := r.db.QueryRow("SELECT COUNT(*) FROM users WHERE kyc_status = 'APPROVED'").Scan(&result.KYCApprovedUsers); err != nil {
 		return result, err
 	}
 	if err := r.db.QueryRow("SELECT COUNT(*) FROM users WHERE member_level LIKE 'VIP%'").Scan(&result.VIPUsers); err != nil {
@@ -11097,7 +11049,7 @@ WHERE id = ? AND member_level LIKE 'VIP%'`, now, userID); err != nil {
 		}
 		return false, nil
 	}
-	return resolveMembershipActivationState(memberLevel, kycStatus, vipExpireAt) == "ACTIVE", nil
+	return resolveMembershipActivationState(memberLevel, vipExpireAt) == "ACTIVE", nil
 }
 
 func newID(prefix string) string {
@@ -11322,14 +11274,11 @@ func isVerifiedKYCStatus(status string) bool {
 	}
 }
 
-func resolveMembershipActivationState(memberLevel string, kycStatus string, vipExpireAt sql.NullTime) string {
+func resolveMembershipActivationState(memberLevel string, vipExpireAt sql.NullTime) string {
 	if vipStatusFromLevelAndExpire(memberLevel, vipExpireAt, time.Now()) != "ACTIVE" {
 		return "NON_MEMBER"
 	}
-	if isVerifiedKYCStatus(kycStatus) {
-		return "ACTIVE"
-	}
-	return "PAID_PENDING_KYC"
+	return "ACTIVE"
 }
 
 func parseRepoConfigBool(raw string, fallback bool) bool {

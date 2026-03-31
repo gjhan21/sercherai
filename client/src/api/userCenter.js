@@ -15,9 +15,6 @@ export function getUserProfile() {
   return http.get("/user/profile");
 }
 
-export function submitKYC(payload) {
-  return http.post("/user/kyc/submit", payload);
-}
 
 export function getMembershipQuota() {
   return http.get("/membership/quota");

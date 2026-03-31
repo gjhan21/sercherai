@@ -1,18 +1,18 @@
 import { buildProfileModuleRedirectPath } from "../../../lib/profile-modules.js";
 
-const DEFAULT_REDIRECT = "/home";
-const WATCHLIST_REDIRECT = buildProfileModuleRedirectPath("watchlist");
+const DEFAULT_REDIRECT = "/m/home";
+const WATCHLIST_REDIRECT = "/m/profile?section=watchlist";
 const ALLOWED_REDIRECTS = new Set([
-  "/home",
-  "/news",
-  "/strategies",
-  "/archive",
-  "/membership",
-  "/profile"
+  "/m/home",
+  "/m/news",
+  "/m/strategies",
+  "/m/archive",
+  "/m/membership",
+  "/m/profile"
 ]);
 const AUTH_ONLY_PATHS = new Set([
-  "/membership",
-  "/profile"
+  "/m/membership",
+  "/m/profile"
 ]);
 
 function toURL(rawPath) {

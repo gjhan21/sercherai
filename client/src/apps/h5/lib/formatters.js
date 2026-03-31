@@ -2,7 +2,6 @@ import {
   mapActivationState,
   mapContentType,
   mapInviteStatus,
-  mapKYCStatus,
   mapMemberLevel,
   mapMessageReadStatus,
   mapMessageType,
@@ -12,12 +11,11 @@ import {
   mapSubscriptionStatus,
   mapSubscriptionType,
   mapVIPStatus
-} from "../../../views/profile/helpers.js";
+} from "../../../lib/profile/helpers.js";
 export {
   mapActivationState,
   mapContentType,
   mapInviteStatus,
-  mapKYCStatus,
   mapMemberLevel,
   mapMessageReadStatus,
   mapMessageType,

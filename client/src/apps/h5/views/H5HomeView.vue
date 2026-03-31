@@ -429,15 +429,15 @@ function refreshPage() {
 }
 
 function goStrategies() {
-  router.push("/strategies");
+  router.push({ name: "h5-strategies" });
 }
 
 function goNews() {
   if (featuredArticle.value?.id) {
-    router.push({ path: "/news", query: { article: featuredArticle.value.id } });
+    router.push({ name: "h5-news", query: { article: featuredArticle.value.id } });
     return;
   }
-  router.push("/news");
+  router.push({ name: "h5-news" });
 }
 
 function openFeaturedArticle() {
@@ -445,7 +445,7 @@ function openFeaturedArticle() {
 }
 
 function goMembership() {
-  router.push("/membership");
+  router.push({ name: "h5-membership" });
 }
 
 function goWatchlist() {
@@ -454,7 +454,7 @@ function goWatchlist() {
 
 function handleStickyPrimary() {
   if (!isLoggedIn.value) {
-    router.push({ path: "/auth", query: { redirect: buildProfileModuleRedirectPath("watchlist") } });
+    router.push({ name: "h5-auth", query: { redirect: buildProfileModuleRedirectPath("watchlist") } });
     return;
   }
   if (resolveVipStage(rawQuota.value)) {

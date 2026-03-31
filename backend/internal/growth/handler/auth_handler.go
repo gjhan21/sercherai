@@ -173,7 +173,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	_, err = tx.Exec(`
 INSERT INTO users (id, phone, email, password_hash, status, kyc_status, member_level, created_at, updated_at)
-VALUES (?, ?, ?, ?, 'ACTIVE', 'PENDING', 'FREE', ?, ?)`,
+VALUES (?, ?, ?, ?, 'ACTIVE', 'APPROVED', 'FREE', ?, ?)`,
 		userID, phone, optionalString(email), passwordHash, now, now,
 	)
 	if err != nil {

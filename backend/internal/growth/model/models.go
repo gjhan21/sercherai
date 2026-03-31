@@ -110,7 +110,7 @@ type UserProfile struct {
 	ID                 string `json:"id"`
 	Phone              string `json:"phone"`
 	Email              string `json:"email,omitempty"`
-	KYCStatus          string `json:"kyc_status"`
+	KYCStatus          string `json:"-"`
 	MemberLevel        string `json:"member_level"`
 	ActivationState    string `json:"activation_state,omitempty"`
 	VIPStartedAt       string `json:"vip_started_at,omitempty"`
@@ -154,7 +154,7 @@ type AdminUserMessage struct {
 
 type MembershipQuota struct {
 	MemberLevel            string `json:"member_level"`
-	KYCStatus              string `json:"kyc_status,omitempty"`
+	KYCStatus              string `json:"-"`
 	ActivationState        string `json:"activation_state,omitempty"`
 	PeriodKey              string `json:"period_key"`
 	DocReadLimit           int    `json:"doc_read_limit"`
@@ -653,7 +653,7 @@ type AdminUser struct {
 	Phone              string `json:"phone"`
 	Email              string `json:"email,omitempty"`
 	Status             string `json:"status"`
-	KYCStatus          string `json:"kyc_status"`
+	KYCStatus          string `json:"-"`
 	MemberLevel        string `json:"member_level"`
 	ActivationState    string `json:"activation_state,omitempty"`
 	RegistrationSource string `json:"registration_source,omitempty"`
@@ -715,7 +715,6 @@ type AdminAccessProfile struct {
 type AdminDashboardOverview struct {
 	TotalUsers              int     `json:"total_users"`
 	ActiveUsers             int     `json:"active_users"`
-	KYCApprovedUsers        int     `json:"kyc_approved_users"`
 	VIPUsers                int     `json:"vip_users"`
 	ActiveSubscriptions     int     `json:"active_subscriptions"`
 	PendingMembershipOrders int     `json:"pending_membership_orders"`
@@ -779,7 +778,7 @@ type MembershipOrderAdmin struct {
 type UserAccessProfile struct {
 	UserID          string `json:"user_id"`
 	Status          string `json:"status"`
-	KYCStatus       string `json:"kyc_status"`
+	KYCStatus       string `json:"-"`
 	MemberLevel     string `json:"member_level"`
 	ActivationState string `json:"activation_state,omitempty"`
 }

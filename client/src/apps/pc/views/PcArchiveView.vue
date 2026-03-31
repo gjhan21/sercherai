@@ -463,22 +463,22 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import StatePanel from "../components/StatePanel.vue";
-import { createForecastRun } from "../api/forecast";
-import { getMembershipQuota } from "../api/membership";
+import StatePanel from "../../../components/StatePanel.vue";
+import { createForecastRun } from "../../../api/forecast";
+import { getMembershipQuota } from "../../../api/membership";
 import {
   getStockRecommendationInsight,
   getStockRecommendationVersionHistory,
   listStockRecommendations
-} from "../api/market";
-import { useClientAuth } from "../lib/client-auth";
-import { shouldUseDemoFallback } from "../lib/fallback-policy";
+} from "../../../api/market";
+import { useClientAuth } from "../../../lib/client-auth";
+import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
 import {
   promotePendingExperimentJourneySources,
   rememberExperimentAttributionSource,
   rememberPendingExperimentJourneySource
-} from "../lib/growth-analytics";
-import { getExperimentVariant } from "../lib/growth-experiments";
+} from "../../../lib/growth-analytics";
+import { getExperimentVariant } from "../../../lib/growth-experiments";
 import {
   buildStrategyDeepForecastSummary,
   buildStrategyConfidenceCalibrationSummary,
@@ -499,8 +499,8 @@ import {
   firstMeaningfulStrategyText,
   mapStrategyVersionHistory,
   toStrategyTradeDate
-} from "../lib/strategy-version";
-import { buildProfileModuleRoute } from "../lib/profile-modules";
+} from "../../../lib/strategy-version";
+import { buildProfileModuleRoute } from "../../../lib/profile-modules";
 
 const fallbackRecommendations = [
   {
@@ -1879,45 +1879,4 @@ watch(
   line-height: 1.65;
 }
 
-@media (max-width: 1080px) {
-  .archive-focus-layout,
-  .archive-hero,
-  .archive-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .archive-focus-head {
-    display: grid;
-  }
-
-  .archive-focus-actions {
-    justify-content: flex-start;
-  }
-}
-
-@media (max-width: 720px) {
-  .archive-actions,
-  .archive-focus-actions,
-  .archive-badges,
-  .archive-actions-row {
-    width: 100%;
-  }
-
-  .archive-item-head,
-  .archive-focus-head,
-  .section-head {
-    flex-direction: column;
-  }
-
-  .archive-focus-grid,
-  .archive-read-order,
-  .archive-metrics,
-  .archive-timeline,
-  .archive-version-grid,
-  .archive-history-list,
-  .archive-proof-grid,
-  .archive-origin-grid {
-    grid-template-columns: 1fr;
-  }
-}
 </style>

@@ -28,21 +28,30 @@ type strategyForecastL3DeepForecastAdapter interface {
 type localSynthesisForecastL3Adapter struct{}
 
 func (a localSynthesisForecastL3Adapter) RunDeepForecast(pack strategyForecastL3ResearchPack) []strategyForecastL3RoleResult {
+	highlightsStr := ""
+	if len(pack.RelatedHighlights) > 0 {
+		highlightsStr = "结合当前异动/新闻：" + strings.Join(pack.RelatedHighlights, "; ")
+	}
+	notesStr := ""
+	if len(pack.HistoricalNotes) > 0 {
+		notesStr = "结合历史点评追踪：" + strings.Join(pack.HistoricalNotes, "; ")
+	}
+
 	if strings.EqualFold(pack.TargetType, model.StrategyForecastL3TargetTypeFutures) {
 		return []strategyForecastL3RoleResult{
-			{Role: "SUPPLY_DEMAND", Stance: "CONSTRUCTIVE", Confidence: 0.66, Summary: firstNonEmpty(pack.CoreThesis, "Supply and demand remain aligned with the base case.")},
-			{Role: "HEDGE", Stance: "NEUTRAL", Confidence: 0.58, Summary: "Hedging pressure is stable and not yet disruptive."},
-			{Role: "SPEC_FLOW", Stance: "WATCH", Confidence: 0.61, Summary: firstNonEmpty(firstString(pack.RelatedHighlights), "Speculative flow still needs confirmation.")},
-			{Role: "MACRO", Stance: "NEUTRAL", Confidence: 0.57, Summary: firstNonEmpty(pack.EvaluationSummary, "Macro conditions remain watchable, not decisive.")},
-			{Role: "RISK", Stance: "CAUTION", Confidence: 0.64, Summary: firstNonEmpty(pack.RiskBoundary, "Risk boundary should stay visible throughout execution."), Veto: pack.L2Vetoed},
+			{Role: "SUPPLY_DEMAND", Stance: "CONSTRUCTIVE", Confidence: 0.82, Summary: firstNonEmpty(pack.CoreThesis, "供需基本面验证暂未恶化，主要矛盾仍按预期节奏推进。")},
+			{Role: "HEDGE", Stance: "NEUTRAL", Confidence: 0.65, Summary: "产业套保与现货对冲压力表现为正常轮动，未观察到恐慌性抢跑。"},
+			{Role: "SPEC_FLOW", Stance: "WATCH", Confidence: 0.70, Summary: firstNonEmpty(highlightsStr, "投机资金呈结构性分化，需结合盘面基差异动确认。")},
+			{Role: "MACRO", Stance: "NEUTRAL", Confidence: 0.60, Summary: firstNonEmpty(pack.EvaluationSummary, "宏观背景边际影响钝化，暂时不是该品种的核心驱动力。")},
+			{Role: "RISK", Stance: "CAUTION", Confidence: 0.75, Summary: firstNonEmpty(pack.RiskBoundary, "存在极端行情下的脆弱性，必须严设防守底线。"), Veto: pack.L2Vetoed},
 		}
 	}
 	return []strategyForecastL3RoleResult{
-		{Role: "INDUSTRY", Stance: "BULLISH", Confidence: 0.68, Summary: firstNonEmpty(pack.CoreThesis, "Industry context still supports the current thesis.")},
-		{Role: "FLOW", Stance: "CONSTRUCTIVE", Confidence: 0.63, Summary: firstNonEmpty(firstString(pack.RelatedHighlights), "Flow remains constructive but needs confirmation.")},
-		{Role: "EVENT", Stance: "WATCH", Confidence: 0.60, Summary: firstNonEmpty(firstString(pack.HistoricalNotes), "Event path should remain under review.")},
-		{Role: "MACRO", Stance: "NEUTRAL", Confidence: 0.56, Summary: firstNonEmpty(pack.EvaluationSummary, "Macro conditions are supportive but not decisive.")},
-		{Role: "RISK", Stance: "CAUTION", Confidence: 0.65, Summary: firstNonEmpty(pack.RiskBoundary, "Risk boundary must stay front and center."), Veto: pack.L2Vetoed},
+		{Role: "INDUSTRY", Stance: "BULLISH", Confidence: 0.85, Summary: firstNonEmpty(pack.CoreThesis, "行业景气度及竞争格局趋势良好，中长线逻辑依然成立。")},
+		{Role: "FLOW", Stance: "CONSTRUCTIVE", Confidence: 0.72, Summary: firstNonEmpty(highlightsStr, "量价与北向/机构筹码维持偏强震荡，未见合力抛压。")},
+		{Role: "EVENT", Stance: "WATCH", Confidence: 0.68, Summary: firstNonEmpty(notesStr, "公司即将落地的催化节点存在一定博弈，需保持跟踪。")},
+		{Role: "MACRO", Stance: "NEUTRAL", Confidence: 0.65, Summary: firstNonEmpty(pack.EvaluationSummary, "系统大盘风险偏好适中，未对板块形成明显的溢价拖累。")},
+		{Role: "RISK", Stance: "CAUTION", Confidence: 0.80, Summary: firstNonEmpty(pack.RiskBoundary, "关注业绩雷或监管风险，失效条件触及应直接离场。"), Veto: pack.L2Vetoed},
 	}
 }
 
