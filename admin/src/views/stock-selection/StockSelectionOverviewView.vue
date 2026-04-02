@@ -134,11 +134,14 @@ onMounted(fetchOverview);
 <template>
   <StockSelectionModuleShell
     title="智能选股总览"
-    description="把默认配置方案、最近运行、数据新鲜度和 1/3/5/10/20 日研究评估摘要集中到一个入口里，方便先看状态再决定是否重跑。"
+    description="智能选股是您的‘科研实验室’与‘生产线’，负责算法跑批与候选集生成。生成的结果将同步至策略中心进行最终审核与发布。"
   >
     <template #actions>
       <div class="toolbar" style="margin-bottom: 0; flex-wrap: wrap">
         <el-button :loading="loading" @click="fetchOverview">刷新总览</el-button>
+        <el-button type="success" plain @click="router.push({ path: '/market-center' })">
+          前往策略中心 (运营台)
+        </el-button>
         <el-button
           v-if="canManage"
           type="primary"

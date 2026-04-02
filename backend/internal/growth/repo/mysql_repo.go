@@ -9413,7 +9413,11 @@ func (r *MySQLGrowthRepo) AdminListReviewTasks(module string, status string, sub
 		args = append(args, strings.ToUpper(module))
 	}
 	if status != "" {
-		filter += " AND status = ?"
+		if strings.Contains(status, ",") {
+			filter += " AND FIND_IN_SET(status, ?) > 0"
+		} else {
+			filter += " AND status = ?"
+		}
 		args = append(args, strings.ToUpper(status))
 	}
 	if submitterID != "" {
@@ -9421,8 +9425,12 @@ func (r *MySQLGrowthRepo) AdminListReviewTasks(module string, status string, sub
 		args = append(args, submitterID)
 	}
 	if reviewerID != "" {
-		filter += " AND reviewer_id = ?"
-		args = append(args, reviewerID)
+		if strings.ToUpper(reviewerID) == "NULL" {
+			filter += " AND (reviewer_id IS NULL OR reviewer_id = '')"
+		} else {
+			filter += " AND reviewer_id = ?"
+			args = append(args, reviewerID)
+		}
 	}
 
 	var total int

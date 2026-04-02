@@ -3,23 +3,24 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from "vue-router";
 import {
   assignReviewTask,
-  getAuditEventSummary,
   getWorkflowMetrics,
   listSystemConfigs,
-  listAuditEvents,
   listReviewTasks,
   reviewTaskDecision,
-  submitReviewTask
+  getNewsArticleDetail,
+  getStockEventCluster,
+  getStockSelectionRun,
+  getFuturesSelectionRun
 } from "../api/admin";
 import { parseForecastAdminConfigMap } from "../lib/forecast-admin";
-import { getAccessToken, getSession, hasPermission } from "../lib/session";
+import { getSession, hasPermission } from "../lib/session";
 
 const route = useRoute();
 const router = useRouter();
 
 const loading = ref(false);
 const metricsLoading = ref(false);
-const submitting = ref(false);
+const targetLoading = ref(false);
 
 const errorMessage = ref("");
 const message = ref("");
@@ -32,30 +33,14 @@ const reviewTableRef = ref(null);
 const selectedRows = ref([]);
 const nowTick = ref(Date.now());
 const autoRefreshEnabled = ref(true);
-const batchReviewerID = ref("");
-const batchRejectDialogVisible = ref(false);
-const batchRejectReason = ref("");
-const batchAssigning = ref(false);
-const batchApproving = ref(false);
-const batchRejecting = ref(false);
-const retryingFailed = ref(false);
-const exportingFiltered = ref(false);
-const batchResultVisible = ref(false);
-const batchResultTitle = ref("");
-const batchResultRows = ref([]);
-const batchResultFilter = ref("all");
-const copyingFailedDetails = ref(false);
-const timerRefs = {
-  clock: null,
-  refresh: null
-};
+const activeTab = ref("todo"); // todo, queue, history
 
 const currentUserID = ref(getSession()?.userID || "");
 const canEditReview = hasPermission("review.edit");
 
 const filters = reactive({
   module: "",
-  status: "",
+  status: "", // This will be managed by activeTab mostly
   submitter_id: "",
   reviewer_id: ""
 });
@@ -67,26 +52,15 @@ const metrics = ref({
   unread_messages: 0,
   total_messages: 0
 });
-const reviewAuditSummary = ref(null);
-const reviewAuditItems = ref([]);
-const forecastReviewConfig = ref(null);
 
-const submitForm = reactive({
-  module: "NEWS",
-  target_id: "",
-  reviewer_id: "",
-  submit_note: ""
-});
+const forecastReviewConfig = ref(null);
 
 const detailVisible = ref(false);
 const currentTask = ref(null);
+const targetDetail = ref(null);
 const detailAssigning = ref(false);
 const detailDeciding = ref(false);
 const quickActionKey = ref("");
-const rejectDialogVisible = ref(false);
-const rejectTask = ref(null);
-const rejectReason = ref("");
-const rejectSubmitting = ref(false);
 
 const detailForm = reactive({
   reviewer_id: "",
@@ -94,12 +68,9 @@ const detailForm = reactive({
   decision_note: ""
 });
 
-const moduleOptions = ["NEWS", "STOCK_EVENT"];
-const decisionOptions = ["APPROVED", "REJECTED"];
+const moduleOptions = ["NEWS", "STOCK_EVENT", "STOCK_SELECTION", "FUTURES_SELECTION"];
 const slaWarnHours = 24;
 const slaDangerHours = 48;
-const slaSortMode = ref("sla_desc");
-const showOnlySLAWarning = ref(false);
 
 const slaStats = computed(() => {
   let pendingTotal = 0;
@@ -107,1679 +78,572 @@ const slaStats = computed(() => {
   let dangerCount = 0;
   tasks.value.forEach((task) => {
     const hours = getPendingHours(task);
-    if (hours === null) {
-      return;
-    }
+    if (hours === null) return;
     pendingTotal += 1;
-    if (hours >= slaDangerHours) {
-      dangerCount += 1;
-      return;
-    }
-    if (hours >= slaWarnHours) {
-      warningCount += 1;
-    }
+    if (hours >= slaDangerHours) dangerCount += 1;
+    else if (hours >= slaWarnHours) warningCount += 1;
   });
-  return {
-    pendingTotal,
-    warningCount,
-    dangerCount,
-    normalCount: Math.max(0, pendingTotal - warningCount - dangerCount)
-  };
+  return { pendingTotal, warningCount, dangerCount, normalCount: Math.max(0, pendingTotal - warningCount - dangerCount) };
 });
 
-const displayTasks = computed(() => {
-  const source = [...tasks.value];
-  if (showOnlySLAWarning.value) {
-    return source
-      .filter((task) => {
-        const hours = getPendingHours(task);
-        return hours !== null && hours >= slaWarnHours;
-      })
-      .sort((a, b) => (getPendingHours(b) || 0) - (getPendingHours(a) || 0));
-  }
-  if (slaSortMode.value === "sla_desc") {
-    return source.sort((a, b) => {
-      const left = getPendingHours(a);
-      const right = getPendingHours(b);
-      const leftHours = left === null ? -1 : left;
-      const rightHours = right === null ? -1 : right;
-      return rightHours - leftHours;
-    });
-  }
-  return source;
-});
-
-const reviewEmptyText = computed(() => {
-  if (!showOnlySLAWarning.value) {
-    return "暂无审核任务";
-  }
-  return "当前页暂无超时/预警任务";
-});
-
-const selectedPendingRows = computed(() =>
-  selectedRows.value.filter((task) => (task.status || "").toUpperCase() === "PENDING")
-);
-const selectedPendingCount = computed(() => selectedPendingRows.value.length);
-const selectedEligibleDecisionRows = computed(() => selectedPendingRows.value.filter((task) => canQuickDecision(task)));
-const selectedBlockedCount = computed(() => Math.max(0, selectedPendingCount.value - selectedEligibleDecisionRows.value.length));
-const failedBatchRows = computed(() => batchResultRows.value.filter((row) => row.result === "FAILED"));
-const canBatchAssign = computed(() => selectedPendingCount.value > 0 && batchReviewerID.value.trim() !== "");
-const canBatchApprove = computed(() => selectedEligibleDecisionRows.value.length > 0);
-const batchResultStats = computed(() => {
-  const stats = {
-    total: batchResultRows.value.length,
-    success: 0,
-    failed: 0,
-    skipped: 0
-  };
-  batchResultRows.value.forEach((row) => {
-    const result = (row.result || "").toUpperCase();
-    if (result === "SUCCESS") {
-      stats.success += 1;
-      return;
-    }
-    if (result === "FAILED") {
-      stats.failed += 1;
-      return;
-    }
-    if (result === "SKIPPED") {
-      stats.skipped += 1;
-    }
-  });
-  return stats;
-});
-const displayBatchResultRows = computed(() => {
-  if (batchResultFilter.value === "failed") {
-    return batchResultRows.value.filter((row) => row.result === "FAILED");
-  }
-  if (batchResultFilter.value === "skipped") {
-    return batchResultRows.value.filter((row) => row.result === "SKIPPED");
-  }
-  return batchResultRows.value;
-});
-
-function ensureCanEditReview() {
-  if (canEditReview) {
-    return true;
-  }
-  errorMessage.value = "当前账号只有查看权限，无法提交、分配或审批审核任务";
-  return false;
+function getPendingHours(task) {
+  if ((task.status || "").toUpperCase() !== "PENDING") return null;
+  const submittedAt = new Date((task.submitted_at || "").replace(" ", "T"));
+  if (isNaN(submittedAt.getTime())) return null;
+  return Math.max(0, (nowTick.value - submittedAt.getTime()) / (1000 * 60 * 60));
 }
 
-function clearSelection() {
-  selectedRows.value = [];
-  nextTick(() => {
-    reviewTableRef.value?.clearSelection();
-  });
+function formatDuration(hours) {
+  if (hours === null) return "-";
+  if (hours < 1) return "<1h";
+  if (hours < 24) return `${Math.floor(hours)}h`;
+  return `${Math.floor(hours / 24)}d ${Math.floor(hours % 24)}h`;
 }
 
-function handleSelectionChange(rows) {
-  selectedRows.value = rows || [];
-}
-
-function updateNowTick() {
-  nowTick.value = Date.now();
-}
-
-function clearTimers() {
-  if (timerRefs.clock) {
-    clearInterval(timerRefs.clock);
-    timerRefs.clock = null;
-  }
-  if (timerRefs.refresh) {
-    clearInterval(timerRefs.refresh);
-    timerRefs.refresh = null;
-  }
-}
+const timerRefs = { clock: null, refresh: null };
 
 function setupTimers() {
-  clearTimers();
-  timerRefs.clock = setInterval(() => {
-    updateNowTick();
-  }, 30 * 1000);
-  timerRefs.refresh = setInterval(() => {
-    if (!autoRefreshEnabled.value || loading.value || metricsLoading.value) {
-      return;
-    }
-    refreshAll();
-  }, 60 * 1000);
+  timerRefs.clock = setInterval(() => { nowTick.value = Date.now(); }, 30000);
+  timerRefs.refresh = setInterval(() => { if (autoRefreshEnabled.value && !loading.value) refreshAll(); }, 60000);
 }
 
-function normalizeErrorMessage(error, fallback) {
-  return error?.message || fallback || "操作失败";
-}
-
-function openBatchResultDialog(title, rows) {
-  batchResultTitle.value = title;
-  batchResultRows.value = rows;
-  batchResultFilter.value = "all";
-  batchResultVisible.value = true;
-}
-
-function buildFailedDetailsText() {
-  return failedBatchRows.value
-    .map((row) => {
-      return [
-        `任务ID=${row.id || "-"}`,
-        `动作=${row.action || "-"}`,
-        `结果=${row.result || "-"}`,
-        `原因=${row.reason || "-"}`
-      ].join(" | ");
-    })
-    .join("\n");
-}
-
-async function copyFailedDetails() {
-  if (failedBatchRows.value.length <= 0) {
-    return;
-  }
-  const text = buildFailedDetailsText();
-  if (!text) {
-    return;
-  }
-  copyingFailedDetails.value = true;
-  try {
-    if (navigator?.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
-    }
-    message.value = `已复制失败明细，共 ${failedBatchRows.value.length} 条`;
-  } catch (error) {
-    errorMessage.value = normalizeErrorMessage(error, "复制失败明细失败");
-  } finally {
-    copyingFailedDetails.value = false;
-  }
-}
-
-function csvEscape(value) {
-  const text = String(value ?? "");
-  if (/[",\n]/.test(text)) {
-    return `"${text.replace(/"/g, "\"\"")}"`;
-  }
-  return text;
-}
-
-function triggerCSVDownload(content, fileName) {
-  const blob = new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
-}
-
-function buildCSVRows(items) {
-  const header = [
-    "id",
-    "module",
-    "target_id",
-    "submitter_id",
-    "reviewer_id",
-    "status",
-    "sla_label",
-    "sla_duration",
-    "submit_note",
-    "review_note",
-    "submitted_at",
-    "reviewed_at"
-  ];
-  const rows = items.map((item) => [
-    item.id || "",
-    item.module || "",
-    item.target_id || "",
-    item.submitter_id || "",
-    item.reviewer_id || "",
-    item.status || "",
-    slaLabel(item),
-    formatPendingDuration(item),
-    item.submit_note || "",
-    item.review_note || "",
-    item.submitted_at || "",
-    item.reviewed_at || ""
-  ]);
-  return [header, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
-}
-
-function exportCurrentPageCSV() {
-  const csv = buildCSVRows(displayTasks.value);
-  const fileName = `review_tasks_page_${new Date().toISOString().slice(0, 10)}.csv`;
-  triggerCSVDownload(csv, fileName);
-  message.value = `已导出当前页 CSV，共 ${displayTasks.value.length} 条`;
-}
-
-async function exportFilteredCSV() {
-  exportingFiltered.value = true;
-  errorMessage.value = "";
-  message.value = "";
-  try {
-    const params = new URLSearchParams();
-    if (filters.module) params.set("module", filters.module);
-    if (filters.status) params.set("status", filters.status);
-    if (filters.submitter_id.trim()) params.set("submitter_id", filters.submitter_id.trim());
-    if (filters.reviewer_id.trim()) params.set("reviewer_id", filters.reviewer_id.trim());
-    const baseURL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "");
-    const query = params.toString();
-    const requestURL = `${baseURL}/admin/workflow/reviews/export.csv${query ? `?${query}` : ""}`;
-    const headers = {};
-    const token = getAccessToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-    const response = await fetch(requestURL, { method: "GET", headers });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `导出失败(${response.status})`);
-    }
-    const blob = await response.blob();
-    const blobURL = URL.createObjectURL(blob);
-    const fileName = `review_tasks_filtered_${new Date().toISOString().slice(0, 10)}.csv`;
-    const anchor = document.createElement("a");
-    anchor.href = blobURL;
-    anchor.download = fileName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(blobURL);
-    message.value = "已发起筛选结果 CSV 下载";
-  } catch (error) {
-    errorMessage.value = normalizeErrorMessage(error, "导出筛选结果失败");
-  } finally {
-    exportingFiltered.value = false;
-  }
-}
-
-async function fetchMetrics() {
+// Fixed Refresh logic: activeTab drives the API filters
+async function refreshAll() {
+  loading.value = true;
   metricsLoading.value = true;
+  
+  const apiFilters = { 
+    module: filters.module,
+    submitter_id: filters.submitter_id.trim(),
+    page: page.value,
+    page_size: pageSize.value
+  };
+
+  if (activeTab.value === "todo") {
+    apiFilters.status = "PENDING";
+    apiFilters.reviewer_id = currentUserID.value;
+  } else if (activeTab.value === "queue") {
+    apiFilters.status = "PENDING";
+    apiFilters.reviewer_id = "NULL"; // Backend now handles this
+  } else if (activeTab.value === "history") {
+    apiFilters.status = "APPROVED,REJECTED"; // Backend now handles multi-status via FIND_IN_SET
+  }
+
   try {
-    const data = await getWorkflowMetrics({ module: filters.module });
-    metrics.value = data || {};
-  } catch {
-    metrics.value = {
-      pending_reviews: 0,
-      approved_today: 0,
-      rejected_today: 0,
-      unread_messages: 0,
-      total_messages: 0
-    };
+    const [m, t, config] = await Promise.all([
+      getWorkflowMetrics({ module: filters.module }),
+      listReviewTasks(apiFilters),
+      listSystemConfigs({ keyword: "growth.forecast_", page: 1, page_size: 50 })
+    ]);
+    if (m) metrics.value = { ...metrics.value, ...m };
+    tasks.value = t.items || [];
+    total.value = t.total || 0;
+    const configMap = Object.fromEntries((config.items || []).map(i => [i.config_key.toLowerCase(), i.config_value]));
+    forecastReviewConfig.value = parseForecastAdminConfigMap(configMap);
+  } catch (err) {
+    errorMessage.value = "数据加载失败: " + err.message;
   } finally {
+    loading.value = false;
     metricsLoading.value = false;
   }
 }
 
-async function fetchReviewAuditEvents() {
+async function fetchTargetDetail(task) {
+  if (!task?.target_id || !task?.module) return;
+  targetLoading.value = true;
+  targetDetail.value = null;
   try {
-    const [summary, data] = await Promise.all([
-      getAuditEventSummary(),
-      listAuditEvents({
-        module: filters.module || "NEWS",
-        object_type: "REVIEW_TASK",
-        status: "OPEN",
-        page: 1,
-        page_size: 5
-      })
-    ]);
-    reviewAuditSummary.value = summary || null;
-    reviewAuditItems.value = data.items || [];
-  } catch {
-    reviewAuditSummary.value = null;
-    reviewAuditItems.value = [];
-  }
-}
-
-async function fetchForecastReviewConfig() {
-  try {
-    const data = await listSystemConfigs({
-      keyword: "growth.forecast_",
-      page: 1,
-      page_size: 50
-    });
-    const configMap = Object.fromEntries(
-      (data.items || []).map((item) => [String(item.config_key || "").trim().toLowerCase(), item.config_value])
-    );
-    forecastReviewConfig.value = parseForecastAdminConfigMap(configMap);
-  } catch {
-    forecastReviewConfig.value = parseForecastAdminConfigMap({});
-  }
-}
-
-function syncCurrentTask() {
-  if (!currentTask.value?.id) {
-    return;
-  }
-  const found = tasks.value.find((task) => task.id === currentTask.value.id);
-  if (found) {
-    currentTask.value = found;
-  }
-}
-
-async function fetchTasks(options = {}) {
-  const { preserveFeedback = false } = options;
-  loading.value = true;
-  if (!preserveFeedback) {
-    errorMessage.value = "";
-    message.value = "";
-  }
-  try {
-    const data = await listReviewTasks({
-      module: filters.module,
-      status: filters.status,
-      submitter_id: filters.submitter_id.trim(),
-      reviewer_id: filters.reviewer_id.trim(),
-      page: page.value,
-      page_size: pageSize.value
-    });
-    tasks.value = data.items || [];
-    total.value = data.total || 0;
-    syncCurrentTask();
-  } catch (error) {
-    errorMessage.value = error.message || "加载审核任务失败";
+    let data = null;
+    const module = task.module.toUpperCase();
+    if (module === "NEWS") data = await getNewsArticleDetail(task.target_id);
+    else if (module === "STOCK_EVENT") data = await getStockEventCluster(task.target_id);
+    else if (module === "STOCK_SELECTION") data = await getStockSelectionRun(task.target_id);
+    else if (module === "FUTURES_SELECTION") data = await getFuturesSelectionRun(task.target_id);
+    targetDetail.value = data;
+  } catch (err) {
+    console.error("Fetch target failed:", err);
   } finally {
-    loading.value = false;
+    targetLoading.value = false;
   }
 }
 
-async function applyReviewRouteFocus(reviewID) {
-  const normalized = String(reviewID || "").trim();
-  if (!normalized) {
-    return;
-  }
-  let matched = tasks.value.find((task) => String(task?.id || "").trim() === normalized);
-  if (!matched) {
-    try {
-      const data = await listReviewTasks({
-        module: "",
-        status: "",
-        submitter_id: "",
-        reviewer_id: "",
-        page: 1,
-        page_size: 200
-      });
-      matched = (data.items || []).find((task) => String(task?.id || "").trim() === normalized);
-      if (matched) {
-        tasks.value = data.items || [];
-        total.value = data.total || tasks.value.length;
-      }
-    } catch {
-      return;
-    }
-  }
-  if (matched) {
-    openTaskDetail(matched, { syncRoute: false });
-  }
-}
-
-async function refreshAll(options = {}) {
-  await Promise.all([fetchMetrics(), fetchTasks(options), fetchReviewAuditEvents(), fetchForecastReviewConfig()]);
-  clearSelection();
-  updateNowTick();
-}
-
-async function handleSubmitReview() {
-  if (!ensureCanEditReview()) {
-    return;
-  }
-  errorMessage.value = "";
-  message.value = "";
-  const payload = {
-    module: submitForm.module,
-    target_id: submitForm.target_id.trim(),
-    reviewer_id: submitForm.reviewer_id.trim(),
-    submit_note: submitForm.submit_note.trim()
-  };
-  if (!payload.target_id) {
-    errorMessage.value = "target_id 不能为空";
-    return;
-  }
-  submitting.value = true;
-  try {
-    const result = await submitReviewTask(payload);
-    message.value = `审核任务已提交：${result.id || ""}`;
-    submitForm.target_id = "";
-    submitForm.submit_note = "";
-    await refreshAll({ preserveFeedback: true });
-  } catch (error) {
-    errorMessage.value = error.message || "提交审核任务失败";
-  } finally {
-    submitting.value = false;
-  }
-}
-
-function openTaskDetail(task, options = {}) {
-  const { syncRoute = true } = options;
-  currentTask.value = { ...task };
+function openDetail(task) {
+  currentTask.value = task;
   detailForm.reviewer_id = task.reviewer_id || "";
   detailForm.decision_status = "APPROVED";
   detailForm.decision_note = task.review_note || "";
   detailVisible.value = true;
-  if (syncRoute && task?.id) {
-    router.replace({
-      name: "review-center",
-      query: { review_id: task.id }
-    });
-  }
+  fetchTargetDetail(task);
 }
 
-function canQuickDecision(task) {
-  if ((task.status || "").toUpperCase() !== "PENDING") {
-    return false;
-  }
-  const reviewerID = (task.reviewer_id || "").trim();
-  if (!reviewerID) {
-    return true;
-  }
-  return reviewerID === currentUserID.value;
-}
-
-function isQuickActionLoading(task, status) {
-  return quickActionKey.value === `${task.id}:${status}`;
-}
-
-async function handleQuickDecision(task, status, note = "") {
-  if (!ensureCanEditReview()) {
-    return false;
-  }
-  if (!canQuickDecision(task)) {
-    errorMessage.value = "任务已分配给其他审核员，请先在详情中重新分配";
-    return false;
-  }
-  if (!decisionOptions.includes(status)) {
-    errorMessage.value = "审核结果必须为 APPROVED 或 REJECTED";
-    return false;
-  }
-  const normalizedNote = (note || "").trim();
-  if (status === "REJECTED" && !normalizedNote) {
-    errorMessage.value = "快速驳回必须填写原因";
-    return false;
-  }
-  errorMessage.value = "";
-  message.value = "";
+async function handleDecision(task, status, note = "") {
+  if (!canEditReview) return;
   quickActionKey.value = `${task.id}:${status}`;
   try {
-    await reviewTaskDecision(task.id, status, normalizedNote);
-    message.value = `任务 ${task.id} 已${status === "APPROVED" ? "快速通过" : "快速驳回"}`;
-    await refreshAll({ preserveFeedback: true });
-    return true;
-  } catch (error) {
-    errorMessage.value = error.message || "快捷审批失败";
-    return false;
+    await reviewTaskDecision(task.id, status, note);
+    message.value = `任务 ${task.id} 已${status === 'APPROVED' ? '通过' : '驳回'}`;
+    errorMessage.value = "";
+    refreshAll();
+  } catch (err) {
+    errorMessage.value = err.message || "操作失败";
   } finally {
     quickActionKey.value = "";
   }
 }
 
-function openQuickReject(task) {
-  if (!ensureCanEditReview()) {
-    return;
-  }
-  if (!canQuickDecision(task)) {
-    errorMessage.value = "任务已分配给其他审核员，请先在详情中重新分配";
-    return;
-  }
-  rejectTask.value = task;
-  rejectReason.value = "";
-  rejectDialogVisible.value = true;
-}
-
-async function submitQuickReject() {
-  if (!ensureCanEditReview()) {
-    return;
-  }
-  if (!rejectTask.value?.id) {
-    return;
-  }
-  const note = rejectReason.value.trim();
-  if (!note) {
-    errorMessage.value = "请填写驳回原因";
-    return;
-  }
-  rejectSubmitting.value = true;
-  try {
-    const ok = await handleQuickDecision(rejectTask.value, "REJECTED", note);
-    if (!ok) {
-      return;
-    }
-    rejectDialogVisible.value = false;
-    rejectTask.value = null;
-    rejectReason.value = "";
-  } finally {
-    rejectSubmitting.value = false;
-  }
-}
-
-async function handleBatchAssign() {
-  if (!ensureCanEditReview()) {
-    return;
-  }
-  const reviewerID = batchReviewerID.value.trim();
-  if (!reviewerID) {
-    errorMessage.value = "请先填写批量分配 reviewer_id";
-    return;
-  }
-  if (selectedPendingCount.value <= 0) {
-    errorMessage.value = "请先勾选待审核任务";
-    return;
-  }
-  errorMessage.value = "";
-  message.value = "";
-  batchAssigning.value = true;
-  let success = 0;
-  let failed = 0;
-  const resultRows = [];
-  for (const task of selectedPendingRows.value) {
-    try {
-      await assignReviewTask(task.id, reviewerID);
-      success += 1;
-      resultRows.push({
-        id: task.id,
-        action: "批量分配",
-        action_key: "ASSIGN",
-        reviewer_id: reviewerID,
-        result: "SUCCESS",
-        reason: `已分配给 ${reviewerID}`
-      });
-    } catch (error) {
-      failed += 1;
-      resultRows.push({
-        id: task.id,
-        action: "批量分配",
-        action_key: "ASSIGN",
-        reviewer_id: reviewerID,
-        result: "FAILED",
-        reason: normalizeErrorMessage(error, "分配失败")
-      });
-    }
-  }
-  batchAssigning.value = false;
-  await refreshAll();
-  message.value = `批量分配完成：成功 ${success}，失败 ${failed}`;
-  openBatchResultDialog("批量分配结果", resultRows);
-}
-
+// Batch Actions
+const batchLoading = ref(false);
+function handleSelectionChange(rows) { selectedRows.value = rows || []; }
 async function handleBatchApprove() {
-  if (!ensureCanEditReview()) {
-    return;
-  }
-  if (selectedPendingCount.value <= 0) {
-    errorMessage.value = "请先勾选待审核任务";
-    return;
-  }
-  errorMessage.value = "";
-  message.value = "";
-  batchApproving.value = true;
-  let success = 0;
-  let failed = 0;
-  let skipped = 0;
-  const resultRows = [];
-  for (const task of selectedPendingRows.value) {
-    if (!canQuickDecision(task)) {
-      skipped += 1;
-      resultRows.push({
-        id: task.id,
-        action: "批量通过",
-        action_key: "APPROVE",
-        result: "SKIPPED",
-        reason: "任务已分配给其他审核员"
-      });
-      continue;
-    }
-    try {
-      await reviewTaskDecision(task.id, "APPROVED", "");
-      success += 1;
-      resultRows.push({
-        id: task.id,
-        action: "批量通过",
-        action_key: "APPROVE",
-        result: "SUCCESS",
-        reason: "审批通过"
-      });
-    } catch (error) {
-      failed += 1;
-      resultRows.push({
-        id: task.id,
-        action: "批量通过",
-        action_key: "APPROVE",
-        result: "FAILED",
-        reason: normalizeErrorMessage(error, "审批失败")
-      });
-    }
-  }
-  batchApproving.value = false;
-  await refreshAll();
-  message.value = `批量通过完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}`;
-  openBatchResultDialog("批量通过结果", resultRows);
-}
-
-function openBatchRejectDialog() {
-  if (!ensureCanEditReview()) {
-    return;
-  }
-  if (selectedPendingCount.value <= 0) {
-    errorMessage.value = "请先勾选待审核任务";
-    return;
-  }
-  batchRejectReason.value = "";
-  batchRejectDialogVisible.value = true;
-}
-
-async function submitBatchReject() {
-  if (!ensureCanEditReview()) {
-    return;
-  }
-  const note = batchRejectReason.value.trim();
-  if (!note) {
-    errorMessage.value = "批量驳回必须填写原因";
-    return;
-  }
-  errorMessage.value = "";
-  message.value = "";
-  batchRejecting.value = true;
-  let success = 0;
-  let failed = 0;
-  let skipped = 0;
-  const resultRows = [];
-  for (const task of selectedPendingRows.value) {
-    if (!canQuickDecision(task)) {
-      skipped += 1;
-      resultRows.push({
-        id: task.id,
-        action: "批量驳回",
-        action_key: "REJECT",
-        note,
-        result: "SKIPPED",
-        reason: "任务已分配给其他审核员"
-      });
-      continue;
-    }
-    try {
-      await reviewTaskDecision(task.id, "REJECTED", note);
-      success += 1;
-      resultRows.push({
-        id: task.id,
-        action: "批量驳回",
-        action_key: "REJECT",
-        note,
-        result: "SUCCESS",
-        reason: "已驳回"
-      });
-    } catch (error) {
-      failed += 1;
-      resultRows.push({
-        id: task.id,
-        action: "批量驳回",
-        action_key: "REJECT",
-        note,
-        result: "FAILED",
-        reason: normalizeErrorMessage(error, "驳回失败")
-      });
-    }
-  }
-  batchRejecting.value = false;
-  batchRejectDialogVisible.value = false;
-  await refreshAll();
-  message.value = `批量驳回完成：成功 ${success}，失败 ${failed}，跳过 ${skipped}`;
-  openBatchResultDialog("批量驳回结果", resultRows);
-}
-
-async function executeBatchResultRow(row) {
-  if (!ensureCanEditReview()) {
-    throw new Error("当前账号只有查看权限，无法重试审核批处理");
-  }
-  const actionKey = (row.action_key || "").toUpperCase();
-  if (actionKey === "ASSIGN") {
-    const reviewerID = (row.reviewer_id || "").trim();
-    if (!reviewerID) {
-      throw new Error("缺少 reviewer_id");
-    }
-    await assignReviewTask(row.id, reviewerID);
-    return "分配成功";
-  }
-  if (actionKey === "APPROVE") {
-    await reviewTaskDecision(row.id, "APPROVED", "");
-    return "审批通过";
-  }
-  if (actionKey === "REJECT") {
-    const note = (row.note || "").trim() || "批量驳回";
-    await reviewTaskDecision(row.id, "REJECTED", note);
-    return "驳回成功";
-  }
-  throw new Error(`未知动作: ${actionKey || "-"}`);
-}
-
-async function retryFailedBatchRows() {
-  if (failedBatchRows.value.length <= 0) {
-    return;
-  }
-  retryingFailed.value = true;
-  errorMessage.value = "";
-  message.value = "";
-  let success = 0;
-  let failed = 0;
-  const retryRows = [];
-  for (const row of failedBatchRows.value) {
-    try {
-      const tip = await executeBatchResultRow(row);
-      success += 1;
-      retryRows.push({
-        ...row,
-        action: `${row.action}重试`,
-        result: "SUCCESS",
-        reason: tip
-      });
-    } catch (error) {
-      failed += 1;
-      retryRows.push({
-        ...row,
-        action: `${row.action}重试`,
-        result: "FAILED",
-        reason: normalizeErrorMessage(error, "重试失败")
-      });
-    }
-  }
-  retryingFailed.value = false;
-  await refreshAll();
-  message.value = `失败任务重试完成：成功 ${success}，失败 ${failed}`;
-  openBatchResultDialog("失败任务重试结果", retryRows);
-}
-
-async function handleDetailAssign() {
-  if (!ensureCanEditReview()) {
-    return;
-  }
-  if (!currentTask.value?.id) {
-    return;
-  }
-  const reviewerID = detailForm.reviewer_id.trim();
-  if (!reviewerID) {
-    errorMessage.value = "reviewer_id 不能为空";
-    return;
-  }
-  errorMessage.value = "";
-  message.value = "";
-  detailAssigning.value = true;
+  if (selectedRows.value.length === 0) return;
+  batchLoading.value = true;
   try {
-    await assignReviewTask(currentTask.value.id, reviewerID);
-    message.value = `任务 ${currentTask.value.id} 已分配给 ${reviewerID}`;
-    await refreshAll({ preserveFeedback: true });
-    if (currentTask.value) {
-      currentTask.value.reviewer_id = reviewerID;
+    for (const task of selectedRows.value) {
+      if (task.status === 'PENDING') await reviewTaskDecision(task.id, 'APPROVED', 'Batch approved');
     }
-  } catch (error) {
-    errorMessage.value = error.message || "分配审核任务失败";
+    message.value = `批量通过了 ${selectedRows.value.length} 个任务`;
+    refreshAll();
+  } catch (err) {
+    errorMessage.value = err.message || "批量操作失败";
   } finally {
-    detailAssigning.value = false;
+    batchLoading.value = false;
   }
 }
 
-async function handleDetailDecision() {
-  if (!ensureCanEditReview()) {
-    return;
-  }
-  if (!currentTask.value?.id) {
-    return;
-  }
-  const status = (detailForm.decision_status || "").trim();
-  const note = (detailForm.decision_note || "").trim();
-  if (!decisionOptions.includes(status)) {
-    errorMessage.value = "审核结果必须为 APPROVED 或 REJECTED";
-    return;
-  }
-  if (status === "REJECTED" && !note) {
-    errorMessage.value = "驳回必须填写审核备注";
-    return;
-  }
-  errorMessage.value = "";
-  message.value = "";
-  detailDeciding.value = true;
-  try {
-    await reviewTaskDecision(currentTask.value.id, status, note);
-    message.value = `任务 ${currentTask.value.id} 已 ${status}`;
-    await refreshAll({ preserveFeedback: true });
-  } catch (error) {
-    errorMessage.value = error.message || "提交审核结论失败";
-  } finally {
-    detailDeciding.value = false;
-  }
-}
-
-function reviewerHint(task) {
-  const reviewerID = (task.reviewer_id || "").trim();
-  if (!reviewerID) {
-    return "未分配审核员";
-  }
-  if (reviewerID === currentUserID.value) {
-    return "当前任务分配给你";
-  }
-  return `当前任务分配给 ${reviewerID}`;
-}
-
-function resolveTaskTargetRoute(task) {
-  if ((task?.module || "").toUpperCase() === "STOCK_EVENT" && task?.target_id) {
-    return {
-      name: "stock-selection-events",
-      query: {
-        event_id: task.target_id,
-        review_id: task.id || ""
-      }
-    };
-  }
-  return null;
-}
-
-function jumpToTaskTarget(task) {
-  const targetRoute = resolveTaskTargetRoute(task);
-  if (!targetRoute) {
-    return;
-  }
-  router.push(targetRoute);
-}
-
-function parseTaskDateTime(value) {
-  const raw = (value || "").trim();
-  if (!raw) {
-    return null;
-  }
-  const normalized = raw.includes("T") ? raw : raw.replace(" ", "T");
-  const parsed = new Date(normalized);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-  return parsed;
-}
-
-function getPendingHours(task) {
-  if ((task.status || "").toUpperCase() !== "PENDING") {
-    return null;
-  }
-  const submittedAt = parseTaskDateTime(task.submitted_at);
-  if (!submittedAt) {
-    return null;
-  }
-  return Math.max(0, (nowTick.value - submittedAt.getTime()) / (1000 * 60 * 60));
-}
-
-function formatPendingDuration(task) {
-  const hours = getPendingHours(task);
-  if (hours === null) {
-    return "-";
-  }
-  if (hours < 1) {
-    return "<1h";
-  }
-  if (hours < 24) {
-    return `${Math.floor(hours)}h`;
-  }
-  const days = Math.floor(hours / 24);
-  const remainHours = Math.floor(hours % 24);
-  return `${days}d ${remainHours}h`;
-}
-
-function slaTagType(task) {
-  const hours = getPendingHours(task);
-  if (hours === null) {
-    return "info";
-  }
-  if (hours >= slaDangerHours) {
-    return "danger";
-  }
-  if (hours >= slaWarnHours) {
-    return "warning";
-  }
-  return "success";
-}
-
-function slaLabel(task) {
-  const hours = getPendingHours(task);
-  if (hours === null) {
-    return "-";
-  }
-  if (hours >= slaDangerHours) {
-    return "超时严重";
-  }
-  if (hours >= slaWarnHours) {
-    return "即将超时";
-  }
-  return "正常";
-}
-
-function reviewTableRowClassName({ row }) {
-  const hours = getPendingHours(row);
-  if (hours === null) {
-    return "";
-  }
-  if (hours >= slaDangerHours) {
-    return "row-sla-danger";
-  }
-  if (hours >= slaWarnHours) {
-    return "row-sla-warning";
-  }
-  return "";
-}
-
-function applyFilters() {
-  page.value = 1;
-  refreshAll();
-}
-
-function resetFilters() {
-  filters.module = "";
-  filters.status = "";
-  filters.submitter_id = "";
-  filters.reviewer_id = "";
-  slaSortMode.value = "sla_desc";
-  showOnlySLAWarning.value = false;
-  page.value = 1;
-  refreshAll();
-}
-
-function handlePageChange(nextPage) {
-  if (nextPage === page.value) {
-    return;
-  }
-  page.value = nextPage;
-  fetchTasks();
-}
-
-function openReviewAuditInbox() {
-  router.push("/workflow-messages");
-}
-
-function statusTagType(status) {
-  const normalized = (status || "").toUpperCase();
-  if (normalized === "APPROVED") return "success";
-  if (normalized === "REJECTED") return "danger";
-  if (normalized === "PENDING") return "warning";
-  return "info";
+function exportCSV() {
+  const header = ["ID", "Module", "TargetID", "Status", "SubmittedAt"].join(",");
+  const rows = tasks.value.map(t => [t.id, t.module, t.target_id, t.status, t.submitted_at].join(","));
+  const csv = [header, ...rows].join("\n");
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `review_tasks_${new Date().getTime()}.csv`);
+  link.click();
 }
 
 onMounted(() => {
-  refreshAll().then(async () => {
-    if (route.query.review_id) {
-      await applyReviewRouteFocus(String(route.query.review_id));
-    }
-  });
-  updateNowTick();
+  refreshAll();
   setupTimers();
 });
 
-watch(
-  () => route.query.review_id,
-  async (reviewID) => {
-    if (reviewID) {
-      await applyReviewRouteFocus(String(reviewID));
-    }
-  }
-);
+onBeforeUnmount(() => { Object.values(timerRefs).forEach(t => t && clearInterval(t)); });
 
-onBeforeUnmount(() => {
-  clearTimers();
-});
+watch(activeTab, () => { page.value = 1; refreshAll(); });
 </script>
 
 <template>
-  <div class="page">
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">审核中心</h1>
-        <p class="muted">这里仅处理通用内容审核与流程任务；智能选股、智能期货的发布审核已收口到各自模块内。</p>
-      </div>
-      <div class="toolbar" style="margin-bottom: 0">
-        <el-tag type="info">当前管理员：{{ currentUserID || "-" }}</el-tag>
-        <el-button :loading="loading || metricsLoading" @click="refreshAll">刷新</el-button>
-      </div>
-    </div>
-
-    <el-alert
-      v-if="errorMessage"
-      :title="errorMessage"
-      type="error"
-      show-icon
-      style="margin-bottom: 12px"
-    />
-    <el-alert
-      v-if="message"
-      :title="message"
-      type="success"
-      show-icon
-      style="margin-bottom: 12px"
-    />
-    <el-alert
-      v-if="!canEditReview"
-      title="当前账号为只读审核权限，可查看任务、SLA 和导出结果，但不能提交、分配、通过或驳回。"
-      type="info"
-      :closable="false"
-      show-icon
-      style="margin-bottom: 12px"
-    />
-    <el-alert
-      title="股票与期货的候选审核、强制发布、驳回动作请分别前往“智能选股”和“智能期货”的“候选与审核发布”页面处理。"
-      type="warning"
-      :closable="false"
-      show-icon
-      style="margin-bottom: 12px"
-    />
-
-    <div class="card" style="margin-bottom: 12px" v-loading="metricsLoading">
-      <div class="grid grid-4 metrics-grid">
-        <div class="metric-item">
-          <div class="metric-label">待审核任务</div>
-          <div class="metric-value">{{ metrics.pending_reviews || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">今日通过</div>
-          <div class="metric-value">{{ metrics.approved_today || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">今日驳回</div>
-          <div class="metric-value">{{ metrics.rejected_today || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">流程消息（未读/总）</div>
-          <div class="metric-value">{{ metrics.unread_messages || 0 }} / {{ metrics.total_messages || 0 }}</div>
+  <div class="review-center-pro">
+    <div class="hero-section">
+      <div class="hero-header">
+        <h1 class="pro-title">智能运营审核中心 <span class="badge">PRO MAX</span></h1>
+        <div class="hero-actions">
+          <el-button-group>
+            <el-button @click="exportCSV">导出 CSV</el-button>
+            <el-button type="primary" :loading="loading" @click="refreshAll">强制刷新</el-button>
+            <el-button @click="autoRefreshEnabled = !autoRefreshEnabled">
+              {{ autoRefreshEnabled ? '自动巡航' : '手动模式' }}
+            </el-button>
+          </el-button-group>
         </div>
       </div>
-      <div class="sla-overview">
-        <el-tag type="success">SLA正常：{{ slaStats.normalCount }}</el-tag>
-        <el-tag type="warning">SLA预警：{{ slaStats.warningCount }}</el-tag>
-        <el-tag type="danger">SLA超时：{{ slaStats.dangerCount }}</el-tag>
-        <el-text type="info">当前页待审核总数：{{ slaStats.pendingTotal }}</el-text>
-      </div>
-    </div>
 
-    <div class="card" style="margin-bottom: 12px">
-      <div class="section-header">
-        <div>
-          <h3 style="margin: 0">审核事件摘要</h3>
-          <p class="muted" style="margin: 6px 0 0">审核中心开始直接回读统一 audit event 主链。</p>
-        </div>
-        <div class="inline-actions inline-actions--left">
-          <el-button link type="primary" @click="openReviewAuditInbox">查看消息中心</el-button>
-          <el-tag type="warning" effect="plain">开放事件 {{ reviewAuditItems.length }}</el-tag>
-          <el-tag type="info" effect="plain">Warning {{ reviewAuditSummary?.warning_count || 0 }}</el-tag>
-          <el-tag type="danger" effect="plain">Critical {{ reviewAuditSummary?.critical_count || 0 }}</el-tag>
-        </div>
-      </div>
-      <div class="toolbar" style="margin-bottom: 0">
-        <el-text type="primary">待处理审核事件</el-text>
-        <el-tag v-for="item in reviewAuditItems" :key="item.id" effect="plain">
-          {{ item.event_type || "REVIEW_TASK" }} · {{ item.status || "OPEN" }}
-        </el-tag>
-        <el-text v-if="!reviewAuditItems.length" type="info">当前筛选下暂无 REVIEW_TASK open audit events</el-text>
-      </div>
-    </div>
-
-    <div class="card" style="margin-bottom: 12px">
-      <div class="section-header">
-        <div>
-          <h3 style="margin: 0">预测增强审核提示</h3>
-          <p class="muted" style="margin: 6px 0 0">L1/L2 当前仅输出 advisory only 与 veto 提示，不改变现有审核主流程。</p>
-        </div>
-        <div class="inline-actions inline-actions--left">
-          <el-tag :type="forecastReviewConfig?.enabled ? 'success' : 'info'" effect="plain">
-            {{ forecastReviewConfig?.enabled ? "预测增强开启" : "预测增强关闭" }}
-          </el-tag>
-          <el-tag :type="forecastReviewConfig?.explanationEnabled ? 'primary' : 'info'" effect="plain">
-            {{ forecastReviewConfig?.explanationEnabled ? "explanation 增强开启" : "explanation 增强关闭" }}
-          </el-tag>
-          <el-tag :type="forecastReviewConfig?.l2Enabled ? 'warning' : 'info'" effect="plain">
-            {{ forecastReviewConfig?.l2Enabled ? "L2 摘要开启" : "L2 摘要关闭" }}
-          </el-tag>
-        </div>
-      </div>
-      <div class="toolbar" style="margin-bottom: 0">
-        <el-text type="info">记忆反馈样本阈值：{{ forecastReviewConfig?.memoryFeedbackMinSamples ?? "-" }}</el-text>
-        <el-text type="info">优先级阈值：{{ forecastReviewConfig?.advisoryPriorityThreshold ?? "-" }}</el-text>
-        <el-text type="info">L2 veto 阈值：{{ forecastReviewConfig?.vetoConfidenceThreshold ?? "-" }}</el-text>
-        <el-text type="warning">advisory only：仅提示高风险/低置信度样本；veto 仅做只读提示，审批动作仍以现有流程为准。</el-text>
-      </div>
-    </div>
-
-    <div v-if="canEditReview" class="card" style="margin-bottom: 12px">
-        <div class="section-header">
-        <h3 style="margin: 0">提交通用审核任务</h3>
-      </div>
-      <el-form label-width="110px">
-        <div class="dialog-grid">
-          <el-form-item label="模块">
-            <el-select v-model="submitForm.module">
-              <el-option v-for="item in moduleOptions" :key="item" :label="item" :value="item" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="target_id" required>
-            <el-input v-model="submitForm.target_id" placeholder="如 news_001 / sr_001" />
-          </el-form-item>
-          <el-form-item label="reviewer_id">
-            <el-input v-model="submitForm.reviewer_id" placeholder="admin_002" />
-          </el-form-item>
-          <el-form-item label="提交备注">
-            <el-input v-model="submitForm.submit_note" placeholder="请在今日内完成审核" />
-          </el-form-item>
-        </div>
-      </el-form>
-      <el-button type="primary" :loading="submitting" @click="handleSubmitReview">提交审核任务</el-button>
-    </div>
-
-    <div class="card" style="margin-bottom: 12px">
-      <div class="toolbar" style="margin-bottom: 0">
-        <el-select v-model="filters.module" clearable placeholder="全部模块" style="width: 150px">
-          <el-option v-for="item in moduleOptions" :key="item" :label="item" :value="item" />
-        </el-select>
-        <el-select v-model="filters.status" clearable placeholder="全部状态" style="width: 150px">
-          <el-option label="PENDING" value="PENDING" />
-          <el-option label="APPROVED" value="APPROVED" />
-          <el-option label="REJECTED" value="REJECTED" />
-        </el-select>
-        <el-input v-model="filters.submitter_id" clearable placeholder="submitter_id" style="width: 180px" />
-        <el-input v-model="filters.reviewer_id" clearable placeholder="reviewer_id" style="width: 180px" />
-        <el-select v-model="slaSortMode" style="width: 160px">
-          <el-option label="默认排序" value="default" />
-          <el-option label="按SLA降序" value="sla_desc" />
-        </el-select>
-        <el-switch v-model="showOnlySLAWarning" inline-prompt active-text="只看超时" inactive-text="全部任务" />
-        <el-switch v-model="autoRefreshEnabled" inline-prompt active-text="自动刷新" inactive-text="手动刷新" />
-        <el-text type="info">SLA每30秒自动刷新，列表每60秒自动拉取</el-text>
-        <el-button :loading="exportingFiltered" @click="exportFilteredCSV">导出筛选CSV</el-button>
-        <el-button @click="exportCurrentPageCSV">导出当前页CSV</el-button>
-        <el-button type="primary" plain @click="applyFilters">查询</el-button>
-        <el-button @click="resetFilters">重置</el-button>
-      </div>
-    </div>
-
-    <div v-if="canEditReview" class="card" style="margin-bottom: 12px">
-      <div class="section-header">
-        <h3 style="margin: 0">批量操作</h3>
-        <el-text type="info">
-          已选 {{ selectedRows.length }} 条，待审核 {{ selectedPendingCount }} 条，可审批 {{
-            selectedEligibleDecisionRows.length
-          }} 条，受限 {{ selectedBlockedCount }} 条
-        </el-text>
-      </div>
-      <div class="toolbar" style="margin-bottom: 0">
-        <el-input v-model="batchReviewerID" placeholder="批量分配 reviewer_id" style="width: 220px" />
-        <el-popconfirm
-          title="确认按当前 reviewer_id 批量分配选中任务？"
-          width="260"
-          @confirm="handleBatchAssign"
-        >
-          <template #reference>
-            <el-button :loading="batchAssigning" :disabled="!canBatchAssign">批量分配</el-button>
-          </template>
-        </el-popconfirm>
-        <el-popconfirm title="确认批量通过可审批任务？" width="220" @confirm="handleBatchApprove">
-          <template #reference>
-            <el-button type="success" plain :loading="batchApproving" :disabled="!canBatchApprove">批量通过</el-button>
-          </template>
-        </el-popconfirm>
-        <el-button
-          type="danger"
-          plain
-          :disabled="selectedEligibleDecisionRows.length <= 0"
-          @click="openBatchRejectDialog"
-        >
-          批量驳回
-        </el-button>
-        <el-button @click="clearSelection">清空勾选</el-button>
-      </div>
-    </div>
-
-    <div class="card">
-      <el-table
-        ref="reviewTableRef"
-        :data="displayTasks"
-        row-key="id"
-        border
-        stripe
-        v-loading="loading"
-        :empty-text="reviewEmptyText"
-        :row-class-name="reviewTableRowClassName"
-        @selection-change="handleSelectionChange"
-      >
-        <el-table-column v-if="canEditReview" type="selection" width="52" reserve-selection />
-        <el-table-column prop="id" label="ID" min-width="130" />
-        <el-table-column prop="module" label="模块" min-width="100" />
-        <el-table-column prop="target_id" label="目标ID" min-width="170">
-          <template #default="{ row }">
-            <div class="target-cell">
-              <span>{{ row.target_id }}</span>
-              <el-button
-                v-if="resolveTaskTargetRoute(row)"
-                link
-                type="primary"
-                size="small"
-                @click="jumpToTaskTarget(row)"
-              >
-                打开对象
-              </el-button>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="submitter_id" label="提交人" min-width="130" />
-        <el-table-column label="审核人" min-width="130">
-          <template #default="{ row }">
-            {{ row.reviewer_id || "-" }}
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" min-width="110">
-          <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="SLA" min-width="140">
-          <template #default="{ row }">
-            <template v-if="row.status === 'PENDING'">
-              <el-tag :type="slaTagType(row)">{{ slaLabel(row) }}</el-tag>
-              <div class="sla-sub">{{ formatPendingDuration(row) }}</div>
-            </template>
-            <el-text v-else type="info">-</el-text>
-          </template>
-        </el-table-column>
-        <el-table-column label="提交备注" min-width="180">
-          <template #default="{ row }">
-            {{ row.submit_note || "-" }}
-          </template>
-        </el-table-column>
-        <el-table-column label="审核备注" min-width="180">
-          <template #default="{ row }">
-            {{ row.review_note || "-" }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="submitted_at" label="提交时间" min-width="180" />
-        <el-table-column label="审核时间" min-width="180">
-          <template #default="{ row }">
-            {{ row.reviewed_at || "-" }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" align="right" min-width="360">
-          <template #default="{ row }">
-            <div class="operation-inline">
-              <el-button size="small" @click="openTaskDetail(row)">详情</el-button>
-              <el-button
-                v-if="canEditReview && row.status === 'PENDING'"
-                size="small"
-                type="success"
-                plain
-                :disabled="!canQuickDecision(row)"
-                :loading="isQuickActionLoading(row, 'APPROVED')"
-                @click="handleQuickDecision(row, 'APPROVED', '')"
-              >
-                快速通过
-              </el-button>
-              <el-button
-                v-if="canEditReview && row.status === 'PENDING'"
-                size="small"
-                type="danger"
-                plain
-                :disabled="!canQuickDecision(row)"
-                :loading="isQuickActionLoading(row, 'REJECTED')"
-                @click="openQuickReject(row)"
-              >
-                快速驳回
-              </el-button>
-            </div>
-            <div v-if="row.status === 'PENDING'" class="reviewer-hint">
-              {{ reviewerHint(row) }}
-            </div>
-            <el-text v-if="!canEditReview" type="info">只读</el-text>
-            <el-text v-else-if="row.status !== 'PENDING'" type="info">已完成</el-text>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="pagination">
-        <el-text type="info">第 {{ page }} 页，当前展示 {{ displayTasks.length }} 条，共 {{ total }} 条</el-text>
-        <el-pagination
-          background
-          layout="prev, pager, next"
-          :current-page="page"
-          :page-size="pageSize"
-          :total="total"
-          @current-change="handlePageChange"
-        />
-      </div>
-    </div>
-
-    <el-dialog v-model="rejectDialogVisible" title="快速驳回任务" width="520px" destroy-on-close>
-      <el-alert
-        title="快速驳回会立即将任务状态置为 REJECTED，请填写明确原因。"
-        type="warning"
-        :closable="false"
-        show-icon
-        style="margin-bottom: 12px"
-      />
-      <el-form label-width="80px">
-        <el-form-item label="任务ID">
-          <el-text>{{ rejectTask?.id || "-" }}</el-text>
-        </el-form-item>
-        <el-form-item label="驳回原因" required>
-          <el-input
-            v-model="rejectReason"
-            type="textarea"
-            :rows="4"
-            maxlength="300"
-            show-word-limit
-            resize="vertical"
-            placeholder="请填写具体驳回原因，例如：证据不足、字段缺失、内容不合规"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="rejectDialogVisible = false">取消</el-button>
-        <el-button type="danger" :loading="rejectSubmitting" @click="submitQuickReject">确认驳回</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="batchRejectDialogVisible" title="批量驳回任务" width="560px" destroy-on-close>
-      <el-alert
-        title="会对已勾选且可审批的待审核任务批量执行驳回，请确认原因清晰。"
-        type="warning"
-        :closable="false"
-        show-icon
-        style="margin-bottom: 12px"
-      />
-      <el-form label-width="110px">
-        <el-form-item label="任务统计">
-          <el-text>待审核 {{ selectedPendingCount }} 条，可驳回 {{ selectedEligibleDecisionRows.length }} 条</el-text>
-        </el-form-item>
-        <el-form-item label="统一驳回原因" required>
-          <el-input
-            v-model="batchRejectReason"
-            type="textarea"
-            :rows="4"
-            maxlength="300"
-            show-word-limit
-            resize="vertical"
-            placeholder="请填写统一驳回原因，例如：材料不完整、校验不通过"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="batchRejectDialogVisible = false">取消</el-button>
-        <el-button type="danger" :loading="batchRejecting" @click="submitBatchReject">确认批量驳回</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="batchResultVisible" :title="batchResultTitle" width="760px" destroy-on-close>
-      <div class="batch-result-summary">
-        <el-tag type="success">成功 {{ batchResultStats.success }}</el-tag>
-        <el-tag type="danger">失败 {{ batchResultStats.failed }}</el-tag>
-        <el-tag type="warning">跳过 {{ batchResultStats.skipped }}</el-tag>
-        <el-text type="info">总计 {{ batchResultStats.total }} 条</el-text>
-      </div>
-      <div class="batch-result-toolbar">
-        <el-select v-model="batchResultFilter" style="width: 180px">
-          <el-option label="查看全部结果" value="all" />
-          <el-option label="仅看失败" value="failed" />
-          <el-option label="仅看跳过" value="skipped" />
-        </el-select>
-        <el-button
-          :disabled="failedBatchRows.length <= 0"
-          :loading="copyingFailedDetails"
-          @click="copyFailedDetails"
-        >
-          复制失败明细
-        </el-button>
-      </div>
-      <el-table :data="displayBatchResultRows" border stripe max-height="360" empty-text="当前筛选条件下暂无结果">
-        <el-table-column prop="id" label="任务ID" min-width="130" />
-        <el-table-column prop="action" label="动作" min-width="100" />
-        <el-table-column label="结果" min-width="110">
-          <template #default="{ row }">
-            <el-tag :type="row.result === 'SUCCESS' ? 'success' : row.result === 'SKIPPED' ? 'warning' : 'danger'">
-              {{ row.result }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="reason" label="说明" min-width="260" />
-      </el-table>
-      <template #footer>
-        <el-button
-          v-if="canEditReview"
-          type="warning"
-          plain
-          :disabled="failedBatchRows.length <= 0"
-          :loading="retryingFailed"
-          @click="retryFailedBatchRows"
-        >
-          重试失败任务
-        </el-button>
-        <el-button type="primary" @click="batchResultVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
-
-    <el-drawer v-model="detailVisible" size="560px" destroy-on-close>
-      <template #header>
-        <div class="drawer-title">审核任务详情</div>
-      </template>
-
-      <template v-if="currentTask">
-        <el-descriptions :column="1" border size="small">
-          <el-descriptions-item label="任务ID">{{ currentTask.id }}</el-descriptions-item>
-          <el-descriptions-item label="模块">{{ currentTask.module }}</el-descriptions-item>
-          <el-descriptions-item label="目标ID">{{ currentTask.target_id }}</el-descriptions-item>
-          <el-descriptions-item v-if="resolveTaskTargetRoute(currentTask)" label="跳转">
-            <el-button link type="primary" @click="jumpToTaskTarget(currentTask)">打开业务详情</el-button>
-          </el-descriptions-item>
-          <el-descriptions-item label="状态">
-            <el-tag :type="statusTagType(currentTask.status)">{{ currentTask.status }}</el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="SLA">
-            <template v-if="(currentTask.status || '').toUpperCase() === 'PENDING'">
-              <el-tag :type="slaTagType(currentTask)">{{ slaLabel(currentTask) }}</el-tag>
-              <span class="sla-inline">{{ formatPendingDuration(currentTask) }}</span>
-            </template>
-            <template v-else>-</template>
-          </el-descriptions-item>
-          <el-descriptions-item label="提交人">{{ currentTask.submitter_id || "-" }}</el-descriptions-item>
-          <el-descriptions-item label="审核人">{{ currentTask.reviewer_id || "-" }}</el-descriptions-item>
-          <el-descriptions-item label="提交备注">{{ currentTask.submit_note || "-" }}</el-descriptions-item>
-          <el-descriptions-item label="审核备注">{{ currentTask.review_note || "-" }}</el-descriptions-item>
-          <el-descriptions-item label="提交时间">{{ currentTask.submitted_at || "-" }}</el-descriptions-item>
-          <el-descriptions-item label="审核时间">{{ currentTask.reviewed_at || "-" }}</el-descriptions-item>
-        </el-descriptions>
-
-        <template v-if="currentTask.status === 'PENDING' && canEditReview">
-          <div class="detail-section">
-            <div class="detail-section-title">分配审核员</div>
-            <div class="inline-actions inline-actions--left">
-              <el-input v-model="detailForm.reviewer_id" placeholder="reviewer_id" style="width: 220px" />
-              <el-button :loading="detailAssigning" @click="handleDetailAssign">保存分配</el-button>
+      <el-row :gutter="16" class="metrics-hero">
+        <el-col :xs="12" :sm="6">
+          <div class="pro-card glass warning">
+            <div class="card-content">
+              <div class="label">⏳ 待处理 / SLA超时</div>
+              <div class="value">{{ metrics.pending_reviews }} <span class="sub">/ {{ slaStats.dangerCount }}</span></div>
             </div>
           </div>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <div class="pro-card glass success">
+            <div class="card-content">
+              <div class="label">✅ 今日已通过</div>
+              <div class="value">{{ metrics.approved_today }} <span class="sub">APPROVED</span></div>
+            </div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <div class="pro-card glass info">
+            <div class="card-content">
+              <div class="label">👤 指派给我</div>
+              <div class="value">{{ tasks.filter(t => t.reviewer_id === currentUserID).length }} <span class="sub">MY TASKS</span></div>
+            </div>
+          </div>
+        </el-col>
+        <el-col :xs="12" :sm="6">
+          <div class="pro-card glass primary">
+            <div class="card-content">
+              <div class="label">✉️ 未读通知</div>
+              <div class="value">{{ metrics.unread_messages }} <span class="sub">MESSAGES</span></div>
+            </div>
+          </div>
+        </el-col>
+      </el-row>
+    </div>
 
-          <div class="detail-section">
-            <div class="detail-section-title">提交审核结论</div>
-            <el-form label-width="88px">
-              <el-form-item label="结论">
-                <el-radio-group v-model="detailForm.decision_status">
-                  <el-radio-button value="APPROVED">APPROVED</el-radio-button>
-                  <el-radio-button value="REJECTED">REJECTED</el-radio-button>
-                </el-radio-group>
-              </el-form-item>
-              <el-form-item label="备注">
-                <el-input
-                  v-model="detailForm.decision_note"
-                  type="textarea"
-                  :rows="4"
-                  maxlength="300"
-                  show-word-limit
-                  resize="vertical"
-                  placeholder="若驳回则必填，建议填写审核说明"
+    <div class="main-stage">
+      <div class="tab-control">
+        <el-tabs v-model="activeTab" class="pro-tabs">
+          <el-tab-pane label="待我处理" name="todo" />
+          <el-tab-pane label="未分配队列" name="queue" />
+          <el-tab-pane label="全量历史" name="history" />
+        </el-tabs>
+        <div class="tab-filters">
+          <el-input v-model="filters.submitter_id" placeholder="提交人ID" size="small" style="width: 120px; margin-right: 8px" @change="refreshAll" />
+          <el-select v-model="filters.module" placeholder="全部模块" clearable size="small" style="width: 120px" @change="refreshAll">
+            <el-option v-for="m in moduleOptions" :key="m" :label="m" :value="m" />
+          </el-select>
+        </div>
+      </div>
+
+      <div class="table-container glass">
+        <div v-if="selectedRows.length > 0" class="bulk-bar glass">
+          <span>已选中 {{ selectedRows.length }} 项</span>
+          <el-button type="success" size="small" :loading="batchLoading" @click="handleBatchApprove">批量通过</el-button>
+          <el-button type="info" size="small" @click="reviewTableRef.clearSelection()">取消</el-button>
+        </div>
+        <el-table 
+          ref="reviewTableRef"
+          :data="tasks" 
+          v-loading="loading" 
+          border 
+          stripe 
+          size="default" 
+          class="pro-table"
+          @selection-change="handleSelectionChange"
+        >
+          <el-table-column type="selection" width="45" />
+          <el-table-column prop="id" label="任务ID" width="120" />
+          <el-table-column label="审核对象" min-width="160">
+            <template #default="{ row }">
+              <div class="target-info">
+                <el-tag size="small" :type="row.module === 'NEWS' ? 'primary' : 'warning'">{{ row.module }}</el-tag>
+                <span class="target-id">{{ row.target_id }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="submitter_id" label="提交员" width="100" />
+          <el-table-column label="SLA" width="130">
+            <template #default="{ row }">
+              <div v-if="row.status === 'PENDING'" class="sla-monitor">
+                <el-progress 
+                  :percentage="Math.min(100, (getPendingHours(row) / slaDangerHours) * 100)" 
+                  :status="getPendingHours(row) > slaDangerHours ? 'exception' : (getPendingHours(row) > slaWarnHours ? 'warning' : 'success')"
+                  :show-text="false"
+                  :stroke-width="4"
                 />
-              </el-form-item>
-            </el-form>
-            <el-text type="info">当结论为 REJECTED 时，备注为必填。</el-text>
-            <el-button type="primary" :loading="detailDeciding" @click="handleDetailDecision">提交结论</el-button>
-          </div>
-        </template>
-        <el-alert
-          v-else-if="currentTask.status === 'PENDING'"
-          title="当前账号为只读审核权限，可查看任务详情，但不能重新分配或提交审核结论。"
-          type="info"
-          :closable="false"
-          show-icon
-          style="margin-top: 14px"
-        />
+                <span class="sla-text">{{ formatDuration(getPendingHours(row)) }}</span>
+              </div>
+              <el-tag v-else size="small" :type="row.status === 'APPROVED' ? 'success' : 'danger'">{{ row.status }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="submit_note" label="提交备注" min-width="180" show-overflow-tooltip />
+          <el-table-column label="操作" width="220" align="right">
+            <template #default="{ row }">
+              <div class="pro-row-actions">
+                <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
+                <template v-if="row.status === 'PENDING' && canEditReview">
+                  <el-button 
+                    type="success" 
+                    size="small" 
+                    plain 
+                    :loading="quickActionKey === `${row.id}:APPROVED`"
+                    @click="handleDecision(row, 'APPROVED')"
+                  >通过</el-button>
+                </template>
+                <span v-else-if="!canEditReview" class="muted">只读</span>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
 
-        <el-alert
-          v-else
-          title="该任务已完成，不能再次分配或审批。"
-          type="info"
-          :closable="false"
-          show-icon
-          style="margin-top: 14px"
+      <div class="pro-pagination">
+        <el-pagination
+          v-model:current-page="page"
+          :page-size="pageSize"
+          layout="total, prev, pager, next"
+          :total="total"
+          @current-change="refreshAll"
         />
+      </div>
+    </div>
+
+    <!-- Review & Preview Drawer -->
+    <el-drawer v-model="detailVisible" size="60%" class="pro-drawer" destroy-on-close>
+      <template #header>
+        <div class="drawer-header">
+          <h2 class="drawer-title">任务决策中心 <span class="task-id">#{{ currentTask?.id }}</span></h2>
+        </div>
       </template>
+
+      <div class="drawer-layout" v-loading="targetLoading">
+        <div class="preview-stage glass">
+          <div class="stage-label">上下文内容预览</div>
+          <div v-if="targetDetail" class="content-preview">
+            <template v-if="currentTask?.module === 'NEWS'">
+              <h3 class="preview-title">{{ targetDetail.title }}</h3>
+              <div class="preview-meta">
+                 <el-tag size="small">{{ targetDetail.category_name }}</el-tag>
+                 <span>{{ targetDetail.published_at }}</span>
+              </div>
+              <div class="preview-body" v-html="targetDetail.content || '暂无内容'"></div>
+            </template>
+            <template v-else-if="currentTask?.module === 'STOCK_EVENT'">
+              <h3 class="preview-title">事件标题：{{ targetDetail.cluster_title }}</h3>
+              <div class="preview-body">{{ targetDetail.summary }}</div>
+              <div class="preview-ext">
+                <div v-for="link in targetDetail.source_links" :key="link" class="link-item">
+                  <el-link :href="link" target="_blank">{{ link }}</el-link>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+               <pre class="raw-data">{{ JSON.stringify(targetDetail, null, 2) }}</pre>
+            </template>
+          </div>
+          <el-empty v-else description="无法加载预览数据，请核对 Target ID 是否正确" />
+        </div>
+
+        <div class="action-stage">
+          <div class="stage-label">审批决策</div>
+          <el-form label-position="top">
+            <el-form-item label="任务分配">
+              <el-input v-model="detailForm.reviewer_id" placeholder="填写 reviewer_id" />
+            </el-form-item>
+            <el-form-item label="审批结论">
+              <el-radio-group v-model="detailForm.decision_status">
+                <el-radio-button label="APPROVED">审核通过</el-radio-button>
+                <el-radio-button label="REJECTED">打回驳回</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="审批备注 (驳回必填)">
+              <el-input v-model="detailForm.decision_note" type="textarea" :rows="4" placeholder="请填写意见..." />
+            </el-form-item>
+            <div class="stage-btns">
+              <el-button type="primary" size="large" @click="handleDecision(currentTask, detailForm.decision_status, detailForm.decision_note)">确认并提交决策</el-button>
+            </div>
+          </el-form>
+        </div>
+      </div>
     </el-drawer>
   </div>
 </template>
 
 <style scoped>
-.metrics-grid {
+.review-center-pro {
+  padding: 16px;
+  background: #f1f5f9;
+  min-height: 100vh;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.hero-section {
+  margin-bottom: 24px;
+}
+
+.pro-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: #1e293b;
+  margin: 0;
+  display: flex;
+  align-items: center;
   gap: 12px;
 }
 
-.metric-item {
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 12px;
-  background: #fff;
+.badge {
+  font-size: 10px;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 1px;
 }
 
-.metric-label {
-  color: #6b7280;
-  font-size: 12px;
+.hero-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
 }
 
-.metric-value {
-  margin-top: 6px;
-  font-size: 24px;
-  font-weight: 700;
-}
-
-.sla-overview {
+.metrics-hero {
   margin-top: 12px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
-.section-header {
+.pro-card {
+  padding: 16px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(231, 235, 241, 0.6);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+.pro-card.warning { border-left: 4px solid #f59e0b; }
+.pro-card.success { border-left: 4px solid #10b981; }
+.pro-card.info { border-left: 4px solid #3b82f6; }
+.pro-card.primary { border-left: 4px solid #8b5cf6; }
+
+.label {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.value {
+  font-size: 20px;
+  font-weight: 800;
+  color: #1e293b;
+}
+
+.sub {
+  font-size: 11px;
+  opacity: 0.5;
+  margin-left: 4px;
+}
+
+.main-stage {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  overflow: hidden;
+}
+
+.tab-control {
+  padding: 0 16px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
+  align-items: center;
+  height: 56px;
 }
 
-.operation-inline {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.sla-sub {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #6b7280;
-}
-
-.sla-inline {
-  margin-left: 8px;
-  font-size: 12px;
-  color: #6b7280;
-}
-
-.reviewer-hint {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #6b7280;
-}
-
-.target-cell {
+.bulk-bar {
+  margin: 12px 16px;
+  padding: 8px 16px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.target-info {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
-.detail-section {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid #e5e7eb;
-}
-
-.detail-section-title {
-  margin-bottom: 10px;
-  font-size: 14px;
+.target-id {
+  font-family: 'SF Mono', 'Monaco', monospace;
   font-weight: 600;
-  color: #111827;
+  font-size: 13px;
+  color: #475569;
 }
 
-.batch-result-summary {
-  margin-bottom: 10px;
+.sla-monitor {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.batch-result-toolbar {
-  margin-bottom: 10px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+.sla-text {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
 }
 
-.drawer-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #111827;
-}
-
-.inline-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.inline-actions--left {
-  justify-content: flex-start;
-}
-
-.dialog-grid {
+.drawer-layout {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 0 12px;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 20px;
+  height: calc(100vh - 100px);
+  padding: 0 20px 20px;
 }
 
-:deep(.dialog-grid .el-form-item) {
-  margin-bottom: 14px;
+.preview-stage {
+  padding: 20px;
+  border-radius: 12px;
+  overflow-y: auto;
+  border: 1px solid #f1f5f9;
 }
 
-:deep(.dialog-grid .el-select) {
-  width: 100%;
+.stage-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #94a3b8;
+  margin-bottom: 12px;
+  text-transform: uppercase;
 }
 
-:deep(.row-sla-warning > td.el-table__cell) {
-  background: #fff7e6 !important;
+.preview-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 8px;
 }
 
-:deep(.row-sla-danger > td.el-table__cell) {
-  background: #fff1f0 !important;
+.preview-meta {
+  margin-bottom: 16px;
+  display: flex;
+  gap: 12px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.preview-body {
+  line-height: 1.6;
+  color: #334155;
+  font-size: 14px;
+}
+
+.raw-data {
+  background: #f8fafc;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.action-stage {
+  background: #f8fafc;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid #f1f5f9;
+}
+
+.stage-btns {
+  margin-top: 24px;
+}
+
+.pro-pagination {
+  padding: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+:deep(.el-tabs__header) {
+  margin: 0;
+}
+
+:deep(.el-tabs__item) {
+  height: 56px;
+  line-height: 56px;
+  font-weight: 700;
 }
 </style>

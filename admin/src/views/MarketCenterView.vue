@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import StrategyEngineConfigPanel from "../components/StrategyEngineConfigPanel.vue";
+
 import {
   compareFuturesStrategyEnginePublishVersions,
   compareStockStrategyEnginePublishVersions,
@@ -36,7 +36,7 @@ import { hasPermission } from "../lib/session";
 const route = useRoute();
 const router = useRouter();
 const activeTab = ref("stocks");
-const strategyConfigPanelRef = ref(null);
+
 const marketCenterRouteFocusKey = ref("");
 const errorMessage = ref("");
 const message = ref("");
@@ -533,13 +533,7 @@ async function applyMarketCenterObjectFocus(query = route.query, options = {}) {
     return;
   }
 
-  if (state.policy_id || state.config_id) {
-    activeTab.value = "engine-config";
-    await nextTick();
-    await strategyConfigPanelRef.value?.focusStrategyConfigItem?.(state.config_type || (state.policy_id ? "publish-policy" : ""), state.config_id || state.policy_id);
-    marketCenterRouteFocusKey.value = focusKey;
-    return;
-  }
+
 
   const publishID = state.publish_id;
   const view = state.view || "detail";
@@ -634,8 +628,8 @@ const rhythmBoardCards = computed(() => {
       stateText: morningStocks.length > 0 ? `已准备 ${morningStocks.length} 条` : "待生成今日主推荐",
       desc:
         morningStocks.length > 0
-          ? "今天可投放的主推荐已进入列表，建议继续检查评分和状态。"
-          : "先生成或补录今日主推荐，保证前台 08:30 入口有内容可看。",
+          ? "AI 引擎已产出今日主推荐。请复核评分、备注并调整为‘发布’状态。"
+          : "建议先在该日期的‘智能选股’实验室触发运行，或在此直接刷新同步产出结果。",
       meta: `股票推荐 ${morningStocks.length} 条`,
       actionLabel: "切到股票推荐",
       action: { type: "tab", value: "stocks" }
@@ -1517,10 +1511,7 @@ async function refreshCurrentTab() {
     ]);
     return;
   }
-  if (activeTab.value === "engine-config") {
-    await strategyConfigPanelRef.value?.refreshAll?.();
-    return;
-  }
+
   await fetchEvents();
 }
 
@@ -1551,13 +1542,7 @@ onMounted(async () => {
   await applyMarketCenterObjectFocus(route.query, { force: true });
 });
 
-watch(activeTab, async (tab) => {
-  if (tab !== "engine-config") {
-    return;
-  }
-  await nextTick();
-  await strategyConfigPanelRef.value?.refreshAll?.();
-});
+
 
 watch(
   () => route.query,
@@ -1572,8 +1557,8 @@ watch(
   <div class="page">
     <div class="page-header">
       <div>
-        <h1 class="page-title">策略中心</h1>
-        <p class="muted">这里只保留运营节奏、市场事件和旧链路兜底入口；智能研究、数据同步和质量排查已拆到独立菜单。</p>
+        <h1 class="page-title">策略中心 (运营台)</h1>
+        <p class="muted">运营台负责每日节奏复核、人工补录与最终展示。低层引擎配置、AI 模型调优与自动化生产已由‘智能选股/期货’独立承接。</p>
       </div>
       <div class="toolbar" style="margin-bottom: 0">
         <el-button :loading="refreshingAll" @click="refreshAll">刷新全部</el-button>
@@ -2289,11 +2274,9 @@ watch(
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="引擎配置" name="engine-config">
-        <StrategyEngineConfigPanel ref="strategyConfigPanelRef" />
-      </el-tab-pane>
 
-      <el-tab-pane label="市场事件" name="events">
+
+      <el-tab-pane label="运营大事记" name="events">
         <div class="card" style="margin-bottom: 12px">
           <div class="toolbar" style="margin-bottom: 0">
             <el-select

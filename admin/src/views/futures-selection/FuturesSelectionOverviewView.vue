@@ -76,11 +76,14 @@ onMounted(fetchOverview);
 <template>
   <FuturesSelectionModuleShell
     title="智能期货总览"
-    description="集中查看默认期货配置、最近运行、图谱上下文新鲜度和待审核数量，先确认状态，再决定是否重跑。"
+    description="智能期货是您的‘科研实验室’与‘生产线’，负责算法跑批与候选集生成。生成的结果将同步至策略中心进行最终审核与发布。"
   >
     <template #actions>
       <div class="toolbar" style="margin-bottom: 0; flex-wrap: wrap">
         <el-button :loading="loading" @click="fetchOverview">刷新总览</el-button>
+        <el-button type="success" plain @click="router.push({ path: '/market-center' })">
+          前往策略中心 (运营台)
+        </el-button>
         <el-button v-if="canManage" type="primary" :loading="running" @click="handleRunNow">
           立即运行
         </el-button>

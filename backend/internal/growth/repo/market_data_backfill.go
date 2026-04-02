@@ -1000,6 +1000,26 @@ func (r *MySQLGrowthRepo) AdminGetMarketCoverageSummary() (model.MarketCoverageS
 		summary.LatestTradeDate = latestTradeDate.Time.Format("2006-01-02")
 	}
 
+	// Calculate Main Data Gaps for Stocks
+	if err := r.db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM market_instruments 
+		WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND instrument_key NOT LIKE '%.%'`).Scan(&summary.CanonicalKeyGapCount); err != nil {
+		return summary, err
+	}
+	if err := r.db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM market_instruments 
+		WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND (display_name IS NULL OR TRIM(display_name) = '' OR display_name = instrument_key)`).Scan(&summary.DisplayNameGapCount); err != nil {
+		return summary, err
+	}
+	if err := r.db.QueryRow(`
+		SELECT COUNT(*) 
+		FROM market_instruments 
+		WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND list_date IS NULL`).Scan(&summary.ListDateGapCount); err != nil {
+		return summary, err
+	}
+
 	rows, err := r.db.Query(`
 SELECT COALESCE(selected_source_key, '') AS source_key, COUNT(*)
 FROM market_daily_bar_truth

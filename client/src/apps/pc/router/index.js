@@ -16,7 +16,7 @@ const PcCommunityComposeView = () => import("../views/PcCommunityComposeView.vue
 const PcMembershipView = () => import("../views/PcMembershipView.vue");
 const PcProfileView = () => import("../views/PcProfileView.vue");
 const PcForecastRunView = () => import("../views/PcForecastRunView.vue");
-const PcDemoView = () => import("../views/PcDemoView.vue");
+const PcDemoView = () => import("../views/demo/PcHomeDemo.vue");
 
 
 const routes = [

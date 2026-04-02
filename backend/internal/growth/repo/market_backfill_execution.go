@@ -335,7 +335,7 @@ func (r *MySQLGrowthRepo) syncMarketEnhancementDetailed(assetType string, source
 	if dataKind == marketDataKindMoneyflow {
 		routeConfigKey = marketStockMoneyflowPriorityConfigKey
 	}
-	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, routeConfigKey, []string{"TUSHARE"})
+	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(sourceKey, normalizedAssetType, dataKind, routeConfigKey, []string{"TUSHARE", "AKSHARE", "MOCK"})
 	result.ResolvedSourceKeys = sourceKeys
 
 	totalCount := 0
