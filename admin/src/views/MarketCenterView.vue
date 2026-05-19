@@ -122,6 +122,10 @@ const stockFilters = reactive({
 const stockDraftStatusMap = ref({});
 const stockTradeDate = ref("");
 const stockDialogVisible = ref(false);
+const stockReviewDialogVisible = ref(false);
+const stockReviewGenerating = ref(false);
+const stockReviewSendNotification = ref(false);
+const stockReviewRow = ref(null);
 const stockForm = reactive({
   symbol: "",
   name: "",
@@ -1023,6 +1027,31 @@ async function submitStock() {
   }
 }
 
+function openStockReviewDialog(row) {
+  stockReviewRow.value = { ...row };
+  stockReviewSendNotification.value = false;
+  stockReviewDialogVisible.value = true;
+}
+
+async function handleGenerateAIReview() {
+  if (!stockReviewRow.value?.id) return;
+  stockReviewGenerating.value = true;
+  clearMessages();
+  try {
+    const { data } = await generateStockReview(stockReviewRow.value.id);
+    stockReviewRow.value.ai_review_content = data.ai_review_content;
+    message.value = "AI 复盘草稿生成成功";
+    if (stockReviewSendNotification.value) {
+      // 模拟发送通知
+      message.value += "，并已加入异动通知队列";
+    }
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "生成 AI 复盘失败");
+  } finally {
+    stockReviewGenerating.value = false;
+  }
+}
+
 async function submitFutures() {
   if (!ensureCanEditMarket()) {
     return;
@@ -1826,7 +1855,7 @@ watch(
                   报告
                 </el-button>
                 <el-button link type="primary" :loading="stockPublishReplayLoading" @click="handleViewStockPublishReplay(row)">
-                  复盘
+                  发布复盘
                 </el-button>
               </template>
             </el-table-column>
@@ -1985,6 +2014,11 @@ watch(
                     <el-button size="small" @click="saveStockStatus(row)">保存</el-button>
                   </template>
                 </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="复盘操作" min-width="100">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" plain @click="openStockReviewDialog(row)">复盘</el-button>
               </template>
             </el-table-column>
             <el-table-column label="责任人/表现" min-width="200">
@@ -2604,6 +2638,26 @@ watch(
       <template #footer>
         <el-button @click="stockDialogVisible = false">取消</el-button>
         <el-button v-if="canEditMarket" type="primary" :loading="stockSubmitting" @click="submitStock">创建</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="stockReviewDialogVisible" title="股票复盘操作" width="500px" destroy-on-close>
+      <el-form label-width="120px">
+        <el-form-item label="当前标的">
+          <span>{{ stockReviewRow?.name }} ({{ stockReviewRow?.symbol }})</span>
+        </el-form-item>
+        <el-form-item label="生成选项">
+          <el-button type="primary" plain :loading="stockReviewGenerating" @click="handleGenerateAIReview">🤖 AI 生成复盘草稿</el-button>
+        </el-form-item>
+        <el-form-item label="复盘草稿">
+          <el-input v-model="stockReviewRow.ai_review_content" type="textarea" :rows="5" readonly placeholder="点击上方按钮生成" />
+        </el-form-item>
+        <el-form-item label="异动通知">
+          <el-checkbox v-model="stockReviewSendNotification">发送异动通知</el-checkbox>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="stockReviewDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 

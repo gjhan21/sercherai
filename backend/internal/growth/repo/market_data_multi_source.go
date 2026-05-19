@@ -31,6 +31,8 @@ const (
 	marketDataKindDailyBars        = "DAILY_BARS"
 	marketDataKindStockDailyBasic  = "STOCK_DAILY_BASIC"
 	marketDataKindStockMoneyflow   = "STOCK_MONEYFLOW"
+	marketDataKindStockKPLList     = "STOCK_KPL_LIST"
+	marketDataKindStockTopList     = "STOCK_TOP_LIST"
 	marketDataKindStockNewsRaw     = "STOCK_NEWS_RAW"
 	marketDataKindNewsItems        = "NEWS_ITEMS"
 	marketDataKindFuturesInventory = "FUTURES_INVENTORY"
@@ -542,6 +544,154 @@ func (r *MySQLGrowthRepo) AdminSyncStockNewsRaw(sourceKey string, symbols []stri
 			})
 		}
 		if snapshotErr := r.insertMarketSourceSnapshot(resolvedSourceKey, marketAssetClassStock, marketDataKindStockNewsRaw, "", "", status, message, payload, time.Now()); snapshotErr == nil {
+			totalSnapshots++
+		}
+		result.Results = append(result.Results, model.MarketSourceSyncItemResult{
+			SourceKey:     resolvedSourceKey,
+			Status:        status,
+			NewsCount:     count,
+			SnapshotCount: 1,
+			Message:       message,
+		})
+	}
+
+	result.NewsCount = totalCount
+	result.SnapshotCount = totalSnapshots
+	if successes == 0 && len(failures) > 0 {
+		return result, errors.New(strings.Join(failures, "; "))
+	}
+	return result, nil
+}
+
+func (r *MySQLGrowthRepo) AdminSyncStockKPLList(sourceKey string, days int) (model.MarketSyncResult, error) {
+	if days <= 0 {
+		days = 5
+	}
+	if days > 30 {
+		days = 30
+	}
+	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.factor.source_priority", []string{"TUSHARE"})
+	result := model.MarketSyncResult{
+		AssetClass:         marketAssetClassStock,
+		DataKind:           marketDataKindStockKPLList,
+		RequestedSourceKey: strings.ToUpper(strings.TrimSpace(sourceKey)),
+		ResolvedSourceKeys: sourceKeys,
+		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
+	}
+	totalCount := 0
+	totalSnapshots := 0
+	successes := 0
+	failures := make([]string, 0)
+
+	for _, resolvedSourceKey := range sourceKeys {
+		sourceItem, err := r.getDataSourceBySourceKey(resolvedSourceKey)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", resolvedSourceKey, err))
+			result.Results = append(result.Results, model.MarketSourceSyncItemResult{SourceKey: resolvedSourceKey, Status: "FAILED", Message: err.Error()})
+			continue
+		}
+		items, payload, err := r.fetchStockKPLListForSource(sourceItem, days)
+		status := "SUCCESS"
+		message := "ok"
+		count := 0
+		if err != nil {
+			status = "FAILED"
+			message = err.Error()
+			failures = append(failures, fmt.Sprintf("%s: %v", resolvedSourceKey, err))
+		} else {
+			successes++
+			count, err = r.upsertStockKPLList(items)
+			if err != nil {
+				status = "FAILED"
+				message = err.Error()
+				failures = append(failures, fmt.Sprintf("%s: %v", resolvedSourceKey, err))
+			} else {
+				totalCount += count
+			}
+		}
+		if payload == "" && len(items) > 0 {
+			payload = marshalJSONSilently(map[string]interface{}{
+				"source_key": resolvedSourceKey,
+				"data_kind":  marketDataKindStockKPLList,
+				"days":       days,
+				"items":      items,
+			})
+		}
+		if snapshotErr := r.insertMarketSourceSnapshot(resolvedSourceKey, marketAssetClassStock, marketDataKindStockKPLList, "", "", status, message, payload, time.Now()); snapshotErr == nil {
+			totalSnapshots++
+		}
+		result.Results = append(result.Results, model.MarketSourceSyncItemResult{
+			SourceKey:     resolvedSourceKey,
+			Status:        status,
+			NewsCount:     count,
+			SnapshotCount: 1,
+			Message:       message,
+		})
+	}
+
+	result.NewsCount = totalCount
+	result.SnapshotCount = totalSnapshots
+	if successes == 0 && len(failures) > 0 {
+		return result, errors.New(strings.Join(failures, "; "))
+	}
+	return result, nil
+}
+
+func (r *MySQLGrowthRepo) AdminSyncStockTopList(sourceKey string, days int) (model.MarketSyncResult, error) {
+	if days <= 0 {
+		days = 5
+	}
+	if days > 30 {
+		days = 30
+	}
+	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.factor.source_priority", []string{"TUSHARE"})
+	result := model.MarketSyncResult{
+		AssetClass:         marketAssetClassStock,
+		DataKind:           marketDataKindStockTopList,
+		RequestedSourceKey: strings.ToUpper(strings.TrimSpace(sourceKey)),
+		ResolvedSourceKeys: sourceKeys,
+		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
+	}
+	totalCount := 0
+	totalSnapshots := 0
+	successes := 0
+	failures := make([]string, 0)
+
+	for _, resolvedSourceKey := range sourceKeys {
+		sourceItem, err := r.getDataSourceBySourceKey(resolvedSourceKey)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", resolvedSourceKey, err))
+			result.Results = append(result.Results, model.MarketSourceSyncItemResult{SourceKey: resolvedSourceKey, Status: "FAILED", Message: err.Error()})
+			continue
+		}
+		items, payload, err := r.fetchStockTopListForSource(sourceItem, days)
+		status := "SUCCESS"
+		message := "ok"
+		count := 0
+		if err != nil {
+			status = "FAILED"
+			message = err.Error()
+			failures = append(failures, fmt.Sprintf("%s: %v", resolvedSourceKey, err))
+		} else {
+			successes++
+			count, err = r.upsertStockTopList(items)
+			if err != nil {
+				status = "FAILED"
+				message = err.Error()
+				failures = append(failures, fmt.Sprintf("%s: %v", resolvedSourceKey, err))
+			} else {
+				totalCount += count
+			}
+		}
+		if payload == "" && len(items) > 0 {
+			payload = marshalJSONSilently(map[string]interface{}{
+				"source_key": resolvedSourceKey,
+				"data_kind":  marketDataKindStockTopList,
+				"days":       days,
+				"items":      items,
+			})
+		}
+		if snapshotErr := r.insertMarketSourceSnapshot(resolvedSourceKey, marketAssetClassStock, marketDataKindStockTopList, "", "", status, message, payload, time.Now()); snapshotErr == nil {
 			totalSnapshots++
 		}
 		result.Results = append(result.Results, model.MarketSourceSyncItemResult{
@@ -3048,6 +3198,38 @@ func (r *MySQLGrowthRepo) fetchStockNewsRawForSource(item model.DataSource, symb
 		return items, "", err
 	default:
 		return nil, "", fmt.Errorf("unsupported stock news provider: %s", provider)
+	}
+}
+
+func (r *MySQLGrowthRepo) fetchStockKPLListForSource(item model.DataSource, days int) ([]stockLimitUpPoint, string, error) {
+	sourceKey := strings.ToUpper(strings.TrimSpace(item.SourceKey))
+	provider := strings.ToUpper(parseDataSourceStringConfig(item.Config, "provider", "vendor"))
+	if provider == "" {
+		provider = sourceKey
+	}
+	sourceKey = canonicalMarketSourceKey(sourceKey, provider)
+	switch provider {
+	case "TUSHARE":
+		items, err := fetchStockKPLListFromTushare(resolveTushareTokenFromDataSourceConfig(item.Config), sourceKey, days, parseDataSourceTimeoutMS(item.Config))
+		return items, "", err
+	default:
+		return nil, "", fmt.Errorf("unsupported stock kpl_list provider: %s (only Tushare supported)", provider)
+	}
+}
+
+func (r *MySQLGrowthRepo) fetchStockTopListForSource(item model.DataSource, days int) ([]stockTopListPoint, string, error) {
+	sourceKey := strings.ToUpper(strings.TrimSpace(item.SourceKey))
+	provider := strings.ToUpper(parseDataSourceStringConfig(item.Config, "provider", "vendor"))
+	if provider == "" {
+		provider = sourceKey
+	}
+	sourceKey = canonicalMarketSourceKey(sourceKey, provider)
+	switch provider {
+	case "TUSHARE":
+		items, err := fetchStockTopListFromTushare(resolveTushareTokenFromDataSourceConfig(item.Config), sourceKey, days, parseDataSourceTimeoutMS(item.Config))
+		return items, "", err
+	default:
+		return nil, "", fmt.Errorf("unsupported stock top_list provider: %s (only Tushare supported)", provider)
 	}
 }
 

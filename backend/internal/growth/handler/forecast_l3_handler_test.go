@@ -67,14 +67,14 @@ func TestAdminListForecastL3RunsOK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	growthRepo := repo.NewInMemoryGrowthRepo()
 	growthService := service.NewGrowthService(growthRepo)
-	adminHandler := NewAdminGrowthHandler(growthService, config.Config{})
+	adminHandlers := NewAdminHandlers(growthService, config.Config{})
 
 	if _, err := growthRepo.CreateStrategyForecastL3Run(repoRunInput("STOCK", "600519.SH", "admin_001")); err != nil {
 		t.Fatalf("seed run: %v", err)
 	}
 
 	router := gin.New()
-	router.GET("/api/v1/admin/forecast/runs", adminHandler.ListForecastL3Runs)
+	router.GET("/api/v1/admin/forecast/runs", adminHandlers.Forecast.ListForecastL3Runs)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/forecast/runs", nil)
 	rec := httptest.NewRecorder()
@@ -106,7 +106,7 @@ func TestAdminRetryForecastL3RunOK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	growthRepo := repo.NewInMemoryGrowthRepo()
 	growthService := service.NewGrowthService(growthRepo)
-	adminHandler := NewAdminGrowthHandler(growthService, config.Config{})
+	adminHandlers := NewAdminHandlers(growthService, config.Config{})
 
 	run, err := growthRepo.CreateStrategyForecastL3Run(repoRunInput("FUTURES", "RB2609", "admin_001"))
 	if err != nil {
@@ -118,7 +118,7 @@ func TestAdminRetryForecastL3RunOK(t *testing.T) {
 
 	router := gin.New()
 	attachUserID(router, "admin_001")
-	router.POST("/api/v1/admin/forecast/runs/:id/retry", adminHandler.RetryForecastL3Run)
+	router.POST("/api/v1/admin/forecast/runs/:id/retry", adminHandlers.Forecast.RetryForecastL3Run)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/forecast/runs/"+run.ID+"/retry", bytes.NewBufferString(`{"reason":"rerun after new data"}`))
 	req.Header.Set("Content-Type", "application/json")

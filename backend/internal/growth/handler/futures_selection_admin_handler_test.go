@@ -14,8 +14,8 @@ import (
 	"sercherai/backend/internal/platform/config"
 )
 
-func newFuturesSelectionTestHandler() *AdminGrowthHandler {
-	return NewAdminGrowthHandler(service.NewGrowthService(repo.NewInMemoryGrowthRepo()), config.Config{})
+func newFuturesSelectionTestHandlers() *AdminHandlers {
+	return NewAdminHandlers(service.NewGrowthService(repo.NewInMemoryGrowthRepo()), config.Config{})
 }
 
 func TestGetFuturesSelectionOverview(t *testing.T) {
@@ -24,7 +24,7 @@ func TestGetFuturesSelectionOverview(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/futures-selection/overview", nil)
 
-	newFuturesSelectionTestHandler().GetFuturesSelectionOverview(ctx)
+	newFuturesSelectionTestHandlers().FuturesSelection.GetFuturesSelectionOverview(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -40,14 +40,14 @@ func TestGetFuturesSelectionOverview(t *testing.T) {
 
 func TestCreateAndApproveFuturesSelectionRun(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newFuturesSelectionTestHandler()
+	handlers := newFuturesSelectionTestHandlers()
 
 	runRecorder := httptest.NewRecorder()
 	runCtx, _ := gin.CreateTestContext(runRecorder)
 	runCtx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/futures-selection/runs", strings.NewReader(`{"trade_date":"2026-03-21"}`))
 	runCtx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.CreateFuturesSelectionRun(runCtx)
+	handlers.FuturesSelection.CreateFuturesSelectionRun(runCtx)
 
 	if runRecorder.Code != http.StatusOK {
 		t.Fatalf("expected create run 200, got %d", runRecorder.Code)
@@ -59,7 +59,7 @@ func TestCreateAndApproveFuturesSelectionRun(t *testing.T) {
 	reviewCtx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/futures-selection/reviews/fsr_demo_001/approve", strings.NewReader(`{"review_note":"通过"}`))
 	reviewCtx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.ApproveFuturesSelectionReview(reviewCtx)
+	handlers.FuturesSelection.ApproveFuturesSelectionReview(reviewCtx)
 
 	if reviewRecorder.Code != http.StatusOK {
 		t.Fatalf("expected approve review 200, got %d", reviewRecorder.Code)
@@ -68,13 +68,13 @@ func TestCreateAndApproveFuturesSelectionRun(t *testing.T) {
 
 func TestListFuturesSelectionProfilesAndEvaluation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newFuturesSelectionTestHandler()
+	handlers := newFuturesSelectionTestHandlers()
 
 	profileRecorder := httptest.NewRecorder()
 	profileCtx, _ := gin.CreateTestContext(profileRecorder)
 	profileCtx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/futures-selection/profiles", nil)
 
-	handler.ListFuturesSelectionProfiles(profileCtx)
+	handlers.FuturesSelection.ListFuturesSelectionProfiles(profileCtx)
 
 	if profileRecorder.Code != http.StatusOK {
 		t.Fatalf("expected list profiles 200, got %d", profileRecorder.Code)
@@ -84,7 +84,7 @@ func TestListFuturesSelectionProfilesAndEvaluation(t *testing.T) {
 	evaluationCtx, _ := gin.CreateTestContext(evaluationRecorder)
 	evaluationCtx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/futures-selection/evaluation/leaderboard", nil)
 
-	handler.ListFuturesSelectionEvaluationLeaderboard(evaluationCtx)
+	handlers.FuturesSelection.ListFuturesSelectionEvaluationLeaderboard(evaluationCtx)
 
 	if evaluationRecorder.Code != http.StatusOK {
 		t.Fatalf("expected evaluation leaderboard 200, got %d", evaluationRecorder.Code)
@@ -93,14 +93,14 @@ func TestListFuturesSelectionProfilesAndEvaluation(t *testing.T) {
 
 func TestListFuturesSelectionProfileVersions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newFuturesSelectionTestHandler()
+	handlers := newFuturesSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Params = gin.Params{{Key: "id", Value: "profile_default_futures_auto"}}
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/futures-selection/profiles/profile_default_futures_auto/versions", nil)
 
-	handler.ListFuturesSelectionProfileVersions(ctx)
+	handlers.FuturesSelection.ListFuturesSelectionProfileVersions(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected list profile versions 200, got %d", recorder.Code)
@@ -122,13 +122,13 @@ func TestListFuturesSelectionProfileVersions(t *testing.T) {
 
 func TestListCreateAndSetDefaultFuturesSelectionTemplates(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newFuturesSelectionTestHandler()
+	handlers := newFuturesSelectionTestHandlers()
 
 	listRecorder := httptest.NewRecorder()
 	listCtx, _ := gin.CreateTestContext(listRecorder)
 	listCtx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/futures-selection/templates", nil)
 
-	handler.ListFuturesSelectionProfileTemplates(listCtx)
+	handlers.FuturesSelection.ListFuturesSelectionProfileTemplates(listCtx)
 
 	if listRecorder.Code != http.StatusOK {
 		t.Fatalf("expected list templates 200, got %d", listRecorder.Code)
@@ -150,7 +150,7 @@ func TestListCreateAndSetDefaultFuturesSelectionTemplates(t *testing.T) {
 	}`))
 	createCtx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.CreateFuturesSelectionProfileTemplate(createCtx)
+	handlers.FuturesSelection.CreateFuturesSelectionProfileTemplate(createCtx)
 
 	if createRecorder.Code != http.StatusOK {
 		t.Fatalf("expected create template 200, got %d", createRecorder.Code)
@@ -161,7 +161,7 @@ func TestListCreateAndSetDefaultFuturesSelectionTemplates(t *testing.T) {
 	setDefaultCtx.Params = gin.Params{{Key: "id", Value: "fstpl_demo_001"}}
 	setDefaultCtx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/futures-selection/templates/fstpl_demo_001/set-default", nil)
 
-	handler.SetDefaultFuturesSelectionProfileTemplate(setDefaultCtx)
+	handlers.FuturesSelection.SetDefaultFuturesSelectionProfileTemplate(setDefaultCtx)
 
 	if setDefaultRecorder.Code != http.StatusOK {
 		t.Fatalf("expected set default template 200, got %d", setDefaultRecorder.Code)
@@ -170,13 +170,13 @@ func TestListCreateAndSetDefaultFuturesSelectionTemplates(t *testing.T) {
 
 func TestCompareFuturesSelectionRuns(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newFuturesSelectionTestHandler()
+	handlers := newFuturesSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/futures-selection/runs/compare?run_ids=fsr_demo_001", nil)
 
-	handler.CompareFuturesSelectionRuns(ctx)
+	handlers.FuturesSelection.CompareFuturesSelectionRuns(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected compare runs 200, got %d", recorder.Code)

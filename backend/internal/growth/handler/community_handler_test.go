@@ -21,10 +21,12 @@ func newUserGrowthHandlerForTest(t *testing.T) *UserGrowthHandler {
 	return NewUserGrowthHandler(service.NewGrowthService(repo.NewInMemoryGrowthRepo()), config.Config{})
 }
 
-func newAdminGrowthHandlerForTest(t *testing.T) *AdminGrowthHandler {
+func newAdminHandlersForTest(t *testing.T) *AdminHandlers {
 	t.Helper()
-	gin.SetMode(gin.TestMode)
-	return NewAdminGrowthHandler(service.NewGrowthService(repo.NewInMemoryGrowthRepo()), config.Config{})
+	if gin.Mode() != gin.TestMode {
+		gin.SetMode(gin.TestMode)
+	}
+	return NewAdminHandlers(service.NewGrowthService(repo.NewInMemoryGrowthRepo()), config.Config{})
 }
 
 func attachUserID(router *gin.Engine, userID string) {
@@ -109,9 +111,9 @@ func TestCreateCommunityCommentCreatesVisibleReplyNotification(t *testing.T) {
 }
 
 func TestAdminListCommunityTopicsOK(t *testing.T) {
-	adminHandler := newAdminGrowthHandlerForTest(t)
+	adminHandlers := newAdminHandlersForTest(t)
 	router := gin.New()
-	router.GET("/api/v1/admin/community/topics", adminHandler.ListCommunityTopics)
+	router.GET("/api/v1/admin/community/topics", adminHandlers.Community.ListCommunityTopics)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/community/topics?status=PUBLISHED", nil)
 	rec := httptest.NewRecorder()
@@ -131,9 +133,9 @@ func TestAdminListCommunityTopicsOK(t *testing.T) {
 }
 
 func TestAdminReviewCommunityReportOK(t *testing.T) {
-	adminHandler := newAdminGrowthHandlerForTest(t)
+	adminHandlers := newAdminHandlersForTest(t)
 	router := gin.New()
-	router.PUT("/api/v1/admin/community/reports/:id/review", adminHandler.ReviewCommunityReport)
+	router.PUT("/api/v1/admin/community/reports/:id/review", adminHandlers.Community.ReviewCommunityReport)
 
 	req := httptest.NewRequest(
 		http.MethodPut,
@@ -150,9 +152,9 @@ func TestAdminReviewCommunityReportOK(t *testing.T) {
 }
 
 func TestAdminListCommunityCommentsIncludesTopicContext(t *testing.T) {
-	adminHandler := newAdminGrowthHandlerForTest(t)
+	adminHandlers := newAdminHandlersForTest(t)
 	router := gin.New()
-	router.GET("/api/v1/admin/community/comments", adminHandler.ListCommunityComments)
+	router.GET("/api/v1/admin/community/comments", adminHandlers.Community.ListCommunityComments)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/community/comments", nil)
 	rec := httptest.NewRecorder()
@@ -190,9 +192,9 @@ func TestAdminListCommunityCommentsIncludesTopicContext(t *testing.T) {
 }
 
 func TestAdminListCommunityReportsIncludesTargetContext(t *testing.T) {
-	adminHandler := newAdminGrowthHandlerForTest(t)
+	adminHandlers := newAdminHandlersForTest(t)
 	router := gin.New()
-	router.GET("/api/v1/admin/community/reports", adminHandler.ListCommunityReports)
+	router.GET("/api/v1/admin/community/reports", adminHandlers.Community.ListCommunityReports)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/community/reports", nil)
 	rec := httptest.NewRecorder()

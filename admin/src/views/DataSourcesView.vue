@@ -1,13 +1,88 @@
 <script setup>
+import { onBeforeUnmount, ref } from "vue";
 import { provide } from "vue";
 import {
   DATA_SOURCES_WORKSPACE_KEY,
   useDataSourcesWorkspace
 } from "../composables/useDataSourcesWorkspace.js";
+import { fullSyncStockQuotes, incrementalSyncStockQuotes, getStockSyncProgress } from "../api/admin.js";
 
 const workspace = useDataSourcesWorkspace();
 
 provide(DATA_SOURCES_WORKSPACE_KEY, workspace);
+
+// Sync v2 state
+const syncStarted = ref(false);
+const syncRunning = ref(false);
+const syncTotal = ref(0);
+const syncCompleted = ref(0);
+const syncFailed = ref(0);
+const syncFailedCodes = ref([]);
+const syncElapsed = ref("");
+const syncMessage = ref("");
+let syncPollTimer = null;
+
+const syncPercent = ref(0);
+
+async function startFullSync() {
+  syncStarted.value = true;
+  syncRunning.value = true;
+  syncTotal.value = 0;
+  syncCompleted.value = 0;
+  syncFailed.value = 0;
+  syncFailedCodes.value = [];
+  try {
+    await fullSyncStockQuotes();
+    startPollingProgress();
+  } catch (e) {
+    syncRunning.value = false;
+    workspace.errorMessage = e?.message || "全量同步启动失败";
+  }
+}
+
+async function startIncrementalSync() {
+  syncStarted.value = true;
+  syncRunning.value = true;
+  syncTotal.value = 0;
+  syncCompleted.value = 0;
+  syncFailed.value = 0;
+  syncFailedCodes.value = [];
+  try {
+    await incrementalSyncStockQuotes();
+    startPollingProgress();
+  } catch (e) {
+    syncRunning.value = false;
+    workspace.errorMessage = e?.message || "增量同步启动失败";
+  }
+}
+
+async function refreshSyncProgress() {
+  try {
+    const data = await getStockSyncProgress();
+    syncRunning.value = data.running;
+    syncTotal.value = data.total;
+    syncCompleted.value = data.completed;
+    syncFailed.value = data.failed;
+    syncFailedCodes.value = data.failed_codes || [];
+    syncElapsed.value = data.elapsed || "";
+    syncMessage.value = data.message || "";
+    syncPercent.value = data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0;
+    if (!data.running && syncPollTimer) {
+      clearInterval(syncPollTimer);
+      syncPollTimer = null;
+    }
+  } catch { /* ignore polling errors */ }
+}
+
+function startPollingProgress() {
+  syncPollTimer = setInterval(refreshSyncProgress, 2000);
+  refreshSyncProgress();
+}
+
+
+onBeforeUnmount(() => {
+  if (syncPollTimer) clearInterval(syncPollTimer);
+});
 </script>
 
 <template>
@@ -50,6 +125,37 @@ provide(DATA_SOURCES_WORKSPACE_KEY, workspace);
         <span class="data-sources-nav__label">{{ item.label }}</span>
         <span class="data-sources-nav__desc">{{ item.description }}</span>
       </router-link>
+    </div>
+
+    <!-- New Stock Sync Section -->
+    <div class="card" style="margin-top: 16px;">
+      <div class="section-header">
+        <h3>股票数据同步（v2）</h3>
+        <div class="toolbar">
+          <el-button type="primary" @click="startFullSync" :disabled="syncRunning" :loading="syncRunning">
+            {{ syncRunning ? '同步中...' : '全量同步' }}
+          </el-button>
+          <el-button type="success" @click="startIncrementalSync" :disabled="syncRunning" :loading="syncRunning">
+            {{ syncRunning ? '同步中...' : '每日增量同步' }}
+          </el-button>
+          <el-button @click="refreshSyncProgress" :disabled="!syncRunning">刷新进度</el-button>
+        </div>
+      </div>
+      <div v-if="syncStarted || syncRunning || syncTotal > 0" class="sync-progress-section">
+        <el-progress :percentage="syncPercent" :status="syncPercent >= 100 ? 'success' : syncFailed > 0 ? 'exception' : undefined" />
+        <div class="sync-stats">
+          <span>总计: {{ syncTotal }}</span>
+          <span>已完成: {{ syncCompleted }}</span>
+          <span v-if="syncFailed > 0" style="color:var(--el-color-danger)">失败: {{ syncFailed }}</span>
+          <span>耗时: {{ syncElapsed }}</span>
+          <span v-if="!syncRunning && syncStarted && syncCompleted === 0 && syncFailed === 0" style="color:var(--el-color-warning)">同步未启动</span>
+          <span v-if="!syncRunning && syncStarted && syncCompleted > 0" style="color:var(--el-color-success)">✅ 同步完成</span>
+        </div>
+        <div v-if="syncFailedCodes.length" class="sync-failed-codes">
+          <el-tag v-for="code in syncFailedCodes.slice(0,20)" :key="code" type="danger" size="small" style="margin:2px">{{ code }}</el-tag>
+          <span v-if="syncFailedCodes.length > 20" class="muted">...等 {{ syncFailedCodes.length }} 只</span>
+        </div>
+      </div>
     </div>
 
     <div class="data-sources-shell__body">

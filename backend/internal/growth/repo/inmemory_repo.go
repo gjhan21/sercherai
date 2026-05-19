@@ -1195,6 +1195,18 @@ func (r *InMemoryGrowthRepo) AdminUpdateStockRecommendationStatus(id string, sta
 	return nil
 }
 
+func (r *InMemoryGrowthRepo) AdminUpdateStockRecommendationAIReview(id string, aiReviewContent string) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) AddUserVirtualSandbox(userID string, recoID string, addPrice float64) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) GetUserVirtualSandbox(userID string) ([]model.UserVirtualSandbox, error) {
+	return []model.UserVirtualSandbox{}, nil
+}
+
 func (r *InMemoryGrowthRepo) AdminSyncStockInstrumentMaster(sourceKey string, symbols []string) (model.MarketSyncResult, error) {
 	symbols = normalizeStockSymbolList(symbols)
 	if len(symbols) == 0 {
@@ -1400,6 +1412,58 @@ func (r *InMemoryGrowthRepo) AdminSyncStockNewsRaw(sourceKey string, symbols []s
 			NewsCount:     count,
 			SnapshotCount: 1,
 			Message:       "in-memory stock news sync",
+		}},
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncStockKPLList(sourceKey string, days int) (model.MarketSyncResult, error) {
+	if days <= 0 {
+		days = 5
+	}
+	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
+	if sourceKey == "" {
+		sourceKey = "TUSHARE"
+	}
+	count := days * 30
+	return model.MarketSyncResult{
+		AssetClass:         "STOCK",
+		DataKind:           "STOCK_KPL_LIST",
+		RequestedSourceKey: sourceKey,
+		ResolvedSourceKeys: []string{sourceKey},
+		NewsCount:          count,
+		SnapshotCount:      1,
+		Results: []model.MarketSourceSyncItemResult{{
+			SourceKey:     sourceKey,
+			Status:        "SUCCESS",
+			NewsCount:     count,
+			SnapshotCount: 1,
+			Message:       "in-memory stock kpl_list sync",
+		}},
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSyncStockTopList(sourceKey string, days int) (model.MarketSyncResult, error) {
+	if days <= 0 {
+		days = 5
+	}
+	sourceKey = strings.ToUpper(strings.TrimSpace(sourceKey))
+	if sourceKey == "" {
+		sourceKey = "TUSHARE"
+	}
+	count := days * 15
+	return model.MarketSyncResult{
+		AssetClass:         "STOCK",
+		DataKind:           "STOCK_TOP_LIST",
+		RequestedSourceKey: sourceKey,
+		ResolvedSourceKeys: []string{sourceKey},
+		NewsCount:          count,
+		SnapshotCount:      1,
+		Results: []model.MarketSourceSyncItemResult{{
+			SourceKey:     sourceKey,
+			Status:        "SUCCESS",
+			NewsCount:     count,
+			SnapshotCount: 1,
+			Message:       "in-memory stock top_list sync",
 		}},
 	}, nil
 }

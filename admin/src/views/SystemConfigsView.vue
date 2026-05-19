@@ -62,6 +62,15 @@ const paymentForm = reactive({
   yolkpay_device: "pc"
 });
 
+const llmLoading = ref(false);
+const llmSaving = ref(false);
+const llmForm = reactive({
+  api_key: "",
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  model_name: "qwen-plus"
+});
+
+
 const listLoading = ref(false);
 const listSubmitting = ref(false);
 const listPage = ref(1);
@@ -289,6 +298,12 @@ function applyPaymentConfigMap(map) {
   paymentForm.yolkpay_device = map["payment.channel.yolkpay.device"] || "pc";
 }
 
+function applyLLMConfigMap(map) {
+  llmForm.api_key = map["llm.api_key"] || "";
+  llmForm.base_url = map["llm.base_url"] || "https://dashscope.aliyuncs.com/compatible-mode/v1";
+  llmForm.model_name = map["llm.model_name"] || "qwen-plus";
+}
+
 function defaultFuturesScoreWeightsPercent() {
   return {
     trend: 25,
@@ -487,6 +502,18 @@ async function fetchConfigList(options = {}) {
   }
 }
 
+async function fetchLLMConfig() {
+  llmLoading.value = true;
+  try {
+    const data = await listSystemConfigs({ keyword: "llm.", page: 1, page_size: 50 });
+    applyLLMConfigMap(toConfigMap(data?.items || []));
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "加载大模型配置失败");
+  } finally {
+    llmLoading.value = false;
+  }
+}
+
 async function refreshAll() {
   refreshingAll.value = true;
   clearMessages();
@@ -496,6 +523,7 @@ async function refreshAll() {
       fetchPaymentConfig(),
       fetchFuturesScoreConfig(),
       fetchForecastConfig(),
+      fetchLLMConfig(),
       fetchConfigList()
     ]);
     message.value = "配置中心数据已刷新";
@@ -638,6 +666,28 @@ async function savePaymentConfig() {
     errorMessage.value = normalizeErrorMessage(error, "保存支付配置失败");
   } finally {
     paymentSaving.value = false;
+  }
+}
+
+async function saveLLMConfig() {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
+  llmSaving.value = true;
+  clearMessages();
+  try {
+    const payloads = [
+      { config_key: "llm.api_key", config_value: llmForm.api_key.trim(), description: "大模型 API Key" },
+      { config_key: "llm.base_url", config_value: llmForm.base_url.trim(), description: "大模型 Base URL (需兼容 OpenAI)" },
+      { config_key: "llm.model_name", config_value: llmForm.model_name.trim(), description: "大模型推理型号" }
+    ];
+    await Promise.all(payloads.map((payload) => upsertSystemConfig(payload)));
+    await Promise.all([fetchLLMConfig(), fetchConfigList({ keepMessage: true })]);
+    message.value = "大模型配置已保存";
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "保存大模型配置失败");
+  } finally {
+    llmSaving.value = false;
   }
 }
 
@@ -825,6 +875,37 @@ onMounted(refreshAll);
     />
 
     <el-tabs v-model="activeTab" type="border-card">
+      <el-tab-pane label="大模型引擎 (LLM)" name="llm">
+        <div class="card" v-loading="llmLoading">
+          <div class="section-head">
+            <div class="section-title">大模型参数配置</div>
+            <div class="toolbar" style="margin-bottom: 0">
+              <el-button :loading="llmLoading" @click="fetchLLMConfig">刷新</el-button>
+              <el-button
+                v-if="canEditSystemConfigs"
+                type="primary"
+                :loading="llmSaving"
+                @click="saveLLMConfig"
+              >
+                保存LLM配置
+              </el-button>
+            </div>
+          </div>
+          <el-form label-width="140px" style="max-width: 600px; margin-top: 16px;">
+            <el-form-item label="Base URL">
+              <el-input v-model="llmForm.base_url" placeholder="如: https://dashscope.aliyuncs.com/compatible-mode/v1" />
+              <div class="form-tip">必须提供兼容 OpenAI 协议的 endpoint。</div>
+            </el-form-item>
+            <el-form-item label="API Key">
+              <el-input v-model="llmForm.api_key" type="password" show-password placeholder="请输入密钥" />
+            </el-form-item>
+            <el-form-item label="Model Name">
+              <el-input v-model="llmForm.model_name" placeholder="如: qwen-plus" />
+            </el-form-item>
+          </el-form>
+        </div>
+      </el-tab-pane>
+
       <el-tab-pane label="OSS配置（七牛云）" name="oss">
         <div class="card" v-loading="ossLoading">
           <div class="section-head">

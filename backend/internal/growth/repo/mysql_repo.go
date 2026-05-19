@@ -11351,6 +11351,34 @@ type stockMoneyflowPoint struct {
 	SourceKey     string
 }
 
+type stockLimitUpPoint struct {
+	Symbol        string
+	TradeDate     time.Time
+	Name          string
+	LuTime        string
+	OpenTime      string
+	LastTime      string
+	Tag           string
+	Theme         string
+	Status        string
+	LimitOrder    float64
+	LuLimitOrder  float64
+	BidAmount     float64
+	BidChange     float64
+	FloatMV       float64
+	PctChg        float64
+}
+
+type stockTopListPoint struct {
+	Symbol     string
+	TradeDate  time.Time
+	Name       string
+	BuyAmount  float64
+	SellAmount float64
+	NetAmount  float64
+	Reason     string
+}
+
 type stockNewsRawPoint struct {
 	SourceKey   string
 	Symbol      string
@@ -11927,6 +11955,25 @@ func parseStockMoneyflowsFromTushareResponse(sourceKey string, symbols []string,
 	return result
 }
 
+// estimateTushareCalendarDays calculates the approximate number of calendar days
+// between two YYYYMMDD date strings. Used to decide whether to loop by symbol or
+// by trade date when calling Tushare APIs, minimizing total API call count.
+func estimateTushareCalendarDays(startDate string, endDate string) int {
+	start, err := time.ParseInLocation("20060102", strings.TrimSpace(startDate), time.Local)
+	if err != nil {
+		return 1
+	}
+	end, err := time.ParseInLocation("20060102", strings.TrimSpace(endDate), time.Local)
+	if err != nil {
+		return 1
+	}
+	days := int(end.Sub(start).Hours()/24) + 1
+	if days <= 0 {
+		return 1
+	}
+	return days
+}
+
 func fetchStockQuotesFromTushare(token string, sourceKey string, symbols []string, days int, timeoutMS int) ([]model.StockMarketQuote, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -11961,11 +12008,15 @@ func fetchStockQuotesFromTushareDateRange(token string, sourceKey string, symbol
 	}
 	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
 
-	if len(symbols) > 1 {
+	// Smart routing: choose the loop dimension that minimizes total API calls.
+	// By-date mode: 1 API call per calendar day → efficient when many symbols, few days (e.g. daily incremental sync)
+	// By-symbol mode: 1 API call per symbol → efficient when few symbols, many days (e.g. historical backfill)
+	estimatedDays := estimateTushareCalendarDays(normalizedStartDate, normalizedEndDate)
+	if len(symbols) > 1 && len(symbols) > estimatedDays {
 		return fetchStockQuotesFromTushareByTradeDates(client, token, sourceKey, symbols, normalizedStartDate, normalizedEndDate)
 	}
 
-	result := make([]model.StockMarketQuote, 0, len(symbols))
+	result := make([]model.StockMarketQuote, 0, len(symbols)*maxInt(estimatedDays, 1))
 
 	for _, symbol := range symbols {
 		parsed, err := callTushareAPI(client, token, "daily", map[string]string{
@@ -12104,11 +12155,13 @@ func fetchStockDailyBasicsFromTushare(token string, sourceKey string, symbols []
 	endDate := time.Now().Format("20060102")
 	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
 
-	if len(symbols) > 1 {
+	// Smart routing: by-date when many symbols over few days; by-symbol when few symbols over many days
+	estimatedDays := estimateTushareCalendarDays(startDate, endDate)
+	if len(symbols) > 1 && len(symbols) > estimatedDays {
 		return fetchStockDailyBasicsFromTushareByTradeDates(client, token, sourceKey, symbols, startDate, endDate)
 	}
 
-	result := make([]stockDailyBasicPoint, 0, len(symbols)*days)
+	result := make([]stockDailyBasicPoint, 0, len(symbols)*maxInt(estimatedDays, 1))
 	for _, symbol := range symbols {
 		parsed, err := callTushareAPI(client, token, "daily_basic", map[string]string{
 			"ts_code":    symbol,
@@ -12138,11 +12191,13 @@ func fetchStockMoneyflowsFromTushare(token string, sourceKey string, symbols []s
 	endDate := time.Now().Format("20060102")
 	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
 
-	if len(symbols) > 1 {
+	// Smart routing: by-date when many symbols over few days; by-symbol when few symbols over many days
+	estimatedDays := estimateTushareCalendarDays(startDate, endDate)
+	if len(symbols) > 1 && len(symbols) > estimatedDays {
 		return fetchStockMoneyflowsFromTushareByTradeDates(client, token, sourceKey, symbols, startDate, endDate)
 	}
 
-	result := make([]stockMoneyflowPoint, 0, len(symbols)*days)
+	result := make([]stockMoneyflowPoint, 0, len(symbols)*maxInt(estimatedDays, 1))
 	for _, symbol := range symbols {
 		parsed, err := callTushareAPI(client, token, "moneyflow", map[string]string{
 			"ts_code":    symbol,
@@ -12209,6 +12264,182 @@ func fetchStockMoneyflowsFromTushareByTradeDates(client *http.Client, token stri
 		result = append(result, parseStockMoneyflowsFromTushareResponse(sourceKey, symbols, parsed)...)
 	}
 	return result, nil
+}
+
+// fetchStockKPLListFromTushare fetches daily limit-up board (kpl_list) data from Tushare.
+func fetchStockKPLListFromTushare(token string, sourceKey string, days int, timeoutMS int) ([]stockLimitUpPoint, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, errors.New("tushare token not configured")
+	}
+	if timeoutMS <= 0 {
+		timeoutMS = 12000
+	}
+	if days <= 0 {
+		days = 5
+	}
+	startDate := time.Now().AddDate(0, 0, -days).Format("20060102")
+	endDate := time.Now().Format("20060102")
+	start, err := time.ParseInLocation("20060102", startDate, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	end, err := time.ParseInLocation("20060102", endDate, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+	result := make([]stockLimitUpPoint, 0, 200)
+	for current := start; !current.After(end); current = current.AddDate(0, 0, 1) {
+		tradeDate := current.Format("20060102")
+		parsed, err := callTushareAPI(client, token, "kpl_list", map[string]string{
+			"trade_date": tradeDate,
+		}, "ts_code,name,trade_date,lu_time,open_time,last_time,tag,theme,status,limit_order,lu_limit_order,bid_amount,bid_change,lu_desc,pct_chg,close,amount,float_mv,turnover_rate")
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, parseStockKPLListFromTushareResponse(sourceKey, tradeDate, parsed)...)
+	}
+	return result, nil
+}
+
+// parseStockKPLListFromTushareResponse parses kpl_list Tushare response into stockLimitUpPoint.
+func parseStockKPLListFromTushareResponse(sourceKey string, tradeDate string, parsed tushareStdResponse) []stockLimitUpPoint {
+	if len(parsed.Data.Fields) == 0 || len(parsed.Data.Items) == 0 {
+		return nil
+	}
+	fieldIndex := make(map[string]int, len(parsed.Data.Fields))
+	for idx, field := range parsed.Data.Fields {
+		fieldIndex[strings.TrimSpace(field)] = idx
+	}
+	result := make([]stockLimitUpPoint, 0, len(parsed.Data.Items))
+	parsedDate, dateErr := time.ParseInLocation("20060102", tradeDate, time.Local)
+	for _, row := range parsed.Data.Items {
+		tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+		if !ok {
+			continue
+		}
+		tsCode = strings.ToUpper(strings.TrimSpace(tsCode))
+		tradeDateEffective := parsedDate
+		if dateErr != nil {
+			if td, ok := tushareGetString(row, fieldIndex, "trade_date"); ok {
+				if parsedDate2, err := time.ParseInLocation("20060102", td, time.Local); err == nil {
+					tradeDateEffective = parsedDate2
+				}
+			}
+		}
+		name, _ := tushareGetString(row, fieldIndex, "name")
+		luTime, _ := tushareGetString(row, fieldIndex, "lu_time")
+		openTime, _ := tushareGetString(row, fieldIndex, "open_time")
+		lastTime, _ := tushareGetString(row, fieldIndex, "last_time")
+		tag, _ := tushareGetString(row, fieldIndex, "tag")
+		theme, _ := tushareGetString(row, fieldIndex, "theme")
+		status, _ := tushareGetString(row, fieldIndex, "status")
+		limitOrder, _ := tushareGetFloat(row, fieldIndex, "limit_order")
+		luLimitOrder, _ := tushareGetFloat(row, fieldIndex, "lu_limit_order")
+		bidAmount, _ := tushareGetFloat(row, fieldIndex, "bid_amount")
+		bidChange, _ := tushareGetFloat(row, fieldIndex, "bid_change")
+		pctChg, _ := tushareGetFloat(row, fieldIndex, "pct_chg")
+		floatMV, _ := tushareGetFloat(row, fieldIndex, "float_mv")
+		result = append(result, stockLimitUpPoint{
+			Symbol:        tsCode,
+			TradeDate:     tradeDateEffective,
+			Name:          name,
+			LuTime:        luTime,
+			OpenTime:      openTime,
+			LastTime:      lastTime,
+			Tag:           tag,
+			Theme:         theme,
+			Status:        status,
+			LimitOrder:    roundTo(limitOrder, 4),
+			LuLimitOrder:  roundTo(luLimitOrder, 4),
+			BidAmount:     roundTo(bidAmount, 4),
+			BidChange:     roundTo(bidChange, 4),
+			FloatMV:       roundTo(floatMV, 4),
+			PctChg:        roundTo(pctChg, 4),
+		})
+	}
+	return result
+}
+
+// fetchStockTopListFromTushare fetches daily dragon-tiger board (top_list) data from Tushare.
+func fetchStockTopListFromTushare(token string, sourceKey string, days int, timeoutMS int) ([]stockTopListPoint, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, errors.New("tushare token not configured")
+	}
+	if timeoutMS <= 0 {
+		timeoutMS = 12000
+	}
+	if days <= 0 {
+		days = 5
+	}
+	startDate := time.Now().AddDate(0, 0, -days).Format("20060102")
+	endDate := time.Now().Format("20060102")
+	start, err := time.ParseInLocation("20060102", startDate, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	end, err := time.ParseInLocation("20060102", endDate, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+	result := make([]stockTopListPoint, 0, 200)
+	for current := start; !current.After(end); current = current.AddDate(0, 0, 1) {
+		tradeDate := current.Format("20060102")
+		parsed, err := callTushareAPI(client, token, "top_list", map[string]string{
+			"trade_date": tradeDate,
+		}, "ts_code,name,trade_date,close,pct_chg,amount,buy_amount,sell_amount,net_amount,reason")
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, parseStockTopListFromTushareResponse(sourceKey, tradeDate, parsed)...)
+	}
+	return result, nil
+}
+
+// parseStockTopListFromTushareResponse parses top_list Tushare response into stockTopListPoint.
+func parseStockTopListFromTushareResponse(sourceKey string, tradeDate string, parsed tushareStdResponse) []stockTopListPoint {
+	if len(parsed.Data.Fields) == 0 || len(parsed.Data.Items) == 0 {
+		return nil
+	}
+	fieldIndex := make(map[string]int, len(parsed.Data.Fields))
+	for idx, field := range parsed.Data.Fields {
+		fieldIndex[strings.TrimSpace(field)] = idx
+	}
+	result := make([]stockTopListPoint, 0, len(parsed.Data.Items))
+	parsedDate, dateErr := time.ParseInLocation("20060102", tradeDate, time.Local)
+	for _, row := range parsed.Data.Items {
+		tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+		if !ok {
+			continue
+		}
+		tsCode = strings.ToUpper(strings.TrimSpace(tsCode))
+		tradeDateEffective := parsedDate
+		if dateErr != nil {
+			if td, ok := tushareGetString(row, fieldIndex, "trade_date"); ok {
+				if parsedDate2, err := time.ParseInLocation("20060102", td, time.Local); err == nil {
+					tradeDateEffective = parsedDate2
+				}
+			}
+		}
+		name, _ := tushareGetString(row, fieldIndex, "name")
+		buyAmount, _ := tushareGetFloat(row, fieldIndex, "buy_amount")
+		sellAmount, _ := tushareGetFloat(row, fieldIndex, "sell_amount")
+		netAmount, _ := tushareGetFloat(row, fieldIndex, "net_amount")
+		reason, _ := tushareGetString(row, fieldIndex, "reason")
+		result = append(result, stockTopListPoint{
+			Symbol:     tsCode,
+			TradeDate:  tradeDateEffective,
+			Name:       name,
+			BuyAmount:  roundTo(buyAmount, 4),
+			SellAmount: roundTo(sellAmount, 4),
+			NetAmount:  roundTo(netAmount, 4),
+			Reason:     reason,
+		})
+	}
+	return result
 }
 
 func fetchStockNewsFromTushare(token string, sourceKey string, symbols []string, days int, timeoutMS int) ([]stockNewsRawPoint, error) {
@@ -12566,6 +12797,101 @@ ON DUPLICATE KEY UPDATE
 			nullableString(item.Content),
 			nullableString(item.URL),
 			sentiment,
+			time.Now(),
+			time.Now(),
+		)
+		if err != nil {
+			return affected, err
+		}
+		affected++
+	}
+	return affected, nil
+}
+
+func (r *MySQLGrowthRepo) upsertStockKPLList(items []stockLimitUpPoint) (int, error) {
+	affected := 0
+	for _, item := range items {
+		symbol := strings.ToUpper(strings.TrimSpace(item.Symbol))
+		if symbol == "" {
+			continue
+		}
+		_, err := r.db.Exec(`
+INSERT INTO stock_limit_up_daily
+  (id, trade_date, ts_code, name, lu_time, open_time, last_time, tag, theme, status,
+   limit_order, lu_limit_order, bid_amount, bid_change, pct_chg, float_mv,
+   created_at, updated_at)
+VALUES
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+  name = VALUES(name),
+  lu_time = VALUES(lu_time),
+  open_time = VALUES(open_time),
+  last_time = VALUES(last_time),
+  tag = VALUES(tag),
+  theme = VALUES(theme),
+  status = VALUES(status),
+  limit_order = VALUES(limit_order),
+  lu_limit_order = VALUES(lu_limit_order),
+  bid_amount = VALUES(bid_amount),
+  bid_change = VALUES(bid_change),
+  pct_chg = VALUES(pct_chg),
+  float_mv = VALUES(float_mv),
+  updated_at = VALUES(updated_at)`,
+			newID("slu"),
+			item.TradeDate.Format("2006-01-02"),
+			symbol,
+			item.Name,
+			item.LuTime,
+			item.OpenTime,
+			item.LastTime,
+			item.Tag,
+			item.Theme,
+			item.Status,
+			item.LimitOrder,
+			item.LuLimitOrder,
+			item.BidAmount,
+			item.BidChange,
+			item.PctChg,
+			item.FloatMV,
+			time.Now(),
+			time.Now(),
+		)
+		if err != nil {
+			return affected, err
+		}
+		affected++
+	}
+	return affected, nil
+}
+
+func (r *MySQLGrowthRepo) upsertStockTopList(items []stockTopListPoint) (int, error) {
+	affected := 0
+	for _, item := range items {
+		symbol := strings.ToUpper(strings.TrimSpace(item.Symbol))
+		if symbol == "" {
+			continue
+		}
+		_, err := r.db.Exec(`
+INSERT INTO stock_top_list_daily
+  (id, trade_date, ts_code, name, buy_amount, sell_amount, net_amount, reason,
+   created_at, updated_at)
+VALUES
+  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+  name = VALUES(name),
+  buy_amount = VALUES(buy_amount),
+  sell_amount = VALUES(sell_amount),
+  net_amount = VALUES(net_amount),
+  reason = VALUES(reason),
+  updated_at = VALUES(updated_at)`,
+			newID("stl"),
+			item.TradeDate.Format("2006-01-02"),
+			symbol,
+			item.Name,
+			item.BuyAmount,
+			item.SellAmount,
+			item.NetAmount,
+			item.Reason,
 			time.Now(),
 			time.Now(),
 		)
@@ -13184,6 +13510,90 @@ func buildStockQuantScore(symbol string, quotes []stockQuoteCandle) (model.Stock
 		trendStrength = (ma5/ma20 - 1) * 100
 	}
 
+	// --- Intraday / T+1 short-cycle feature computation ---
+
+	// Short-cycle momentum
+	momentum1 := 0.0
+	if latest.PrevClosePrice > 0 {
+		momentum1 = (latest.ClosePrice/latest.PrevClosePrice - 1) * 100
+	}
+	momentum2 := 0.0
+	if lastIndex >= 2 && quotes[lastIndex-2].ClosePrice > 0 {
+		momentum2 = (latest.ClosePrice/quotes[lastIndex-2].ClosePrice - 1) * 100
+	}
+	momentum3 := 0.0
+	if lastIndex >= 3 && quotes[lastIndex-3].ClosePrice > 0 {
+		momentum3 = (latest.ClosePrice/quotes[lastIndex-3].ClosePrice - 1) * 100
+	}
+
+	// Consecutive down days
+	consecutiveDownDays := 0
+	for idx := lastIndex; idx >= 0; idx-- {
+		if quotes[idx].PrevClosePrice > 0 && quotes[idx].ClosePrice < quotes[idx].PrevClosePrice {
+			consecutiveDownDays++
+		} else {
+			break
+		}
+	}
+
+	// Candle body as percentage of close
+	candleBodyPct := math.Abs(latest.ClosePrice-latest.OpenPrice) / math.Max(latest.ClosePrice, 0.01)
+	isDoji := candleBodyPct < 0.003
+	isBullish := latest.ClosePrice > latest.OpenPrice
+
+	// Shadow percentages
+	hlRange := math.Max(latest.HighPrice-latest.LowPrice, 0.01)
+	lowerShadowPct := (math.Min(latest.OpenPrice, latest.ClosePrice) - latest.LowPrice) / hlRange
+	upperShadowPct := (latest.HighPrice - math.Max(latest.OpenPrice, latest.ClosePrice)) / hlRange
+
+	// Bullish engulfing: today bullish, yesterday bearish, today's close > yesterday's open, today's open < yesterday's close
+	isEngulfingBullish := false
+	if lastIndex >= 1 {
+		prev := quotes[lastIndex-1]
+		isEngulfingBullish = latest.ClosePrice > latest.OpenPrice && // today bullish
+			prev.ClosePrice < prev.OpenPrice && // yesterday bearish
+			latest.OpenPrice < prev.ClosePrice && // open below yesterday close
+			latest.ClosePrice > prev.OpenPrice // close above yesterday open
+	}
+
+	// MA deviations
+	ma10 := 0.0
+	if lastIndex >= 9 {
+		for idx := lastIndex - 9; idx <= lastIndex; idx++ {
+			ma10 += quotes[idx].ClosePrice
+		}
+		ma10 /= 10
+	}
+	ma60 := 0.0
+	if lastIndex >= 59 {
+		for idx := lastIndex - 59; idx <= lastIndex; idx++ {
+			ma60 += quotes[idx].ClosePrice
+		}
+		ma60 /= 60
+	}
+	deviationMA5 := 0.0
+	if ma5 > 0 {
+		deviationMA5 = (latest.ClosePrice/ma5 - 1) * 100
+	}
+	deviationMA10 := 0.0
+	if ma10 > 0 {
+		deviationMA10 = (latest.ClosePrice/ma10 - 1) * 100
+	}
+	deviationMA20 := 0.0
+	if ma20 > 0 {
+		deviationMA20 = (latest.ClosePrice/ma20 - 1) * 100
+	}
+	deviationMA60 := 0.0
+	if ma60 > 0 {
+		deviationMA60 = (latest.ClosePrice/ma60 - 1) * 100
+	}
+
+	// Volume rank in last 20 days (1 = lowest volume in 20)
+	volume20dMinRank := computeVolume20dRank(quotes, lastIndex)
+
+	// Consecutive days of declining volume
+	volumeContractionDays := computeVolumeContractionDays(quotes, lastIndex)
+
 	return model.StockQuantScore{
 		Symbol:        symbol,
 		TradeDate:     latest.TradeDate.Format("2006-01-02"),
@@ -13195,7 +13605,70 @@ func buildStockQuantScore(symbol string, quotes []stockQuoteCandle) (model.Stock
 		Drawdown20:    maxDrawdown,
 		TrendStrength: trendStrength,
 		RiskLevel:     classifyQuantRisk(volatility20, maxDrawdown),
+
+		// Intraday / T+1 short-cycle features
+		Momentum1:             momentum1,
+		Momentum2:             momentum2,
+		Momentum3:             momentum3,
+		ConsecutiveDownDays:   consecutiveDownDays,
+		CandleBodyPct:         candleBodyPct,
+		LowerShadowPct:        lowerShadowPct,
+		UpperShadowPct:        upperShadowPct,
+		IsBullish:             isBullish,
+		IsDoji:                isDoji,
+		IsEngulfingBullish:    isEngulfingBullish,
+		DeviationMA5:          deviationMA5,
+		DeviationMA10:         deviationMA10,
+		DeviationMA20:         deviationMA20,
+		DeviationMA60:         deviationMA60,
+		Volume20dMinRank:      volume20dMinRank,
+		VolumeContractionDays: volumeContractionDays,
+		// Limit-up / top-list fields are populated from DB data, not computed here
 	}, true
+}
+
+// computeVolume20dRank returns the rank of the latest candle's volume within the last 20 candles.
+// 1 = lowest volume, higher numbers = higher volume.
+func computeVolume20dRank(quotes []stockQuoteCandle, lastIndex int) int {
+	if len(quotes) < 2 {
+		return 0
+	}
+	start := maxInt(0, lastIndex-19)
+	latestVolume := quotes[lastIndex].Volume
+	rank := 1
+	for idx := start; idx < lastIndex; idx++ {
+		if quotes[idx].Volume > 0 && quotes[idx].Volume < latestVolume {
+			rank++
+		}
+	}
+	return rank
+}
+
+// computeVolumeContractionDays counts consecutive days (backwards from lastIndex)
+// where volume has been below its own 20-day average.
+func computeVolumeContractionDays(quotes []stockQuoteCandle, lastIndex int) int {
+	days := 0
+	for idx := lastIndex; idx >= 0; idx-- {
+		startAvg := maxInt(0, idx-19)
+		sum := 0.0
+		count := 0
+		for j := startAvg; j < idx; j++ {
+			if quotes[j].Volume > 0 {
+				sum += quotes[j].Volume
+				count++
+			}
+		}
+		if count == 0 || quotes[idx].Volume <= 0 {
+			break
+		}
+		avg := sum / float64(count)
+		if quotes[idx].Volume < avg {
+			days++
+		} else {
+			break
+		}
+	}
+	return days
 }
 
 func classifyQuantRisk(volatility20 float64, drawdown20 float64) string {
@@ -13732,4 +14205,44 @@ func parseFlexibleDateTime(value string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("invalid datetime format: %s", trimmed)
+}
+
+func (r *MySQLGrowthRepo) AdminUpdateStockRecommendationAIReview(id string, aiReviewContent string) error {
+	_, err := r.db.Exec("UPDATE stock_recommendations SET ai_review_content = ? WHERE id = ?", aiReviewContent, id)
+	return err
+}
+
+func (r *MySQLGrowthRepo) AddUserVirtualSandbox(userID string, recoID string, addPrice float64) error {
+	id := newID("vs")
+	_, err := r.db.Exec(
+		"INSERT INTO user_virtual_sandbox (id, user_id, stock_recommendation_id, add_price, status, added_at) VALUES (?, ?, ?, ?, ?, ?)",
+		id, userID, recoID, addPrice, "ACTIVE", time.Now().UTC(),
+	)
+	return err
+}
+
+func (r *MySQLGrowthRepo) GetUserVirtualSandbox(userID string) ([]model.UserVirtualSandbox, error) {
+	rows, err := r.db.Query(
+		"SELECT id, user_id, stock_recommendation_id, add_price, status, added_at FROM user_virtual_sandbox WHERE user_id = ? ORDER BY added_at DESC",
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sandboxes []model.UserVirtualSandbox
+	for rows.Next() {
+		var s model.UserVirtualSandbox
+		var addedAt time.Time
+		if err := rows.Scan(&s.ID, &s.UserID, &s.StockRecommendationID, &s.AddPrice, &s.Status, &addedAt); err != nil {
+			return nil, err
+		}
+		s.AddedAt = addedAt.Format(time.RFC3339)
+		sandboxes = append(sandboxes, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return sandboxes, nil
 }

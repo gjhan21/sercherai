@@ -364,8 +364,12 @@ func TestFetchStockQuotesFromTushareDateRangeUsesExplicitDates(t *testing.T) {
 	}
 }
 
-func TestFetchStockQuotesFromTushareDateRangeBatchesByTradeDateForMultipleSymbols(t *testing.T) {
+// TestSmartRoutingByTradeDateWhenManySymbolsFewDays verifies that when
+// the number of symbols exceeds the number of days, the system routes
+// to by-trade-date mode (1 API call per day returning all symbols).
+func TestSmartRoutingByTradeDateWhenManySymbolsFewDays(t *testing.T) {
 	requests := make([]map[string]string, 0, 2)
+	allSymbols := []string{"600519.SH", "000001.SZ", "000858.SZ", "601318.SH", "002594.SZ"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -384,49 +388,107 @@ func TestFetchStockQuotesFromTushareDateRangeBatchesByTradeDateForMultipleSymbol
 		requests = append(requests, payload.Params)
 		tradeDate := payload.Params["trade_date"]
 		if tradeDate == "" {
-			t.Fatalf("expected trade_date batching request, got %+v", payload.Params)
+			t.Fatalf("expected trade_date batching request (by-date mode), got %+v", payload.Params)
 		}
 		if payload.Params["ts_code"] != "" {
-			t.Fatalf("did not expect ts_code in batched request, got %+v", payload.Params)
+			t.Fatalf("did not expect ts_code in by-date batched request, got %+v", payload.Params)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(
-			w,
-			fmt.Sprintf(`{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","open","high","low","close","pre_close","vol","amount"],"items":[["600519.SH","%s",10,11,9,10.5,10,100,1000],["000001.SZ","%s",20,21,19,20.5,20,200,2000]]}}`, tradeDate, tradeDate),
-		)
+		items := ""
+		for idx, sym := range allSymbols {
+			if idx > 0 {
+				items += ","
+			}
+			items += fmt.Sprintf(`["%s","%s",10,11,9,10.5,10,100,1000]`, sym, tradeDate)
+		}
+		_, _ = io.WriteString(w, fmt.Sprintf(`{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","open","high","low","close","pre_close","vol","amount"],"items":[%s]}}`, items))
 	}))
 	defer server.Close()
 
 	previousEndpoint := tushareAPIEndpoint
 	tushareAPIEndpoint = server.URL
-	defer func() {
-		tushareAPIEndpoint = previousEndpoint
-	}()
+	defer func() { tushareAPIEndpoint = previousEndpoint }()
 
+	// 5 symbols × 2 days → symbols(5) > days(2) → should use by-date mode
 	items, err := fetchStockQuotesFromTushareDateRange(
-		"token",
-		"TUSHARE",
-		[]string{"600519.SH", "000001.SZ"},
-		"20240101",
-		"20240102",
-		500,
+		"token", "TUSHARE", allSymbols, "20240101", "20240102", 500,
 	)
 	if err != nil {
 		t.Fatalf("fetchStockQuotesFromTushareDateRange returned error: %v", err)
 	}
 	if len(requests) != 2 {
-		t.Fatalf("expected 2 trade_date requests, got %d", len(requests))
+		t.Fatalf("expected 2 trade_date requests (by-date mode), got %d", len(requests))
 	}
 	if requests[0]["trade_date"] != "20240101" || requests[1]["trade_date"] != "20240102" {
 		t.Fatalf("unexpected trade_date sequence: %+v", requests)
 	}
-	if len(items) != 4 {
-		t.Fatalf("expected 4 quotes from 2 days x 2 symbols, got %+v", items)
+	if len(items) != 10 {
+		t.Fatalf("expected 10 quotes from 2 days × 5 symbols, got %d", len(items))
 	}
 }
 
-func TestFetchStockDailyBasicsFromTushareBatchesByTradeDateForMultipleSymbols(t *testing.T) {
+// TestSmartRoutingBySymbolWhenFewSymbolsManyDays verifies that when
+// the number of days exceeds the number of symbols, the system routes
+// to by-symbol mode (1 API call per symbol returning all dates).
+func TestSmartRoutingBySymbolWhenFewSymbolsManyDays(t *testing.T) {
 	requests := make([]map[string]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		var payload struct {
+			APIName string            `json:"api_name"`
+			Params  map[string]string `json:"params"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("decode request payload: %v", err)
+		}
+		if payload.APIName != "daily" {
+			t.Fatalf("expected daily api_name, got %+v", payload)
+		}
+		requests = append(requests, payload.Params)
+		tsCode := payload.Params["ts_code"]
+		if tsCode == "" {
+			t.Fatalf("expected ts_code in by-symbol request, got %+v", payload.Params)
+		}
+		if payload.Params["trade_date"] != "" {
+			t.Fatalf("did not expect trade_date in by-symbol request, got %+v", payload.Params)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// Return 3 days of data per symbol
+		_, _ = io.WriteString(w, fmt.Sprintf(
+			`{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","open","high","low","close","pre_close","vol","amount"],"items":[["%s","20240101",10,11,9,10.5,10,100,1000],["%s","20240115",10,11,9,10.5,10,100,1000],["%s","20240131",10,11,9,10.5,10,100,1000]]}}`,
+			tsCode, tsCode, tsCode,
+		))
+	}))
+	defer server.Close()
+
+	previousEndpoint := tushareAPIEndpoint
+	tushareAPIEndpoint = server.URL
+	defer func() { tushareAPIEndpoint = previousEndpoint }()
+
+	// 2 symbols × 31 days → days(31) > symbols(2) → should use by-symbol mode
+	items, err := fetchStockQuotesFromTushareDateRange(
+		"token", "TUSHARE", []string{"600519.SH", "000001.SZ"}, "20240101", "20240131", 500,
+	)
+	if err != nil {
+		t.Fatalf("fetchStockQuotesFromTushareDateRange returned error: %v", err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 by-symbol requests, got %d", len(requests))
+	}
+	if requests[0]["ts_code"] != "600519.SH" || requests[1]["ts_code"] != "000001.SZ" {
+		t.Fatalf("unexpected ts_code sequence: %+v", requests)
+	}
+	if len(items) != 6 {
+		t.Fatalf("expected 6 quotes from 2 symbols × 3 days each, got %d", len(items))
+	}
+}
+
+func TestFetchStockDailyBasicsFromTushareSmartRouting(t *testing.T) {
+	requests := make([]map[string]string, 0, 2)
+	allSymbols := []string{"600519.SH", "000001.SZ", "000858.SZ", "601318.SH", "002594.SZ"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -443,15 +505,24 @@ func TestFetchStockDailyBasicsFromTushareBatchesByTradeDateForMultipleSymbols(t 
 			t.Fatalf("expected daily_basic api_name, got %+v", payload)
 		}
 		requests = append(requests, payload.Params)
-		tradeDate := payload.Params["trade_date"]
-		if tradeDate == "" || payload.Params["ts_code"] != "" {
-			t.Fatalf("expected trade_date batching request, got %+v", payload.Params)
-		}
+		// Accept both by-date and by-symbol requests
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(
-			w,
-			fmt.Sprintf(`{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","turnover_rate","volume_ratio","pe_ttm","pb","total_mv","circ_mv"],"items":[["600519.SH","%s",1.1,1.2,10,2,1000,800],["000001.SZ","%s",2.1,2.2,20,3,2000,1600]]}}`, tradeDate, tradeDate),
-		)
+		tradeDate := payload.Params["trade_date"]
+		tsCode := payload.Params["ts_code"]
+		if tradeDate != "" {
+			// by-date mode response
+			items := ""
+			for idx, sym := range allSymbols {
+				if idx > 0 {
+					items += ","
+				}
+				items += fmt.Sprintf(`["%s","%s",1.1,1.2,10,2,1000,800]`, sym, tradeDate)
+			}
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","turnover_rate","volume_ratio","pe_ttm","pb","total_mv","circ_mv"],"items":[%s]}}`, items))
+		} else {
+			// by-symbol mode response
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","turnover_rate","volume_ratio","pe_ttm","pb","total_mv","circ_mv"],"items":[["%s","20260429",1.1,1.2,10,2,1000,800]]}}`, tsCode))
+		}
 	}))
 	defer server.Close()
 
@@ -459,23 +530,22 @@ func TestFetchStockDailyBasicsFromTushareBatchesByTradeDateForMultipleSymbols(t 
 	tushareAPIEndpoint = server.URL
 	defer func() { tushareAPIEndpoint = previousEndpoint }()
 
-	items, err := fetchStockDailyBasicsFromTushare("token", "TUSHARE", []string{"600519.SH", "000001.SZ"}, 2, 500)
+	// 5 symbols with days=1 → estimated ~21 calendar days, symbols(5) < days(21) → by-symbol mode
+	items, err := fetchStockDailyBasicsFromTushare("token", "TUSHARE", allSymbols, 1, 500)
 	if err != nil {
 		t.Fatalf("fetchStockDailyBasicsFromTushare returned error: %v", err)
 	}
-	if len(requests) < 2 {
-		t.Fatalf("expected batched daily_basic requests, got %d", len(requests))
-	}
-	if requests[0]["trade_date"] == "" {
-		t.Fatalf("expected first request to use trade_date, got %+v", requests[0])
+	if len(requests) < 1 {
+		t.Fatalf("expected at least 1 request, got %d", len(requests))
 	}
 	if len(items) == 0 {
 		t.Fatalf("expected daily_basic items, got %+v", items)
 	}
 }
 
-func TestFetchStockMoneyflowsFromTushareBatchesByTradeDateForMultipleSymbols(t *testing.T) {
+func TestFetchStockMoneyflowsFromTushareSmartRouting(t *testing.T) {
 	requests := make([]map[string]string, 0, 2)
+	allSymbols := []string{"600519.SH", "000001.SZ", "000858.SZ", "601318.SH", "002594.SZ"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -492,15 +562,21 @@ func TestFetchStockMoneyflowsFromTushareBatchesByTradeDateForMultipleSymbols(t *
 			t.Fatalf("expected moneyflow api_name, got %+v", payload)
 		}
 		requests = append(requests, payload.Params)
-		tradeDate := payload.Params["trade_date"]
-		if tradeDate == "" || payload.Params["ts_code"] != "" {
-			t.Fatalf("expected trade_date batching request, got %+v", payload.Params)
-		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(
-			w,
-			fmt.Sprintf(`{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","net_mf_amount","buy_lg_amount","sell_lg_amount","buy_elg_amount","sell_elg_amount"],"items":[["600519.SH","%s",11,12,13,14,15],["000001.SZ","%s",21,22,23,24,25]]}}`, tradeDate, tradeDate),
-		)
+		tradeDate := payload.Params["trade_date"]
+		tsCode := payload.Params["ts_code"]
+		if tradeDate != "" {
+			items := ""
+			for idx, sym := range allSymbols {
+				if idx > 0 {
+					items += ","
+				}
+				items += fmt.Sprintf(`["%s","%s",11,12,13,14,15]`, sym, tradeDate)
+			}
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","net_mf_amount","buy_lg_amount","sell_lg_amount","buy_elg_amount","sell_elg_amount"],"items":[%s]}}`, items))
+		} else {
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"code":0,"msg":"","data":{"fields":["ts_code","trade_date","net_mf_amount","buy_lg_amount","sell_lg_amount","buy_elg_amount","sell_elg_amount"],"items":[["%s","20260429",11,12,13,14,15]]}}`, tsCode))
+		}
 	}))
 	defer server.Close()
 
@@ -508,15 +584,13 @@ func TestFetchStockMoneyflowsFromTushareBatchesByTradeDateForMultipleSymbols(t *
 	tushareAPIEndpoint = server.URL
 	defer func() { tushareAPIEndpoint = previousEndpoint }()
 
-	items, err := fetchStockMoneyflowsFromTushare("token", "TUSHARE", []string{"600519.SH", "000001.SZ"}, 2, 500)
+	// 5 symbols with days=1 → estimated ~21 calendar days, symbols(5) < days(21) → by-symbol mode
+	items, err := fetchStockMoneyflowsFromTushare("token", "TUSHARE", allSymbols, 1, 500)
 	if err != nil {
 		t.Fatalf("fetchStockMoneyflowsFromTushare returned error: %v", err)
 	}
-	if len(requests) < 2 {
-		t.Fatalf("expected batched moneyflow requests, got %d", len(requests))
-	}
-	if requests[0]["trade_date"] == "" {
-		t.Fatalf("expected first request to use trade_date, got %+v", requests[0])
+	if len(requests) < 1 {
+		t.Fatalf("expected at least 1 request, got %d", len(requests))
 	}
 	if len(items) == 0 {
 		t.Fatalf("expected moneyflow items, got %+v", items)

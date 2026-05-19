@@ -7,7 +7,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"sercherai/backend/internal/growth/service"
+	"sercherai/backend/internal/platform/utils"
 )
+
 
 const paymentEnabledConfigKey = "payment.enabled"
 const paymentDefaultChannelConfigKey = "payment.default_channel"
@@ -112,4 +116,59 @@ func stringifyYolkPayValue(raw interface{}) string {
 		}
 		return text
 	}
+}
+
+type yolkPayRuntimeConfig struct {
+	PaymentEnabled bool
+	Enabled        bool
+	PID            string
+	Key            string
+	Gateway        string
+	MAPIPath       string
+	NotifyURL      string
+	ReturnURL      string
+	PayType        string
+	Device         string
+}
+
+func resolveYolkPayConfig(svc service.GrowthService) (yolkPayRuntimeConfig, error) {
+	cfg := yolkPayRuntimeConfig{
+		PaymentEnabled: false,
+		Enabled:        false,
+		Gateway:        "https://www.yolkpay.net",
+		MAPIPath:       "/mapi.php",
+		PayType:        "airpay",
+		Device:         "pc",
+	}
+	items, _, err := svc.AdminListSystemConfigs("payment.", 1, 400)
+	if err != nil {
+		return cfg, err
+	}
+	for _, item := range items {
+		key := strings.ToLower(strings.TrimSpace(item.ConfigKey))
+		value := strings.TrimSpace(item.ConfigValue)
+		switch key {
+		case paymentEnabledConfigKey:
+			cfg.PaymentEnabled = utils.ParseConfigBool(value, cfg.PaymentEnabled)
+		case paymentChannelYolkPayEnabledConfigKey:
+			cfg.Enabled = utils.ParseConfigBool(value, cfg.Enabled)
+		case paymentChannelYolkPayPIDConfigKey:
+			cfg.PID = value
+		case paymentChannelYolkPayKeyConfigKey:
+			cfg.Key = value
+		case paymentChannelYolkPayGatewayConfigKey:
+			cfg.Gateway = value
+		case paymentChannelYolkPayMAPIPathConfigKey:
+			cfg.MAPIPath = value
+		case paymentChannelYolkPayNotifyURLConfigKey:
+			cfg.NotifyURL = value
+		case paymentChannelYolkPayReturnURLConfigKey:
+			cfg.ReturnURL = value
+		case paymentChannelYolkPayPayTypeConfigKey:
+			cfg.PayType = value
+		case paymentChannelYolkPayDeviceConfigKey:
+			cfg.Device = value
+		}
+	}
+	return cfg, nil
 }

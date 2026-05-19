@@ -31,7 +31,7 @@ func normalizeFuturesContracts(raw []string) []string {
 	return items
 }
 
-func (h *AdminGrowthHandler) resolveDefaultConfigValue(configKey string, fallback string) string {
+func (h *AdminMarketDataHandler) resolveDefaultConfigValue(configKey string, fallback string) string {
 	items, _, err := h.service.AdminListSystemConfigs(configKey, 1, 20)
 	if err != nil {
 		return fallback
@@ -85,7 +85,7 @@ func marketSyncResultCount(result model.MarketSyncResult) int {
 	return 0
 }
 
-func (h *AdminGrowthHandler) SyncFuturesQuotes(c *gin.Context) {
+func (h *AdminMarketDataHandler) SyncFuturesQuotes(c *gin.Context) {
 	var req dto.FuturesQuoteSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -181,7 +181,7 @@ func normalizeFuturesInventorySymbols(raw []string) []string {
 	return items
 }
 
-func (h *AdminGrowthHandler) SyncFuturesInventory(c *gin.Context) {
+func (h *AdminMarketDataHandler) SyncFuturesInventory(c *gin.Context) {
 	var req dto.FuturesInventorySyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -222,7 +222,7 @@ func (h *AdminGrowthHandler) SyncFuturesInventory(c *gin.Context) {
 	}))
 }
 
-func (h *AdminGrowthHandler) SyncMarketNewsSource(c *gin.Context) {
+func (h *AdminMarketDataHandler) SyncMarketNewsSource(c *gin.Context) {
 	var req dto.MarketNewsSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -290,7 +290,7 @@ func (h *AdminGrowthHandler) SyncMarketNewsSource(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(response))
 }
 
-func (h *AdminGrowthHandler) SyncStockDailyBasics(c *gin.Context) {
+func (h *AdminMarketDataHandler) SyncStockDailyBasics(c *gin.Context) {
 	var req dto.StockMarketDataSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -326,7 +326,7 @@ func (h *AdminGrowthHandler) SyncStockDailyBasics(c *gin.Context) {
 	}))
 }
 
-func (h *AdminGrowthHandler) SyncStockMoneyflows(c *gin.Context) {
+func (h *AdminMarketDataHandler) SyncStockMoneyflows(c *gin.Context) {
 	var req dto.StockMarketDataSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -362,7 +362,7 @@ func (h *AdminGrowthHandler) SyncStockMoneyflows(c *gin.Context) {
 	}))
 }
 
-func (h *AdminGrowthHandler) SyncStockNewsSource(c *gin.Context) {
+func (h *AdminMarketDataHandler) SyncStockNewsSource(c *gin.Context) {
 	var req dto.StockMarketDataSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -398,7 +398,73 @@ func (h *AdminGrowthHandler) SyncStockNewsSource(c *gin.Context) {
 	}))
 }
 
-func (h *AdminGrowthHandler) BackfillStockMarketData(c *gin.Context) {
+func (h *AdminMarketDataHandler) SyncStockKPLList(c *gin.Context) {
+	var req dto.StockMarketDataSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	requestedSourceKey := strings.ToUpper(strings.TrimSpace(req.SourceKey))
+	sourceKey := requestedSourceKey
+	if sourceKey == "" {
+		sourceKey = "TUSHARE"
+	}
+	days := req.Days
+	if days <= 0 {
+		days = 5
+	}
+	if days > 30 {
+		days = 30
+	}
+	result, err := h.service.AdminSyncStockKPLList(sourceKey, days)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "STOCK", "SYNC_KPL_LIST", "STOCK_KPL_LIST", sourceKey, requestedSourceKey, fmt.Sprintf("count=%d", result.NewsCount), fmt.Sprintf("days=%d", days))
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"count":                result.NewsCount,
+		"source_key":           sourceKey,
+		"requested_source_key": requestedSourceKey,
+		"days":                 days,
+		"result":               result,
+	}))
+}
+
+func (h *AdminMarketDataHandler) SyncStockTopList(c *gin.Context) {
+	var req dto.StockMarketDataSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	requestedSourceKey := strings.ToUpper(strings.TrimSpace(req.SourceKey))
+	sourceKey := requestedSourceKey
+	if sourceKey == "" {
+		sourceKey = "TUSHARE"
+	}
+	days := req.Days
+	if days <= 0 {
+		days = 5
+	}
+	if days > 30 {
+		days = 30
+	}
+	result, err := h.service.AdminSyncStockTopList(sourceKey, days)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "STOCK", "SYNC_TOP_LIST", "STOCK_TOP_LIST", sourceKey, requestedSourceKey, fmt.Sprintf("count=%d", result.NewsCount), fmt.Sprintf("days=%d", days))
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"count":                result.NewsCount,
+		"source_key":           sourceKey,
+		"requested_source_key": requestedSourceKey,
+		"days":                 days,
+		"result":               result,
+	}))
+}
+
+func (h *AdminMarketDataHandler) BackfillStockMarketData(c *gin.Context) {
 	var req dto.StockMarketDataBackfillRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})

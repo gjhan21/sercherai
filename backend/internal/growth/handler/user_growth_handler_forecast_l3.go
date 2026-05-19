@@ -85,23 +85,3 @@ func (h *UserGrowthHandler) GetForecastL3RunDetail(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(detail))
 }
 
-func isForecastL3BadRequest(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "invalid") || 
-		strings.Contains(msg, "required") || 
-		strings.Contains(msg, "limit reached") ||
-		strings.Contains(msg, "disabled")
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
-}

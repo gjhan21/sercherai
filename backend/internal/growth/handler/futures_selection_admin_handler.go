@@ -4,13 +4,24 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"sercherai/backend/internal/growth/dto"
 	"sercherai/backend/internal/growth/model"
+	"sercherai/backend/internal/platform/utils"
 )
+
+type AdminFuturesSelectionHandler struct {
+	AdminBaseHandler
+}
+
+func NewAdminFuturesSelectionHandler(base *AdminBaseHandler) *AdminFuturesSelectionHandler {
+	return &AdminFuturesSelectionHandler{AdminBaseHandler: *base}
+}
 
 type adminFuturesSelectionRunRequest struct {
 	TradeDate                string `json:"trade_date"`
@@ -63,7 +74,7 @@ type adminFuturesSelectionRejectRequest struct {
 	ReviewNote string `json:"review_note"`
 }
 
-func (h *AdminGrowthHandler) GetFuturesSelectionOverview(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) GetFuturesSelectionOverview(c *gin.Context) {
 	data, err := h.service.AdminGetFuturesSelectionOverview()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -72,8 +83,8 @@ func (h *AdminGrowthHandler) GetFuturesSelectionOverview(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(data))
 }
 
-func (h *AdminGrowthHandler) ListFuturesSelectionRuns(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminFuturesSelectionHandler) ListFuturesSelectionRuns(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListFuturesSelectionRuns(c.Query("status"), c.Query("review_status"), c.Query("profile_id"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -82,7 +93,7 @@ func (h *AdminGrowthHandler) ListFuturesSelectionRuns(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) CreateFuturesSelectionRun(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) CreateFuturesSelectionRun(c *gin.Context) {
 	var req adminFuturesSelectionRunRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -103,7 +114,7 @@ func (h *AdminGrowthHandler) CreateFuturesSelectionRun(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) GetFuturesSelectionRun(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) GetFuturesSelectionRun(c *gin.Context) {
 	item, err := h.service.AdminGetFuturesSelectionRun(c.Param("run_id"))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -116,7 +127,7 @@ func (h *AdminGrowthHandler) GetFuturesSelectionRun(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) CompareFuturesSelectionRuns(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) CompareFuturesSelectionRuns(c *gin.Context) {
 	raw := strings.TrimSpace(c.Query("run_ids"))
 	if raw == "" {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "run_ids is required", Data: struct{}{}})
@@ -138,8 +149,8 @@ func (h *AdminGrowthHandler) CompareFuturesSelectionRuns(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(data))
 }
 
-func (h *AdminGrowthHandler) ListFuturesSelectionProfiles(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminFuturesSelectionHandler) ListFuturesSelectionProfiles(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListFuturesSelectionProfiles(c.Query("status"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -148,7 +159,7 @@ func (h *AdminGrowthHandler) ListFuturesSelectionProfiles(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) ListFuturesSelectionProfileVersions(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) ListFuturesSelectionProfileVersions(c *gin.Context) {
 	items, err := h.service.AdminListFuturesSelectionProfileVersions(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -157,7 +168,7 @@ func (h *AdminGrowthHandler) ListFuturesSelectionProfileVersions(c *gin.Context)
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func (h *AdminGrowthHandler) CreateFuturesSelectionProfile(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) CreateFuturesSelectionProfile(c *gin.Context) {
 	var req adminFuturesSelectionProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -172,7 +183,7 @@ func (h *AdminGrowthHandler) CreateFuturesSelectionProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) UpdateFuturesSelectionProfile(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) UpdateFuturesSelectionProfile(c *gin.Context) {
 	var req adminFuturesSelectionProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -191,7 +202,7 @@ func (h *AdminGrowthHandler) UpdateFuturesSelectionProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) PublishFuturesSelectionProfile(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) PublishFuturesSelectionProfile(c *gin.Context) {
 	operator := currentAdminOperator(c)
 	item, err := h.service.AdminPublishFuturesSelectionProfile(c.Param("id"), operator)
 	if err != nil {
@@ -205,7 +216,7 @@ func (h *AdminGrowthHandler) PublishFuturesSelectionProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) RollbackFuturesSelectionProfile(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) RollbackFuturesSelectionProfile(c *gin.Context) {
 	var req adminFuturesSelectionRollbackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -224,7 +235,7 @@ func (h *AdminGrowthHandler) RollbackFuturesSelectionProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) ListFuturesSelectionRunCandidates(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) ListFuturesSelectionRunCandidates(c *gin.Context) {
 	items, err := h.service.AdminListFuturesSelectionRunCandidates(c.Param("run_id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -244,7 +255,7 @@ func (h *AdminGrowthHandler) ListFuturesSelectionRunCandidates(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": filtered}))
 }
 
-func (h *AdminGrowthHandler) ListFuturesSelectionRunPortfolio(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) ListFuturesSelectionRunPortfolio(c *gin.Context) {
 	items, err := h.service.AdminListFuturesSelectionRunPortfolio(c.Param("run_id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -253,7 +264,7 @@ func (h *AdminGrowthHandler) ListFuturesSelectionRunPortfolio(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func (h *AdminGrowthHandler) ListFuturesSelectionRunEvidence(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) ListFuturesSelectionRunEvidence(c *gin.Context) {
 	items, err := h.service.AdminListFuturesSelectionRunEvidence(c.Param("run_id"), c.Query("contract"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -262,7 +273,7 @@ func (h *AdminGrowthHandler) ListFuturesSelectionRunEvidence(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func (h *AdminGrowthHandler) ListFuturesSelectionRunEvaluations(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) ListFuturesSelectionRunEvaluations(c *gin.Context) {
 	items, err := h.service.AdminListFuturesSelectionRunEvaluations(c.Param("run_id"), c.Query("contract"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -271,8 +282,8 @@ func (h *AdminGrowthHandler) ListFuturesSelectionRunEvaluations(c *gin.Context) 
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func (h *AdminGrowthHandler) ListFuturesSelectionProfileTemplates(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminFuturesSelectionHandler) ListFuturesSelectionProfileTemplates(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListFuturesSelectionProfileTemplates(c.Query("status"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -281,7 +292,7 @@ func (h *AdminGrowthHandler) ListFuturesSelectionProfileTemplates(c *gin.Context
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) CreateFuturesSelectionProfileTemplate(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) CreateFuturesSelectionProfileTemplate(c *gin.Context) {
 	var req adminFuturesSelectionTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -295,7 +306,7 @@ func (h *AdminGrowthHandler) CreateFuturesSelectionProfileTemplate(c *gin.Contex
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) UpdateFuturesSelectionProfileTemplate(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) UpdateFuturesSelectionProfileTemplate(c *gin.Context) {
 	var req adminFuturesSelectionTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -313,7 +324,7 @@ func (h *AdminGrowthHandler) UpdateFuturesSelectionProfileTemplate(c *gin.Contex
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) SetDefaultFuturesSelectionProfileTemplate(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) SetDefaultFuturesSelectionProfileTemplate(c *gin.Context) {
 	item, err := h.service.AdminSetDefaultFuturesSelectionProfileTemplate(c.Param("id"), currentAdminOperator(c))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -326,7 +337,7 @@ func (h *AdminGrowthHandler) SetDefaultFuturesSelectionProfileTemplate(c *gin.Co
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) ListFuturesSelectionEvaluationLeaderboard(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) ListFuturesSelectionEvaluationLeaderboard(c *gin.Context) {
 	items, err := h.service.AdminListFuturesSelectionEvaluationLeaderboard(c.Query("template_id"), c.Query("profile_id"), c.Query("market_regime"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -335,7 +346,7 @@ func (h *AdminGrowthHandler) ListFuturesSelectionEvaluationLeaderboard(c *gin.Co
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func (h *AdminGrowthHandler) ApproveFuturesSelectionReview(c *gin.Context) {
+func (h *AdminFuturesSelectionHandler) ApproveFuturesSelectionReview(c *gin.Context) {
 	var req adminFuturesSelectionApproveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -359,6 +370,111 @@ func (h *AdminGrowthHandler) ApproveFuturesSelectionReview(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminFuturesSelectionHandler) RejectFuturesSelectionReview(c *gin.Context) {
+	var req adminFuturesSelectionRejectRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	operator := currentAdminOperator(c)
+	item, err := h.service.AdminRejectFuturesSelectionReview(c.Param("run_id"), operator, req.ReviewNote)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminFuturesSelectionHandler) GenerateDailyFuturesStrategies(c *gin.Context) {
+	tradeDate := c.Query("trade_date")
+	if tradeDate == "" {
+		tradeDate = time.Now().Format("2006-01-02")
+	}
+	result, err := h.service.AdminGenerateDailyFuturesStrategies(tradeDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	afterValue := "count=" + strconv.Itoa(result.Count)
+	if strings.TrimSpace(result.PublishID) != "" {
+		afterValue += " publish_id=" + result.PublishID
+	}
+	if strings.TrimSpace(result.GenerationMode) != "" {
+		afterValue += " generation_mode=" + result.GenerationMode
+	}
+	h.writeOperationLog(c, "FUTURES", "GENERATE_DAILY_STRATEGIES", "BATCH", tradeDate, "", afterValue, "")
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"count":           result.Count,
+		"publish_id":      result.PublishID,
+		"publish_version": result.PublishVersion,
+		"report_summary":  result.ReportSummary,
+		"generation_mode": result.GenerationMode,
+		"archive_enabled": result.ArchiveEnabled,
+	}))
+}
+
+func (h *AdminFuturesSelectionHandler) ListFuturesStrategies(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
+	status := c.Query("status")
+	contract := c.Query("contract")
+	items, total, err := h.service.AdminListFuturesStrategies(status, contract, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *AdminFuturesSelectionHandler) CreateFuturesStrategy(c *gin.Context) {
+	var req dto.FuturesStrategyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	validFrom, err := normalizeAdminDateTime(req.ValidFrom)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "valid_from " + err.Error(), Data: struct{}{}})
+		return
+	}
+	validTo, err := normalizeAdminDateTime(req.ValidTo)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "valid_to " + err.Error(), Data: struct{}{}})
+		return
+	}
+	id, err := h.service.AdminCreateFuturesStrategy(model.FuturesStrategy{
+		Contract:      req.Contract,
+		Name:          req.Name,
+		Direction:     req.Direction,
+		RiskLevel:     req.RiskLevel,
+		PositionRange: req.PositionRange,
+		ValidFrom:     validFrom,
+		ValidTo:       validTo,
+		Status:        req.Status,
+		ReasonSummary: req.ReasonSummary,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "FUTURES", "CREATE_STRATEGY", "FUTURES_STRATEGY", id, "", req.Status, req.Contract)
+	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
+}
+
+func (h *AdminFuturesSelectionHandler) UpdateFuturesStrategyStatus(c *gin.Context) {
+	id := c.Param("id")
+	var req dto.FuturesStrategyStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := h.service.AdminUpdateFuturesStrategyStatus(id, req.Status); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "FUTURES", "UPDATE_STRATEGY_STATUS", "FUTURES_STRATEGY", id, "", req.Status, "")
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
 func futuresSelectionProfileFromRequest(req adminFuturesSelectionProfileRequest, operator string) model.FuturesSelectionProfile {
@@ -394,17 +510,3 @@ func futuresSelectionTemplateFromRequest(req adminFuturesSelectionTemplateReques
 	}
 }
 
-func (h *AdminGrowthHandler) RejectFuturesSelectionReview(c *gin.Context) {
-	var req adminFuturesSelectionRejectRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
-		return
-	}
-	operator := currentAdminOperator(c)
-	item, err := h.service.AdminRejectFuturesSelectionReview(c.Param("run_id"), operator, req.ReviewNote)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
-		return
-	}
-	c.JSON(http.StatusOK, dto.OK(item))
-}

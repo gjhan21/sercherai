@@ -11,7 +11,7 @@ import (
 	"sercherai/backend/internal/growth/model"
 )
 
-func (h *AdminGrowthHandler) InternalStrategyEngineStockSelectionContext(c *gin.Context) {
+func (h *AdminStrategyHandler) InternalStrategyEngineStockSelectionContext(c *gin.Context) {
 	var req dto.StrategyEngineStockSelectionContextRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
@@ -37,7 +37,7 @@ func (h *AdminGrowthHandler) InternalStrategyEngineStockSelectionContext(c *gin.
 	c.JSON(http.StatusOK, resp)
 }
 
-func (h *AdminGrowthHandler) InternalStrategyEngineFuturesStrategyContext(c *gin.Context) {
+func (h *AdminStrategyHandler) InternalStrategyEngineFuturesStrategyContext(c *gin.Context) {
 	var req dto.StrategyEngineFuturesStrategyContextRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})

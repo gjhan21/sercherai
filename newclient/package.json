@@ -1,0 +1,21 @@
+{
+  "name": "ai-stock-advisor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config vite.pc.config.js",
+    "dev:pc": "vite --config vite.pc.config.js",
+    "dev:h5": "vite --config vite.h5.config.js",
+    "build:pc": "vite build --config vite.pc.config.js",
+    "build:h5": "vite build --config vite.h5.config.js"
+  },
+  "dependencies": {
+    "vue": "^3.5.20",
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "vite": "^7.3.1"
+  }
+}

@@ -15,13 +15,13 @@ import (
 	"sercherai/backend/internal/platform/config"
 )
 
-func newStockSelectionTestHandler() *AdminGrowthHandler {
-	return NewAdminGrowthHandler(service.NewGrowthService(repo.NewInMemoryGrowthRepo()), config.Config{})
+func newStockSelectionTestHandlers() *AdminHandlers {
+	return NewAdminHandlers(service.NewGrowthService(repo.NewInMemoryGrowthRepo()), config.Config{})
 }
 
-func newStockSelectionTestHandlerWithRepo() (*AdminGrowthHandler, *repo.InMemoryGrowthRepo) {
+func newStockSelectionTestHandlersWithRepo() (*AdminHandlers, *repo.InMemoryGrowthRepo) {
 	repository := repo.NewInMemoryGrowthRepo()
-	return NewAdminGrowthHandler(service.NewGrowthService(repository), config.Config{}), repository
+	return NewAdminHandlers(service.NewGrowthService(repository), config.Config{}), repository
 }
 
 func TestGetStockSelectionOverview(t *testing.T) {
@@ -30,7 +30,7 @@ func TestGetStockSelectionOverview(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/stock-selection/overview", nil)
 
-	newStockSelectionTestHandler().GetStockSelectionOverview(ctx)
+	newStockSelectionTestHandlers().StockSelection.GetStockSelectionOverview(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -46,14 +46,14 @@ func TestGetStockSelectionOverview(t *testing.T) {
 
 func TestCreateAndApproveStockSelectionRun(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	runRecorder := httptest.NewRecorder()
 	runCtx, _ := gin.CreateTestContext(runRecorder)
 	runCtx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stock-selection/runs", strings.NewReader(`{"trade_date":"2026-03-21"}`))
 	runCtx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.CreateStockSelectionRun(runCtx)
+	handlers.StockSelection.CreateStockSelectionRun(runCtx)
 
 	if runRecorder.Code != http.StatusOK {
 		t.Fatalf("expected create run 200, got %d", runRecorder.Code)
@@ -65,7 +65,7 @@ func TestCreateAndApproveStockSelectionRun(t *testing.T) {
 	reviewCtx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stock-selection/reviews/ssr_demo_001/approve", strings.NewReader(`{"review_note":"通过"}`))
 	reviewCtx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.ApproveStockSelectionReview(reviewCtx)
+	handlers.StockSelection.ApproveStockSelectionReview(reviewCtx)
 
 	if reviewRecorder.Code != http.StatusOK {
 		t.Fatalf("expected approve review 200, got %d", reviewRecorder.Code)
@@ -74,7 +74,7 @@ func TestCreateAndApproveStockSelectionRun(t *testing.T) {
 
 func TestListAndReviewStockEventClusters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler, repository := newStockSelectionTestHandlerWithRepo()
+	handlers, repository := newStockSelectionTestHandlersWithRepo()
 	_, err := repository.AdminUpsertStockEventCluster(model.StockEventCluster{
 		ID:            "sec_demo_001",
 		ClusterKey:    "draft:event:001",
@@ -98,7 +98,7 @@ func TestListAndReviewStockEventClusters(t *testing.T) {
 	listCtx, _ := gin.CreateTestContext(listRecorder)
 	listCtx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/stock-selection/events?review_status=PENDING&review_priority=HIGH", nil)
 
-	handler.ListStockEventClusters(listCtx)
+	handlers.StockSelection.ListStockEventClusters(listCtx)
 
 	if listRecorder.Code != http.StatusOK {
 		t.Fatalf("expected list events 200, got %d", listRecorder.Code)
@@ -122,7 +122,7 @@ func TestListAndReviewStockEventClusters(t *testing.T) {
 	reviewCtx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stock-selection/events/sec_demo_001/review", strings.NewReader(`{"review_status":"APPROVED","review_note":"事件成立","reviewer":"reviewer_001","review_metadata":{"manual":true}}`))
 	reviewCtx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.ReviewStockEventCluster(reviewCtx)
+	handlers.StockSelection.ReviewStockEventCluster(reviewCtx)
 
 	if reviewRecorder.Code != http.StatusOK {
 		t.Fatalf("expected review event 200, got %d", reviewRecorder.Code)
@@ -140,7 +140,7 @@ func TestListAndReviewStockEventClusters(t *testing.T) {
 	detailCtx.Params = gin.Params{{Key: "id", Value: "sec_demo_001"}}
 	detailCtx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/stock-selection/events/sec_demo_001", nil)
 
-	handler.GetStockEventCluster(detailCtx)
+	handlers.StockSelection.GetStockEventCluster(detailCtx)
 
 	if detailRecorder.Code != http.StatusOK {
 		t.Fatalf("expected get event 200, got %d", detailRecorder.Code)

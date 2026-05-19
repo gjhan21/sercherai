@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func createMarketBackfillRunForTest(t *testing.T, handler *AdminGrowthHandler) (string, string) {
+func createMarketBackfillRunForTest(t *testing.T, handlers *AdminHandlers) (string, string) {
 	t.Helper()
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -21,7 +21,7 @@ func createMarketBackfillRunForTest(t *testing.T, handler *AdminGrowthHandler) (
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.CreateMarketDataBackfillRun(ctx)
+	handlers.MarketData.CreateMarketDataBackfillRun(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected create run 200, got %d", recorder.Code)
@@ -44,13 +44,13 @@ func createMarketBackfillRunForTest(t *testing.T, handler *AdminGrowthHandler) (
 
 func TestListMarketDataQualityLogs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/market-quality-logs?asset_class=stock&severity=warn", nil)
 
-	handler.ListMarketDataQualityLogs(ctx)
+	handlers.MarketData.ListMarketDataQualityLogs(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -66,13 +66,13 @@ func TestListMarketDataQualityLogs(t *testing.T) {
 
 func TestListMarketDataQualityLogsRejectsInvalidHours(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/market-quality-logs?hours=-1", nil)
 
-	handler.ListMarketDataQualityLogs(ctx)
+	handlers.MarketData.ListMarketDataQualityLogs(ctx)
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", recorder.Code)
@@ -88,13 +88,13 @@ func TestListMarketDataQualityLogsRejectsInvalidHours(t *testing.T) {
 
 func TestGetMarketDerivedTruthSummary(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/market-derived-truth-summary?asset_class=stock", nil)
 
-	handler.GetMarketDerivedTruthSummary(ctx)
+	handlers.MarketData.GetMarketDerivedTruthSummary(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -110,13 +110,13 @@ func TestGetMarketDerivedTruthSummary(t *testing.T) {
 
 func TestGetMarketDataQualitySummary(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/market-quality-summary?asset_class=stock&hours=24", nil)
 
-	handler.GetMarketDataQualitySummary(ctx)
+	handlers.MarketData.GetMarketDataQualitySummary(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -132,13 +132,13 @@ func TestGetMarketDataQualitySummary(t *testing.T) {
 
 func TestGetMarketDataQualitySummaryIncludesStockCoverageFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/market-quality-summary?asset_class=stock&hours=24", nil)
 
-	handler.GetMarketDataQualitySummary(ctx)
+	handlers.MarketData.GetMarketDataQualitySummary(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -161,13 +161,13 @@ func TestGetMarketDataQualitySummaryIncludesStockCoverageFields(t *testing.T) {
 
 func TestGetMarketProviderGovernanceOverview(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/governance/overview?asset_class=stock&data_kind=daily_bars&hours=24", nil)
 
-	handler.GetMarketProviderGovernanceOverview(ctx)
+	handlers.MarketData.GetMarketProviderGovernanceOverview(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -183,13 +183,13 @@ func TestGetMarketProviderGovernanceOverview(t *testing.T) {
 
 func TestListMarketProviderCapabilities(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/governance/capabilities?asset_class=stock&data_kind=daily_bars", nil)
 
-	handler.ListMarketProviderCapabilities(ctx)
+	handlers.MarketData.ListMarketProviderCapabilities(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -205,13 +205,13 @@ func TestListMarketProviderCapabilities(t *testing.T) {
 
 func TestListMarketProviderRoutingPolicies(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/governance/routing-policies?asset_class=stock&data_kind=daily_bars", nil)
 
-	handler.ListMarketProviderRoutingPolicies(ctx)
+	handlers.MarketData.ListMarketProviderRoutingPolicies(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -227,7 +227,7 @@ func TestListMarketProviderRoutingPolicies(t *testing.T) {
 
 func TestUpdateMarketProviderRoutingPolicy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -239,7 +239,7 @@ func TestUpdateMarketProviderRoutingPolicy(t *testing.T) {
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.UpdateMarketProviderRoutingPolicy(ctx)
+	handlers.MarketData.UpdateMarketProviderRoutingPolicy(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -255,14 +255,14 @@ func TestUpdateMarketProviderRoutingPolicy(t *testing.T) {
 
 func TestRebuildStockDerivedTruth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/quotes/rebuild-derived-truth", strings.NewReader(`{"trade_date":"2026-03-22","days":2}`))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.RebuildStockDerivedTruth(ctx)
+	handlers.MarketData.RebuildStockDerivedTruth(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -278,14 +278,14 @@ func TestRebuildStockDerivedTruth(t *testing.T) {
 
 func TestSyncStockInstrumentMaster(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/master/sync", strings.NewReader(`{"source_key":"TUSHARE"}`))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.SyncStockInstrumentMaster(ctx)
+	handlers.StockSelection.SyncStockInstrumentMaster(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -305,14 +305,14 @@ func TestSyncStockInstrumentMaster(t *testing.T) {
 
 func TestSyncStockQuotesSupportsFullMarketMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/quotes/sync", strings.NewReader(`{"source_key":"TUSHARE","sync_mode":"FULL_MARKET","days":30}`))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.SyncStockQuotes(ctx)
+	handlers.StockSelection.SyncStockQuotes(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -335,14 +335,14 @@ func TestSyncStockQuotesSupportsFullMarketMode(t *testing.T) {
 
 func TestSyncStockDailyBasics(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/daily-basic/sync", strings.NewReader(`{"source_key":"TUSHARE","days":20}`))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.SyncStockDailyBasics(ctx)
+	handlers.MarketData.SyncStockDailyBasics(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -362,14 +362,14 @@ func TestSyncStockDailyBasics(t *testing.T) {
 
 func TestSyncStockMoneyflows(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/moneyflow/sync", strings.NewReader(`{"source_key":"TUSHARE","days":20}`))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.SyncStockMoneyflows(ctx)
+	handlers.MarketData.SyncStockMoneyflows(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -389,14 +389,14 @@ func TestSyncStockMoneyflows(t *testing.T) {
 
 func TestSyncStockNewsSource(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/news/sync", strings.NewReader(`{"source_key":"TUSHARE","days":7}`))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.SyncStockNewsSource(ctx)
+	handlers.MarketData.SyncStockNewsSource(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -412,14 +412,14 @@ func TestSyncStockNewsSource(t *testing.T) {
 
 func TestBackfillStockMarketData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/backfill", strings.NewReader(`{"source_key":"TUSHARE","days":15}`))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.BackfillStockMarketData(ctx)
+	handlers.MarketData.BackfillStockMarketData(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -439,7 +439,7 @@ func TestBackfillStockMarketData(t *testing.T) {
 
 func TestCreateMarketDataBackfillRun(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -450,7 +450,7 @@ func TestCreateMarketDataBackfillRun(t *testing.T) {
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.CreateMarketDataBackfillRun(ctx)
+	handlers.MarketData.CreateMarketDataBackfillRun(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -473,7 +473,7 @@ func TestCreateMarketDataBackfillRun(t *testing.T) {
 
 func TestCreateMarketDataBackfillRunRejectsMissingAssetScope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -484,7 +484,7 @@ func TestCreateMarketDataBackfillRunRejectsMissingAssetScope(t *testing.T) {
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.CreateMarketDataBackfillRun(ctx)
+	handlers.MarketData.CreateMarketDataBackfillRun(ctx)
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", recorder.Code)
@@ -493,7 +493,7 @@ func TestCreateMarketDataBackfillRunRejectsMissingAssetScope(t *testing.T) {
 
 func TestCreateMarketDataBackfillRunRejectsUnsupportedLongHistorySource(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -504,7 +504,7 @@ func TestCreateMarketDataBackfillRunRejectsUnsupportedLongHistorySource(t *testi
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.CreateMarketDataBackfillRun(ctx)
+	handlers.MarketData.CreateMarketDataBackfillRun(ctx)
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d body=%s", recorder.Code, recorder.Body.String())
@@ -520,13 +520,13 @@ func TestCreateMarketDataBackfillRunRejectsUnsupportedLongHistorySource(t *testi
 
 func TestGetMarketCoverageSummary(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/data-sources/market-coverage-summary", nil)
 
-	handler.GetMarketCoverageSummary(ctx)
+	handlers.MarketData.GetMarketCoverageSummary(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -542,14 +542,14 @@ func TestGetMarketCoverageSummary(t *testing.T) {
 
 func TestListMarketDataBackfillRuns(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
-	runID, _ := createMarketBackfillRunForTest(t, handler)
+	handlers := newStockSelectionTestHandlers()
+	runID, _ := createMarketBackfillRunForTest(t, handlers)
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/market-data/backfill-runs", nil)
 
-	handler.ListMarketDataBackfillRuns(ctx)
+	handlers.MarketData.ListMarketDataBackfillRuns(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -583,8 +583,8 @@ func TestListMarketDataBackfillRuns(t *testing.T) {
 
 func TestRetryMarketDataBackfillRun(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
-	runID, _ := createMarketBackfillRunForTest(t, handler)
+	handlers := newStockSelectionTestHandlers()
+	runID, _ := createMarketBackfillRunForTest(t, handlers)
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -592,7 +592,7 @@ func TestRetryMarketDataBackfillRun(t *testing.T) {
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/market-data/backfill-runs/"+runID+"/retry", strings.NewReader(`{"retry_mode":"FAILED_ONLY"}`))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.RetryMarketDataBackfillRun(ctx)
+	handlers.MarketData.RetryMarketDataBackfillRun(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -613,15 +613,15 @@ func TestRetryMarketDataBackfillRun(t *testing.T) {
 
 func TestGetMarketUniverseSnapshot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
-	_, snapshotID := createMarketBackfillRunForTest(t, handler)
+	handlers := newStockSelectionTestHandlers()
+	_, snapshotID := createMarketBackfillRunForTest(t, handlers)
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Params = gin.Params{{Key: "id", Value: snapshotID}}
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/market-data/universe-snapshots/"+snapshotID, nil)
 
-	handler.GetMarketUniverseSnapshot(ctx)
+	handlers.MarketData.GetMarketUniverseSnapshot(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -645,7 +645,7 @@ func TestGetMarketUniverseSnapshot(t *testing.T) {
 
 func TestSyncMarketDataMaster(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -656,7 +656,7 @@ func TestSyncMarketDataMaster(t *testing.T) {
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.SyncMarketDataMaster(ctx)
+	handlers.MarketData.SyncMarketDataMaster(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -681,7 +681,7 @@ func TestSyncMarketDataMaster(t *testing.T) {
 
 func TestSyncMarketDataQuotes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -692,7 +692,7 @@ func TestSyncMarketDataQuotes(t *testing.T) {
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.SyncMarketDataQuotes(ctx)
+	handlers.MarketData.SyncMarketDataQuotes(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -716,7 +716,7 @@ func TestSyncMarketDataQuotes(t *testing.T) {
 
 func TestSyncMarketDataMasterSupportsFuturesScope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -727,7 +727,7 @@ func TestSyncMarketDataMasterSupportsFuturesScope(t *testing.T) {
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.SyncMarketDataMaster(ctx)
+	handlers.MarketData.SyncMarketDataMaster(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
@@ -755,7 +755,7 @@ func TestSyncMarketDataMasterSupportsFuturesScope(t *testing.T) {
 
 func TestSyncMarketDataQuotesSupportsFuturesScope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -766,7 +766,7 @@ func TestSyncMarketDataQuotesSupportsFuturesScope(t *testing.T) {
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.SyncMarketDataQuotes(ctx)
+	handlers.MarketData.SyncMarketDataQuotes(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
@@ -795,7 +795,7 @@ func TestSyncMarketDataQuotesSupportsFuturesScope(t *testing.T) {
 
 func TestSyncMarketDataDailyBasic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -806,7 +806,7 @@ func TestSyncMarketDataDailyBasic(t *testing.T) {
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.SyncMarketDataDailyBasic(ctx)
+	handlers.MarketData.SyncMarketDataDailyBasic(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -832,7 +832,7 @@ func TestSyncMarketDataDailyBasic(t *testing.T) {
 
 func TestSyncMarketDataMoneyflow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -843,7 +843,7 @@ func TestSyncMarketDataMoneyflow(t *testing.T) {
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.SyncMarketDataMoneyflow(ctx)
+	handlers.MarketData.SyncMarketDataMoneyflow(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)
@@ -867,7 +867,7 @@ func TestSyncMarketDataMoneyflow(t *testing.T) {
 
 func TestRebuildMarketDataTruth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	handler := newStockSelectionTestHandler()
+	handlers := newStockSelectionTestHandlers()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -878,7 +878,7 @@ func TestRebuildMarketDataTruth(t *testing.T) {
 	)
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	handler.RebuildMarketDataTruth(ctx)
+	handlers.MarketData.RebuildMarketDataTruth(ctx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", recorder.Code)

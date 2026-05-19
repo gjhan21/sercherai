@@ -10,10 +10,19 @@ import (
 
 	"sercherai/backend/internal/growth/dto"
 	"sercherai/backend/internal/growth/model"
+	"sercherai/backend/internal/platform/utils"
 )
 
-func (h *AdminGrowthHandler) ListStrategySeedSets(c *gin.Context) {
-	page, pageSize := parsePage(c)
+type AdminStrategyHandler struct {
+	AdminBaseHandler
+}
+
+func NewAdminStrategyHandler(base *AdminBaseHandler) *AdminStrategyHandler {
+	return &AdminStrategyHandler{AdminBaseHandler: *base}
+}
+
+func (h *AdminStrategyHandler) ListStrategySeedSets(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListStrategySeedSets(c.Query("target_type"), c.Query("status"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -22,7 +31,7 @@ func (h *AdminGrowthHandler) ListStrategySeedSets(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) CreateStrategySeedSet(c *gin.Context) {
+func (h *AdminStrategyHandler) CreateStrategySeedSet(c *gin.Context) {
 	var req dto.StrategySeedSetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -47,7 +56,7 @@ func (h *AdminGrowthHandler) CreateStrategySeedSet(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
 }
 
-func (h *AdminGrowthHandler) UpdateStrategySeedSet(c *gin.Context) {
+func (h *AdminStrategyHandler) UpdateStrategySeedSet(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	var req dto.StrategySeedSetRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -76,8 +85,8 @@ func (h *AdminGrowthHandler) UpdateStrategySeedSet(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
-func (h *AdminGrowthHandler) ListStrategyAgentProfiles(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminStrategyHandler) ListStrategyAgentProfiles(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListStrategyAgentProfiles(c.Query("target_type"), c.Query("status"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -86,7 +95,7 @@ func (h *AdminGrowthHandler) ListStrategyAgentProfiles(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) CreateStrategyAgentProfile(c *gin.Context) {
+func (h *AdminStrategyHandler) CreateStrategyAgentProfile(c *gin.Context) {
 	var req dto.StrategyAgentProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -115,7 +124,7 @@ func (h *AdminGrowthHandler) CreateStrategyAgentProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
 }
 
-func (h *AdminGrowthHandler) UpdateStrategyAgentProfile(c *gin.Context) {
+func (h *AdminStrategyHandler) UpdateStrategyAgentProfile(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	var req dto.StrategyAgentProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -148,8 +157,8 @@ func (h *AdminGrowthHandler) UpdateStrategyAgentProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
-func (h *AdminGrowthHandler) ListStrategyScenarioTemplates(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminStrategyHandler) ListStrategyScenarioTemplates(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListStrategyScenarioTemplates(c.Query("target_type"), c.Query("status"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -158,7 +167,7 @@ func (h *AdminGrowthHandler) ListStrategyScenarioTemplates(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) CreateStrategyScenarioTemplate(c *gin.Context) {
+func (h *AdminStrategyHandler) CreateStrategyScenarioTemplate(c *gin.Context) {
 	var req dto.StrategyScenarioTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -194,7 +203,7 @@ func (h *AdminGrowthHandler) CreateStrategyScenarioTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
 }
 
-func (h *AdminGrowthHandler) UpdateStrategyScenarioTemplate(c *gin.Context) {
+func (h *AdminStrategyHandler) UpdateStrategyScenarioTemplate(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	var req dto.StrategyScenarioTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -234,8 +243,8 @@ func (h *AdminGrowthHandler) UpdateStrategyScenarioTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
-func (h *AdminGrowthHandler) ListStrategyPublishPolicies(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminStrategyHandler) ListStrategyPublishPolicies(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListStrategyPublishPolicies(c.Query("target_type"), c.Query("status"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -244,7 +253,7 @@ func (h *AdminGrowthHandler) ListStrategyPublishPolicies(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) CreateStrategyPublishPolicy(c *gin.Context) {
+func (h *AdminStrategyHandler) CreateStrategyPublishPolicy(c *gin.Context) {
 	var req dto.StrategyPublishPolicyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -273,7 +282,7 @@ func (h *AdminGrowthHandler) CreateStrategyPublishPolicy(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
 }
 
-func (h *AdminGrowthHandler) UpdateStrategyPublishPolicy(c *gin.Context) {
+func (h *AdminStrategyHandler) UpdateStrategyPublishPolicy(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	var req dto.StrategyPublishPolicyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -306,8 +315,8 @@ func (h *AdminGrowthHandler) UpdateStrategyPublishPolicy(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
 
-func (h *AdminGrowthHandler) ListStrategyEngineJobs(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminStrategyHandler) ListStrategyEngineJobs(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListStrategyEngineJobs(c.Query("job_type"), c.Query("status"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -316,7 +325,7 @@ func (h *AdminGrowthHandler) ListStrategyEngineJobs(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) GetStrategyEngineJob(c *gin.Context) {
+func (h *AdminStrategyHandler) GetStrategyEngineJob(c *gin.Context) {
 	jobID := strings.TrimSpace(c.Param("job_id"))
 	if jobID == "" {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "job_id is required", Data: struct{}{}})
@@ -334,7 +343,7 @@ func (h *AdminGrowthHandler) GetStrategyEngineJob(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) PublishStrategyEngineJob(c *gin.Context) {
+func (h *AdminStrategyHandler) PublishStrategyEngineJob(c *gin.Context) {
 	jobID := strings.TrimSpace(c.Param("job_id"))
 	if jobID == "" {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "job_id is required", Data: struct{}{}})

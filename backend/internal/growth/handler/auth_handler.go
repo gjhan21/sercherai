@@ -1549,6 +1549,57 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	}))
 }
 
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "auth db unavailable", Data: struct{}{}})
+		return
+	}
+	userID, _ := c.Get("user_id")
+	uid, ok := userID.(string)
+	if !ok || uid == "" {
+		c.JSON(http.StatusUnauthorized, dto.APIResponse{Code: 40101, Message: "unauthorized", Data: struct{}{}})
+		return
+	}
+	var req dto.ChangePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if req.NewPassword == "" || len(req.NewPassword) < 6 {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "新密码至少6位", Data: struct{}{}})
+		return
+	}
+	// Get current password hash
+	var storedHash string
+	err := h.db.QueryRow("SELECT password_hash FROM users WHERE id = ?", uid).Scan(&storedHash)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40404, Message: "user not found", Data: struct{}{}})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	// Verify old password
+	match, _ := verifyPassword(req.OldPassword, storedHash)
+	if !match {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40003, Message: "当前密码不正确", Data: struct{}{}})
+		return
+	}
+	// Hash new password and update
+	newHash, err := bcryptHash(req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	_, err = h.db.Exec("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", newHash, time.Now(), uid)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
 func (h *AuthHandler) loadUserByAccount(account string) (string, string, string, error) {
 	account = strings.TrimSpace(account)
 	if account == "" {

@@ -1,16 +1,34 @@
 package handler
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/csv"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"sercherai/backend/internal/growth/dto"
 	"sercherai/backend/internal/growth/model"
+	"sercherai/backend/internal/growth/swarm"
+	"sercherai/backend/internal/platform/config"
+	"sercherai/backend/internal/platform/llm"
+	"sercherai/backend/internal/platform/utils"
 )
+
+type AdminStockSelectionHandler struct {
+	AdminBaseHandler
+}
+
+func NewAdminStockSelectionHandler(base *AdminBaseHandler) *AdminStockSelectionHandler {
+	return &AdminStockSelectionHandler{AdminBaseHandler: *base}
+}
 
 type adminStockSelectionRunRequest struct {
 	TradeDate                string `json:"trade_date"`
@@ -72,7 +90,7 @@ type adminStockEventReviewRequest struct {
 	ReviewMetadata map[string]any `json:"review_metadata"`
 }
 
-func (h *AdminGrowthHandler) GetStockSelectionOverview(c *gin.Context) {
+func (h *AdminStockSelectionHandler) GetStockSelectionOverview(c *gin.Context) {
 	data, err := h.service.AdminGetStockSelectionOverview()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -81,8 +99,8 @@ func (h *AdminGrowthHandler) GetStockSelectionOverview(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(data))
 }
 
-func (h *AdminGrowthHandler) ListStockEventClusters(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminStockSelectionHandler) ListStockEventClusters(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListStockEventClusters(model.StockEventQuery{
 		ReviewStatus:   c.Query("review_status"),
 		EventType:      c.Query("event_type"),
@@ -100,7 +118,7 @@ func (h *AdminGrowthHandler) ListStockEventClusters(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) GetStockEventCluster(c *gin.Context) {
+func (h *AdminStockSelectionHandler) GetStockEventCluster(c *gin.Context) {
 	item, err := h.service.AdminGetStockEventCluster(c.Param("id"))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -113,7 +131,7 @@ func (h *AdminGrowthHandler) GetStockEventCluster(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) ReviewStockEventCluster(c *gin.Context) {
+func (h *AdminStockSelectionHandler) ReviewStockEventCluster(c *gin.Context) {
 	var req adminStockEventReviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -141,8 +159,8 @@ func (h *AdminGrowthHandler) ReviewStockEventCluster(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) ListStockSelectionRuns(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminStockSelectionHandler) ListStockSelectionRuns(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListStockSelectionRuns(c.Query("status"), c.Query("review_status"), c.Query("profile_id"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -151,7 +169,7 @@ func (h *AdminGrowthHandler) ListStockSelectionRuns(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) CreateStockSelectionRun(c *gin.Context) {
+func (h *AdminStockSelectionHandler) CreateStockSelectionRun(c *gin.Context) {
 	var req adminStockSelectionRunRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -172,7 +190,7 @@ func (h *AdminGrowthHandler) CreateStockSelectionRun(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) GetStockSelectionRun(c *gin.Context) {
+func (h *AdminStockSelectionHandler) GetStockSelectionRun(c *gin.Context) {
 	item, err := h.service.AdminGetStockSelectionRun(c.Param("run_id"))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -185,7 +203,7 @@ func (h *AdminGrowthHandler) GetStockSelectionRun(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) CompareStockSelectionRuns(c *gin.Context) {
+func (h *AdminStockSelectionHandler) CompareStockSelectionRuns(c *gin.Context) {
 	raw := strings.TrimSpace(c.Query("run_ids"))
 	if raw == "" {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "run_ids is required", Data: struct{}{}})
@@ -207,8 +225,8 @@ func (h *AdminGrowthHandler) CompareStockSelectionRuns(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(data))
 }
 
-func (h *AdminGrowthHandler) ListStockSelectionProfiles(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminStockSelectionHandler) ListStockSelectionProfiles(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListStockSelectionProfiles(c.Query("status"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -217,7 +235,7 @@ func (h *AdminGrowthHandler) ListStockSelectionProfiles(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) ListStockSelectionProfileVersions(c *gin.Context) {
+func (h *AdminStockSelectionHandler) ListStockSelectionProfileVersions(c *gin.Context) {
 	items, err := h.service.AdminListStockSelectionProfileVersions(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -226,7 +244,7 @@ func (h *AdminGrowthHandler) ListStockSelectionProfileVersions(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func (h *AdminGrowthHandler) CreateStockSelectionProfile(c *gin.Context) {
+func (h *AdminStockSelectionHandler) CreateStockSelectionProfile(c *gin.Context) {
 	var req adminStockSelectionProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -241,7 +259,7 @@ func (h *AdminGrowthHandler) CreateStockSelectionProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) UpdateStockSelectionProfile(c *gin.Context) {
+func (h *AdminStockSelectionHandler) UpdateStockSelectionProfile(c *gin.Context) {
 	var req adminStockSelectionProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -260,7 +278,7 @@ func (h *AdminGrowthHandler) UpdateStockSelectionProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) PublishStockSelectionProfile(c *gin.Context) {
+func (h *AdminStockSelectionHandler) PublishStockSelectionProfile(c *gin.Context) {
 	operator := currentAdminOperator(c)
 	item, err := h.service.AdminPublishStockSelectionProfile(c.Param("id"), operator)
 	if err != nil {
@@ -274,7 +292,7 @@ func (h *AdminGrowthHandler) PublishStockSelectionProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) RollbackStockSelectionProfile(c *gin.Context) {
+func (h *AdminStockSelectionHandler) RollbackStockSelectionProfile(c *gin.Context) {
 	var req adminStockSelectionRollbackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -293,7 +311,7 @@ func (h *AdminGrowthHandler) RollbackStockSelectionProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) ListStockSelectionRunCandidates(c *gin.Context) {
+func (h *AdminStockSelectionHandler) ListStockSelectionRunCandidates(c *gin.Context) {
 	items, err := h.service.AdminListStockSelectionRunCandidates(c.Param("run_id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -313,7 +331,7 @@ func (h *AdminGrowthHandler) ListStockSelectionRunCandidates(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": filtered}))
 }
 
-func (h *AdminGrowthHandler) ListStockSelectionRunPortfolio(c *gin.Context) {
+func (h *AdminStockSelectionHandler) ListStockSelectionRunPortfolio(c *gin.Context) {
 	items, err := h.service.AdminListStockSelectionRunPortfolio(c.Param("run_id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -322,7 +340,7 @@ func (h *AdminGrowthHandler) ListStockSelectionRunPortfolio(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func (h *AdminGrowthHandler) ListStockSelectionRunEvidence(c *gin.Context) {
+func (h *AdminStockSelectionHandler) ListStockSelectionRunEvidence(c *gin.Context) {
 	items, err := h.service.AdminListStockSelectionRunEvidence(c.Param("run_id"), c.Query("symbol"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -331,7 +349,7 @@ func (h *AdminGrowthHandler) ListStockSelectionRunEvidence(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func (h *AdminGrowthHandler) ListStockSelectionRunEvaluations(c *gin.Context) {
+func (h *AdminStockSelectionHandler) ListStockSelectionRunEvaluations(c *gin.Context) {
 	items, err := h.service.AdminListStockSelectionRunEvaluations(c.Param("run_id"), c.Query("symbol"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -340,8 +358,8 @@ func (h *AdminGrowthHandler) ListStockSelectionRunEvaluations(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func (h *AdminGrowthHandler) ListStockSelectionProfileTemplates(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminStockSelectionHandler) ListStockSelectionProfileTemplates(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListStockSelectionProfileTemplates(c.Query("status"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -350,7 +368,7 @@ func (h *AdminGrowthHandler) ListStockSelectionProfileTemplates(c *gin.Context) 
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) CreateStockSelectionProfileTemplate(c *gin.Context) {
+func (h *AdminStockSelectionHandler) CreateStockSelectionProfileTemplate(c *gin.Context) {
 	var req adminStockSelectionTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -364,7 +382,7 @@ func (h *AdminGrowthHandler) CreateStockSelectionProfileTemplate(c *gin.Context)
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) UpdateStockSelectionProfileTemplate(c *gin.Context) {
+func (h *AdminStockSelectionHandler) UpdateStockSelectionProfileTemplate(c *gin.Context) {
 	var req adminStockSelectionTemplateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -382,7 +400,7 @@ func (h *AdminGrowthHandler) UpdateStockSelectionProfileTemplate(c *gin.Context)
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) SetDefaultStockSelectionProfileTemplate(c *gin.Context) {
+func (h *AdminStockSelectionHandler) SetDefaultStockSelectionProfileTemplate(c *gin.Context) {
 	item, err := h.service.AdminSetDefaultStockSelectionProfileTemplate(c.Param("id"), currentAdminOperator(c))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -395,7 +413,7 @@ func (h *AdminGrowthHandler) SetDefaultStockSelectionProfileTemplate(c *gin.Cont
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) ListStockSelectionEvaluationLeaderboard(c *gin.Context) {
+func (h *AdminStockSelectionHandler) ListStockSelectionEvaluationLeaderboard(c *gin.Context) {
 	items, err := h.service.AdminListStockSelectionEvaluationLeaderboard(c.Query("template_id"), c.Query("profile_id"), c.Query("market_regime"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -404,8 +422,8 @@ func (h *AdminGrowthHandler) ListStockSelectionEvaluationLeaderboard(c *gin.Cont
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func (h *AdminGrowthHandler) ListStockSelectionReviews(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminStockSelectionHandler) ListStockSelectionReviews(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListStockSelectionReviews(c.Query("status"), page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -414,7 +432,7 @@ func (h *AdminGrowthHandler) ListStockSelectionReviews(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) ApproveStockSelectionReview(c *gin.Context) {
+func (h *AdminStockSelectionHandler) ApproveStockSelectionReview(c *gin.Context) {
 	var req adminStockSelectionApproveRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -440,7 +458,7 @@ func (h *AdminGrowthHandler) ApproveStockSelectionReview(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) RejectStockSelectionReview(c *gin.Context) {
+func (h *AdminStockSelectionHandler) RejectStockSelectionReview(c *gin.Context) {
 	var req adminStockSelectionRejectRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -455,14 +473,267 @@ func (h *AdminGrowthHandler) RejectStockSelectionReview(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func currentAdminOperator(c *gin.Context) string {
-	if value, ok := c.Get("user_id"); ok {
-		if operator, ok := value.(string); ok && strings.TrimSpace(operator) != "" {
-			return strings.TrimSpace(operator)
+func (h *AdminStockSelectionHandler) ListStockRecommendations(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
+	status := c.Query("status")
+	items, total, err := h.service.AdminListStockRecommendations(status, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *AdminStockSelectionHandler) CreateStockRecommendation(c *gin.Context) {
+	var req dto.StockRecommendationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	validFrom, err := normalizeAdminDateTime(req.ValidFrom)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "valid_from " + err.Error(), Data: struct{}{}})
+		return
+	}
+	validTo, err := normalizeAdminDateTime(req.ValidTo)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "valid_to " + err.Error(), Data: struct{}{}})
+		return
+	}
+	operator := currentAdminOperator(c)
+	sourceType := strings.ToUpper(strings.TrimSpace(req.SourceType))
+	if sourceType == "" {
+		sourceType = "MANUAL"
+	}
+	performanceLabel := strings.ToUpper(strings.TrimSpace(req.PerformanceLabel))
+	if performanceLabel == "" {
+		performanceLabel = "PENDING"
+	}
+	strategyVersion := strings.TrimSpace(req.StrategyVersion)
+	if strategyVersion == "" {
+		strategyVersion = "manual-v1"
+	}
+	publisher := strings.TrimSpace(req.Publisher)
+	if publisher == "" {
+		publisher = operator
+	}
+	id, err := h.service.AdminCreateStockRecommendation(model.StockRecommendation{
+		Symbol:           req.Symbol,
+		Name:             req.Name,
+		Score:            req.Score,
+		RiskLevel:        req.RiskLevel,
+		PositionRange:    req.PositionRange,
+		ValidFrom:        validFrom,
+		ValidTo:          validTo,
+		Status:           req.Status,
+		ReasonSummary:    req.ReasonSummary,
+		SourceType:       sourceType,
+		StrategyVersion:  strategyVersion,
+		Reviewer:         strings.TrimSpace(req.Reviewer),
+		Publisher:        publisher,
+		ReviewNote:       strings.TrimSpace(req.ReviewNote),
+		PerformanceLabel: performanceLabel,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "STOCK", "CREATE_RECOMMENDATION", "STOCK_RECOMMENDATION", id, "", req.Status, req.Symbol)
+	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
+}
+
+func (h *AdminStockSelectionHandler) UpdateStockRecommendationStatus(c *gin.Context) {
+	id := c.Param("id")
+	var req dto.StockRecommendationStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := h.service.AdminUpdateStockRecommendationStatus(id, req.Status); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "STOCK", "UPDATE_RECOMMENDATION_STATUS", "STOCK_RECOMMENDATION", id, "", req.Status, "")
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AdminStockSelectionHandler) GenerateStockRecommendationAIReview(c *gin.Context) {
+	id := c.Param("id")
+
+	// Phase 8-A: 集成 MiroFish 群体智能推演引擎
+	cfg := config.Load()
+	
+	// 从管理端配置覆盖环境变量 (支持：llm.api_key, llm.base_url, llm.model_name)
+	if llmConfigs, _, err := h.service.AdminListSystemConfigs("llm.", 1, 50); err == nil {
+		for _, c := range llmConfigs {
+			val := strings.TrimSpace(c.ConfigValue)
+			if val == "" {
+				continue
+			}
+			switch c.ConfigKey {
+			case "llm.api_key":
+				cfg.LLMAPIKey = val
+			case "llm.base_url":
+				cfg.LLMBaseURL = val
+			case "llm.model_name":
+				cfg.LLMModelName = val
+			}
 		}
 	}
-	return "admin"
+	
+	llmClient := llm.NewClient(cfg)
+	engine := swarm.NewSimulationEngine(llmClient)
+
+	// 构造推演的事件背景（种子信息）
+	// TODO: 后续深度融合时，应从 h.service.GetStockRecommendationDetail 获取真实的标的异动原因、新闻流和财务数据
+	eventContext := fmt.Sprintf("标的 [ID: %s] 近期出现异常资金流入，且伴随行业利好政策传闻。由于部分指标已处于历史高位，市场产生较大分歧。请基于各自的立场给出观点。", id)
+
+	simResult, err := engine.Run(eventContext)
+	var generatedContent string
+	if err != nil {
+		generatedContent = fmt.Sprintf("【AI推演失败】原因：%v\n\n(请检查 LLM_API_KEY 配置及网络连接，当前为兜底Mock) 该标的在近期表现出强劲的趋势动量，主力资金持续净流入。短期内建议关注回撤风险，逢低可适当建仓。此复盘由 AI 自动生成，仅供参考。", err)
+	} else {
+		generatedContent = simResult.Summary
+	}
+
+	if err := h.service.AdminUpdateStockRecommendationAIReview(id, generatedContent); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "STOCK", "GENERATE_AI_REVIEW", "STOCK_RECOMMENDATION", id, "", "SUCCESS", "")
+	c.JSON(http.StatusOK, dto.OK(gin.H{"ai_review_content": generatedContent}))
 }
+
+func (h *AdminStockSelectionHandler) SyncStockQuotes(c *gin.Context) {
+	var req dto.StockQuoteSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	requestedSourceKey := strings.ToUpper(strings.TrimSpace(req.SourceKey))
+	sourceKey := requestedSourceKey
+	if sourceKey == "" {
+		sourceKey = h.resolveDefaultStockQuoteSourceKey()
+	}
+	if sourceKey == "" {
+		sourceKey = "MOCK"
+	}
+	days := req.Days
+	if days <= 0 {
+		days = 120
+	}
+	if days > 365 {
+		days = 365
+	}
+	symbols := normalizeStockSymbols(req.Symbols)
+	syncMode := normalizeStockQuoteSyncMode(req.SyncMode, symbols)
+
+	var (
+		result model.MarketSyncResult
+		err    error
+	)
+	if syncMode == "FULL_MARKET" {
+		result, err = h.service.AdminSyncStockQuotesFromMaster(sourceKey, days)
+	} else {
+		result, err = h.service.AdminSyncStockQuotesDetailed(sourceKey, symbols, days)
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	count := result.TruthCount
+	if count <= 0 {
+		count = result.BarCount
+	}
+	reason := fmt.Sprintf("days=%d,symbols=%d", days, len(symbols))
+	h.writeOperationLog(c, "STOCK", "SYNC_QUOTES", "STOCK_QUOTES", sourceKey, requestedSourceKey, "count="+strconv.Itoa(count), reason)
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"count":                count,
+		"source_key":           sourceKey,
+		"requested_source_key": requestedSourceKey,
+		"days":                 days,
+		"sync_mode":            syncMode,
+		"symbols":              symbols,
+		"result":               result,
+	}))
+}
+
+func (h *AdminStockSelectionHandler) SyncStockInstrumentMaster(c *gin.Context) {
+	var req dto.StockMasterSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	requestedSourceKey := strings.ToUpper(strings.TrimSpace(req.SourceKey))
+	sourceKey := requestedSourceKey
+	if sourceKey == "" {
+		sourceKey = h.resolveDefaultConfigValue("stock.master.default_source_key", "TUSHARE")
+	}
+	symbols := normalizeStockSymbols(req.Symbols)
+	result, err := h.service.AdminSyncStockInstrumentMaster(sourceKey, symbols)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	count := result.TruthCount
+	reason := fmt.Sprintf("symbols=%d", len(symbols))
+	h.writeOperationLog(c, "STOCK", "SYNC_INSTRUMENT_MASTER", "STOCK_MASTER", sourceKey, requestedSourceKey, "count="+strconv.Itoa(count), reason)
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"count":                count,
+		"source_key":           sourceKey,
+		"requested_source_key": requestedSourceKey,
+		"symbols":              symbols,
+		"result":               result,
+	}))
+}
+
+func (h *AdminStockSelectionHandler) ListQuantTopStocks(c *gin.Context) {
+	limit := 10
+	if parsed, err := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("limit", "10"))); err == nil && parsed > 0 {
+		limit = parsed
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	lookbackDays := 120
+	if parsed, err := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("lookback_days", "120"))); err == nil && parsed > 0 {
+		lookbackDays = parsed
+	}
+	if lookbackDays < 30 {
+		lookbackDays = 30
+	}
+	if lookbackDays > 365 {
+		lookbackDays = 365
+	}
+
+	items, err := h.service.AdminGetQuantTopStocks(limit, lookbackDays)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"items":         items,
+		"limit":         limit,
+		"lookback_days": lookbackDays,
+		"total":         len(items),
+	}))
+}
+
+func (h *AdminStockSelectionHandler) GenerateDailyStockRecommendations(c *gin.Context) {
+	tradeDate := strings.TrimSpace(c.Query("trade_date"))
+	if tradeDate == "" {
+		tradeDate = time.Now().Format("2006-01-02")
+	}
+	result, err := h.service.AdminGenerateDailyStockRecommendations(tradeDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "STOCK", "GENERATE_RECOMMENDATIONS", "DAILY_STOCK", tradeDate, "", "SUCCESS", strconv.Itoa(result.Count))
+	c.JSON(http.StatusOK, dto.OK(result))
+}
+
 
 func stockSelectionProfileFromRequest(req adminStockSelectionProfileRequest, operator string) model.StockSelectionProfile {
 	return model.StockSelectionProfile{
@@ -497,4 +768,181 @@ func stockSelectionTemplateFromRequest(req adminStockSelectionTemplateRequest, o
 		PublishDefaults:   req.PublishDefaults,
 		UpdatedBy:         operator,
 	}
+}
+
+func (h *AdminStockSelectionHandler) resolveDefaultStockQuoteSourceKey() string {
+	items, _, err := h.service.AdminListSystemConfigs("stock.quotes.default_source_key", 1, 10)
+	if err != nil || len(items) == 0 {
+		return "TUSHARE"
+	}
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item.ConfigKey), "stock.quotes.default_source_key") {
+			return strings.TrimSpace(item.ConfigValue)
+		}
+	}
+	return "TUSHARE"
+}
+
+func (h *AdminStockSelectionHandler) resolveDefaultConfigValue(configKey string, fallback string) string {
+	items, _, err := h.service.AdminListSystemConfigs(configKey, 1, 10)
+	if err != nil || len(items) == 0 {
+		return fallback
+	}
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item.ConfigKey), configKey) {
+			return strings.TrimSpace(item.ConfigValue)
+		}
+	}
+	return fallback
+}
+
+
+
+func (h *AdminStockSelectionHandler) ListQuantEvaluation(c *gin.Context) {
+	windowDays, topN := h.parseQuantEvaluationQuery(c)
+	summary, points, riskItems, rotationItems, err := h.service.AdminGetQuantEvaluation(windowDays, topN)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"summary":        summary,
+		"items":          points,
+		"risk_items":     riskItems,
+		"rotation_items": rotationItems,
+		"total":          len(points),
+	}))
+}
+
+func (h *AdminStockSelectionHandler) ExportQuantEvaluationCSV(c *gin.Context) {
+	windowDays, topN := h.parseQuantEvaluationQuery(c)
+	summary, points, riskItems, rotationItems, err := h.service.AdminGetQuantEvaluation(windowDays, topN)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
+	_ = writer.Write([]string{"section", "field", "value"})
+	_ = writer.Write([]string{"summary", "window_days", strconv.Itoa(summary.WindowDays)})
+	_ = writer.Write([]string{"summary", "top_n", strconv.Itoa(summary.TopN)})
+	_ = writer.Write([]string{"summary", "sample_days", strconv.Itoa(summary.SampleDays)})
+	_ = writer.Write([]string{"summary", "sample_count", strconv.Itoa(summary.SampleCount)})
+	_ = writer.Write([]string{"summary", "avg_return_5", fmt.Sprintf("%.6f", summary.AvgReturn5)})
+	_ = writer.Write([]string{"summary", "hit_rate_5", fmt.Sprintf("%.6f", summary.HitRate5)})
+	_ = writer.Write([]string{"summary", "max_drawdown_5", fmt.Sprintf("%.6f", summary.MaxDrawdown5)})
+	_ = writer.Write([]string{"summary", "avg_return_10", fmt.Sprintf("%.6f", summary.AvgReturn10)})
+	_ = writer.Write([]string{"summary", "hit_rate_10", fmt.Sprintf("%.6f", summary.HitRate10)})
+	_ = writer.Write([]string{"summary", "max_drawdown_10", fmt.Sprintf("%.6f", summary.MaxDrawdown10)})
+	_ = writer.Write([]string{"summary", "benchmark_avg_return_5", fmt.Sprintf("%.6f", summary.BenchmarkAvgReturn5)})
+	_ = writer.Write([]string{"summary", "benchmark_avg_return_10", fmt.Sprintf("%.6f", summary.BenchmarkAvgReturn10)})
+	_ = writer.Write([]string{"summary", "generated_at", summary.GeneratedAt})
+	_ = writer.Write([]string{})
+
+	_ = writer.Write([]string{
+		"points_trade_date",
+		"sample_count",
+		"avg_return_5",
+		"hit_rate_5",
+		"benchmark_return_5",
+		"avg_return_10",
+		"hit_rate_10",
+		"benchmark_return_10",
+		"cumulative_return_5",
+		"cumulative_benchmark_5",
+		"cumulative_excess_5",
+		"cumulative_return_10",
+		"cumulative_benchmark_10",
+		"cumulative_excess_10",
+	})
+	for _, item := range points {
+		_ = writer.Write([]string{
+			item.TradeDate,
+			strconv.Itoa(item.SampleCount),
+			fmt.Sprintf("%.6f", item.AvgReturn5),
+			fmt.Sprintf("%.6f", item.HitRate5),
+			fmt.Sprintf("%.6f", item.BenchmarkReturn),
+			fmt.Sprintf("%.6f", item.AvgReturn10),
+			fmt.Sprintf("%.6f", item.HitRate10),
+			fmt.Sprintf("%.6f", item.BenchmarkReturn10),
+			fmt.Sprintf("%.6f", item.CumulativeReturn5),
+			fmt.Sprintf("%.6f", item.CumulativeBenchmark5),
+			fmt.Sprintf("%.6f", item.CumulativeExcess5),
+			fmt.Sprintf("%.6f", item.CumulativeReturn10),
+			fmt.Sprintf("%.6f", item.CumulativeBenchmark10),
+			fmt.Sprintf("%.6f", item.CumulativeExcess10),
+		})
+	}
+	_ = writer.Write([]string{})
+
+	_ = writer.Write([]string{"risk_level", "sample_count", "avg_return_5", "hit_rate_5", "avg_return_10", "hit_rate_10"})
+	for _, item := range riskItems {
+		_ = writer.Write([]string{
+			item.RiskLevel,
+			strconv.Itoa(item.SampleCount),
+			fmt.Sprintf("%.6f", item.AvgReturn5),
+			fmt.Sprintf("%.6f", item.HitRate5),
+			fmt.Sprintf("%.6f", item.AvgReturn10),
+			fmt.Sprintf("%.6f", item.HitRate10),
+		})
+	}
+	_ = writer.Write([]string{})
+
+	_ = writer.Write([]string{"rotation_trade_date", "top_symbols", "entered", "exited", "stayed_count", "changed_count"})
+	for _, item := range rotationItems {
+		_ = writer.Write([]string{
+			item.TradeDate,
+			strings.Join(item.TopSymbols, "|"),
+			strings.Join(item.Entered, "|"),
+			strings.Join(item.Exited, "|"),
+			strconv.Itoa(item.StayedCount),
+			strconv.Itoa(item.ChangedCount),
+		})
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	fileName := fmt.Sprintf("stock_quant_evaluation_%dd_top%d.csv", windowDays, topN)
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", "attachment; filename="+fileName)
+	c.String(http.StatusOK, buf.String())
+}
+
+func (h *AdminStockSelectionHandler) parseQuantEvaluationQuery(c *gin.Context) (int, int) {
+	windowDays := 60
+	if parsed, err := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("days", "60"))); err == nil && parsed > 0 {
+		windowDays = parsed
+	}
+	if windowDays < 20 {
+		windowDays = 20
+	}
+	if windowDays > 365 {
+		windowDays = 365
+	}
+	topN := 10
+	if parsed, err := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("top_n", "10"))); err == nil && parsed > 0 {
+		topN = parsed
+	}
+	if topN < 1 {
+		topN = 1
+	}
+	if topN > 30 {
+		topN = 30
+	}
+	return windowDays, topN
+}
+
+func normalizeStockQuoteSyncMode(raw string, symbols []string) string {
+	mode := strings.ToUpper(strings.TrimSpace(raw))
+	if mode == "FULL_MARKET" {
+		return "FULL_MARKET"
+	}
+	if len(symbols) > 0 {
+		return "DETAILED"
+	}
+	return "FULL_MARKET"
 }

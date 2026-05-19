@@ -342,6 +342,10 @@ export function syncMarketDataMaster(payload) {
   return http.post("/admin/market-data/master/sync", payload, SYNC_REQUEST_CONFIG);
 }
 
+export function generateStockReview(id) {
+  return http.post(`/admin/stocks/recommendations/${encodeURIComponent(id)}/generate-review`);
+}
+
 export function syncMarketDataQuotes(payload) {
   return http.post("/admin/market-data/quotes/sync", payload, SYNC_REQUEST_CONFIG);
 }
@@ -775,6 +779,18 @@ export function syncStockInstrumentMaster(payload) {
 
 export function syncStockQuotes(payload) {
   return http.post("/admin/stocks/quotes/sync", payload, SYNC_REQUEST_CONFIG);
+}
+
+export function fullSyncStockQuotes() {
+  return http.post("/admin/stocks/quotes/full-sync", {}, { timeout: 5000 });
+}
+
+export function incrementalSyncStockQuotes() {
+  return http.post("/admin/stocks/quotes/incremental-sync", {}, { timeout: 5000 });
+}
+
+export function getStockSyncProgress() {
+  return http.get("/admin/stocks/quotes/sync-progress", { timeout: 5000 });
 }
 
 export function syncFuturesQuotes(payload) {

@@ -13,10 +13,19 @@ import (
 
 	"sercherai/backend/internal/growth/dto"
 	"sercherai/backend/internal/growth/model"
+	"sercherai/backend/internal/platform/utils"
 )
 
-func (h *AdminGrowthHandler) ListMarketDataQualityLogs(c *gin.Context) {
-	page, pageSize := parsePage(c)
+type AdminMarketDataHandler struct {
+	AdminBaseHandler
+}
+
+func NewAdminMarketDataHandler(base *AdminBaseHandler) *AdminMarketDataHandler {
+	return &AdminMarketDataHandler{AdminBaseHandler: *base}
+}
+
+func (h *AdminMarketDataHandler) ListMarketDataQualityLogs(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	hours := 0
 	if raw := strings.TrimSpace(c.Query("hours")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
@@ -42,7 +51,7 @@ func (h *AdminGrowthHandler) ListMarketDataQualityLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) GetMarketDataQualitySummary(c *gin.Context) {
+func (h *AdminMarketDataHandler) GetMarketDataQualitySummary(c *gin.Context) {
 	hours := 24
 	if raw := strings.TrimSpace(c.Query("hours")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
@@ -60,7 +69,7 @@ func (h *AdminGrowthHandler) GetMarketDataQualitySummary(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) GetMarketProviderGovernanceOverview(c *gin.Context) {
+func (h *AdminMarketDataHandler) GetMarketProviderGovernanceOverview(c *gin.Context) {
 	hours := 24
 	if raw := strings.TrimSpace(c.Query("hours")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
@@ -78,7 +87,7 @@ func (h *AdminGrowthHandler) GetMarketProviderGovernanceOverview(c *gin.Context)
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) ListMarketProviderCapabilities(c *gin.Context) {
+func (h *AdminMarketDataHandler) ListMarketProviderCapabilities(c *gin.Context) {
 	items, err := h.service.AdminListMarketProviderCapabilities(
 		c.Query("provider_key"),
 		c.Query("asset_class"),
@@ -91,7 +100,7 @@ func (h *AdminGrowthHandler) ListMarketProviderCapabilities(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func (h *AdminGrowthHandler) ListMarketProviderRoutingPolicies(c *gin.Context) {
+func (h *AdminMarketDataHandler) ListMarketProviderRoutingPolicies(c *gin.Context) {
 	items, err := h.service.AdminListMarketProviderRoutingPolicies(c.Query("asset_class"), c.Query("data_kind"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -100,7 +109,7 @@ func (h *AdminGrowthHandler) ListMarketProviderRoutingPolicies(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func (h *AdminGrowthHandler) UpdateMarketProviderRoutingPolicy(c *gin.Context) {
+func (h *AdminMarketDataHandler) UpdateMarketProviderRoutingPolicy(c *gin.Context) {
 	policyKey := strings.TrimSpace(c.Param("policy_key"))
 	if policyKey == "" {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "policy_key is required", Data: struct{}{}})
@@ -123,7 +132,142 @@ func (h *AdminGrowthHandler) UpdateMarketProviderRoutingPolicy(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) CreateMarketDataBackfillRun(c *gin.Context) {
+func (h *AdminMarketDataHandler) ListMarketEvents(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
+	eventType := strings.TrimSpace(c.Query("event_type"))
+	symbol := strings.TrimSpace(c.Query("symbol"))
+	items, total, err := h.service.AdminListMarketEvents(eventType, symbol, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *AdminMarketDataHandler) ListMarketRhythmTasks(c *gin.Context) {
+	taskDate := strings.TrimSpace(c.DefaultQuery("date", time.Now().Format("2006-01-02")))
+	items, err := h.service.AdminListMarketRhythmTasks(taskDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"date": taskDate, "items": items}))
+}
+
+func (h *AdminMarketDataHandler) EnsureMarketRhythmTasks(c *gin.Context) {
+	var req dto.MarketRhythmTaskEnsureRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	items, err := h.service.AdminEnsureMarketRhythmTasks(req.Date)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MARKET", "ENSURE_RHYTHM_TASKS", "MARKET_RHYTHM", req.Date, "", req.Date, "")
+	c.JSON(http.StatusOK, dto.OK(gin.H{"date": req.Date, "items": items}))
+}
+
+func (h *AdminMarketDataHandler) UpdateMarketRhythmTask(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "task id required", Data: struct{}{}})
+		return
+	}
+	var req dto.MarketRhythmTaskUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	item, err := h.service.AdminUpdateMarketRhythmTask(id, req.Owner, req.Notes, req.SourceLinks, req.Status)
+	if err != nil {
+		if errors.Is(err, utils.ErrNotFound) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "market rhythm task not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MARKET", "UPDATE_RHYTHM_TASK", "MARKET_RHYTHM", id, "", item.Status, item.TaskKey)
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminMarketDataHandler) UpdateMarketRhythmTaskStatus(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "task id required", Data: struct{}{}})
+		return
+	}
+	var req dto.MarketRhythmTaskStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	item, err := h.service.AdminUpdateMarketRhythmTaskStatus(id, req.Status, req.Owner, req.Notes)
+	if err != nil {
+		if errors.Is(err, utils.ErrNotFound) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "market rhythm task not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MARKET", "UPDATE_RHYTHM_TASK_STATUS", "MARKET_RHYTHM", id, "", item.Status, item.TaskKey)
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
+func (h *AdminMarketDataHandler) CreateMarketEvent(c *gin.Context) {
+	var req dto.MarketEventRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	id, err := h.service.AdminCreateMarketEvent(model.MarketEvent{
+		EventType:   req.EventType,
+		Symbol:      req.Symbol,
+		Summary:     req.Summary,
+		TriggerRule: req.TriggerRule,
+		Source:      req.Source,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MARKET", "CREATE_EVENT", "MARKET_EVENT", id, "", strings.ToUpper(strings.TrimSpace(req.EventType)), req.Symbol)
+	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
+}
+
+func (h *AdminMarketDataHandler) UpdateMarketEvent(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "event id required", Data: struct{}{}})
+		return
+	}
+	var req dto.MarketEventRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := h.service.AdminUpdateMarketEvent(id, model.MarketEvent{
+		EventType:   req.EventType,
+		Symbol:      req.Symbol,
+		Summary:     req.Summary,
+		TriggerRule: req.TriggerRule,
+		Source:      req.Source,
+	}); err != nil {
+		if errors.Is(err, utils.ErrNotFound) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "market event not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MARKET", "UPDATE_EVENT", "MARKET_EVENT", id, "", strings.ToUpper(strings.TrimSpace(req.EventType)), req.Symbol)
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AdminMarketDataHandler) CreateMarketDataBackfillRun(c *gin.Context) {
 	var req dto.MarketDataBackfillRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -160,8 +304,8 @@ func (h *AdminGrowthHandler) CreateMarketDataBackfillRun(c *gin.Context) {
 	}))
 }
 
-func (h *AdminGrowthHandler) ListMarketDataBackfillRuns(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminMarketDataHandler) ListMarketDataBackfillRuns(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListMarketDataBackfillRuns(
 		c.Query("status"),
 		c.Query("run_type"),
@@ -177,7 +321,7 @@ func (h *AdminGrowthHandler) ListMarketDataBackfillRuns(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) GetMarketDataBackfillRun(c *gin.Context) {
+func (h *AdminMarketDataHandler) GetMarketDataBackfillRun(c *gin.Context) {
 	item, err := h.service.AdminGetMarketDataBackfillRun(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -186,8 +330,8 @@ func (h *AdminGrowthHandler) GetMarketDataBackfillRun(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) ListMarketDataBackfillRunDetails(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminMarketDataHandler) ListMarketDataBackfillRunDetails(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListMarketDataBackfillRunDetails(
 		c.Param("id"),
 		c.Query("stage"),
@@ -203,7 +347,7 @@ func (h *AdminGrowthHandler) ListMarketDataBackfillRunDetails(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) RetryMarketDataBackfillRun(c *gin.Context) {
+func (h *AdminMarketDataHandler) RetryMarketDataBackfillRun(c *gin.Context) {
 	var req dto.MarketDataBackfillRetryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -230,8 +374,8 @@ func (h *AdminGrowthHandler) RetryMarketDataBackfillRun(c *gin.Context) {
 	}))
 }
 
-func (h *AdminGrowthHandler) ListMarketUniverseSnapshots(c *gin.Context) {
-	page, pageSize := parsePage(c)
+func (h *AdminMarketDataHandler) ListMarketUniverseSnapshots(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListMarketUniverseSnapshots(page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -240,7 +384,7 @@ func (h *AdminGrowthHandler) ListMarketUniverseSnapshots(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
-func (h *AdminGrowthHandler) GetMarketUniverseSnapshot(c *gin.Context) {
+func (h *AdminMarketDataHandler) GetMarketUniverseSnapshot(c *gin.Context) {
 	snapshot, items, err := h.service.AdminGetMarketUniverseSnapshot(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -249,7 +393,7 @@ func (h *AdminGrowthHandler) GetMarketUniverseSnapshot(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"snapshot": snapshot, "items": items}))
 }
 
-func (h *AdminGrowthHandler) GetMarketCoverageSummary(c *gin.Context) {
+func (h *AdminMarketDataHandler) GetMarketCoverageSummary(c *gin.Context) {
 	item, err := h.service.AdminGetMarketCoverageSummary()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -258,7 +402,7 @@ func (h *AdminGrowthHandler) GetMarketCoverageSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) SyncMarketDataMaster(c *gin.Context) {
+func (h *AdminMarketDataHandler) SyncMarketDataMaster(c *gin.Context) {
 	var req dto.MarketDataSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -293,7 +437,7 @@ func (h *AdminGrowthHandler) SyncMarketDataMaster(c *gin.Context) {
 	}))
 }
 
-func (h *AdminGrowthHandler) SyncMarketDataQuotes(c *gin.Context) {
+func (h *AdminMarketDataHandler) SyncMarketDataQuotes(c *gin.Context) {
 	var req dto.MarketDataSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -328,7 +472,7 @@ func (h *AdminGrowthHandler) SyncMarketDataQuotes(c *gin.Context) {
 	}))
 }
 
-func (h *AdminGrowthHandler) SyncMarketDataDailyBasic(c *gin.Context) {
+func (h *AdminMarketDataHandler) SyncMarketDataDailyBasic(c *gin.Context) {
 	var req dto.MarketDataSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -363,7 +507,7 @@ func (h *AdminGrowthHandler) SyncMarketDataDailyBasic(c *gin.Context) {
 	}))
 }
 
-func (h *AdminGrowthHandler) SyncMarketDataMoneyflow(c *gin.Context) {
+func (h *AdminMarketDataHandler) SyncMarketDataMoneyflow(c *gin.Context) {
 	var req dto.MarketDataSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -398,7 +542,7 @@ func (h *AdminGrowthHandler) SyncMarketDataMoneyflow(c *gin.Context) {
 	}))
 }
 
-func (h *AdminGrowthHandler) RebuildMarketDataTruth(c *gin.Context) {
+func (h *AdminMarketDataHandler) RebuildMarketDataTruth(c *gin.Context) {
 	var req dto.MarketDataSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -434,7 +578,7 @@ func (h *AdminGrowthHandler) RebuildMarketDataTruth(c *gin.Context) {
 	}))
 }
 
-func (h *AdminGrowthHandler) GetMarketDerivedTruthSummary(c *gin.Context) {
+func (h *AdminMarketDataHandler) GetMarketDerivedTruthSummary(c *gin.Context) {
 	assetClass := strings.TrimSpace(c.Query("asset_class"))
 	if assetClass == "" {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "asset_class is required", Data: struct{}{}})
@@ -448,15 +592,15 @@ func (h *AdminGrowthHandler) GetMarketDerivedTruthSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(item))
 }
 
-func (h *AdminGrowthHandler) RebuildStockDerivedTruth(c *gin.Context) {
+func (h *AdminMarketDataHandler) RebuildStockDerivedTruth(c *gin.Context) {
 	h.rebuildMarketDerivedTruth(c, "STOCK", "STOCK", "REBUILD_DERIVED_TRUTH", "STOCK_QUOTES")
 }
 
-func (h *AdminGrowthHandler) RebuildFuturesDerivedTruth(c *gin.Context) {
+func (h *AdminMarketDataHandler) RebuildFuturesDerivedTruth(c *gin.Context) {
 	h.rebuildMarketDerivedTruth(c, "FUTURES", "FUTURES", "REBUILD_DERIVED_TRUTH", "FUTURES_QUOTES")
 }
 
-func (h *AdminGrowthHandler) rebuildMarketDerivedTruth(c *gin.Context, assetClass string, module string, action string, targetType string) {
+func (h *AdminMarketDataHandler) rebuildMarketDerivedTruth(c *gin.Context, assetClass string, module string, action string, targetType string) {
 	var req dto.MarketDerivedTruthRebuildRequest
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -509,22 +653,6 @@ func normalizeMarketStageAssetScope(values []string) []string {
 	return items
 }
 
-func normalizeMarketStageSymbols(values []string) []string {
-	seen := make(map[string]struct{}, len(values))
-	items := make([]string, 0, len(values))
-	for _, value := range values {
-		normalized := strings.ToUpper(strings.TrimSpace(value))
-		if normalized == "" {
-			continue
-		}
-		if _, ok := seen[normalized]; ok {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		items = append(items, normalized)
-	}
-	return items
-}
 
 func marketStageInstrumentKeysFromItems(items []model.MarketUniverseSnapshotItem) []string {
 	result := make([]string, 0, len(items))
@@ -601,7 +729,7 @@ func normalizeMarketTruthDateRange(req dto.MarketDataSyncRequest) (string, strin
 	return from.Format("2006-01-02"), to.Format("2006-01-02")
 }
 
-func (h *AdminGrowthHandler) resolveMarketStageSyncContext(req dto.MarketDataSyncRequest, defaultSourceKey string, operator string) (model.MarketUniverseSnapshot, map[string][]model.MarketUniverseSnapshotItem, []string, string, error) {
+func (h *AdminMarketDataHandler) resolveMarketStageSyncContext(req dto.MarketDataSyncRequest, defaultSourceKey string, operator string) (model.MarketUniverseSnapshot, map[string][]model.MarketUniverseSnapshotItem, []string, string, error) {
 	normalizedSourceKey := strings.ToUpper(strings.TrimSpace(req.SourceKey))
 	if normalizedSourceKey == "" {
 		normalizedSourceKey = strings.ToUpper(strings.TrimSpace(defaultSourceKey))

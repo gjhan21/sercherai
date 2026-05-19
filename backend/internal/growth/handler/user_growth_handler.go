@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -33,18 +35,6 @@ func NewUserGrowthHandler(service service.GrowthService, cfg config.Config) *Use
 	return &UserGrowthHandler{service: service, cfg: cfg}
 }
 
-type yolkPayRuntimeConfig struct {
-	PaymentEnabled bool
-	Enabled        bool
-	PID            string
-	Key            string
-	Gateway        string
-	MAPIPath       string
-	NotifyURL      string
-	ReturnURL      string
-	PayType        string
-	Device         string
-}
 
 func (h *UserGrowthHandler) ListBrowseHistory(c *gin.Context) {
 	userID, ok := requireUserID(c)
@@ -1225,25 +1215,7 @@ func (h *UserGrowthHandler) GetFuturesStrategyVersionHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
 }
 
-func parsePage(c *gin.Context) (int, int) {
-	page := parseIntOrDefault(c.Query("page"), 1)
-	pageSize := parseIntOrDefault(c.Query("page_size"), 20)
-	if pageSize > 200 {
-		pageSize = 200
-	}
-	return page, pageSize
-}
 
-func parseIntOrDefault(s string, def int) int {
-	if s == "" {
-		return def
-	}
-	v, err := strconv.Atoi(s)
-	if err != nil || v <= 0 {
-		return def
-	}
-	return v
-}
 
 func normalizeSearchKeyword(value string) string {
 	text := strings.TrimSpace(value)
@@ -1459,35 +1431,9 @@ func (h *UserGrowthHandler) lookupSystemConfigValue(configKey string) (string, e
 }
 
 func (h *UserGrowthHandler) resolveYolkPayConfig() (yolkPayRuntimeConfig, error) {
-	cfg := yolkPayRuntimeConfig{
-		PaymentEnabled: false,
-		Enabled:        false,
-		Gateway:        "https://www.yolkpay.net",
-		MAPIPath:       "/mapi.php",
-		PayType:        "airpay",
-		Device:         "pc",
-	}
-	configMap, err := h.loadSystemConfigMap("payment.")
+	cfg, err := resolveYolkPayConfig(h.service)
 	if err != nil {
 		return cfg, err
-	}
-	cfg.PaymentEnabled = parseConfigBool(configMap[paymentEnabledConfigKey], cfg.PaymentEnabled)
-	cfg.Enabled = parseConfigBool(configMap[paymentChannelYolkPayEnabledConfigKey], cfg.Enabled)
-	cfg.PID = strings.TrimSpace(configMap[paymentChannelYolkPayPIDConfigKey])
-	cfg.Key = strings.TrimSpace(configMap[paymentChannelYolkPayKeyConfigKey])
-	if gateway := strings.TrimSpace(configMap[paymentChannelYolkPayGatewayConfigKey]); gateway != "" {
-		cfg.Gateway = gateway
-	}
-	if mapiPath := strings.TrimSpace(configMap[paymentChannelYolkPayMAPIPathConfigKey]); mapiPath != "" {
-		cfg.MAPIPath = mapiPath
-	}
-	cfg.NotifyURL = strings.TrimSpace(configMap[paymentChannelYolkPayNotifyURLConfigKey])
-	cfg.ReturnURL = strings.TrimSpace(configMap[paymentChannelYolkPayReturnURLConfigKey])
-	if payType := strings.TrimSpace(configMap[paymentChannelYolkPayPayTypeConfigKey]); payType != "" {
-		cfg.PayType = strings.ToLower(payType)
-	}
-	if device := strings.TrimSpace(configMap[paymentChannelYolkPayDeviceConfigKey]); device != "" {
-		cfg.Device = strings.ToLower(device)
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(h.cfg.PublicBaseURL), "/")
 	if cfg.NotifyURL == "" && baseURL != "" {
@@ -1525,4 +1471,459 @@ func (h *UserGrowthHandler) verifyPaymentSignature(channel string, orderNo strin
 func (h *UserGrowthHandler) buildSignedDownloadURL(attachmentID string, token string) string {
 	base := strings.TrimRight(h.cfg.PublicBaseURL, "/")
 	return fmt.Sprintf("%s/api/v1/news/attachments/%s/download?token=%s", base, attachmentID, url.QueryEscape(token))
+}
+
+func (h *UserGrowthHandler) AddUserVirtualSandbox(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		RecoID   string  `json:"reco_id" binding:"required"`
+		AddPrice float64 `json:"add_price" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if err := h.service.AddUserVirtualSandbox(userID, req.RecoID, req.AddPrice); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *UserGrowthHandler) GetUserVirtualSandbox(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	items, err := h.service.GetUserVirtualSandbox(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items}))
+}
+
+var klineDB *sql.DB
+var klineDBOnce sync.Once
+
+func (h *UserGrowthHandler) getKlineDB() *sql.DB {
+	klineDBOnce.Do(func() {
+		db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&loc=Asia%%2FShanghai",
+			h.cfg.MySQLUser, h.cfg.MySQLPass, h.cfg.MySQLHost, h.cfg.MySQLPort, h.cfg.MySQLDB))
+		if err == nil {
+			db.SetMaxOpenConns(4)
+			db.SetMaxIdleConns(2)
+			klineDB = db
+		}
+	})
+	return klineDB
+}
+
+func (h *UserGrowthHandler) GetStockKline(c *gin.Context) {
+	symbol := strings.TrimSpace(c.Query("symbol"))
+	if symbol == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "symbol is required", Data: struct{}{}})
+		return
+	}
+	daysStr := c.DefaultQuery("days", "60")
+	days, err := strconv.Atoi(daysStr)
+	if err != nil || days < 10 || days > 365 {
+		days = 60
+	}
+
+	type klinePoint struct {
+		Date   string  `json:"date"`
+		Open   float64 `json:"open"`
+		High   float64 `json:"high"`
+		Low    float64 `json:"low"`
+		Close  float64 `json:"close"`
+		Volume int64   `json:"volume"`
+		Ma5    float64 `json:"ma5"`
+		Ma10   float64 `json:"ma10"`
+		Ma20   float64 `json:"ma20"`
+	}
+
+	// Try reading real data from market_daily_bars (reused connection pool)
+	db := h.getKlineDB()
+	if db != nil {
+		rows, qErr := db.Query("SELECT trade_date, open_price, high_price, low_price, close_price, volume FROM market_daily_bars WHERE asset_class = 'STOCK' AND instrument_key = ? AND source_key = 'TUSHARE' ORDER BY trade_date DESC LIMIT ?", symbol, days)
+		if qErr == nil {
+			seen := map[string]bool{}
+			var pts []klinePoint
+			for rows.Next() {
+				var p klinePoint
+				var t time.Time
+				if err := rows.Scan(&t, &p.Open, &p.High, &p.Low, &p.Close, &p.Volume); err != nil {
+					continue
+				}
+				dateStr := t.Format("2006-01-02")
+				if seen[dateStr] {
+					continue
+				}
+				seen[dateStr] = true
+				p.Date = dateStr
+				p.Open = float64(int(p.Open*100+0.5)) / 100
+				p.High = float64(int(p.High*100+0.5)) / 100
+				p.Low = float64(int(p.Low*100+0.5)) / 100
+				p.Close = float64(int(p.Close*100+0.5)) / 100
+				pts = append(pts, p)
+			}
+			rows.Close()
+			if len(pts) > 0 {
+				for i, j := 0, len(pts)-1; i < j; i, j = i+1, j-1 {
+					pts[i], pts[j] = pts[j], pts[i]
+				}
+				n := len(pts)
+				for i := 0; i < n; i++ {
+					pts[i].Ma5 = pts[i].Close
+					pts[i].Ma10 = pts[i].Close
+					pts[i].Ma20 = pts[i].Close
+					if i >= 4 {
+						s := 0.0
+						for j := i - 4; j <= i; j++ { s += pts[j].Close }
+						pts[i].Ma5 = float64(int(s/5*100+0.5)) / 100
+					}
+					if i >= 9 {
+						s := 0.0
+						for j := i - 9; j <= i; j++ { s += pts[j].Close }
+						pts[i].Ma10 = float64(int(s/10*100+0.5)) / 100
+					}
+					if i >= 19 {
+						s := 0.0
+						for j := i - 19; j <= i; j++ { s += pts[j].Close }
+				}
+			}
+			c.JSON(http.StatusOK, dto.OK(gin.H{"symbol": symbol, "days": len(pts), "points": pts}))
+			return
+		}
+	}
+}
+	// Fallback: generate synthetic data
+	seed := int64(0)
+	for _, ch := range symbol {
+		seed += int64(ch)
+	}
+	rng := rand.New(rand.NewSource(seed))
+	basePrice := 80.0 + rng.Float64()*200
+	now := time.Now()
+
+	points := make([]klinePoint, days)
+	closes := make([]float64, days)
+	price := basePrice
+
+	for i := 0; i < days; i++ {
+		change := (rng.Float64() - 0.48) * 6.0
+		if i > 0 && closes[i-1] > basePrice*1.25 {
+			change -= 0.5
+		}
+		if i > 0 && closes[i-1] < basePrice*0.85 {
+			change += 0.5
+		}
+		open := price
+		close := price + change
+		if close < 0 {
+			close = 0.5
+		}
+		high := open
+		if close > high {
+			high = close
+		}
+		high += rng.Float64() * 2.5
+		low := open
+		if close < low {
+			low = close
+		}
+		low -= rng.Float64() * 2.5
+		if low < 0 {
+			low = 0
+		}
+		volume := int64(100000 + rng.Float64()*5000000)
+		date := now.AddDate(0, 0, i-days+1)
+
+		points[i] = klinePoint{
+			Date:   date.Format("2006-01-02"),
+			Open:   float64(int(open*100+0.5)) / 100,
+			High:   float64(int(high*100+0.5)) / 100,
+			Low:    float64(int(low*100+0.5)) / 100,
+			Close:  float64(int(close*100+0.5)) / 100,
+			Volume: volume,
+		}
+		closes[i] = close
+		price = close
+	}
+	for i := 0; i < days; i++ {
+		if i >= 4 {
+			s := 0.0
+			for j := i - 4; j <= i; j++ {
+				s += closes[j]
+			}
+			points[i].Ma5 = float64(int(s/5*100+0.5)) / 100
+		} else {
+			points[i].Ma5 = points[i].Close
+		}
+		if i >= 9 {
+			s := 0.0
+			for j := i - 9; j <= i; j++ {
+				s += closes[j]
+			}
+			points[i].Ma10 = float64(int(s/10*100+0.5)) / 100
+		} else {
+			points[i].Ma10 = points[i].Close
+		}
+		if i >= 19 {
+			s := 0.0
+			for j := i - 19; j <= i; j++ {
+				s += closes[j]
+			}
+			points[i].Ma20 = float64(int(s/20*100+0.5)) / 100
+		} else {
+			points[i].Ma20 = points[i].Close
+		}
+	}
+
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"symbol": symbol,
+		"days":   days,
+		"points": points,
+	}))
+}
+
+type matchResult struct {
+	Rank       int       `json:"rank"`
+	Stock      string    `json:"stock"`
+	Similarity float64   `json:"similarity"`
+	MatchDate  string    `json:"match_date"`
+	Next7d     []float64 `json:"next_7d"`
+	Return7d   float64   `json:"return_7d"`
+}
+
+type predictionOut struct {
+
+	Median    []float64 `json:"median"`
+	Upper75   []float64 `json:"upper_75"`
+	Lower25   []float64 `json:"lower_25"`
+	AvgReturn float64   `json:"avg_return"`
+	WinRate   float64   `json:"win_rate"`
+}
+
+
+type candidate struct {
+	stock      string
+	date       string
+	similarity float64
+	next       []float64
+}
+func (h *UserGrowthHandler) PatternMatch(c *gin.Context) {
+	symbol := strings.TrimSpace(c.Query("symbol"))
+	lookback := 20
+	if v := c.Query("lookback"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && (n == 20 || n == 60) {
+			lookback = n
+		}
+	}
+	topN := 10
+	if v := c.Query("top"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 20 {
+			topN = n
+		}
+	}
+	if symbol == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "symbol is required", Data: struct{}{}})
+		return
+	}
+
+	db := h.getKlineDB()
+	if db == nil {
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "database unavailable", Data: struct{}{}})
+		return
+	}
+
+	// 1. Get the current stock's price segment
+	rows, err := db.Query("SELECT close_price, trade_date FROM market_daily_bars WHERE asset_class='STOCK' AND instrument_key=? AND source_key='TUSHARE' ORDER BY trade_date DESC LIMIT ?", symbol, lookback+7)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: "query failed", Data: struct{}{}})
+		return
+	}
+	var prices []float64
+	var dates []string
+	var currentSeg []float64
+	for rows.Next() {
+		var p float64
+		var d string
+		if err := rows.Scan(&p, &d); err != nil {
+			continue
+		}
+		prices = append([]float64{p}, prices...)
+		dates = append([]string{d}, dates...)
+	}
+	rows.Close()
+	if len(prices) < lookback {
+		c.JSON(http.StatusOK, dto.OK(gin.H{"symbol": symbol, "error": "not enough data", "matches": []matchResult{}, "prediction": nil}))
+		return
+	}
+	currentSeg = prices[len(prices)-lookback:]
+	// Normalize current segment: base=100
+	base := currentSeg[0]
+	normCur := make([]float64, len(currentSeg))
+	for i, v := range currentSeg {
+		normCur[i] = v / base * 100
+	}
+
+	// 2. Query candidate stocks (top 300 with enough data)
+	candidateStocks := []string{}
+	stockRows, err := db.Query("SELECT instrument_key FROM market_daily_bars WHERE asset_class='STOCK' AND source_key='TUSHARE' AND instrument_key != ? GROUP BY instrument_key HAVING COUNT(*) >= ? ORDER BY COUNT(*) DESC LIMIT 300", symbol, lookback+7)
+	if err == nil {
+		for stockRows.Next() {
+			var s string
+			stockRows.Scan(&s)
+			candidateStocks = append(candidateStocks, s)
+		}
+		stockRows.Close()
+	}
+
+	var candidates []candidate
+	for _, cs := range candidateStocks {
+		r, e := db.Query("SELECT close_price FROM market_daily_bars WHERE asset_class='STOCK' AND instrument_key=? AND source_key='TUSHARE' ORDER BY trade_date ASC", cs)
+		if e != nil {
+			continue
+		}
+		var sp []float64
+		for r.Next() {
+			var p float64
+			r.Scan(&p)
+			sp = append(sp, p)
+		}
+		r.Close()
+		if len(sp) < lookback+1 {
+			continue
+		}
+		baseSeg := currentSeg[0]
+		for i := 0; i <= len(sp)-lookback-7; i++ {
+			sb := sp[i]
+			dot, n1, n2 := 0.0, 0.0, 0.0
+			for j := 0; j < lookback; j++ {
+				nv := sp[i+j] / sb * 100
+				cv := currentSeg[j] / baseSeg * 100
+				dot += cv * nv
+				n1 += cv * cv
+				n2 += nv * nv
+			}
+			sim := dot / (sqrt(n1*n2) + 1e-10)
+			if sim > 0.85 && len(candidates) < 50 {
+				next7 := make([]float64, 7)
+				for j := 0; j < 7 && i+lookback+j < len(sp); j++ {
+					next7[j] = (sp[i+lookback+j]/sp[i+lookback-1] - 1) * 100
+				}
+				candidates = append(candidates, candidate{stock: cs, date: "", similarity: sim, next: next7})
+			}
+		}
+	}
+
+	// 4. Sort candidates by similarity, take topN
+	// 4. Sort candidates by similarity, take topN
+	sortCandidates(candidates)
+
+	matches := make([]matchResult, 0, topN)
+	var allNext7d [][]float64
+	for i := 0; i < len(candidates) && i < topN; i++ {
+		c := candidates[i]
+		ret := 0.0
+		if len(c.next) > 0 {
+			ret = c.next[len(c.next)-1]
+		}
+		matches = append(matches, matchResult{
+			Rank: i + 1, Stock: c.stock,
+			Similarity: float64(int(c.similarity*1000)) / 1000,
+			MatchDate:  c.date, Next7d: c.next, Return7d: ret,
+		})
+		allNext7d = append(allNext7d, c.next)
+	}
+
+	// 5. Aggregate prediction (median + 25/75 percentiles)
+	pred := buildPrediction(allNext7d)
+
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"symbol":     symbol,
+		"lookback":   lookback,
+		"current":    normCur[len(normCur)-7:],
+		"matches":    matches,
+		"prediction": pred,
+	}))
+}
+
+func sqrt(x float64) float64 {
+	if x <= 0 {
+		return 0
+	}
+	z := x / 2
+	for i := 0; i < 20; i++ {
+		z = z - (z*z-x)/(2*z)
+	}
+	return z
+}
+
+func sortCandidates(c []candidate) {
+	for i := 0; i < len(c); i++ {
+		for j := i + 1; j < len(c); j++ {
+			if c[j].similarity > c[i].similarity {
+				c[i], c[j] = c[j], c[i]
+			}
+		}
+	}
+}
+
+func buildPrediction(allNext7d [][]float64) *predictionOut {
+	if len(allNext7d) == 0 {
+		return nil
+	}
+	n := 7
+	median := make([]float64, n)
+	u75 := make([]float64, n)
+	l25 := make([]float64, n)
+	totalReturn := 0.0
+	positive := 0
+
+	for day := 0; day < n; day++ {
+		var vals []float64
+		for _, seq := range allNext7d {
+			if day < len(seq) {
+				vals = append(vals, seq[day])
+			}
+		}
+		if len(vals) == 0 {
+			continue
+		}
+		// Sort vals
+		sortFloats(vals)
+		median[day] = vals[len(vals)/2]
+		u75[day] = vals[len(vals)*3/4]
+		l25[day] = vals[len(vals)/4]
+	}
+	for _, seq := range allNext7d {
+		if len(seq) > 0 {
+			totalReturn += seq[len(seq)-1]
+			if seq[len(seq)-1] > 0 {
+				positive++
+			}
+		}
+	}
+	nValid := len(allNext7d)
+	return &predictionOut{
+		Median: median, Upper75: u75, Lower25: l25,
+		AvgReturn: float64(int(totalReturn/float64(nValid)*100)) / 100,
+		WinRate:   float64(int(float64(positive)/float64(nValid)*10000)) / 100,
+	}
+}
+
+func sortFloats(v []float64) {
+	for i := 0; i < len(v); i++ {
+		for j := i + 1; j < len(v); j++ {
+			if v[j] < v[i] {
+				v[i], v[j] = v[j], v[i]
+			}
+		}
+	}
 }

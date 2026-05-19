@@ -108,7 +108,7 @@ service_port() {
     strategy-engine) read_env_override "$(service_env_file strategy-engine)" "STRATEGY_ENGINE_PORT" "18081" ;;
     backend) read_env_override "$(service_env_file backend)" "APP_PORT" "18080" ;;
     admin) read_env_override "$(service_env_file admin)" "ADMIN_PORT" "5174" ;;
-    client) read_env_override "$(service_env_file client)" "CLIENT_PORT" "5175" ;;
+    client) read_env_override "$(service_env_file client)" "CLIENT_PORT" "5275" ;;
     *) return 1 ;;
   esac
 }
@@ -236,7 +236,7 @@ fi
 CLIENT_HOST="\${CLIENT_HOST:-0.0.0.0}"
 CLIENT_PORT="\${CLIENT_PORT:-$(service_port client)}"
 VITE_PROXY_TARGET="\${VITE_PROXY_TARGET:-$(service_url backend)}"
-cd "$ROOT_DIR/client" && exec env VITE_PROXY_TARGET="\${VITE_PROXY_TARGET}" npm run dev -- --host "\${CLIENT_HOST}" --port "\${CLIENT_PORT}"
+cd "$ROOT_DIR/newclient" && exec env VITE_PROXY_TARGET="\${VITE_PROXY_TARGET}" npm run dev -- --host "\${CLIENT_HOST}" --port "\${CLIENT_PORT}"
 EOF
       ;;
     *)

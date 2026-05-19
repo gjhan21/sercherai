@@ -123,6 +123,14 @@ func (r *MySQLGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.S
 	if err != nil {
 		return model.StrategyEngineStockSelectionContextResponse{}, err
 	}
+	limitUps, err := r.loadStrategyStockLimitUpAsOf(candidateSymbols, selectedTradeDate)
+	if err != nil {
+		return model.StrategyEngineStockSelectionContextResponse{}, err
+	}
+	topLists, err := r.loadStrategyStockTopListAsOf(candidateSymbols, selectedTradeDate)
+	if err != nil {
+		return model.StrategyEngineStockSelectionContextResponse{}, err
+	}
 
 	warnings := make([]string, 0)
 	if listingCoverageWarning != "" {
@@ -169,6 +177,20 @@ func (r *MySQLGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.S
 			score.NewsHeat = 0
 			score.PositiveNewsRate = 0.5
 		}
+		// Enrich limit-up board data (kpl_list)
+		if limitUp, ok := limitUps[candidate.Symbol]; ok {
+			score.IsLimitUp = true
+			score.IsNaturalLimit = !strings.Contains(strings.ToUpper(limitUp.Tag), "一字板")
+			score.IsOpened = strings.TrimSpace(limitUp.OpenTime) != ""
+			score.SealOrderRatio = safeDivFloat(limitUp.LimitOrder, limitUp.FloatMV)
+			score.LimitUpDays = parseLimitUpDays(limitUp.Status)
+		}
+		// Enrich top-list (dragon-tiger board) data
+		if topList, ok := topLists[candidate.Symbol]; ok {
+			score.OnTopList = true
+			score.TopNetAmount = topList.NetAmount
+			score.TopBuySellRatio = safeDivFloat(topList.BuyAmount, topList.SellAmount)
+		}
 		priceSources[candidate.PriceSource] = struct{}{}
 		suspendedProxy := candidate.Volume <= 0 || candidate.Turnover <= 0
 		stRiskProxy := isSTRiskCandidate(candidate)
@@ -201,11 +223,42 @@ func (r *MySQLGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.S
 			Sector:           candidate.Sector,
 			ThemeTags:        append([]string(nil), candidate.ThemeTags...),
 			RiskFlags:        buildStrategyStockRiskFlags(candidate),
+
+			// Intraday / T+1 short-cycle features (from OHLCV computation)
+			Momentum1:             roundTo(score.Momentum1, 4),
+			Momentum2:             roundTo(score.Momentum2, 4),
+			Momentum3:             roundTo(score.Momentum3, 4),
+			ConsecutiveDownDays:   score.ConsecutiveDownDays,
+			CandleBodyPct:         roundTo(score.CandleBodyPct, 6),
+			LowerShadowPct:        roundTo(score.LowerShadowPct, 6),
+			UpperShadowPct:        roundTo(score.UpperShadowPct, 6),
+			IsBullish:             score.IsBullish,
+			IsDoji:                score.IsDoji,
+			IsEngulfingBullish:    score.IsEngulfingBullish,
+			DeviationMA5:          roundTo(score.DeviationMA5, 4),
+			DeviationMA10:         roundTo(score.DeviationMA10, 4),
+			DeviationMA20:         roundTo(score.DeviationMA20, 4),
+			DeviationMA60:         roundTo(score.DeviationMA60, 4),
+			Volume20dMinRank:      score.Volume20dMinRank,
+			VolumeContractionDays: score.VolumeContractionDays,
+			// Limit-up and top-list fields will be populated from dedicated tables (Future Phase)
+			IsLimitUp:      score.IsLimitUp,
+			LuTimeRank:     score.LuTimeRank,
+			SealOrderRatio: score.SealOrderRatio,
+			LimitUpDays:    score.LimitUpDays,
+			IsOpened:       score.IsOpened,
+			IsNaturalLimit: score.IsNaturalLimit,
+			OnTopList:      score.OnTopList,
+			TopNetAmount:   score.TopNetAmount,
+			TopBuySellRatio: score.TopBuySellRatio,
 		})
 		if len(filteredInclude) > 0 && len(seeds) >= requestedLimit {
 			break
 		}
 	}
+
+	// Post-process: compute LuTimeRank by sorting all limit-up seeds by timestamp
+	computeLuTimeRanks(seeds, limitUps)
 
 	if len(seeds) == 0 {
 		return model.StrategyEngineStockSelectionContextResponse{}, fmt.Errorf("stock truth data does not provide enough 20-session history for %s", selectedTradeDate.Format("2006-01-02"))
@@ -2138,6 +2191,155 @@ WHERE t.symbol IN (%s)`, placeholders, placeholders)
 	return result, rows.Err()
 }
 
+func (r *MySQLGrowthRepo) loadStrategyStockLimitUpAsOf(symbols []string, selectedTradeDate time.Time) (map[string]stockLimitUpPoint, error) {
+	if len(symbols) == 0 {
+		return map[string]stockLimitUpPoint{}, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(symbols)), ",")
+	args := make([]any, 0, len(symbols)*2+1)
+	for _, symbol := range symbols {
+		args = append(args, symbol)
+	}
+	args = append(args, selectedTradeDate.Format("2006-01-02"))
+	for _, symbol := range symbols {
+		args = append(args, symbol)
+	}
+	query := fmt.Sprintf(`
+SELECT t.ts_code, t.trade_date, t.name, t.lu_time, t.open_time, t.last_time, t.tag, t.theme, t.status,
+       t.limit_order, t.lu_limit_order, t.bid_amount, t.bid_change, t.float_mv, t.pct_chg
+FROM stock_limit_up_daily t
+INNER JOIN (
+  SELECT ts_code, MAX(trade_date) AS latest_trade_date
+  FROM stock_limit_up_daily
+  WHERE ts_code IN (%s) AND trade_date <= ?
+  GROUP BY ts_code
+) latest
+ON latest.ts_code = t.ts_code AND latest.latest_trade_date = t.trade_date
+WHERE t.ts_code IN (%s)`, placeholders, placeholders)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return map[string]stockLimitUpPoint{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]stockLimitUpPoint, len(symbols))
+	for rows.Next() {
+		var (
+			item         stockLimitUpPoint
+			tradeDateRaw time.Time
+			luTime       sql.NullString
+			openTime     sql.NullString
+			lastTime     sql.NullString
+			tag          sql.NullString
+			theme        sql.NullString
+			status       sql.NullString
+			limitOrder   sql.NullFloat64
+			luLimitOrder sql.NullFloat64
+			bidAmount    sql.NullFloat64
+			bidChange    sql.NullFloat64
+			floatMV      sql.NullFloat64
+			pctChg       sql.NullFloat64
+		)
+		if err := rows.Scan(&item.Symbol, &tradeDateRaw, &item.Name, &luTime, &openTime, &lastTime,
+			&tag, &theme, &status, &limitOrder, &luLimitOrder, &bidAmount, &bidChange, &floatMV, &pctChg); err != nil {
+			return nil, err
+		}
+		item.Symbol = strings.ToUpper(strings.TrimSpace(item.Symbol))
+		item.TradeDate = tradeDateRaw
+		if luTime.Valid {
+			item.LuTime = strings.TrimSpace(luTime.String)
+		}
+		if openTime.Valid {
+			item.OpenTime = strings.TrimSpace(openTime.String)
+		}
+		if lastTime.Valid {
+			item.LastTime = strings.TrimSpace(lastTime.String)
+		}
+		if tag.Valid {
+			item.Tag = strings.TrimSpace(tag.String)
+		}
+		if theme.Valid {
+			item.Theme = strings.TrimSpace(theme.String)
+		}
+		if status.Valid {
+			item.Status = strings.TrimSpace(status.String)
+		}
+		item.LimitOrder = sqlNullFloat(limitOrder)
+		item.LuLimitOrder = sqlNullFloat(luLimitOrder)
+		item.BidAmount = sqlNullFloat(bidAmount)
+		item.BidChange = sqlNullFloat(bidChange)
+		item.FloatMV = sqlNullFloat(floatMV)
+		item.PctChg = sqlNullFloat(pctChg)
+		if item.Symbol != "" {
+			result[item.Symbol] = item
+		}
+	}
+	return result, rows.Err()
+}
+
+func (r *MySQLGrowthRepo) loadStrategyStockTopListAsOf(symbols []string, selectedTradeDate time.Time) (map[string]stockTopListPoint, error) {
+	if len(symbols) == 0 {
+		return map[string]stockTopListPoint{}, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(symbols)), ",")
+	args := make([]any, 0, len(symbols)*2+1)
+	for _, symbol := range symbols {
+		args = append(args, symbol)
+	}
+	args = append(args, selectedTradeDate.Format("2006-01-02"))
+	for _, symbol := range symbols {
+		args = append(args, symbol)
+	}
+	query := fmt.Sprintf(`
+SELECT t.ts_code, t.trade_date, t.name, t.buy_amount, t.sell_amount, t.net_amount, t.reason
+FROM stock_top_list_daily t
+INNER JOIN (
+  SELECT ts_code, MAX(trade_date) AS latest_trade_date
+  FROM stock_top_list_daily
+  WHERE ts_code IN (%s) AND trade_date <= ?
+  GROUP BY ts_code
+) latest
+ON latest.ts_code = t.ts_code AND latest.latest_trade_date = t.trade_date
+WHERE t.ts_code IN (%s)`, placeholders, placeholders)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return map[string]stockTopListPoint{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]stockTopListPoint, len(symbols))
+	for rows.Next() {
+		var (
+			item         stockTopListPoint
+			tradeDateRaw time.Time
+			buyAmount    sql.NullFloat64
+			sellAmount   sql.NullFloat64
+			netAmount    sql.NullFloat64
+			reason       sql.NullString
+		)
+		if err := rows.Scan(&item.Symbol, &tradeDateRaw, &item.Name,
+			&buyAmount, &sellAmount, &netAmount, &reason); err != nil {
+			return nil, err
+		}
+		item.Symbol = strings.ToUpper(strings.TrimSpace(item.Symbol))
+		item.TradeDate = tradeDateRaw
+		item.BuyAmount = sqlNullFloat(buyAmount)
+		item.SellAmount = sqlNullFloat(sellAmount)
+		item.NetAmount = sqlNullFloat(netAmount)
+		if reason.Valid {
+			item.Reason = strings.TrimSpace(reason.String)
+		}
+		if item.Symbol != "" {
+			result[item.Symbol] = item
+		}
+	}
+	return result, rows.Err()
+}
+
 func (r *MySQLGrowthRepo) loadStrategyMarketNewsSignals(symbols []string, selectedTradeDate time.Time, windowDays int) (map[string]stockNewsSignal, error) {
 	if len(symbols) == 0 {
 		return map[string]stockNewsSignal{}, nil
@@ -2628,4 +2830,55 @@ func collectFuturesNewsContracts(primary sql.NullString, symbolsJSON sql.NullStr
 		push(item)
 	}
 	return matched
+}
+
+// safeDivFloat returns a / b, or 0 if b is zero.
+func safeDivFloat(a, b float64) float64 {
+	if b == 0 {
+		return 0
+	}
+	return a / b
+}
+
+// parseLimitUpDays extracts the number of consecutive limit-up days from a status string like "3连板".
+func parseLimitUpDays(status string) int {
+	s := strings.TrimSpace(status)
+	if s == "" {
+		return 1
+	}
+	s = strings.TrimSuffix(strings.TrimSuffix(s, "板"), "连")
+	var days int
+	if _, err := fmt.Sscanf(s, "%d", &days); err == nil && days > 0 {
+		return days
+	}
+	return 1
+}
+
+// computeLuTimeRanks assigns lu_time_rank to each limit-up seed based on timestamp ordering.
+func computeLuTimeRanks(seeds []model.StrategyEngineStockSeed, limitUps map[string]stockLimitUpPoint) {
+	type ranked struct {
+		symbol string
+		time   string
+		index  int
+	}
+	var items []ranked
+	for i, seed := range seeds {
+		if !seed.IsLimitUp {
+			continue
+		}
+		lu, ok := limitUps[seed.Symbol]
+		if !ok {
+			continue
+		}
+		items = append(items, ranked{symbol: seed.Symbol, time: lu.LuTime, index: i})
+	}
+	if len(items) == 0 {
+		return
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].time < items[j].time
+	})
+	for rank, item := range items {
+		seeds[item.index].LuTimeRank = rank + 1
+	}
 }
