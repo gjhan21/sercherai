@@ -1,5 +1,9 @@
 # Community Discussion MVP Implementation Plan
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a first-phase financial discussion plaza that lets users publish structured viewpoints tied to stocks, futures, news, and strategy items, while giving admins enough moderation tools to keep the module safe.

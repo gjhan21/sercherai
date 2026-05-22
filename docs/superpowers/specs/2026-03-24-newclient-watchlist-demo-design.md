@@ -1,5 +1,9 @@
 # New Client Watchlist Demo Design
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 ## 背景
 
 `watchlist` 是首页与策略页之后的第三个阅读锚点，用来承接“决定继续跟踪后，用户下一步怎么回访”。

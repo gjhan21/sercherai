@@ -1,5 +1,9 @@
 # New Client Homepage Demo Design
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 ## 背景
 
 `newclient/h5demo` 当前用于新客户端设计阶段，不进入真实开发。

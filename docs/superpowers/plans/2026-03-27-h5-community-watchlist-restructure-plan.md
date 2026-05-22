@@ -1,5 +1,9 @@
 # H5 Community Watchlist Restructure Implementation Plan
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 H5 端的关注入口与 PC 端一致：关注统一收口到“我的”页二级模块，`/watchlist` 只保留兼容跳转。

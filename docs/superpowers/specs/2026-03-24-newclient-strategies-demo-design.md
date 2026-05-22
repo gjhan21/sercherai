@@ -1,5 +1,9 @@
 # New Client Strategies Demo Design
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 ## 背景
 
 本页是 `newclient` 全站 demo 中第一批页面之一，用于建立首页之后的第二个核心锚点。

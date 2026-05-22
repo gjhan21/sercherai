@@ -1,5 +1,9 @@
 # New Client Fullsite Demo Design
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 ## 背景
 
 `newclient` 是新客户端目录，当前阶段先做设计 demo，不进入真实前端开发。

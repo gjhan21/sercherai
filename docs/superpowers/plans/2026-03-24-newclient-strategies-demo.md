@@ -1,5 +1,9 @@
 # New Client Strategies Demo Implementation Plan
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在 `newclient/h5demo` 产出 `strategies` 页的 PC / H5 正式 HTML demo，并提供统一入口页用于审查。

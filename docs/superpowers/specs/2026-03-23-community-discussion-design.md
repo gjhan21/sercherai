@@ -1,5 +1,9 @@
 # Community Discussion Plaza Design
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 ## Summary
 
 Build a first-phase community module for the client as a discussion plaza focused on financial viewpoints, not a real-time chatroom. Users can publish structured opinions around stocks, futures, news reports, and strategy items; other users can comment, like, favorite, and report content. Admin must be able to review, hide, and resolve reported content before the module is exposed broadly across the site.

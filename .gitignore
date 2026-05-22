@@ -15,6 +15,11 @@ client/node_modules/
 client/dist/
 client/dist-h5/
 
+# Newclient frontend
+newclient/node_modules/
+newclient/dist/
+newclient/dist-h5/
+
 # Runtime artifacts
 .run/
 .mysql-local/

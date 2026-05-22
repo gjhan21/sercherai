@@ -2,18 +2,18 @@
 
 ## 文件
 
-- `scripts/devctl.sh`: 统一控制 strategy-engine/backend/admin/client 的启动、停止、重启、状态查看。
+- `scripts/devctl.sh`: 统一控制 strategy-engine/backend/admin/newclient 的启动、停止、重启、状态查看。
 - `scripts/deploy_linux_server.sh`: Linux 服务器一键部署（迁移数据库、构建 backend + strategy-engine + 前端、安装 systemd 和 nginx 配置）。
 - `scripts/deploy_linux_db.sh`: 仅执行数据库初始化/迁移（可选 seed），不部署应用与 nginx。
-- `scripts/deploy_linux_app.sh`: 仅部署应用（后端二进制 + admin/client 静态资源 + systemd/nginx），不执行数据库迁移。
+- `scripts/deploy_linux_app.sh`: 仅部署应用（后端二进制 + admin/newclient 静态资源 + systemd/nginx），不执行数据库迁移。
 
 ## 支持命令
 
 ```bash
-./scripts/devctl.sh start [strategy-engine|backend|admin|client|all]
-./scripts/devctl.sh stop [strategy-engine|backend|admin|client|all]
-./scripts/devctl.sh restart [strategy-engine|backend|admin|client|all]
-./scripts/devctl.sh status [strategy-engine|backend|admin|client|all]
+./scripts/devctl.sh start [strategy-engine|backend|admin|newclient|all]
+./scripts/devctl.sh stop [strategy-engine|backend|admin|newclient|all]
+./scripts/devctl.sh restart [strategy-engine|backend|admin|newclient|all]
+./scripts/devctl.sh status [strategy-engine|backend|admin|newclient|all]
 ./scripts/devctl.sh migrate [all|audit|market-data]
 ```
 
@@ -33,7 +33,7 @@
 - strategy-engine: `18081`
 - backend: `18080`
 - admin: `5174`
-- client: `5175`
+- newclient: `5275`
 
 ## 运行产物
 
@@ -43,7 +43,7 @@
 - strategy-engine 环境变量文件: `./.run/strategy-engine.env`（可选，`devctl` 启动时自动加载）
 - backend 环境变量文件: `./.run/backend.env`（可选，`devctl` 启动时自动加载）
 - admin 环境变量文件: `./.run/admin.env`（可选，`devctl` 启动时自动加载）
-- client 环境变量文件: `./.run/client.env`（可选，`devctl` 启动时自动加载）
+- newclient 环境变量文件: `./.run/newclient.env`（可选，`devctl` 启动时自动加载）
 
 ## Strategy Engine 配置
 
@@ -98,11 +98,11 @@ ADMIN_PORT=5176
 VITE_PROXY_TARGET=http://127.0.0.1:19081
 ```
 
-`./.run/client.env`
+`./.run/newclient.env`
 
 ```bash
-CLIENT_HOST=127.0.0.1
-CLIENT_PORT=5177
+NEWCLIENT_HOST=127.0.0.1
+NEWCLIENT_PORT=5177
 ```
 
 写完后重启对应服务：
@@ -110,7 +110,7 @@ CLIENT_PORT=5177
 ```bash
 ./scripts/devctl.sh restart backend
 ./scripts/devctl.sh restart admin
-./scripts/devctl.sh restart client
+./scripts/devctl.sh restart newclient
 ```
 
 ## 常用示例

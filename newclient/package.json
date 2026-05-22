@@ -7,6 +7,7 @@
     "dev": "vite --config vite.pc.config.js",
     "dev:pc": "vite --config vite.pc.config.js",
     "dev:h5": "vite --config vite.h5.config.js",
+    "build": "npm run build:pc && npm run build:h5",
     "build:pc": "vite build --config vite.pc.config.js",
     "build:h5": "vite build --config vite.h5.config.js"
   },

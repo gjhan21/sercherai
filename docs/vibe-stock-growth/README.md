@@ -1,5 +1,9 @@
 # 推荐股票网站 Vibe Coding 开发总览
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 最后更新: 2026-03-18
 状态: 阶段6已完成
 

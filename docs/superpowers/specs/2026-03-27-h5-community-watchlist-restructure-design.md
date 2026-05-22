@@ -1,5 +1,9 @@
 # H5 Community Watchlist Restructure Design
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 **Goal:** 让 H5 端与 PC 端保持同一入口口径：社区保留一级入口，关注收口到“我的”页内的二级模块，不再让用户感知到独立一级关注页。
 
 ## Current Context

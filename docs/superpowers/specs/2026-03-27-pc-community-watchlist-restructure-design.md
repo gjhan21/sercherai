@@ -1,5 +1,9 @@
 # PC 社区替代关注入口、关注收口到我的 - 设计说明
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 ## 背景
 
 当前 PC 客户端的一���导航仍然保留 `关注`，而 `社区` 虽然已有完整页面能力，但还没有进入 PC 主导航主链。这导致：

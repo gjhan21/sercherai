@@ -1,5 +1,9 @@
 # SercherAI H5 App 化重构设计
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 **日期：** 2026-03-24
 **范围：** `/Users/gjhan21/cursor/sercherai/client/src/apps/h5`
 

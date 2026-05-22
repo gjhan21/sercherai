@@ -1,5 +1,9 @@
 # SercherAI H5 App Refactor Implementation Plan
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Rebuild the H5 `/m/*` experience into a Xueqiu-like mobile content app with stronger reading flow, lighter shell chrome, and app-style bottom navigation while keeping existing APIs and auth behavior intact.

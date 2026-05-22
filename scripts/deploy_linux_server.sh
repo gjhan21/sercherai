@@ -19,7 +19,7 @@ NGINX_FILE="${NGINX_FILE:-/etc/nginx/conf.d/sercherai.conf}"
 
 BACKEND_PORT="${BACKEND_PORT:-18080}"
 STRATEGY_ENGINE_PORT="${STRATEGY_ENGINE_PORT:-18081}"
-CLIENT_PORT="${CLIENT_PORT:-80}"
+NEWCLIENT_PORT="${NEWCLIENT_PORT:-80}"
 ADMIN_PORT="${ADMIN_PORT:-8081}"
 
 MYSQL_HOST="${MYSQL_HOST:-127.0.0.1}"
@@ -107,9 +107,9 @@ render_nginx_file() {
 	local tmp
 	tmp="$(mktemp)"
 	sed \
-		-e "s|__CLIENT_PORT__|${CLIENT_PORT}|g" \
+		-e "s|__NEWCLIENT_PORT__|${NEWCLIENT_PORT}|g" \
 		-e "s|__ADMIN_PORT__|${ADMIN_PORT}|g" \
-		-e "s|__CLIENT_ROOT__|${WWW_DIR}/client|g" \
+		-e "s|__NEWCLIENT_ROOT__|${WWW_DIR}/newclient|g" \
 		-e "s|__ADMIN_ROOT__|${WWW_DIR}/admin|g" \
 		-e "s|__BACKEND_PORT__|${BACKEND_PORT}|g" \
 		"${DEPLOY_DIR}/sercherai.nginx.conf.template" >"${tmp}"
@@ -139,7 +139,7 @@ if [ -z "${SERVICE_GROUP}" ]; then
 fi
 
 echo "[1/10] preparing directories..."
-run_root mkdir -p "${APP_DIR}/bin" "${APP_DIR}/uploads" "${STRATEGY_ENGINE_APP_DIR}" "${WWW_DIR}/admin" "${WWW_DIR}/client" "/etc/sercherai"
+run_root mkdir -p "${APP_DIR}/bin" "${APP_DIR}/uploads" "${STRATEGY_ENGINE_APP_DIR}" "${WWW_DIR}/admin" "${WWW_DIR}/newclient" "/etc/sercherai"
 run_root chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${APP_DIR}" "${WWW_DIR}"
 
 if is_true "${RUN_DB}"; then
@@ -200,18 +200,19 @@ if is_true "${RUN_APP}"; then
 		npm run build
 	)
 
-	echo "[7/10] building client frontend..."
+	echo "[7/10] building newclient frontend..."
 	(
-		cd "${ROOT_DIR}/client"
+		cd "${ROOT_DIR}/newclient"
 		npm ci
 		npm run build
 	)
 
 	echo "[8/10] publishing static assets..."
-	run_root rm -rf "${WWW_DIR}/admin" "${WWW_DIR}/client"
-	run_root mkdir -p "${WWW_DIR}/admin" "${WWW_DIR}/client"
+	run_root rm -rf "${WWW_DIR}/admin" "${WWW_DIR}/newclient"
+	run_root mkdir -p "${WWW_DIR}/admin" "${WWW_DIR}/newclient"
 	copy_dir_without_hidden "${ROOT_DIR}/admin/dist" "${WWW_DIR}/admin"
-	copy_dir_without_hidden "${ROOT_DIR}/client/dist" "${WWW_DIR}/client"
+	copy_dir_without_hidden "${ROOT_DIR}/newclient/dist" "${WWW_DIR}/newclient"
+	copy_dir_without_hidden "${ROOT_DIR}/newclient/dist-h5" "${WWW_DIR}/newclient"
 	run_root chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${WWW_DIR}"
 
 	echo "[9/10] installing service config..."
@@ -244,7 +245,7 @@ else
 	echo "[4/10] skipping backend build (RUN_APP=${RUN_APP})..."
 	echo "[5/10] skipping strategy-engine runtime publish..."
 	echo "[6/10] skipping admin frontend build..."
-	echo "[7/10] skipping client frontend build..."
+	echo "[7/10] skipping newclient frontend build..."
 	echo "[8/10] skipping static publish..."
 	echo "[9/10] skipping service install/restart..."
 	echo "[10/10] skipping nginx setup because app step is disabled..."
@@ -254,5 +255,5 @@ echo
 echo "deploy completed."
 echo "strategy-engine health: http://127.0.0.1:${STRATEGY_ENGINE_PORT}/internal/v1/health"
 echo "backend health: http://127.0.0.1:${BACKEND_PORT}/healthz"
-echo "client url:     http://<server-ip>:${CLIENT_PORT}/"
+echo "newclient url:  http://<server-ip>:${NEWCLIENT_PORT}/"
 echo "admin url:      http://<server-ip>:${ADMIN_PORT}/"

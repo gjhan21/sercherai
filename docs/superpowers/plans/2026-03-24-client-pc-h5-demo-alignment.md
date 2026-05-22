@@ -1,5 +1,9 @@
 # Client PC/H5 Demo Alignment Implementation Plan
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Align the real `client` PC and H5 applications with the `client/newh5demo` design language, including new independent H5 `watchlist` and `archive` pages, while preserving existing APIs, auth flows, membership rules, and data behavior.

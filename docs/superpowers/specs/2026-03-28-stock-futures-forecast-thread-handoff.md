@@ -1,5 +1,9 @@
 # 股票与期货预测增强文档使用与线程交接说明
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 ## 目的
 
 这份文档用于让其他线程、其他协作者或后续会话可以直接接手本项目，不需要重新口头解释背景。

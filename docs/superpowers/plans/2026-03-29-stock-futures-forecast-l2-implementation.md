@@ -1,5 +1,9 @@
 # Stock Futures Forecast L2 Implementation Plan
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在不改现有推荐发布主链、不新增独立分析页和独立后台中心的前提下，为股票推荐与期货策略的 `insight / version-history` 增加轻量关系快照、三情景推演、角色意见/veto、历史回看与 admin 复用式承接。

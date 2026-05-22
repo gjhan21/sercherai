@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="$ROOT_DIR/.run"
 LOG_DIR="$RUN_DIR/logs"
 
-ALL_SERVICES=("strategy-graph" "strategy-engine" "backend" "admin" "client")
+ALL_SERVICES=("strategy-graph" "strategy-engine" "backend" "admin" "newclient")
 
 resolve_go_bin() {
   if [[ -x "/opt/homebrew/bin/go" ]]; then
@@ -34,10 +34,10 @@ PYTHON_BIN="$(resolve_python_bin)"
 usage() {
   cat <<'EOF'
 用法:
-  ./scripts/devctl.sh start [strategy-graph|strategy-engine|backend|admin|client|all]
-  ./scripts/devctl.sh stop [strategy-graph|strategy-engine|backend|admin|client|all]
-  ./scripts/devctl.sh restart [strategy-graph|strategy-engine|backend|admin|client|all]
-  ./scripts/devctl.sh status [strategy-graph|strategy-engine|backend|admin|client|all]
+  ./scripts/devctl.sh start [strategy-graph|strategy-engine|backend|admin|newclient|all]
+  ./scripts/devctl.sh stop [strategy-graph|strategy-engine|backend|admin|newclient|all]
+  ./scripts/devctl.sh restart [strategy-graph|strategy-engine|backend|admin|newclient|all]
+  ./scripts/devctl.sh status [strategy-graph|strategy-engine|backend|admin|newclient|all]
   ./scripts/devctl.sh migrate [all|audit|market-data]
 
 说明:
@@ -59,7 +59,7 @@ service_env_file() {
     strategy-engine) echo "$ROOT_DIR/.run/strategy-engine.env" ;;
     backend) echo "$ROOT_DIR/.run/backend.env" ;;
     admin) echo "$ROOT_DIR/.run/admin.env" ;;
-    client) echo "$ROOT_DIR/.run/client.env" ;;
+    newclient) echo "$ROOT_DIR/.run/newclient.env" ;;
     *) return 1 ;;
   esac
 }
@@ -108,7 +108,7 @@ service_port() {
     strategy-engine) read_env_override "$(service_env_file strategy-engine)" "STRATEGY_ENGINE_PORT" "18081" ;;
     backend) read_env_override "$(service_env_file backend)" "APP_PORT" "18080" ;;
     admin) read_env_override "$(service_env_file admin)" "ADMIN_PORT" "5174" ;;
-    client) read_env_override "$(service_env_file client)" "CLIENT_PORT" "5275" ;;
+    newclient) read_env_override "$(service_env_file newclient)" "NEWCLIENT_PORT" "5275" ;;
     *) return 1 ;;
   esac
 }
@@ -127,8 +127,8 @@ service_url() {
     admin)
       echo "http://127.0.0.1:$(service_port admin)"
       ;;
-    client)
-      echo "http://127.0.0.1:$(service_port client)"
+    newclient)
+      echo "http://127.0.0.1:$(service_port newclient)"
       ;;
     *) return 1 ;;
   esac
@@ -225,18 +225,18 @@ VITE_PROXY_TARGET="\${VITE_PROXY_TARGET:-$(service_url backend)}"
 cd "$ROOT_DIR/admin" && exec env VITE_PROXY_TARGET="\${VITE_PROXY_TARGET}" npm run dev -- --host "\${ADMIN_HOST}" --port "\${ADMIN_PORT}"
 EOF
       ;;
-    client)
+    newclient)
       cat <<EOF
-CLIENT_ENV_FILE="$ROOT_DIR/.run/client.env"
-if [ -f "\$CLIENT_ENV_FILE" ]; then
+NEWCLIENT_ENV_FILE="$ROOT_DIR/.run/newclient.env"
+if [ -f "\$NEWCLIENT_ENV_FILE" ]; then
   set -a
-  . "\$CLIENT_ENV_FILE"
+  . "\$NEWCLIENT_ENV_FILE"
   set +a
 fi
-CLIENT_HOST="\${CLIENT_HOST:-0.0.0.0}"
-CLIENT_PORT="\${CLIENT_PORT:-$(service_port client)}"
+NEWCLIENT_HOST="\${NEWCLIENT_HOST:-0.0.0.0}"
+NEWCLIENT_PORT="\${NEWCLIENT_PORT:-$(service_port newclient)}"
 VITE_PROXY_TARGET="\${VITE_PROXY_TARGET:-$(service_url backend)}"
-cd "$ROOT_DIR/newclient" && exec env VITE_PROXY_TARGET="\${VITE_PROXY_TARGET}" npm run dev -- --host "\${CLIENT_HOST}" --port "\${CLIENT_PORT}"
+cd "$ROOT_DIR/newclient" && exec env VITE_PROXY_TARGET="\${VITE_PROXY_TARGET}" npm run dev -- --host "\${NEWCLIENT_HOST}" --port "\${NEWCLIENT_PORT}"
 EOF
       ;;
     *)

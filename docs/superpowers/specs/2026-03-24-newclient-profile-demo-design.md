@@ -1,5 +1,9 @@
 # New Client Profile Demo Design
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 ## 背景
 
 `profile` 页在当前 `client` 中本质上是账户管理台，不是轻量资料编辑页。它需要让用户先看到今天要处理什么，再继续查看会员、实名、消息、邀请和订阅等账户服务。

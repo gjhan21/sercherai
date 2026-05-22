@@ -30,7 +30,7 @@ cd /opt/sercherai
 
 ## 3) One-command deployment
 
-Default command (migrate DB + build backend/admin/client + systemd + nginx):
+Default command (migrate DB + build backend/admin/newclient + systemd + nginx):
 
 ```bash
 cd /opt/sercherai
@@ -40,7 +40,7 @@ MYSQL_USER=sercherai \
 MYSQL_PWD='wbdE4xkwew2TaNJL' \
 MYSQL_DB=sercherai \
 BACKEND_PORT=18080 \
-CLIENT_PORT=80 \
+NEWCLIENT_PORT=80 \
 ADMIN_PORT=8081 \
 SERVICE_USER="$USER" \
 ./scripts/deploy_linux_server.sh
@@ -90,6 +90,12 @@ SERVICE_GROUP=www \
 ./scripts/deploy_linux_app.sh
 ```
 
+The official frontend deployment now publishes one shared static root:
+
+- deployed directory: `${WWW_DIR}/newclient`
+- PC entry: `/`
+- H5 entry: `/m/`
+
 ## 4) Edit production secrets
 
 After first deploy, update:
@@ -119,7 +125,7 @@ sudo nginx -t
 
 Access URLs:
 
-- Client: `http://<server-ip>/`
+- Newclient: `http://<server-ip>/`
 - Admin: `http://<server-ip>:8081/`
 
 ## 6) Upgrade flow

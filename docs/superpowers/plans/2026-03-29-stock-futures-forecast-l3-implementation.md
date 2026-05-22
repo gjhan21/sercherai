@@ -1,5 +1,9 @@
 # Stock Futures Forecast L3 Implementation Plan
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在现有 `L1 / L2` explanation 基线之上，为股票推荐与期货策略引入“异步深推演 + 报告资产 + 长期学习回灌”的 `L3` 能力，并保持它始终是增强层，而不是新的平行推荐主系统。

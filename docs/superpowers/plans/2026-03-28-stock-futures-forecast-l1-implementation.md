@@ -1,5 +1,9 @@
 # Stock Futures Forecast L1 Implementation Plan
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 在不改现有推荐主链、不新增新业务表和独立异步系统的前提下，把股票推荐与期货策略的 `insight / version-history` 四个入口升级为带研究编排、记忆反馈消费、历史理由分层和置信度校准的 `L1` 预测增强版本。

@@ -1,5 +1,9 @@
 # 股票与期货预测增强路线图与总体设计规范
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 ## Summary
 
 本组文档用于收口“股票分析预测 / 期货分析预测”能力的总体路线图，并明确 `L1 / L2 / L3` 三个阶段的范围、边界与交付顺序。

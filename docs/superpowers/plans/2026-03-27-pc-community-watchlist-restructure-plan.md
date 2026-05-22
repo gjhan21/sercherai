@@ -1,5 +1,9 @@
 # PC 社区替代关注入口实现计划
 
+> Historical note:
+> This document describes work from the legacy `client` frontend era.
+> The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 PC 端 `社区` 成为一级主入口，并把 `关注` 收口到 `我的 > 我的关注`，同时保留旧 `/watchlist` 的兼容跳转。
