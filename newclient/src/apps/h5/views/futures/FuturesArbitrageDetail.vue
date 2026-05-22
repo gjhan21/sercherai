@@ -16,6 +16,11 @@
       <div><span>Z值</span><strong>{{ item.z_score || '-' }}</strong></div>
       <div><span>风险</span><strong :style="{color:item.risk_level==='HIGH'?'var(--negative)':'var(--accent-gold)'}">{{ riskLabel(item.risk_level) }}</strong></div>
     </div>
+    <div class="h5-forecast-entry">
+      <strong>深度推演</strong>
+      <p>如当前期货机会已生成 L3 推演，可从完整推演页继续查看运行状态与报告。</p>
+      <RouterLink to="/forecast/demo" class="h5-forecast-link">查看完整深度推演</RouterLink>
+    </div>
     <button class="h5-alert-btn" @click="showAlert = !showAlert">🔔 {{ showAlert ? '取消' : '设置提醒' }}</button>
     <div v-if="showAlert" class="h5-alert-form">
       <input v-model="alertThreshold" placeholder="阈值点数" type="number" />
@@ -74,4 +79,7 @@ onMounted(loadDetail);
 .h5-alert-form button { padding: 10px; border-radius: var(--radius-full); background: linear-gradient(135deg,var(--accent-gold),var(--accent-gold-dim)); color: #000; font-weight: 600; border: none; cursor: pointer; }
 .h5-alert-msg { font-size: 12px; color: var(--positive); }
 .h5-empty { text-align: center; padding: 40px; color: var(--text-secondary); }
+.h5-forecast-entry { padding: 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); display: grid; gap: 8px; }
+.h5-forecast-entry p { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+.h5-forecast-link { display: inline-flex; justify-content: center; padding: 10px; border-radius: var(--radius-full); border: 1px solid var(--accent-gold); color: var(--accent-gold); text-decoration: none; font-size: 13px; font-weight: 600; }
 </style>

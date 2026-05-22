@@ -32,6 +32,13 @@
         <h3>核心结论</h3>
         <p>{{ insight.explanation?.seed_summary || insight.strategy?.reason_summary || 'AI 分析中' }}</p>
       </div>
+      <DeepForecastSummaryCard
+        v-if="forecastEntryVisible"
+        :summary="forecastEntrySummary"
+        :to="forecastEntryTo"
+        mode="pc"
+        heading="深度推演"
+      />
       <div class="insight-grid">
         <div class="insight-card" v-if="insight.guidance">
           <h4>操作指引</h4>
@@ -51,15 +58,23 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { getFuturesStrategyDetail, getFuturesStrategyInsight } from "@/api/market.js";
+import DeepForecastSummaryCard from "@/shared/components/deep-forecast/DeepForecastSummaryCard.vue";
+import { useDeepForecastEntry } from "@/shared/composables/useDeepForecastEntry.js";
 
 const MOCK_STRAT = { id:"strat_1", contract:"IF 主连", name:"IF跨期套利策略", direction:"LONG", risk_level:"MEDIUM", position_range:"10%-15%", valid_from:"2026-01-01", valid_to:"2026-06-30", reason_summary:"基于历史价差回归规律，当前价差处于近年高分位，开仓做空价差" };
 
 const route = useRoute();
 const strategy = ref(null);
 const insight = ref(null);
+const forecastEntrySource = computed(() => insight.value?.explanation || null);
+const {
+  summary: forecastEntrySummary,
+  to: forecastEntryTo,
+  visible: forecastEntryVisible
+} = useDeepForecastEntry(forecastEntrySource, { mode: "pc" });
 
 function directionLabel(d) { return d === 'LONG' ? '做多' : d === 'SHORT' ? '做空' : '中性'; }
 function riskLabel(r) { const m = { HIGH:'高风险', MEDIUM:'中风险', LOW:'低风险' }; return m[r] || r; }

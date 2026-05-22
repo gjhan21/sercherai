@@ -103,6 +103,14 @@
       <div class="analysis-grid-2col fade-in-up fade-in-up-delay-2">
         <section class="section" v-if="agentOpinions.length">
           <div class="section-header"><h2 class="section-title">AI 分析师意见</h2></div>
+          <DeepForecastSummaryCard
+            v-if="forecastEntryVisible"
+            :summary="forecastEntrySummary"
+            :to="forecastEntryTo"
+            mode="pc"
+            heading="深度推演"
+            style="margin-bottom: 12px;"
+          />
           <div class="agent-list">
             <div v-for="agent in agentOpinions" :key="agent.role" class="agent-card">
               <div class="agent-head">
@@ -204,6 +212,8 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { STOCK_MASTER } from "@/mock/stocks.js";
 import { getStockRecommendationInsight, listStockRecommendations } from "@/api/market.js";
+import DeepForecastSummaryCard from "@/shared/components/deep-forecast/DeepForecastSummaryCard.vue";
+import { useDeepForecastEntry } from "@/shared/composables/useDeepForecastEntry.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -255,6 +265,12 @@ const reportSections = computed(() => {
     { title: '风险提示', content: (expl.risk_flags || ['常规波动需控仓']).join('；') }
   ];
 });
+const forecastEntrySource = computed(() => insight.value?.Explanation || null);
+const {
+  summary: forecastEntrySummary,
+  to: forecastEntryTo,
+  visible: forecastEntryVisible
+} = useDeepForecastEntry(forecastEntrySource, { mode: "pc" });
 
 function riskLabel(r) { const m = { HIGH:'高风险', MEDIUM:'中风险', LOW:'低风险' }; return m[r] || r; }
 function stanceLabel(s) {

@@ -20,6 +20,13 @@
       <div class="h5-section-header"><h3>AI 快评</h3></div>
       <p class="h5-ai-brief">{{ loading ? '加载中...' : aiBrief }}</p>
     </div>
+    <DeepForecastSummaryCard
+      v-if="forecastEntryVisible"
+      :summary="forecastEntrySummary"
+      :to="forecastEntryTo"
+      mode="h5"
+      heading="深度推演"
+    />
     <button v-if="stock" class="h5-full-analysis" @click="$router.push('/identify/' + stock.symbol)">查看完整 AI 分析报告 →</button>
     <div v-else class="h5-empty"><p>加载中...</p></div>
   </div>
@@ -31,12 +38,19 @@ import { useRoute } from "vue-router";
 import { getStockBySymbol, STOCK_MASTER } from "@/mock/stocks.js";
 import { listStockRecommendations } from "@/api/market.js"
 import { useClientAuth } from "@/shared/auth/client-auth";
+import DeepForecastSummaryCard from "@/shared/components/deep-forecast/DeepForecastSummaryCard.vue";
+import { useDeepForecastEntry } from "@/shared/composables/useDeepForecastEntry.js";
 const { isLoggedIn } = useClientAuth();
 
 const route = useRoute();
 const loading = ref(false);
 const stockData = ref(null);
 const stock = computed(() => stockData.value);
+const {
+  summary: forecastEntrySummary,
+  to: forecastEntryTo,
+  visible: forecastEntryVisible
+} = useDeepForecastEntry(stock, { mode: "h5" });
 
 const aiBrief = computed(() => {
   if (!stock.value) return '暂无数据';
@@ -57,7 +71,9 @@ async function loadStock() {
       stockData.value = {
         symbol: found.symbol, name: found.name, price: found.score || '-',
         change: parseFloat((Math.random() * 6 - 1).toFixed(2)),
-        high: '-', low: '-', volume: '-', pe: '-', marketCap: '-', turnover: '-'
+        high: '-', low: '-', volume: '-', pe: '-', marketCap: '-', turnover: '-',
+        deep_forecast_summary: found.deep_forecast_summary,
+        deep_forecast_report_ref: found.deep_forecast_report_ref
       };
       loading.value = false; return;
     }
