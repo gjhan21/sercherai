@@ -11,6 +11,7 @@ import {
 import {
   averageStockSelectionMetric,
   formatStockSelectionDateTime,
+  formatStockSelectionLabel,
   formatStockSelectionPercent
 } from "../../lib/stock-selection";
 
@@ -35,37 +36,57 @@ const defaultTemplate = computed(() => {
 
 const templateFactorConfig = computed(() => defaultTemplate.value?.factor_defaults_json || {});
 const profileFactorConfig = computed(() => defaultProfile.value?.factor_config || {});
+const templateShortTermHead = computed(() => defaultTemplate.value?.short_term_head_defaults_json || {});
+const profileShortTermHead = computed(() => defaultProfile.value?.short_term_head_config || {});
+const templateSwingHead = computed(() => defaultTemplate.value?.swing_head_defaults_json || {});
+const profileSwingHead = computed(() => defaultProfile.value?.swing_head_config || {});
 
 const factorRows = computed(() => [
   {
-    label: "量化主分",
+    label: "超短线量化主分",
     template: formatStockSelectionPercent(templateFactorConfig.value.quant_weight ?? 0.7, 0),
     profile: formatStockSelectionPercent(
-      profileFactorConfig.value.quant_weight ?? templateFactorConfig.value.quant_weight ?? 0.75,
+      profileShortTermHead.value.quant_weight ?? profileFactorConfig.value.quant_weight ?? templateFactorConfig.value.quant_weight ?? 0.75,
       0
     )
   },
   {
-    label: "事件确认",
+    label: "超短线事件确认",
     template: formatStockSelectionPercent(templateFactorConfig.value.event_weight ?? 0.1, 0),
     profile: formatStockSelectionPercent(
-      profileFactorConfig.value.event_weight ?? templateFactorConfig.value.event_weight ?? 0.1,
+      profileShortTermHead.value.event_weight ?? profileFactorConfig.value.event_weight ?? templateFactorConfig.value.event_weight ?? 0.1,
       0
     )
   },
   {
-    label: "共振确认",
+    label: "超短线共振确认",
     template: formatStockSelectionPercent(templateFactorConfig.value.resonance_weight ?? 0.1, 0),
     profile: formatStockSelectionPercent(
-      profileFactorConfig.value.resonance_weight ?? templateFactorConfig.value.resonance_weight ?? 0.1,
+      profileShortTermHead.value.resonance_weight ?? profileFactorConfig.value.resonance_weight ?? templateFactorConfig.value.resonance_weight ?? 0.1,
       0
     )
   },
   {
-    label: "流动性/风险修正",
+    label: "超短线流动性/风险修正",
     template: formatStockSelectionPercent(templateFactorConfig.value.liquidity_risk_weight ?? 0.1, 0),
     profile: formatStockSelectionPercent(
-      profileFactorConfig.value.liquidity_risk_weight ?? templateFactorConfig.value.liquidity_risk_weight ?? 0.05,
+      profileShortTermHead.value.liquidity_risk_weight ?? profileFactorConfig.value.liquidity_risk_weight ?? templateFactorConfig.value.liquidity_risk_weight ?? 0.05,
+      0
+    )
+  },
+  {
+    label: "短波段量化主分",
+    template: formatStockSelectionPercent(templateFactorConfig.value.quant_weight ?? 0.7, 0),
+    profile: formatStockSelectionPercent(
+      profileSwingHead.value.quant_weight ?? profileFactorConfig.value.quant_weight ?? templateFactorConfig.value.quant_weight ?? 0.75,
+      0
+    )
+  },
+  {
+    label: "短波段共振确认",
+    template: formatStockSelectionPercent(templateFactorConfig.value.resonance_weight ?? 0.1, 0),
+    profile: formatStockSelectionPercent(
+      profileSwingHead.value.resonance_weight ?? profileFactorConfig.value.resonance_weight ?? templateFactorConfig.value.resonance_weight ?? 0.1,
       0
     )
   },
@@ -135,8 +156,8 @@ onMounted(async () => {
 
 <template>
   <StockSelectionModuleShell
-    title="智能选股因子与权重"
-    description="把默认模板、默认配置和最近成功 run 的候选因子拆解放到一个页面看，方便快速判断当前打分结构是否符合预期。"
+    title="智能选股推荐头因子"
+    description="这里专门看第二层推荐头的权重与结果，区分 `超短线主推荐` 和 `短波段辅助` 两套评分逻辑。"
   >
     <template #actions>
       <div class="toolbar" style="margin-bottom: 0; flex-wrap: wrap">
@@ -154,7 +175,7 @@ onMounted(async () => {
 
     <div class="factor-grid">
       <div class="card" v-loading="loading">
-        <div class="card-title">默认模板因子</div>
+        <div class="card-title">推荐头模板权重</div>
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item label="模板">
             {{ defaultTemplate?.name || "未找到默认模板" }}
@@ -169,7 +190,7 @@ onMounted(async () => {
       </div>
 
       <div class="card" v-loading="loading">
-        <div class="card-title">默认配置因子</div>
+        <div class="card-title">推荐头配置权重</div>
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item label="配置方案">
             {{ defaultProfile?.name || "未找到默认配置" }}
@@ -185,7 +206,7 @@ onMounted(async () => {
     </div>
 
     <div class="card" v-loading="loading">
-      <div class="card-title">权重对照</div>
+      <div class="card-title">主推 / 辅推权重对照</div>
       <el-table :data="factorRows" border stripe size="small">
         <el-table-column prop="label" label="因子项" min-width="160" />
         <el-table-column prop="template" label="模板默认" min-width="140" />
@@ -195,7 +216,7 @@ onMounted(async () => {
 
     <div class="card" v-if="selectedRun" v-loading="loading">
       <div class="toolbar" style="justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px">
-        <div class="card-title">最近运行因子拆解</div>
+        <div class="card-title">最近运行候选拆解</div>
         <div class="tag-wrap">
           <el-tag type="info">{{ selectedRun.run_id }}</el-tag>
           <el-tag type="warning">{{ selectedRun.trade_date }}</el-tag>
@@ -215,13 +236,17 @@ onMounted(async () => {
         </div>
       </div>
 
-      <el-table :data="candidateRows" border stripe size="small" empty-text="当前 run 没有候选因子拆解">
-        <el-table-column prop="rank" label="排名" min-width="68" />
-        <el-table-column prop="symbol" label="代码" min-width="110" />
-        <el-table-column prop="name" label="名称" min-width="120" />
-        <el-table-column label="趋势" min-width="90">
-          <template #default="{ row }">{{ row.factor_breakdown_json?.trend ?? "-" }}</template>
-        </el-table-column>
+        <el-table :data="candidateRows" border stripe size="small" empty-text="当前 run 没有候选因子拆解">
+          <el-table-column prop="rank" label="排名" min-width="68" />
+          <el-table-column prop="symbol" label="代码" min-width="110" />
+          <el-table-column prop="name" label="名称" min-width="120" />
+          <el-table-column prop="recommendation_head" label="推荐头" min-width="120">
+            <template #default="{ row }">{{ formatStockSelectionLabel(row.recommendation_head || "CANDIDATE_POOL") }}</template>
+          </el-table-column>
+          <el-table-column prop="technical_pattern" label="技术形态" min-width="130" />
+          <el-table-column label="趋势" min-width="90">
+            <template #default="{ row }">{{ row.factor_breakdown_json?.trend ?? "-" }}</template>
+          </el-table-column>
         <el-table-column label="资金流" min-width="90">
           <template #default="{ row }">{{ row.factor_breakdown_json?.money_flow ?? "-" }}</template>
         </el-table-column>

@@ -101,6 +101,11 @@ type strategyEngineStockCandidateSnapshot struct {
 	PortfolioRole       string         `json:"portfolio_role"`
 	RiskSummary         string         `json:"risk_summary"`
 	FactorBreakdownJSON map[string]any `json:"factor_breakdown_json"`
+	RecommendationHead  string         `json:"recommendation_head"`
+	SelectionLayer      string         `json:"selection_layer"`
+	ReasonTags          []string       `json:"reason_tags"`
+	VetoTags            []string       `json:"veto_tags"`
+	TechnicalPattern    string         `json:"technical_pattern"`
 }
 
 type strategyEngineStockPortfolioEntry struct {
@@ -116,6 +121,11 @@ type strategyEngineStockPortfolioEntry struct {
 	PortfolioRole       string         `json:"portfolio_role"`
 	RiskSummary         string         `json:"risk_summary"`
 	FactorBreakdownJSON map[string]any `json:"factor_breakdown_json"`
+	RecommendationHead  string         `json:"recommendation_head"`
+	SelectionLayer      string         `json:"selection_layer"`
+	ReasonTags          []string       `json:"reason_tags"`
+	VetoTags            []string       `json:"veto_tags"`
+	TechnicalPattern    string         `json:"technical_pattern"`
 }
 
 type strategyEngineStockEvidenceRecord struct {
@@ -130,6 +140,9 @@ type strategyEngineStockEvidenceRecord struct {
 	ThemeTags       []string         `json:"theme_tags"`
 	SectorTags      []string         `json:"sector_tags"`
 	RiskFlags       []string         `json:"risk_flags"`
+	RecommendationHead string        `json:"recommendation_head"`
+	SelectionLayer     string        `json:"selection_layer"`
+	TechnicalPattern   string        `json:"technical_pattern"`
 }
 
 type strategyEngineStockEvaluationRecord struct {
@@ -146,6 +159,8 @@ type strategyEngineStockEvaluationRecord struct {
 	MaxDrawdownPct  float64 `json:"max_drawdown_pct"`
 	HitFlag         bool    `json:"hit_flag"`
 	BenchmarkSymbol string  `json:"benchmark_symbol"`
+	HeadLabel       string  `json:"head_label"`
+	HoldingContract string  `json:"holding_contract"`
 }
 
 type strategyEngineStockSelectionReport struct {

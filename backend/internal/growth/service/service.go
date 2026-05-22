@@ -44,6 +44,8 @@ type GrowthService interface {
 	GetStockRecommendationPerformance(userID string, recoID string) ([]model.RecommendationPerformancePoint, error)
 	GetStockRecommendationInsight(userID string, recoID string) (model.StockRecommendationInsight, error)
 	GetStockRecommendationVersionHistory(userID string, recoID string) ([]model.StrategyVersionHistoryItem, error)
+	AddUserVirtualSandbox(userID string, recoID string, addPrice float64) error
+	GetUserVirtualSandbox(userID string) ([]model.UserVirtualSandbox, error)
 	ListFuturesStrategies(userID string, contract string, status string, page int, pageSize int) ([]model.FuturesStrategy, int, error)
 	GetFuturesStrategyDetail(userID string, strategyID string) (model.FuturesStrategy, error)
 	GetFuturesStrategyInsight(userID string, strategyID string) (model.FuturesStrategyInsight, error)
@@ -111,6 +113,7 @@ type GrowthService interface {
 	AdminListStockRecommendations(status string, page int, pageSize int) ([]model.StockRecommendation, int, error)
 	AdminCreateStockRecommendation(item model.StockRecommendation) (string, error)
 	AdminUpdateStockRecommendationStatus(id string, status string) error
+	AdminUpdateStockRecommendationAIReview(id string, aiReviewContent string) error
 	AdminSyncStockInstrumentMaster(sourceKey string, symbols []string) (model.MarketSyncResult, error)
 	AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error)
 	AdminSyncStockQuotesDetailed(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
@@ -118,6 +121,8 @@ type GrowthService interface {
 	AdminSyncStockDailyBasics(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
 	AdminSyncStockMoneyflows(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
 	AdminSyncStockNewsRaw(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
+	AdminSyncStockKPLList(sourceKey string, days int) (model.MarketSyncResult, error)
+	AdminSyncStockTopList(sourceKey string, days int) (model.MarketSyncResult, error)
 	AdminSyncFuturesQuotes(sourceKey string, contracts []string, days int) (model.MarketSyncResult, error)
 	AdminSyncMarketMasterDetailed(assetType string, sourceKey string, instrumentKeys []string) (model.MarketSyncResult, error)
 	AdminSyncMarketQuotesDetailed(assetType string, sourceKey string, instrumentKeys []string, days int) (model.MarketSyncResult, error)
@@ -181,7 +186,7 @@ type GrowthService interface {
 	AdminListStockSelectionRunPortfolio(runID string) ([]model.StockSelectionPortfolioEntry, error)
 	AdminListStockSelectionRunEvidence(runID string, symbol string) ([]model.StockSelectionRunEvidence, error)
 	AdminListStockSelectionRunEvaluations(runID string, symbol string) ([]model.StockSelectionRunEvaluation, error)
-	AdminListStockSelectionEvaluationLeaderboard(templateID string, profileID string, marketRegime string) ([]model.StockSelectionEvaluationLeaderboardItem, error)
+	AdminListStockSelectionEvaluationLeaderboard(templateID string, profileID string, marketRegime string, evaluationScope string) ([]model.StockSelectionEvaluationLeaderboardItem, error)
 	AdminListStockSelectionReviews(status string, page int, pageSize int) ([]model.StockSelectionPublishReview, int, error)
 	AdminApproveStockSelectionReview(runID string, operator string, reviewNote string, force bool, overrideReason string) (model.StockSelectionPublishReview, error)
 	AdminRejectStockSelectionReview(runID string, operator string, reviewNote string) (model.StockSelectionPublishReview, error)
@@ -440,6 +445,14 @@ func (s *growthService) GetStockRecommendationVersionHistory(userID string, reco
 	return s.repo.GetStockRecommendationVersionHistory(userID, recoID)
 }
 
+func (s *growthService) AddUserVirtualSandbox(userID string, recoID string, addPrice float64) error {
+	return s.repo.AddUserVirtualSandbox(userID, recoID, addPrice)
+}
+
+func (s *growthService) GetUserVirtualSandbox(userID string) ([]model.UserVirtualSandbox, error) {
+	return s.repo.GetUserVirtualSandbox(userID)
+}
+
 func (s *growthService) ListFuturesStrategies(userID string, contract string, status string, page int, pageSize int) ([]model.FuturesStrategy, int, error) {
 	return s.repo.ListFuturesStrategies(userID, contract, status, page, pageSize)
 }
@@ -636,6 +649,10 @@ func (s *growthService) AdminUpdateStockRecommendationStatus(id string, status s
 	return s.repo.AdminUpdateStockRecommendationStatus(id, status)
 }
 
+func (s *growthService) AdminUpdateStockRecommendationAIReview(id string, aiReviewContent string) error {
+	return s.repo.AdminUpdateStockRecommendationAIReview(id, aiReviewContent)
+}
+
 func (s *growthService) AdminSyncStockInstrumentMaster(sourceKey string, symbols []string) (model.MarketSyncResult, error) {
 	return s.repo.AdminSyncStockInstrumentMaster(sourceKey, symbols)
 }
@@ -662,6 +679,14 @@ func (s *growthService) AdminSyncStockMoneyflows(sourceKey string, symbols []str
 
 func (s *growthService) AdminSyncStockNewsRaw(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error) {
 	return s.repo.AdminSyncStockNewsRaw(sourceKey, symbols, days)
+}
+
+func (s *growthService) AdminSyncStockKPLList(sourceKey string, days int) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncStockKPLList(sourceKey, days)
+}
+
+func (s *growthService) AdminSyncStockTopList(sourceKey string, days int) (model.MarketSyncResult, error) {
+	return s.repo.AdminSyncStockTopList(sourceKey, days)
 }
 
 func (s *growthService) AdminSyncFuturesQuotes(sourceKey string, contracts []string, days int) (model.MarketSyncResult, error) {

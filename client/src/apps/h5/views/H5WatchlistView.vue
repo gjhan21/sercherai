@@ -1,7 +1,7 @@
 <template>
   <div class="h5-page fade-up watchlist-page">
     <div class="h5-page-topline">
-      <span class="h5-page-tagline">我的 > 我的关注详情</span>
+      <span class="h5-page-tagline">我的 > 我的模拟沙盘详情</span>
       <span>{{ lastUpdatedText }}</span>
     </div>
 
@@ -52,11 +52,15 @@
             <strong>{{ watchlistModel.leadItem.status }}</strong>
           </article>
           <article class="watchlist-detail-item">
-            <span>下一动作</span>
-            <strong>{{ watchlistModel.leadItem.nextAction }}</strong>
+            <span>虚拟买入价</span>
+            <strong>{{ watchlistModel.leadItem.sandboxAddPrice ? watchlistModel.leadItem.sandboxAddPrice.toFixed(2) : "未加入沙盘" }}</strong>
+          </article>
+          <article class="watchlist-detail-item" v-if="watchlistModel.leadItem.sandboxReturn !== null">
+            <span>沙盘动态收益</span>
+            <strong :class="`trend-${watchlistModel.leadItem.sandboxReturnClass}`">{{ watchlistModel.leadItem.sandboxReturnFormatted }}</strong>
           </article>
           <article class="watchlist-detail-item">
-            <span>累计表现</span>
+            <span>策略累计表现</span>
             <strong :class="`trend-${watchlistModel.leadItem.performanceClass}`">{{ watchlistModel.leadItem.performance }}</strong>
           </article>
           <article class="watchlist-detail-item">
@@ -166,6 +170,7 @@ import { useClientAuth } from "../../../shared/auth/client-auth";
 import { formatDateTime, mapRiskLevel, resolveVipStage } from "../lib/formatters";
 import { buildWatchlistFeedModel } from "../lib/watchlist-feed.js";
 import { resolveHighlightTone } from "../lib/surface-tone.js";
+import { getUserVirtualSandbox } from "../../../api/userCenter";
 
 const router = useRouter();
 const { isLoggedIn } = useClientAuth();
@@ -174,6 +179,7 @@ const loading = ref(false);
 const loadError = ref("");
 const lastUpdatedAt = ref("");
 const rawWatchedItems = ref([]);
+const sandboxItems = ref([]);
 const insightMap = ref({});
 const rawQuota = ref({});
 const watchVersion = ref(0);
@@ -193,6 +199,17 @@ const hydratedWatchRows = computed(() => {
       recommendation.reason_summary || item.reason_summary || ""
     );
 
+    const sandboxItem = sandboxItems.value.find(s => s.stock_recommendation_id === item.id);
+    const currentPrice = stats.current_price || insight.detail?.current_price || 0;
+    let sandboxReturn = null;
+    let sandboxReturnFormatted = "-";
+    let sandboxReturnClass = "flat";
+    if (sandboxItem && sandboxItem.add_price && currentPrice) {
+      sandboxReturn = ((currentPrice - sandboxItem.add_price) / sandboxItem.add_price) * 100;
+      sandboxReturnFormatted = formatPerformance(sandboxReturn / 100);
+      sandboxReturnClass = resolveTrendClass(sandboxReturn / 100);
+    }
+
     return {
       id: item.id,
       name: `${item.symbol || "-"} ${item.name || ""}`.trim(),
@@ -202,6 +219,10 @@ const hydratedWatchRows = computed(() => {
       nextAction: resolveNextAction(recommendation.status || item.status),
       performance: formatPerformance(performance),
       performanceClass: resolveTrendClass(performance),
+      sandboxAddPrice: sandboxItem ? sandboxItem.add_price : null,
+      sandboxReturn,
+      sandboxReturnFormatted,
+      sandboxReturnClass,
       proofTags: buildStrategyProofTags(explanation, { limit: 3 }),
       latestNewsTitle: latestNews?.title || "暂无新增资讯",
       latestNewsTime: formatDateTime(latestNews?.published_at || latestNews?.created_at || item.added_at),
@@ -288,8 +309,9 @@ async function loadWatchlistPage() {
     return;
   }
 
-  const [quotaResult, ...insightResults] = await Promise.allSettled([
+  const [quotaResult, sandboxResult, ...insightResults] = await Promise.allSettled([
     getMembershipQuota(),
+    getUserVirtualSandbox(),
     ...rawWatchedItems.value.map((item) => getStockRecommendationInsight(item.id))
   ]);
 
@@ -297,6 +319,10 @@ async function loadWatchlistPage() {
     rawQuota.value = quotaResult.value || {};
   } else {
     loadError.value = quotaResult.reason?.message || "会员状态同步失败";
+  }
+
+  if (sandboxResult.status === "fulfilled") {
+    sandboxItems.value = sandboxResult.value?.items || sandboxResult.value?.data?.items || [];
   }
 
   const nextInsightMap = {};

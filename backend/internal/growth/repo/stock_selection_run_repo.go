@@ -39,7 +39,7 @@ func (r *MySQLGrowthRepo) AdminGetStockSelectionOverview() (model.AdminStockSele
 		}
 		evaluationSummary[strconv.Itoa(window)] = summary
 	}
-	leaderboard, leaderboardErr := r.AdminListStockSelectionEvaluationLeaderboard("", "", "")
+	leaderboard, leaderboardErr := r.AdminListStockSelectionEvaluationLeaderboard("", "", "", "")
 	if leaderboardErr != nil {
 		warnings = append(warnings, fmt.Sprintf("智能选股评估榜单加载失败: %v", leaderboardErr))
 	}
@@ -51,6 +51,9 @@ func (r *MySQLGrowthRepo) AdminGetStockSelectionOverview() (model.AdminStockSele
 
 	dataFreshness := map[string]any{}
 	latestTradeDate := ""
+	marketAnalysis := map[string]any{}
+	candidatePoolSummary := map[string]any{}
+	headSummary := map[string]any{}
 	latestAvailableTradeDate, latestTradeDateErr := r.resolveStrategyStockContextTradeDate(time.Now(), nil)
 	if latestTradeDateErr != nil {
 		warnings = append(warnings, fmt.Sprintf("智能选股最新交易日加载失败: %v", latestTradeDateErr))
@@ -61,10 +64,16 @@ func (r *MySQLGrowthRepo) AdminGetStockSelectionOverview() (model.AdminStockSele
 		dataFreshness = latestSuccessRun.ContextMeta
 		dataFreshness["trade_date"] = latestSuccessRun.TradeDate
 		dataFreshness["completed_at"] = latestSuccessRun.CompletedAt
+		marketAnalysis = stockSelectionMapValue(latestSuccessRun.ContextMeta["market_analysis"])
+		candidatePoolSummary = stockSelectionMapValue(latestSuccessRun.ContextMeta["candidate_pool_summary"])
+		headSummary = stockSelectionMapValue(latestSuccessRun.ContextMeta["head_output_summary"])
 	} else if latestRun != nil {
 		if latestTradeDate == "" {
 			latestTradeDate = latestRun.TradeDate
 		}
+		marketAnalysis = stockSelectionMapValue(latestRun.ContextMeta["market_analysis"])
+		candidatePoolSummary = stockSelectionMapValue(latestRun.ContextMeta["candidate_pool_summary"])
+		headSummary = stockSelectionMapValue(latestRun.ContextMeta["head_output_summary"])
 	}
 	marketRegime := ""
 	if latestSuccessRun != nil {
@@ -88,6 +97,28 @@ func (r *MySQLGrowthRepo) AdminGetStockSelectionOverview() (model.AdminStockSele
 		}
 	}
 	evaluationSummaryV2["leaderboard_items"] = leaderboard
+	evaluationSplitSummary, evaluationSplitErr := r.loadStockSelectionOverviewEvaluationSplitSummary()
+	if evaluationSplitErr != nil {
+		warnings = append(warnings, fmt.Sprintf("智能选股分头评估摘要加载失败: %v", evaluationSplitErr))
+		evaluationSplitSummary = map[string]any{}
+	}
+	evaluationBackfillState, evaluationBackfillErr := r.loadStockSelectionOverviewEvaluationBackfillState()
+	if evaluationBackfillErr != nil {
+		warnings = append(warnings, fmt.Sprintf("智能选股评估回填状态加载失败: %v", evaluationBackfillErr))
+		evaluationBackfillState = map[string]any{"status": "PENDING", "message": "评估回填状态加载失败"}
+	}
+	if latestSuccessRun != nil {
+		if latestSuccessRun.ContextMeta == nil {
+			latestSuccessRun.ContextMeta = map[string]any{}
+		}
+		latestSuccessRun.ContextMeta["evaluation_backfill_state"] = evaluationBackfillState
+	}
+	if latestRun != nil {
+		if latestRun.ContextMeta == nil {
+			latestRun.ContextMeta = map[string]any{}
+		}
+		latestRun.ContextMeta["evaluation_backfill_state"] = evaluationBackfillState
+	}
 
 	return model.AdminStockSelectionOverview{
 		DefaultProfile:          defaultProfile,
@@ -96,9 +127,14 @@ func (r *MySQLGrowthRepo) AdminGetStockSelectionOverview() (model.AdminStockSele
 		LatestSuccessRun:        latestSuccessRun,
 		LatestApprovedPortfolio: latestApprovedPortfolio,
 		MarketRegime:            marketRegime,
+		MarketAnalysis:          marketAnalysis,
+		CandidatePoolSummary:    candidatePoolSummary,
+		HeadSummary:             headSummary,
 		DataFreshness:           dataFreshness,
 		EvaluationSummary:       evaluationSummary,
 		EvaluationSummaryV2:     evaluationSummaryV2,
+		EvaluationSplitSummary:  evaluationSplitSummary,
+		EvaluationBackfillState: evaluationBackfillState,
 		TemplateSummary:         templateSummary,
 		PendingReviewCount:      pendingReviewCount,
 		Warnings:                warnings,
@@ -207,6 +243,22 @@ LIMIT ? OFFSET ?`
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, err
+	}
+	runIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		runIDs = append(runIDs, item.RunID)
+	}
+	backfillStateMap, err := r.loadStockSelectionRunEvaluationBackfillStates(runIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	for index := range items {
+		if items[index].ContextMeta == nil {
+			items[index].ContextMeta = map[string]any{}
+		}
+		if state, ok := backfillStateMap[items[index].RunID]; ok {
+			items[index].ContextMeta["evaluation_backfill_state"] = state
+		}
 	}
 	return items, total, nil
 }
@@ -338,6 +390,13 @@ WHERE r.run_id = ?`, strings.TrimSpace(runID))
 	item.StageLogs = stageLogs
 	item.StageDurationsMS = buildStageDurationMap(stageLogs)
 	r.attachStockSelectionRunSummary(&item)
+	if item.ContextMeta == nil {
+		item.ContextMeta = map[string]any{}
+	}
+	evaluationRows, evalErr := r.AdminListStockSelectionRunEvaluations(item.RunID, "")
+	if evalErr == nil {
+		item.ContextMeta["evaluation_backfill_state"] = buildStockSelectionEvaluationBackfillState(evaluationRows)
+	}
 	return item, nil
 }
 
@@ -621,12 +680,32 @@ func buildStockSelectionProfileJobPayload(
 	factorConfig := mergeStockSelectionConfigMaps(nil, profile.FactorConfig)
 	portfolioConfig := mergeStockSelectionConfigMaps(nil, profile.PortfolioConfig)
 	publishConfig := mergeStockSelectionConfigMaps(nil, profile.PublishConfig)
+	marketAnalysisConfig := mergeStockSelectionConfigMaps(nil, profile.MarketAnalysisConfig)
+	candidatePoolConfig := mergeStockSelectionConfigMaps(nil, profile.CandidatePoolConfig)
+	shortTermHeadConfig := mergeStockSelectionConfigMaps(nil, profile.ShortTermHeadConfig)
+	swingHeadConfig := mergeStockSelectionConfigMaps(nil, profile.SwingHeadConfig)
 	if template != nil {
 		universeConfig = mergeStockSelectionConfigMaps(template.UniverseDefaults, profile.UniverseConfig)
 		seedConfig = mergeStockSelectionConfigMaps(template.SeedDefaults, profile.SeedMiningConfig)
 		factorConfig = mergeStockSelectionConfigMaps(template.FactorDefaults, profile.FactorConfig)
 		portfolioConfig = mergeStockSelectionConfigMaps(template.PortfolioDefaults, profile.PortfolioConfig)
 		publishConfig = mergeStockSelectionConfigMaps(template.PublishDefaults, profile.PublishConfig)
+		marketAnalysisConfig = mergeStockSelectionConfigMaps(template.MarketAnalysisDefaults, profile.MarketAnalysisConfig)
+		candidatePoolConfig = mergeStockSelectionConfigMaps(template.CandidatePoolDefaults, profile.CandidatePoolConfig)
+		shortTermHeadConfig = mergeStockSelectionConfigMaps(template.ShortTermHeadDefaults, profile.ShortTermHeadConfig)
+		swingHeadConfig = mergeStockSelectionConfigMaps(template.SwingHeadDefaults, profile.SwingHeadConfig)
+	}
+	if len(marketAnalysisConfig) == 0 {
+		marketAnalysisConfig = deriveStockSelectionMarketAnalysisConfig(profile)
+	}
+	if len(candidatePoolConfig) == 0 {
+		candidatePoolConfig = deriveStockSelectionCandidatePoolConfig(profile)
+	}
+	if len(shortTermHeadConfig) == 0 {
+		shortTermHeadConfig = deriveStockSelectionShortTermHeadConfig(profile)
+	}
+	if len(swingHeadConfig) == 0 {
+		swingHeadConfig = deriveStockSelectionSwingHeadConfig(profile)
 	}
 
 	payload := map[string]any{
@@ -642,12 +721,20 @@ func buildStockSelectionProfileJobPayload(
 		payload["template_key"] = template.TemplateKey
 		payload["template_name"] = template.Name
 		payload["template_snapshot"] = map[string]any{
-			"id":                 template.ID,
-			"template_key":       template.TemplateKey,
-			"name":               template.Name,
-			"market_regime_bias": template.MarketRegimeBias,
+			"id":                       template.ID,
+			"template_key":             template.TemplateKey,
+			"name":                     template.Name,
+			"market_regime_bias":       template.MarketRegimeBias,
+			"market_analysis_defaults": marketAnalysisConfig,
+			"candidate_pool_defaults":  candidatePoolConfig,
+			"short_term_head_defaults": shortTermHeadConfig,
+			"swing_head_defaults":      swingHeadConfig,
 		}
 	}
+	payload["market_analysis_config"] = marketAnalysisConfig
+	payload["candidate_pool_config"] = candidatePoolConfig
+	payload["short_term_head_config"] = shortTermHeadConfig
+	payload["swing_head_config"] = swingHeadConfig
 	if scope := stringValue(universeConfig["universe_scope"]); scope != "" {
 		payload["universe_scope"] = scope
 		payload["market_scope"] = scope
@@ -884,8 +971,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
 INSERT INTO stock_selection_run_evidence (
   id, run_id, symbol, stage, name, portfolio_role, evidence_summary,
   evidence_cards_json, positive_reasons_json, veto_reasons_json, theme_tags_json, sector_tags_json, risk_flags_json,
-  created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+  recommendation_head, selection_layer, technical_pattern, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
 			newID("ssev"),
 			runID,
 			item.Symbol,
@@ -899,6 +986,9 @@ INSERT INTO stock_selection_run_evidence (
 			stockSelectionMustJSON(item.ThemeTags),
 			stockSelectionMustJSON(item.SectorTags),
 			stockSelectionMustJSON(item.RiskFlags),
+			item.RecommendationHead,
+			item.SelectionLayer,
+			item.TechnicalPattern,
 		); err != nil {
 			return err
 		}
@@ -912,8 +1002,9 @@ INSERT INTO stock_selection_run_evidence (
 INSERT INTO stock_selection_run_evaluations (
   id, run_id, symbol, horizon_day, evaluation_scope, name, entry_date, exit_date,
   entry_price, exit_price, return_pct, excess_return_pct, max_drawdown_pct, hit_flag, benchmark_symbol,
+  head_label, holding_contract,
   created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
 			newID("ssev"),
 			runID,
 			item.Symbol,
@@ -929,6 +1020,8 @@ INSERT INTO stock_selection_run_evaluations (
 			item.MaxDrawdownPct,
 			item.HitFlag,
 			item.BenchmarkSymbol,
+			item.HeadLabel,
+			item.HoldingContract,
 		); err != nil {
 			return err
 		}
@@ -1036,6 +1129,9 @@ func (r *MySQLGrowthRepo) attachStockSelectionRunSummary(item *model.StockSelect
 		"SEED_POOL":      item.SeedCount,
 		"CANDIDATE_POOL": item.CandidateCount,
 		"PORTFOLIO":      item.SelectedCount,
+	}
+	for stageKey, value := range intMapValue(item.ContextMeta["stage_counts"]) {
+		item.StageCounts[stageKey] = value
 	}
 	if strings.TrimSpace(item.JobID) != "" {
 		job, err := r.AdminGetStrategyEngineJob(item.JobID)
@@ -1167,6 +1263,9 @@ func buildStockSelectionRunContextMeta(report strategyEngineStockSelectionReport
 	if len(report.MemoryFeedback) > 0 {
 		result["memory_feedback"] = report.MemoryFeedback
 	}
+	if len(report.StageCounts) > 0 {
+		result["stage_counts"] = report.StageCounts
+	}
 	return result
 }
 
@@ -1224,6 +1323,21 @@ func stockSelectionMapValue(raw any) map[string]any {
 		return map[string]any{}
 	}
 	return parseJSONMap(string(body))
+}
+
+func intMapValue(raw any) map[string]int {
+	if raw == nil {
+		return map[string]int{}
+	}
+	if items, ok := raw.(map[string]int); ok {
+		return items
+	}
+	casted := stockSelectionMapValue(raw)
+	result := make(map[string]int, len(casted))
+	for key, value := range casted {
+		result[key] = intValue(value)
+	}
+	return result
 }
 
 func intValue(raw any) int {

@@ -36,6 +36,10 @@ SELECT
   COALESCE(CAST(factor_defaults_json AS CHAR), ''),
   COALESCE(CAST(portfolio_defaults_json AS CHAR), ''),
   COALESCE(CAST(publish_defaults_json AS CHAR), ''),
+  COALESCE(CAST(market_analysis_defaults_json AS CHAR), ''),
+  COALESCE(CAST(candidate_pool_defaults_json AS CHAR), ''),
+  COALESCE(CAST(short_term_head_defaults_json AS CHAR), ''),
+  COALESCE(CAST(swing_head_defaults_json AS CHAR), ''),
   COALESCE(updated_by, ''),
   DATE_FORMAT(updated_at, '%Y-%m-%dT%H:%i:%sZ'),
   DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%sZ')
@@ -52,6 +56,7 @@ LIMIT ? OFFSET ?`, append(args, pageSize, offset)...)
 		var item model.StockSelectionProfileTemplate
 		var isDefault bool
 		var universeJSON, seedJSON, factorJSON, portfolioJSON, publishJSON string
+		var marketAnalysisJSON, candidatePoolJSON, shortTermHeadJSON, swingHeadJSON string
 		if err := rows.Scan(
 			&item.ID,
 			&item.TemplateKey,
@@ -65,6 +70,10 @@ LIMIT ? OFFSET ?`, append(args, pageSize, offset)...)
 			&factorJSON,
 			&portfolioJSON,
 			&publishJSON,
+			&marketAnalysisJSON,
+			&candidatePoolJSON,
+			&shortTermHeadJSON,
+			&swingHeadJSON,
 			&item.UpdatedBy,
 			&item.UpdatedAt,
 			&item.CreatedAt,
@@ -77,6 +86,22 @@ LIMIT ? OFFSET ?`, append(args, pageSize, offset)...)
 		item.FactorDefaults = parseJSONMap(factorJSON)
 		item.PortfolioDefaults = parseJSONMap(portfolioJSON)
 		item.PublishDefaults = parseJSONMap(publishJSON)
+		item.MarketAnalysisDefaults = parseJSONMap(marketAnalysisJSON)
+		item.CandidatePoolDefaults = parseJSONMap(candidatePoolJSON)
+		item.ShortTermHeadDefaults = parseJSONMap(shortTermHeadJSON)
+		item.SwingHeadDefaults = parseJSONMap(swingHeadJSON)
+		if len(item.MarketAnalysisDefaults) == 0 {
+			item.MarketAnalysisDefaults = deriveStockSelectionTemplateMarketAnalysisDefaults(item)
+		}
+		if len(item.CandidatePoolDefaults) == 0 {
+			item.CandidatePoolDefaults = deriveStockSelectionTemplateCandidatePoolDefaults(item)
+		}
+		if len(item.ShortTermHeadDefaults) == 0 {
+			item.ShortTermHeadDefaults = deriveStockSelectionTemplateShortTermHeadDefaults(item)
+		}
+		if len(item.SwingHeadDefaults) == 0 {
+			item.SwingHeadDefaults = deriveStockSelectionTemplateSwingHeadDefaults(item)
+		}
 		items = append(items, item)
 	}
 	return items, total, rows.Err()
@@ -103,8 +128,9 @@ func (r *MySQLGrowthRepo) AdminCreateStockSelectionProfileTemplate(item model.St
 INSERT INTO stock_selection_profile_templates (
   id, template_key, name, description, market_regime_bias, is_default, status,
   universe_defaults_json, seed_defaults_json, factor_defaults_json, portfolio_defaults_json, publish_defaults_json,
+  market_analysis_defaults_json, candidate_pool_defaults_json, short_term_head_defaults_json, swing_head_defaults_json,
   updated_by, updated_at, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
 		item.ID,
 		item.TemplateKey,
 		item.Name,
@@ -117,6 +143,10 @@ INSERT INTO stock_selection_profile_templates (
 		stockSelectionMustJSON(item.FactorDefaults),
 		stockSelectionMustJSON(item.PortfolioDefaults),
 		stockSelectionMustJSON(item.PublishDefaults),
+		stockSelectionMustJSON(item.MarketAnalysisDefaults),
+		stockSelectionMustJSON(item.CandidatePoolDefaults),
+		stockSelectionMustJSON(item.ShortTermHeadDefaults),
+		stockSelectionMustJSON(item.SwingHeadDefaults),
 		item.UpdatedBy,
 	)
 	if err != nil {
@@ -165,6 +195,10 @@ SET template_key = ?,
     factor_defaults_json = ?,
     portfolio_defaults_json = ?,
     publish_defaults_json = ?,
+    market_analysis_defaults_json = ?,
+    candidate_pool_defaults_json = ?,
+    short_term_head_defaults_json = ?,
+    swing_head_defaults_json = ?,
     updated_by = ?,
     updated_at = NOW()
 WHERE id = ?`,
@@ -179,6 +213,10 @@ WHERE id = ?`,
 		stockSelectionMustJSON(item.FactorDefaults),
 		stockSelectionMustJSON(item.PortfolioDefaults),
 		stockSelectionMustJSON(item.PublishDefaults),
+		stockSelectionMustJSON(item.MarketAnalysisDefaults),
+		stockSelectionMustJSON(item.CandidatePoolDefaults),
+		stockSelectionMustJSON(item.ShortTermHeadDefaults),
+		stockSelectionMustJSON(item.SwingHeadDefaults),
 		firstNonEmpty(item.UpdatedBy, current.UpdatedBy),
 		item.ID,
 	)
@@ -273,5 +311,61 @@ func normalizeStockSelectionProfileTemplate(item model.StockSelectionProfileTemp
 	if item.PublishDefaults == nil {
 		item.PublishDefaults = map[string]any{}
 	}
+	if item.MarketAnalysisDefaults == nil {
+		item.MarketAnalysisDefaults = map[string]any{}
+	}
+	if item.CandidatePoolDefaults == nil {
+		item.CandidatePoolDefaults = map[string]any{}
+	}
+	if item.ShortTermHeadDefaults == nil {
+		item.ShortTermHeadDefaults = map[string]any{}
+	}
+	if item.SwingHeadDefaults == nil {
+		item.SwingHeadDefaults = map[string]any{}
+	}
 	return item
+}
+
+func deriveStockSelectionTemplateMarketAnalysisDefaults(item model.StockSelectionProfileTemplate) map[string]any {
+	result := mergeStockSelectionConfigMaps(nil, item.MarketAnalysisDefaults)
+	if len(result) > 0 {
+		return result
+	}
+	result = map[string]any{}
+	copyStockSelectionPayloadFields(result, item.FactorDefaults, []string{"lookback_days", "trend_bias", "resonance_bias"})
+	copyStockSelectionPayloadFields(result, item.PublishDefaults, []string{"review_required"})
+	return result
+}
+
+func deriveStockSelectionTemplateCandidatePoolDefaults(item model.StockSelectionProfileTemplate) map[string]any {
+	result := mergeStockSelectionConfigMaps(nil, item.CandidatePoolDefaults)
+	if len(result) > 0 {
+		return result
+	}
+	result = map[string]any{}
+	copyStockSelectionPayloadFields(result, item.UniverseDefaults, []string{"min_listing_days", "min_avg_turnover", "price_min", "price_max", "industry_whitelist", "industry_blacklist", "theme_whitelist", "theme_blacklist"})
+	copyStockSelectionPayloadFields(result, item.SeedDefaults, []string{"bucket_limit", "seed_pool_cap", "candidate_pool_limit"})
+	return result
+}
+
+func deriveStockSelectionTemplateShortTermHeadDefaults(item model.StockSelectionProfileTemplate) map[string]any {
+	result := mergeStockSelectionConfigMaps(nil, item.ShortTermHeadDefaults)
+	if len(result) > 0 {
+		return result
+	}
+	result = map[string]any{}
+	copyStockSelectionPayloadFields(result, item.PortfolioDefaults, []string{"limit", "min_score", "max_risk_level", "watchlist_limit"})
+	copyStockSelectionPayloadFields(result, item.FactorDefaults, []string{"quant_weight", "event_weight", "resonance_weight", "liquidity_risk_weight"})
+	return result
+}
+
+func deriveStockSelectionTemplateSwingHeadDefaults(item model.StockSelectionProfileTemplate) map[string]any {
+	result := mergeStockSelectionConfigMaps(nil, item.SwingHeadDefaults)
+	if len(result) > 0 {
+		return result
+	}
+	result = map[string]any{}
+	copyStockSelectionPayloadFields(result, item.PortfolioDefaults, []string{"watchlist_limit", "max_symbol_per_bucket", "max_symbols_per_sector"})
+	copyStockSelectionPayloadFields(result, item.FactorDefaults, []string{"quant_weight", "resonance_weight"})
+	return result
 }

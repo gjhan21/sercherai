@@ -31,3 +31,10 @@ test("StockSelectionRunsView surfaces governance routing summary", () => {
   assert.match(text, /decision_reason/);
   assert.match(text, /policy_key/);
 });
+
+test("StockSelectionRunsView surfaces evaluation backfill state from run context", () => {
+  const text = readView();
+  assert.match(text, /evaluation_backfill_state/);
+  assert.match(text, /评估回填状态/);
+  assert.match(text, /formatStockSelectionEvaluationStatus/);
+});

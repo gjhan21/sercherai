@@ -42,6 +42,15 @@ func TestGetStockSelectionOverview(t *testing.T) {
 	if code, ok := payload["code"].(float64); !ok || code != 0 {
 		t.Fatalf("expected success code, got %#v", payload["code"])
 	}
+	data, ok := payload["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected overview data map, got %#v", payload["data"])
+	}
+	for _, key := range []string{"market_analysis", "candidate_pool_summary", "head_summary", "evaluation_split_summary", "evaluation_backfill_state"} {
+		if _, exists := data[key]; !exists {
+			t.Fatalf("expected overview to include %s", key)
+		}
+	}
 }
 
 func TestCreateAndApproveStockSelectionRun(t *testing.T) {
@@ -69,6 +78,41 @@ func TestCreateAndApproveStockSelectionRun(t *testing.T) {
 
 	if reviewRecorder.Code != http.StatusOK {
 		t.Fatalf("expected approve review 200, got %d", reviewRecorder.Code)
+	}
+}
+
+func TestGetStockSelectionOverviewCarriesSplitEvaluationSummary(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/stock-selection/overview", nil)
+
+	newStockSelectionTestHandlers().StockSelection.GetStockSelectionOverview(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+	var payload struct {
+		Code int `json:"code"`
+		Data struct {
+			EvaluationSplitSummary  map[string]any `json:"evaluation_split_summary"`
+			EvaluationBackfillState map[string]any `json:"evaluation_backfill_state"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Code != 0 {
+		t.Fatalf("expected success code, got %d", payload.Code)
+	}
+	if _, ok := payload.Data.EvaluationSplitSummary["SHORT_TERM_PRIMARY"]; !ok {
+		t.Fatalf("expected SHORT_TERM_PRIMARY split summary")
+	}
+	if _, ok := payload.Data.EvaluationSplitSummary["SWING_AUXILIARY"]; !ok {
+		t.Fatalf("expected SWING_AUXILIARY split summary")
+	}
+	if payload.Data.EvaluationBackfillState["status"] == nil {
+		t.Fatalf("expected evaluation backfill state status")
 	}
 }
 

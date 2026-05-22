@@ -4,6 +4,8 @@ import {
   syncMarketDataQuotes,
   syncMarketDataDailyBasic,
   syncMarketDataMoneyflow,
+  incrementalSyncStockQuotes,
+  getStockSyncProgress,
   syncStockInstrumentMaster,
   syncFuturesInventory,
   syncFuturesQuotes,
@@ -19,6 +21,7 @@ import {
   defaultMarketNewsSyncForm,
   defaultStockSyncForm,
   ensurePreferredSource,
+  normalizeSourceKey,
   splitSyncInput
 } from "../lib/data-sources-admin.js";
 
@@ -27,11 +30,14 @@ const defaultDeps = {
   syncMarketDataQuotes,
   syncMarketDataDailyBasic,
   syncMarketDataMoneyflow,
+  incrementalSyncStockQuotes,
+  getStockSyncProgress,
   syncStockInstrumentMaster,
   syncFuturesInventory,
   syncFuturesQuotes,
   syncMarketNewsSource,
-  syncStockQuotes
+  syncStockQuotes,
+  wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 };
 
 function noop() {}
@@ -51,6 +57,13 @@ function isMissingMarketUniverseSnapshotsError(error) {
     message.includes("market_universe_snapshots") &&
     (message.includes("doesn't exist") || message.includes("does not exist") || message.includes("error 1146"))
   );
+}
+
+function normalizeProgressPayload(data) {
+  if (data && typeof data === "object" && data.data && typeof data.data === "object") {
+    return data.data;
+  }
+  return data || {};
 }
 
 export function useMarketSyncConsole(options = {}, injectedDeps = {}) {
@@ -96,6 +109,21 @@ export function useMarketSyncConsole(options = {}, injectedDeps = {}) {
 
   function appendCardLog(logsRef, level, message) {
     logsRef.value = [...logsRef.value, buildSyncLogEntry(level, message)];
+  }
+
+  function appendCardLogOnce(logsRef, level, message) {
+    if (!message) {
+      return;
+    }
+    const nextMessage = String(message).trim();
+    if (!nextMessage) {
+      return;
+    }
+    const lastMessage = String(logsRef.value.at(-1)?.message || "").trim();
+    if (lastMessage === nextMessage) {
+      return;
+    }
+    appendCardLog(logsRef, level, nextMessage);
   }
 
   watch(
@@ -196,6 +224,71 @@ export function useMarketSyncConsole(options = {}, injectedDeps = {}) {
 
   async function handleSyncStockQuotes() {
     return executeStockSync({ refreshMaster: false });
+  }
+
+  async function handleSyncStockIncrementalSync() {
+    if (!ensureCanEditMarket()) {
+      return;
+    }
+    syncingStockQuotes.value = true;
+    feedback.clear();
+    const sourceKey = normalizeSourceKey(defaultStockSourceKey?.value || stockSyncForm.source_key);
+    resetCardLogs(stockSyncLogs, "每日增量同步", sourceKey);
+    try {
+      appendCardLog(
+        stockSyncLogs,
+        "info",
+        "股票每日增量同步固定走当前生效默认行情源，不读取手动覆盖的 source_key"
+      );
+      appendCardLog(stockSyncLogs, "info", "股票正式增量同步请求已发送");
+      const startData = normalizeProgressPayload(await deps.incrementalSyncStockQuotes());
+      if (startData.message) {
+        appendCardLogOnce(stockSyncLogs, "info", startData.message);
+      }
+
+      let progress = startData;
+      let attempts = 0;
+      while (progress.running && attempts < 120) {
+        attempts += 1;
+        await deps.wait(1000);
+        progress = normalizeProgressPayload(await deps.getStockSyncProgress());
+        if (progress.message) {
+          appendCardLogOnce(stockSyncLogs, progress.running ? "info" : progress.failed > 0 ? "danger" : "success", progress.message);
+        }
+      }
+
+      if (progress.running) {
+        throw new Error("股票正式增量同步仍在运行，请稍后刷新查看结果");
+      }
+      if (Number(progress.failed) > 0) {
+        throw new Error(progress.message || "股票正式增量同步失败");
+      }
+
+      stockLastSyncResult.value = {
+        count: Number(progress.completed) || 0,
+        source_key: sourceKey,
+        requested_source_key: sourceKey,
+        days: Number(stockSyncForm.days) || 0,
+        symbols: splitSyncInput(stockSyncForm.symbols),
+        contracts: splitSyncInput(stockSyncForm.symbols),
+        result: {
+          truth_count: Number(progress.completed) || 0,
+          total: Number(progress.total) || 0,
+          completed: Number(progress.completed) || 0,
+          failed: Number(progress.failed) || 0,
+          failed_codes: Array.isArray(progress.failed_codes) ? progress.failed_codes : [],
+          message: String(progress.message || "").trim(),
+          running: Boolean(progress.running)
+        }
+      };
+      feedback.setMessage(`股票每日增量同步完成，处理 ${stockLastSyncResult.value.count || 0} 条`);
+    } catch (error) {
+      appendCardLog(stockSyncLogs, "danger", error.message || "股票正式增量同步失败");
+      feedback.setError(error.message || "股票正式增量同步失败");
+    } finally {
+      appendCardLog(stockSyncLogs, "info", "本次执行结束");
+      syncingStockQuotes.value = false;
+    }
   }
 
   async function handleSyncFuturesQuotes() {
@@ -374,11 +467,12 @@ export function useMarketSyncConsole(options = {}, injectedDeps = {}) {
       scopeKey: "symbols",
       emptyScopeLabel: "全市场",
       placeholder: "股票代码，逗号或换行分隔；留空按当前主数据全市场同步",
-      hint: "建议优先点“全量同步”：先刷新股票代码表，再同步行情；“仅行情”会直接基于当前主数据范围跑 `FULL_MARKET` 或指定股票。",
+      hint: "“全量同步”会先刷新股票代码表，再同步行情、日度指标和资金流向；“每日增量同步”用于补当天或最近交易日行情；“仅行情”保留给指定股票或自定义窗口。",
       minDays: 20,
       maxDays: 365,
       actions: [
         { key: "full", label: "全量同步", type: "primary", run: handleSyncStockFullSync },
+        { key: "incremental", label: "每日增量同步", type: "success", run: handleSyncStockIncrementalSync },
         { key: "quotes", label: "仅行情", type: "default", run: handleSyncStockQuotes }
       ]
     },
@@ -460,6 +554,7 @@ export function useMarketSyncConsole(options = {}, injectedDeps = {}) {
     marketNewsSyncOptions,
     syncCards,
     handleSyncStockFullSync,
+    handleSyncStockIncrementalSync,
     handleSyncStockQuotes,
     handleSyncFuturesFullSync,
     handleSyncFuturesQuotes,

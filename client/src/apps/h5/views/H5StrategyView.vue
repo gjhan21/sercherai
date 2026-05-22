@@ -156,7 +156,20 @@
         </div>
       </section>
 
-      <section class="strategy-detail-card">
+      <BlurryPaywall :is-unlocked="isVIPUser" @unlock="router.push('/membership')">
+        <section v-if="activeStockAiReviewContent" class="strategy-detail-card">
+          <div class="strategy-feed-head">
+            <div>
+              <strong>AI 智能复盘</strong>
+              <p>由大模型自动生成的深度标的复盘分析。</p>
+            </div>
+          </div>
+          <div class="strategy-forecast-summary brand">
+            <p>{{ activeStockAiReviewContent }}</p>
+          </div>
+        </section>
+
+        <section class="strategy-detail-card">
         <div class="strategy-feed-head">
           <div>
             <strong>为什么看它</strong>
@@ -255,11 +268,15 @@
         </div>
 
         <H5EmptyState v-else title="暂无更多版本或事件" description="若后端返回版本历史或事件，这里会补齐时间线卡片。" />
-      </section>
+        </section>
+      </BlurryPaywall>
 
       <section class="strategy-actions-card">
         <template v-if="activeKind === 'stock'">
-          <button type="button" class="h5-btn block" :disabled="loading" @click="requestActiveStockDeepForecast">
+          <button type="button" class="h5-btn block" :disabled="sandboxLoading" @click="joinVirtualSandbox">
+            {{ sandboxLoading ? "加入中..." : "加入虚拟沙盘模拟" }}
+          </button>
+          <button type="button" class="h5-btn-secondary block" :disabled="loading" @click="requestActiveStockDeepForecast">
             {{ activeStockDeepForecast?.runID ? "重新发起深推演" : "发起深推演" }}
           </button>
           <button type="button" class="h5-btn-secondary block" :disabled="!activeStockDeepForecast?.runID" @click="openForecastRun(activeStockDeepForecast?.runID)">
@@ -299,6 +316,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import H5ActionBar from "../components/H5ActionBar.vue";
+import BlurryPaywall from "../../../components/BlurryPaywall.vue";
 import H5EmptyState from "../components/H5EmptyState.vue";
 import H5HeroCard from "../components/H5HeroCard.vue";
 import H5SectionBlock from "../components/H5SectionBlock.vue";
@@ -317,6 +335,7 @@ import {
   listStockRecommendations
 } from "../../../api/market";
 import { getMembershipQuota } from "../../../api/membership";
+import { addUserVirtualSandbox } from "../../../api/userCenter";
 import { createForecastRun } from "../../../api/forecast";
 import { shouldUseDemoFallback } from "../../../lib/fallback-policy";
 
@@ -384,6 +403,20 @@ const eventDetailMap = ref(useDemoFallback ? Object.fromEntries(fallbackMarketEv
 const pendingStockForecastRunIDMap = ref({});
 const pendingFuturesForecastRunIDMap = ref({});
 const watchVersion = ref(0);
+const sandboxLoading = ref(false);
+
+async function joinVirtualSandbox() {
+  if (!activeDetailID.value) return;
+  sandboxLoading.value = true;
+  try {
+    await addUserVirtualSandbox({ reco_id: activeDetailID.value, add_price: stockDetailMap.value[activeDetailID.value]?.current_price || 0 });
+    alert("已成功加入虚拟沙盘");
+  } catch (err) {
+    alert("加入虚拟沙盘失败: " + err.message);
+  } finally {
+    sandboxLoading.value = false;
+  }
+}
 
 
 const tabs = [
@@ -498,6 +531,7 @@ const activeStockDeepForecast = computed(() => {
 const activeStockAgentOpinions = computed(() => buildStrategyAgentOpinionRows(activeStockInsight.value));
 const activeStockScenarioCards = computed(() => buildStrategyScenarioSnapshotRows(activeStockInsight.value));
 const activeStockScenarioMeta = computed(() => buildStrategyScenarioMetaSummary(activeStockInsight.value));
+const activeStockAiReviewContent = computed(() => activeStock.value?.ai_review_content || "");
 
 const activeStockPerformanceSummary = computed(() => {
   const stockID = activeDetailID.value;

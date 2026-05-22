@@ -4,8 +4,8 @@
 > This document describes work from the legacy `client` frontend era.
 > The current official frontend has moved to `/Users/gjhan21/cursor/sercherai/newclient`.
 
-最后更新: 2026-03-18
-状态: 阶段6已完成
+最后更新: 2026-04-29
+状态: 阶段7已完成
 
 ## 文档目的
 
@@ -54,6 +54,7 @@
 | 阶段4 | `docs/vibe-stock-growth/阶段4-我的关注与回访机制.md` | 建立个人关注与回访理由 | Done |
 | 阶段5 | `docs/vibe-stock-growth/阶段5-后台生命周期管理.md` | 后台从发推荐升级为管推荐 | Done |
 | 阶段6 | `docs/vibe-stock-growth/阶段6-会员转化与内容节奏.md` | 完成权益分层与运营节奏 | Done |
+| 阶段7 | `docs/vibe-stock-growth/阶段7-虚拟沙盘与动态权益墙.md` | 虚拟跟随刺激转化，AI 提效，会员动态壁垒 | Done |
 
 ## 当前推荐执行顺序
 
@@ -65,6 +66,7 @@
 5. 阶段4
 6. 阶段5
 7. 阶段6
+8. 阶段7
 
 ## 当前系统主要落点
 

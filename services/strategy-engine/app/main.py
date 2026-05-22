@@ -112,7 +112,9 @@ app = FastAPI(
 from app.api.routes_health import router as health_router  # noqa: E402
 from app.api.routes_jobs import router as jobs_router  # noqa: E402
 from app.api.routes_publish import router as publish_router  # noqa: E402
+from app.api.routes_backtest import router as backtest_router  # noqa: E402
 
 app.include_router(health_router)
 app.include_router(jobs_router)
 app.include_router(publish_router)
+app.include_router(backtest_router)

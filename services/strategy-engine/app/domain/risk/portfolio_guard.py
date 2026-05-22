@@ -38,11 +38,18 @@ class PortfolioGuard:
         else:
             warnings.append("按最小分数过滤后无结果，已回退到风险过滤结果。")
 
+        # Intraday-specific: add strategy-level diversification
+        max_per_strategy = 99  # effectively unlimited for non-intraday
+        template_key = (payload.template_key or "").strip().upper()
+        if template_key == "INTRADAY_T1":
+            max_per_strategy = 2  # from intraday_t1 design spec
+
         diversified = _select_diversified(
             allowed,
             payload.limit,
             max_symbol_per_bucket=payload.max_symbol_per_bucket,
             max_symbols_per_sector=payload.max_symbols_per_sector,
+            max_per_strategy=max_per_strategy,
         )
         if len(diversified) < min(payload.limit, len(allowed)):
             warnings.append("分散化约束后数量不足，已补足高分候选。")
@@ -92,6 +99,7 @@ def _select_diversified(
     *,
     max_symbol_per_bucket: int,
     max_symbols_per_sector: int,
+    max_per_strategy: int = 99,
 ) -> list[StockFeature]:
     if len(features) <= limit:
         return list(features)
@@ -102,19 +110,23 @@ def _select_diversified(
     bucket_count: dict[str, int] = {}
     sector_count: dict[str, int] = {}
     theme_count: dict[str, int] = {}
+    strategy_count: dict[str, int] = {}
     for item in features:
         bucket = _bucket(item.symbol)
         sector = (item.sector or item.industry or "").strip().upper() or "UNKNOWN"
         primary_theme = (item.theme_tags[0] if item.theme_tags else "").strip().upper() or "UNTHEMED"
+        strategy = (item.strategy_name or "").strip() or "unknown"
         if (
             bucket_count.get(bucket, 0) < cap_by_bucket
             and sector_count.get(sector, 0) < cap_by_sector
             and theme_count.get(primary_theme, 0) < cap_by_sector
+            and strategy_count.get(strategy, 0) < max_per_strategy
         ):
             selected.append(item)
             bucket_count[bucket] = bucket_count.get(bucket, 0) + 1
             sector_count[sector] = sector_count.get(sector, 0) + 1
             theme_count[primary_theme] = theme_count.get(primary_theme, 0) + 1
+            strategy_count[strategy] = strategy_count.get(strategy, 0) + 1
         else:
             overflow.append(item)
         if len(selected) >= limit:

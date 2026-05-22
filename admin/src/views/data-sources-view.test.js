@@ -20,4 +20,6 @@ test("DataSourcesView acts as nested shell for data source subroutes", () => {
   assert.match(text, /workspace\.sectionItems/);
   assert.match(text, /workspace\.buildSectionLocation/);
   assert.doesNotMatch(text, /<ProviderGovernanceOverviewPanel/);
+  assert.doesNotMatch(text, /incrementalSyncStockQuotes/);
+  assert.doesNotMatch(text, /股票数据同步（v2）/);
 });

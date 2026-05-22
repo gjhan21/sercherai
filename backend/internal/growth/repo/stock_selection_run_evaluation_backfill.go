@@ -140,23 +140,31 @@ func (r *MySQLGrowthRepo) loadStockSelectionEvaluationTargets(runID string) ([]s
 	targets := make([]stockSelectionEvaluationTarget, 0, 32)
 
 	portfolioRows, err := r.db.Query(`
-SELECT symbol, COALESCE(name, '')
-FROM stock_selection_run_portfolio
-WHERE run_id = ?
-ORDER BY rank_no ASC, symbol ASC`, runID)
+SELECT p.symbol, COALESCE(p.name, ''), COALESCE(e.recommendation_head, '')
+FROM stock_selection_run_portfolio p
+LEFT JOIN stock_selection_run_evidence e
+  ON e.run_id = p.run_id
+ AND e.symbol = p.symbol
+ AND e.stage = 'PORTFOLIO'
+WHERE p.run_id = ?
+ORDER BY p.rank_no ASC, p.symbol ASC`, runID)
 	if err != nil {
 		return nil, err
 	}
 	for portfolioRows.Next() {
-		var symbol, name string
-		if err := portfolioRows.Scan(&symbol, &name); err != nil {
+		var symbol, name, recommendationHead string
+		if err := portfolioRows.Scan(&symbol, &name, &recommendationHead); err != nil {
 			portfolioRows.Close()
 			return nil, err
+		}
+		scope := stockSelectionDisplayEvaluationScope(recommendationHead)
+		if scope == "" || scope == "CANDIDATE_POOL" {
+			scope = "SWING_AUXILIARY"
 		}
 		targets = append(targets, stockSelectionEvaluationTarget{
 			Symbol: strings.ToUpper(strings.TrimSpace(symbol)),
 			Name:   strings.TrimSpace(name),
-			Scope:  "PORTFOLIO",
+			Scope:  scope,
 		})
 	}
 	if err := portfolioRows.Err(); err != nil {
@@ -182,7 +190,7 @@ ORDER BY rank_no ASC, symbol ASC`, runID)
 		targets = append(targets, stockSelectionEvaluationTarget{
 			Symbol: strings.ToUpper(strings.TrimSpace(symbol)),
 			Name:   strings.TrimSpace(name),
-			Scope:  "CANDIDATE",
+			Scope:  "CANDIDATE_POOL",
 		})
 	}
 	if err := candidateRows.Err(); err != nil {
@@ -257,8 +265,9 @@ func (r *MySQLGrowthRepo) replaceStockSelectionRunEvaluations(runID string, reco
 INSERT INTO stock_selection_run_evaluations (
   id, run_id, symbol, horizon_day, evaluation_scope, name, entry_date, exit_date,
   entry_price, exit_price, return_pct, excess_return_pct, max_drawdown_pct, hit_flag, benchmark_symbol,
+  head_label, holding_contract,
   created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`)
+) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`)
 	if err != nil {
 		return err
 	}
@@ -281,6 +290,8 @@ INSERT INTO stock_selection_run_evaluations (
 			item.MaxDrawdownPct,
 			item.HitFlag,
 			item.BenchmarkSymbol,
+			item.HeadLabel,
+			item.HoldingContract,
 		); err != nil {
 			return err
 		}
@@ -404,6 +415,8 @@ func buildStockSelectionEvaluationRecords(
 				Name:            target.Name,
 				HorizonDay:      horizon,
 				EvaluationScope: target.Scope,
+				HeadLabel:       stockSelectionHeadLabel(target.Scope),
+				HoldingContract: stockSelectionHoldingContract(target.Scope),
 				EntryDate:       entryBar.TradeDate.Format("2006-01-02"),
 				ExitDate:        exitBar.TradeDate.Format("2006-01-02"),
 				EntryPrice:      roundTo(entryBar.ClosePrice, 6),
@@ -442,7 +455,6 @@ func buildStockSelectionEvaluationSummary(rows []model.StockSelectionRunEvaluati
 		"message":          "评估生成中",
 	}
 	readyCount := 0
-	hasHorizon5 := false
 	readySet := map[int]struct{}{}
 	for _, row := range rows {
 		summary[strconv.Itoa(row.HorizonDay)] = map[string]any{
@@ -463,9 +475,6 @@ func buildStockSelectionEvaluationSummary(rows []model.StockSelectionRunEvaluati
 			summary["benchmark_symbol"] = row.BenchmarkSymbol
 		}
 		readyCount++
-		if row.HorizonDay == 5 {
-			hasHorizon5 = true
-		}
 	}
 	for _, horizon := range stockSelectionEvaluationHorizons {
 		key := strconv.Itoa(horizon)
@@ -473,18 +482,75 @@ func buildStockSelectionEvaluationSummary(rows []model.StockSelectionRunEvaluati
 			summary[key] = map[string]any{"status": "PENDING"}
 		}
 	}
-	if hasHorizon5 || len(readySet) == len(stockSelectionEvaluationHorizons) {
+	switch status := stockSelectionEvaluationStatusFromReadyCount(len(readySet)); status {
+	case "READY":
 		summary["status"] = "READY"
-		if len(readySet) == len(stockSelectionEvaluationHorizons) {
-			summary["message"] = "已完成 1/3/5/10/20 日评估"
-		} else {
-			summary["message"] = "已回写阶段性评估结果"
-		}
-	} else {
+		summary["message"] = "已完成 1/3/5/10/20 日评估"
+	case "PARTIAL":
+		summary["status"] = "PARTIAL"
 		summary["message"] = "评估生成中，已回写部分 horizon"
+	default:
+		summary["status"] = "PENDING"
+		summary["message"] = "评估生成中"
 	}
 	summary["ready_count"] = readyCount
 	return normalizeStockSelectionEvaluationSummary(summary)
+}
+
+func buildStockSelectionEvaluationBackfillState(rows []model.StockSelectionRunEvaluation) map[string]any {
+	state := map[string]any{
+		"status":           "PENDING",
+		"ready_count":      0,
+		"target_count":     len(stockSelectionEvaluationHorizons),
+		"missing_horizons": append([]int{}, stockSelectionEvaluationHorizons...),
+		"message":          "等待真实行情回填",
+	}
+	if len(rows) == 0 {
+		return state
+	}
+
+	readySet := map[int]struct{}{}
+	lastUpdatedAt := ""
+	for _, row := range rows {
+		if !stockSelectionEvaluationRowIsMaterialized(row) {
+			continue
+		}
+		readySet[row.HorizonDay] = struct{}{}
+		if strings.TrimSpace(row.UpdatedAt) > lastUpdatedAt {
+			lastUpdatedAt = strings.TrimSpace(row.UpdatedAt)
+		}
+	}
+
+	readyCount := len(readySet)
+	missing := make([]int, 0, len(stockSelectionEvaluationHorizons))
+	for _, horizon := range stockSelectionEvaluationHorizons {
+		if _, ok := readySet[horizon]; !ok {
+			missing = append(missing, horizon)
+		}
+	}
+
+	status := "PENDING"
+	message := "等待真实行情回填"
+	switch {
+	case readyCount == 0:
+		status = "PENDING"
+		message = "评估已排队，等待后续行情覆盖"
+	case readyCount == len(stockSelectionEvaluationHorizons):
+		status = "READY"
+		message = "已完成 1/3/5/10/20 日真实回填"
+	default:
+		status = "PARTIAL"
+		message = "已完成部分 horizon 回填，等待更多后续行情"
+	}
+
+	state["status"] = status
+	state["ready_count"] = readyCount
+	state["missing_horizons"] = missing
+	state["message"] = message
+	if lastUpdatedAt != "" {
+		state["last_updated_at"] = lastUpdatedAt
+	}
+	return state
 }
 
 func buildStockSelectionEvaluationBarDateMap(bars []stockSelectionEvaluationBar) map[string]stockSelectionEvaluationBar {

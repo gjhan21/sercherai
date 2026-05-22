@@ -39,6 +39,9 @@ type Config struct {
 	StrategyEnginePollMS       int
 	StrategyGraphBaseURL       string
 	StrategyGraphTimeoutMS     int
+	LLMAPIKey                  string
+	LLMBaseURL                 string
+	LLMModelName               string
 }
 
 func Load() Config {
@@ -77,6 +80,9 @@ func Load() Config {
 		StrategyEnginePollMS:       getEnvInt("STRATEGY_ENGINE_POLL_MS", 250),
 		StrategyGraphBaseURL:       getEnv("STRATEGY_GRAPH_BASE_URL", ""),
 		StrategyGraphTimeoutMS:     getEnvInt("STRATEGY_GRAPH_TIMEOUT_MS", 5000),
+		LLMAPIKey:                  getEnv("LLM_API_KEY", ""),
+		LLMBaseURL:                 getEnv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+		LLMModelName:               getEnv("LLM_MODEL_NAME", "qwen-plus"),
 	}
 }
 

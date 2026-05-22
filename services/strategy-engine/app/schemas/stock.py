@@ -180,6 +180,11 @@ class StockCandidateSnapshot(BaseModel):
     reason_summary: str = ""
     evidence_summary: str = ""
     portfolio_role: str = ""
+    recommendation_head: str = ""
+    selection_layer: str = ""
+    reason_tags: list[str] = Field(default_factory=list)
+    veto_tags: list[str] = Field(default_factory=list)
+    technical_pattern: str = ""
     risk_summary: str = ""
     factor_breakdown_json: dict[str, Any] = Field(default_factory=dict)
 
@@ -195,6 +200,11 @@ class StockPortfolioEntry(BaseModel):
     reason_summary: str = ""
     evidence_summary: str = ""
     portfolio_role: PortfolioRole = "SATELLITE"
+    recommendation_head: str = ""
+    selection_layer: str = ""
+    reason_tags: list[str] = Field(default_factory=list)
+    veto_tags: list[str] = Field(default_factory=list)
+    technical_pattern: str = ""
     risk_summary: str = ""
     evidence_cards: list[dict[str, Any]] = Field(default_factory=list)
     positive_reasons: list[str] = Field(default_factory=list)
@@ -211,6 +221,9 @@ class StockEvidenceRecord(BaseModel):
     name: str
     stage: str
     portfolio_role: str = ""
+    recommendation_head: str = ""
+    selection_layer: str = ""
+    technical_pattern: str = ""
     evidence_summary: str = ""
     evidence_cards: list[dict[str, Any]] = Field(default_factory=list)
     positive_reasons: list[str] = Field(default_factory=list)
@@ -225,6 +238,8 @@ class StockEvaluationRecord(BaseModel):
     name: str
     horizon_day: int
     evaluation_scope: str
+    head_label: str = ""
+    holding_contract: str = ""
     entry_date: str = ""
     exit_date: str = ""
     entry_price: float = 0
@@ -249,6 +264,9 @@ class StockSelectionReport(BaseModel):
     context_meta: dict[str, Any] = Field(default_factory=dict)
     template_snapshot: dict[str, Any] = Field(default_factory=dict)
     evaluation_summary: dict[str, Any] = Field(default_factory=dict)
+    market_conclusion: dict[str, Any] = Field(default_factory=dict)
+    short_term_primary_recommendations: list[dict[str, Any]] = Field(default_factory=list)
+    swing_auxiliary_recommendations: list[dict[str, Any]] = Field(default_factory=list)
     related_entities: list[ResearchGraphEntity] = Field(default_factory=list)
     graph_entities: list[ResearchGraphEntity] = Field(default_factory=list)
     graph_relations: list[ResearchGraphRelation] = Field(default_factory=list)

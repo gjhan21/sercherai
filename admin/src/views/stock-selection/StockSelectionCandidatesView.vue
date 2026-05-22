@@ -97,6 +97,14 @@ function tagType(status) {
   return "info";
 }
 
+function evaluationTagType(status) {
+  const normalized = String(status || "").toUpperCase();
+  if (normalized === "READY") return "success";
+  if (normalized === "PARTIAL") return "warning";
+  if (normalized === "FAILED") return "danger";
+  return "info";
+}
+
 async function fetchRunOptions() {
   const data = await listStockSelectionRuns({
     status: "SUCCEEDED",
@@ -384,16 +392,24 @@ onMounted(async () => {
         >
           <el-table-column prop="rank" label="排名" min-width="70" />
           <el-table-column prop="symbol" label="代码" min-width="120" />
-          <el-table-column prop="name" label="名称" min-width="140" />
-          <el-table-column prop="quant_score" label="量化分" min-width="90" />
-          <el-table-column label="角色" min-width="90">
-            <template #default="{ row }">{{ formatStockSelectionLabel(row.portfolio_role || "PORTFOLIO") }}</template>
-          </el-table-column>
+        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column prop="quant_score" label="量化分" min-width="90" />
+        <el-table-column prop="recommendation_head" label="推荐头" min-width="120">
+          <template #default="{ row }">{{ formatStockSelectionLabel(row.recommendation_head || "CANDIDATE_POOL") }}</template>
+        </el-table-column>
+        <el-table-column prop="technical_pattern" label="技术形态" min-width="130" />
+        <el-table-column label="角色" min-width="90">
+          <template #default="{ row }">{{ formatStockSelectionLabel(row.portfolio_role || "PORTFOLIO") }}</template>
+        </el-table-column>
           <el-table-column prop="risk_level" label="风险" min-width="90">
             <template #default="{ row }">{{ formatStockSelectionRiskLevel(row.risk_level) }}</template>
           </el-table-column>
           <el-table-column prop="evaluation_status" label="评估" min-width="90">
-            <template #default="{ row }">{{ formatStockSelectionEvaluationStatus(row.evaluation_status) }}</template>
+            <template #default="{ row }">
+              <el-tag :type="evaluationTagType(row.evaluation_status)">
+                {{ formatStockSelectionEvaluationStatus(row.evaluation_status) }}
+              </el-tag>
+            </template>
           </el-table-column>
           <el-table-column prop="selected" label="入组合" min-width="80">
             <template #default="{ row }">
@@ -418,17 +434,25 @@ onMounted(async () => {
         >
           <el-table-column prop="rank" label="排名" min-width="70" />
           <el-table-column prop="symbol" label="代码" min-width="120" />
-          <el-table-column prop="name" label="名称" min-width="140" />
-          <el-table-column prop="quant_score" label="量化分" min-width="90" />
-          <el-table-column label="角色" min-width="90">
-            <template #default="{ row }">{{ formatStockSelectionLabel(row.portfolio_role || "WATCHLIST") }}</template>
-          </el-table-column>
+        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column prop="quant_score" label="量化分" min-width="90" />
+        <el-table-column prop="recommendation_head" label="推荐头" min-width="120">
+          <template #default="{ row }">{{ formatStockSelectionLabel(row.recommendation_head || "SHORT_TERM_PRIMARY") }}</template>
+        </el-table-column>
+        <el-table-column prop="technical_pattern" label="技术形态" min-width="130" />
+        <el-table-column label="角色" min-width="90">
+          <template #default="{ row }">{{ formatStockSelectionLabel(row.portfolio_role || "WATCHLIST") }}</template>
+        </el-table-column>
           <el-table-column prop="weight_suggestion" label="仓位建议" min-width="120" />
           <el-table-column prop="risk_level" label="风险" min-width="90">
             <template #default="{ row }">{{ formatStockSelectionRiskLevel(row.risk_level) }}</template>
           </el-table-column>
           <el-table-column prop="evaluation_status" label="评估" min-width="90">
-            <template #default="{ row }">{{ formatStockSelectionEvaluationStatus(row.evaluation_status) }}</template>
+            <template #default="{ row }">
+              <el-tag :type="evaluationTagType(row.evaluation_status)">
+                {{ formatStockSelectionEvaluationStatus(row.evaluation_status) }}
+              </el-tag>
+            </template>
           </el-table-column>
         </el-table>
       </div>
@@ -446,13 +470,20 @@ onMounted(async () => {
         >
           <el-table-column prop="rank" label="排名" min-width="70" />
           <el-table-column prop="symbol" label="代码" min-width="120" />
-          <el-table-column prop="name" label="名称" min-width="140" />
-          <el-table-column prop="quant_score" label="量化分" min-width="90" />
-          <el-table-column prop="risk_level" label="风险" min-width="90">
-            <template #default="{ row }">{{ formatStockSelectionRiskLevel(row.risk_level) }}</template>
-          </el-table-column>
+        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column prop="quant_score" label="量化分" min-width="90" />
+        <el-table-column prop="recommendation_head" label="推荐头" min-width="120">
+          <template #default="{ row }">{{ formatStockSelectionLabel(row.recommendation_head || "CANDIDATE_POOL") }}</template>
+        </el-table-column>
+        <el-table-column prop="risk_level" label="风险" min-width="90">
+          <template #default="{ row }">{{ formatStockSelectionRiskLevel(row.risk_level) }}</template>
+        </el-table-column>
           <el-table-column prop="evaluation_status" label="评估" min-width="90">
-            <template #default="{ row }">{{ formatStockSelectionEvaluationStatus(row.evaluation_status) }}</template>
+            <template #default="{ row }">
+              <el-tag :type="evaluationTagType(row.evaluation_status)">
+                {{ formatStockSelectionEvaluationStatus(row.evaluation_status) }}
+              </el-tag>
+            </template>
           </el-table-column>
         </el-table>
       </div>
@@ -463,9 +494,18 @@ onMounted(async () => {
       <div class="tag-wrap" style="margin-bottom: 12px">
         <el-tag type="info">{{ selectedCandidate.symbol }}</el-tag>
         <el-tag type="success">{{ formatStockSelectionLabel(selectedCandidate.portfolio_role || "PORTFOLIO") }}</el-tag>
+        <el-tag v-if="selectedCandidate.recommendation_head" type="info">
+          {{ formatStockSelectionLabel(selectedCandidate.recommendation_head) }}
+        </el-tag>
+        <el-tag v-if="selectedCandidate.selection_layer" type="warning">
+          {{ formatStockSelectionLabel(selectedCandidate.selection_layer) }}
+        </el-tag>
+        <el-tag v-if="selectedCandidate.technical_pattern" type="success">
+          形态：{{ selectedCandidate.technical_pattern }}
+        </el-tag>
         <el-tag type="warning">{{ formatStockSelectionRiskLevel(selectedCandidate.risk_level) }}</el-tag>
         <el-tag type="primary">{{ formatStockSelectionDiffStatus(selectedCandidate.previous_publish_diff) }}</el-tag>
-        <el-tag v-if="selectedCandidate.evaluation_status" type="info">
+        <el-tag v-if="selectedCandidate.evaluation_status" :type="evaluationTagType(selectedCandidate.evaluation_status)">
           评估：{{ formatStockSelectionEvaluationStatus(selectedCandidate.evaluation_status) }}
         </el-tag>
       </div>
@@ -475,6 +515,12 @@ onMounted(async () => {
         </el-descriptions-item>
         <el-descriptions-item label="阶段">
           {{ formatStockSelectionStage(selectedCandidate.stage || "PORTFOLIO") }}
+        </el-descriptions-item>
+        <el-descriptions-item label="推荐头">
+          {{ formatStockSelectionLabel(selectedCandidate.recommendation_head || "CANDIDATE_POOL") }}
+        </el-descriptions-item>
+        <el-descriptions-item label="分层">
+          {{ formatStockSelectionLabel(selectedCandidate.selection_layer || "-") }}
         </el-descriptions-item>
         <el-descriptions-item label="更新时间">
           {{ formatDateTime(runDetail?.updated_at) }}
@@ -499,6 +545,9 @@ onMounted(async () => {
         </el-descriptions-item>
         <el-descriptions-item label="风险修正">
           {{ selectedCandidate.factor_breakdown_json?.risk_adjustment ?? "-" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="技术形态">
+          {{ selectedCandidate.technical_pattern || "-" }}
         </el-descriptions-item>
         <el-descriptions-item label="摘要" :span="3">
           {{ selectedCandidate.reason_summary || "-" }}
@@ -527,6 +576,9 @@ onMounted(async () => {
               {{ formatStockSelectionStage(item.stage) }} / {{ formatStockSelectionLabel(item.portfolio_role || "PORTFOLIO") }}
             </div>
             <div class="muted" style="margin-bottom: 8px">{{ item.evidence_summary || "-" }}</div>
+            <div class="mini-list">推荐头：{{ formatStockSelectionLabel(item.recommendation_head || "CANDIDATE_POOL") }}</div>
+            <div class="mini-list">分层：{{ formatStockSelectionLabel(item.selection_layer || "-") }}</div>
+            <div class="mini-list">技术形态：{{ item.technical_pattern || "-" }}</div>
             <el-tag
               v-for="card in item.evidence_cards_json || []"
               :key="`${card.title}-${card.value}`"
@@ -556,6 +608,8 @@ onMounted(async () => {
             <el-table-column prop="evaluation_scope" label="范围" min-width="100">
               <template #default="{ row }">{{ formatStockSelectionEvaluationScope(row.evaluation_scope) }}</template>
             </el-table-column>
+            <el-table-column prop="head_label" label="推荐头" min-width="120" />
+            <el-table-column prop="holding_contract" label="持有合同" min-width="100" />
             <el-table-column prop="entry_date" label="入场日" min-width="110" />
             <el-table-column prop="exit_date" label="出场日" min-width="110" />
             <el-table-column prop="return_pct" label="收益" min-width="90">

@@ -332,6 +332,7 @@ type StockRecommendation struct {
 	Reviewer         string  `json:"reviewer,omitempty"`
 	Publisher        string  `json:"publisher,omitempty"`
 	ReviewNote       string  `json:"review_note,omitempty"`
+	AIReviewContent  string  `json:"ai_review_content,omitempty"`
 	PerformanceLabel string  `json:"performance_label,omitempty"`
 }
 
@@ -344,6 +345,15 @@ type StockRecommendationDetail struct {
 	TakeProfit     string  `json:"take_profit"`
 	StopLoss       string  `json:"stop_loss"`
 	RiskNote       string  `json:"risk_note"`
+}
+
+type UserVirtualSandbox struct {
+	ID                      string  `json:"id"`
+	UserID                  string  `json:"user_id"`
+	StockRecommendationID   string  `json:"stock_recommendation_id"`
+	AddPrice                float64 `json:"add_price"`
+	Status                  string  `json:"status"`
+	AddedAt                 string  `json:"added_at"`
 }
 
 type StockRecommendationFactorScore struct {
@@ -438,6 +448,33 @@ type StockQuantScore struct {
 	RiskLevel        string   `json:"risk_level"`
 	ReasonSummary    string   `json:"reason_summary"`
 	Reasons          []string `json:"reasons"`
+
+	// Intraday / T+1 short-cycle features
+	Momentum1             float64 `json:"momentum1"`
+	Momentum2             float64 `json:"momentum2"`
+	Momentum3             float64 `json:"momentum3"`
+	ConsecutiveDownDays   int     `json:"consecutive_down_days"`
+	CandleBodyPct         float64 `json:"candle_body_pct"`
+	LowerShadowPct        float64 `json:"lower_shadow_pct"`
+	UpperShadowPct        float64 `json:"upper_shadow_pct"`
+	IsBullish             bool    `json:"is_bullish"`
+	IsDoji                bool    `json:"is_doji"`
+	IsEngulfingBullish    bool    `json:"is_engulfing_bullish"`
+	DeviationMA5          float64 `json:"deviation_ma5"`
+	DeviationMA10         float64 `json:"deviation_ma10"`
+	DeviationMA20         float64 `json:"deviation_ma20"`
+	DeviationMA60         float64 `json:"deviation_ma60"`
+	Volume20dMinRank      int     `json:"volume_20d_min_rank"`
+	VolumeContractionDays int     `json:"volume_contraction_days"`
+	IsLimitUp             bool    `json:"is_limit_up"`
+	LuTimeRank            int     `json:"lu_time_rank"`
+	SealOrderRatio        float64 `json:"seal_order_ratio"`
+	LimitUpDays           int     `json:"limit_up_days"`
+	IsOpened              bool    `json:"is_opened"`
+	IsNaturalLimit        bool    `json:"is_natural_limit"`
+	OnTopList             bool    `json:"on_top_list"`
+	TopNetAmount          float64 `json:"top_net_amount"`
+	TopBuySellRatio       float64 `json:"top_buy_sell_ratio"`
 }
 
 type StockQuantEvaluationPoint struct {
@@ -1283,3 +1320,43 @@ type AdminExperimentAnalyticsSummary struct {
 	UserStageBreakdown  []AdminExperimentAnalyticsUserStageItem     `json:"user_stage_breakdown"`
 	VariantDailyTrend   []AdminExperimentAnalyticsVariantTrendPoint `json:"variant_daily_trend"`
 }
+
+// StockLimitUpDaily 涨停板榜单每日明细 (kpl_list 接口)
+type StockLimitUpDaily struct {
+	ID            string  `json:"id"`
+	TradeDate     string  `json:"trade_date"`
+	TsCode        string  `json:"ts_code"`
+	Name          string  `json:"name"`
+	LuTime        string  `json:"lu_time"`
+	OpenTime      string  `json:"open_time"`
+	LastTime      string  `json:"last_time"`
+	Tag           string  `json:"tag"`
+	Theme         string  `json:"theme"`
+	Status        string  `json:"status"`
+	LimitOrder    float64 `json:"limit_order"`
+	LuLimitOrder  float64 `json:"lu_limit_order"`
+	BidAmount     float64 `json:"bid_amount"`
+	BidChange     float64 `json:"bid_change"`
+	LuDesc        string  `json:"lu_desc"`
+	PctChg        float64 `json:"pct_chg"`
+	Close         float64 `json:"close"`
+	Amount        float64 `json:"amount"`
+	FloatMV       float64 `json:"float_mv"`
+	TurnoverRate  float64 `json:"turnover_rate"`
+}
+
+// StockTopListDaily 龙虎榜每日明细 (top_list 接口)
+type StockTopListDaily struct {
+	ID        string  `json:"id"`
+	TradeDate string  `json:"trade_date"`
+	TsCode    string  `json:"ts_code"`
+	Name      string  `json:"name"`
+	Close     float64 `json:"close"`
+	PctChg    float64 `json:"pct_chg"`
+	Amount    float64 `json:"amount"`
+	BuyAmount float64 `json:"buy_amount"`
+	SellAmount float64 `json:"sell_amount"`
+	NetAmount float64 `json:"net_amount"`
+	Reason    string  `json:"reason"`
+}
+

@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -10,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"sercherai/backend/internal/growth/dto"
-	"sercherai/backend/internal/growth/repo"
 	"sercherai/backend/internal/growth/service"
 )
 
@@ -69,6 +69,51 @@ func syncProgressResponse() gin.H {
 	}
 }
 
+func resolveDefaultStockQuoteSourceKey(svc service.GrowthService) string {
+	if svc == nil {
+		return "TUSHARE"
+	}
+	items, _, err := svc.AdminListSystemConfigs("stock.quotes.default_source_key", 1, 10)
+	if err != nil || len(items) == 0 {
+		return "TUSHARE"
+	}
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item.ConfigKey), "stock.quotes.default_source_key") {
+			value := strings.ToUpper(strings.TrimSpace(item.ConfigValue))
+			if value != "" {
+				return value
+			}
+		}
+	}
+	return "TUSHARE"
+}
+
+func estimateIncrementalStockSyncDays(svc service.GrowthService, now time.Time) int {
+	if svc == nil {
+		return 7
+	}
+	summary, err := svc.AdminGetMarketCoverageSummary()
+	if err != nil {
+		return 7
+	}
+	latestTradeDate := strings.TrimSpace(summary.LatestTradeDate)
+	if latestTradeDate == "" {
+		return 7
+	}
+	latest, err := time.ParseInLocation("2006-01-02", latestTradeDate, now.Location())
+	if err != nil {
+		return 7
+	}
+	days := int(now.Sub(latest).Hours()/24) + 1
+	if days < 1 {
+		return 1
+	}
+	if days > 30 {
+		return 30
+	}
+	return days
+}
+
 func (h *AdminMarketDataHandler) FullSyncStockQuotes(c *gin.Context) {
 	token := resolveToken(h.service)
 	if token == "" {
@@ -98,39 +143,31 @@ func (h *AdminMarketDataHandler) FullSyncStockQuotes(c *gin.Context) {
 		}()
 
 		os.Setenv("TUSHARE_TOKEN", token)
-
-		today := time.Now()
-		start := today.AddDate(0, 0, -365)
-		// Count trading days (weekdays only)
-		totalDays := 0
-		for d := start; !d.After(today); d = d.AddDate(0, 0, 1) {
-			if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
-				totalDays++
-			}
-		}
+		sourceKey := resolveDefaultStockQuoteSourceKey(h.service)
+		days := 365
 
 		syncState.mu.Lock()
-		syncState.Total = totalDays
+		syncState.Total = days
+		syncState.Message = "正在通过正式市场数据链路执行全量同步"
 		syncState.mu.Unlock()
 
-		for d := start; !d.After(today); d = d.AddDate(0, 0, 1) {
-			if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
-				continue
-			}
-			dateStr := d.Format("20060102")
-			err := repo.FetchAndSaveStockQuotesByDate(token, dateStr)
-			syncState.mu.Lock()
-			if err != nil {
-				syncState.Failed++
-				syncState.FailedCodes = append(syncState.FailedCodes, dateStr)
-			} else {
-				syncState.Completed++
-			}
-			syncState.mu.Unlock()
+		result, err := h.service.AdminSyncStockQuotesFromMaster(sourceKey, days)
+		syncState.mu.Lock()
+		defer syncState.mu.Unlock()
+		if err != nil {
+			syncState.Failed = 1
+			syncState.FailedCodes = []string{"FULL_MARKET"}
+			syncState.Message = err.Error()
+			return
 		}
+		syncState.Completed = result.TruthCount
+		if syncState.Completed <= 0 {
+			syncState.Completed = result.BarCount
+		}
+		syncState.Message = "全量同步完成，来源=" + sourceKey
 	}()
 
-	c.JSON(http.StatusOK, dto.APIResponse{Code: 0, Message: "full sync started (by date mode)", Data: syncProgressResponse()})
+	c.JSON(http.StatusOK, dto.APIResponse{Code: 0, Message: "full sync started", Data: syncProgressResponse()})
 }
 
 func (h *AdminMarketDataHandler) IncrementalSyncStockQuotes(c *gin.Context) {
@@ -162,35 +199,29 @@ func (h *AdminMarketDataHandler) IncrementalSyncStockQuotes(c *gin.Context) {
 		}()
 
 		os.Setenv("TUSHARE_TOKEN", token)
+		now := time.Now()
+		sourceKey := resolveDefaultStockQuoteSourceKey(h.service)
+		days := estimateIncrementalStockSyncDays(h.service, now)
 
-		latestDate := repo.GetLatestTradeDate()
-		startDate := latestDate
-		if startDate == "" {
-			startDate = time.Now().AddDate(0, 0, -7).Format("20060102")
-		} else {
-			t, err := time.Parse("20060102", startDate)
-			if err == nil {
-				startDate = t.AddDate(0, 0, 1).Format("20060102")
-			}
+		syncState.mu.Lock()
+		syncState.Total = days
+		syncState.Message = "正在通过正式市场数据链路执行增量同步"
+		syncState.mu.Unlock()
+
+		result, err := h.service.AdminSyncStockQuotesFromMaster(sourceKey, days)
+		syncState.mu.Lock()
+		defer syncState.mu.Unlock()
+		if err != nil {
+			syncState.Failed = 1
+			syncState.FailedCodes = []string{"INCREMENTAL"}
+			syncState.Message = err.Error()
+			return
 		}
-		endDate := time.Now().Format("20060102")
-
-		current := startDate
-		for current <= endDate {
-			err := repo.FetchAndSaveStockQuotesByDate(token, current)
-			syncState.mu.Lock()
-			if err != nil {
-				syncState.Failed++
-				syncState.FailedCodes = append(syncState.FailedCodes, current)
-			} else {
-				syncState.Completed++
-			}
-			syncState.mu.Unlock()
-
-			t, _ := time.Parse("20060102", current)
-			current = t.AddDate(0, 0, 1).Format("20060102")
+		syncState.Completed = result.TruthCount
+		if syncState.Completed <= 0 {
+			syncState.Completed = result.BarCount
 		}
-		_ = repo.RebuildStockQuotesTruth()
+		syncState.Message = "增量同步完成，来源=" + sourceKey + "，窗口天数=" + strconv.Itoa(days)
 	}()
 
 	c.JSON(http.StatusOK, dto.APIResponse{Code: 0, Message: "incremental sync started", Data: syncProgressResponse()})

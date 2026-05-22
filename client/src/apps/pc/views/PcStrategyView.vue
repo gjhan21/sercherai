@@ -93,6 +93,9 @@
             <button class="ghost-btn finance-ghost-btn" type="button" :disabled="!activeStockView" @click="toggleActiveStockWatch">
               {{ isActiveStockWatched ? "移出关注" : "加入关注" }}
             </button>
+            <button class="ghost-btn finance-ghost-btn" type="button" :disabled="sandboxLoading || !activeStockView" @click="joinVirtualSandbox">
+              {{ sandboxLoading ? "加入中..." : "加入沙盘" }}
+            </button>
             <button class="ghost-btn finance-ghost-btn" type="button" :disabled="!activeStockView" @click="openActiveStockDetailDialog">
               查看浮层详情
             </button>
@@ -131,11 +134,11 @@
               </article>
               <article class="finance-list-card finance-list-card-panel">
                 <p>止盈建议</p>
-                <strong>{{ activeStockView.takeProfit }}</strong>
+                <strong>{{ isVIPUser ? activeStockView.takeProfit : '***解锁可见***' }}</strong>
               </article>
               <article class="finance-list-card finance-list-card-panel">
                 <p>止损建议</p>
-                <strong>{{ activeStockView.stopLoss }}</strong>
+                <strong>{{ isVIPUser ? activeStockView.stopLoss : '***解锁可见***' }}</strong>
               </article>
               <article class="finance-list-card finance-list-card-panel">
                 <p>下一动作</p>
@@ -161,6 +164,7 @@
             </div>
           </div>
 
+          <BlurryPaywall :is-unlocked="isVIPUser" @unlock="router.push('/membership')">
           <div class="reason-support-grid">
             <article v-for="item in activeStockReasonSupports" :key="item.label" class="finance-list-card finance-list-card-panel">
               <p>{{ item.label }}</p>
@@ -499,6 +503,7 @@
             </div>
             <div v-else class="empty-inline finance-empty-inline">暂无历史推荐业绩</div>
           </div>
+          </BlurryPaywall>
 
           <p v-if="stockDetailErrorMessage" class="detail-warning">{{ stockDetailErrorMessage }}</p>
         </div>
@@ -543,19 +548,19 @@
             <div class="side-mini-grid">
               <article class="finance-list-card finance-list-card-panel">
                 <p>入场</p>
-                <strong>{{ activeFuturesView.entryRange }}</strong>
+                <strong>{{ isVIPUser ? activeFuturesView.entryRange : '***解锁可见***' }}</strong>
               </article>
               <article class="finance-list-card finance-list-card-panel">
                 <p>止盈</p>
-                <strong>{{ activeFuturesView.takeProfitRange }}</strong>
+                <strong>{{ isVIPUser ? activeFuturesView.takeProfitRange : '***解锁可见***' }}</strong>
               </article>
               <article class="finance-list-card finance-list-card-panel">
                 <p>止损</p>
-                <strong>{{ activeFuturesView.stopLossRange }}</strong>
+                <strong>{{ isVIPUser ? activeFuturesView.stopLossRange : '***解锁可见***' }}</strong>
               </article>
               <article class="finance-list-card finance-list-card-panel">
                 <p>失效</p>
-                <strong>{{ activeFuturesView.invalidCondition }}</strong>
+                <strong>{{ isVIPUser ? activeFuturesView.invalidCondition : '***解锁可见***' }}</strong>
               </article>
             </div>
             <div class="focus-link-row">
@@ -806,6 +811,14 @@
             <div class="stock-detail-actions">
               <button type="button" class="watch-btn finance-mini-btn finance-mini-btn-accent" @click="toggleActiveStockWatch">
                 {{ isActiveStockWatched ? "移出关注" : "加入关注" }}
+              </button>
+              <button
+                type="button"
+                class="watch-btn finance-mini-btn finance-mini-btn-info"
+                :disabled="sandboxLoading || !activeStockView"
+                @click="joinVirtualSandbox"
+              >
+                {{ sandboxLoading ? "加入中..." : "加入沙盘" }}
               </button>
               <button
                 type="button"
@@ -1207,22 +1220,23 @@
             </article>
             <article class="finance-list-card finance-list-card-panel">
               <p>入场区间</p>
-              <strong>{{ activeFuturesView.entryRange }}</strong>
+              <strong>{{ isVIPUser ? activeFuturesView.entryRange : '***解锁可见***' }}</strong>
             </article>
             <article class="finance-list-card finance-list-card-panel">
               <p>止盈区间</p>
-              <strong>{{ activeFuturesView.takeProfitRange }}</strong>
+              <strong>{{ isVIPUser ? activeFuturesView.takeProfitRange : '***解锁可见***' }}</strong>
             </article>
             <article class="finance-list-card finance-list-card-panel">
               <p>止损区间</p>
-              <strong>{{ activeFuturesView.stopLossRange }}</strong>
+              <strong>{{ isVIPUser ? activeFuturesView.stopLossRange : '***解锁可见***' }}</strong>
             </article>
             <article class="finance-list-card finance-list-card-panel">
               <p>失效条件</p>
-              <strong>{{ activeFuturesView.invalidCondition }}</strong>
+              <strong>{{ isVIPUser ? activeFuturesView.invalidCondition : '***解锁可见***' }}</strong>
             </article>
           </div>
 
+          <BlurryPaywall :is-unlocked="isVIPUser" @unlock="router.push('/membership')">
           <div class="reason-support-grid">
             <article v-for="item in activeFuturesReasonSupports" :key="`fut-${item.label}`" class="finance-list-card finance-list-card-panel">
               <p>{{ item.label }}</p>
@@ -1537,6 +1551,7 @@
             </div>
             <div v-else class="empty-inline finance-empty-inline">暂无历史策略业绩</div>
           </div>
+          </BlurryPaywall>
 
           <p v-if="futuresInsightErrorMessage" class="detail-warning">{{ futuresInsightErrorMessage }}</p>
         </section>
@@ -1549,6 +1564,20 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import StatePanel from "../../../components/StatePanel.vue";
+import BlurryPaywall from "../../../components/BlurryPaywall.vue";
+import { useStrategyPerformance } from "../../../composables/useStrategyPerformance";
+import { useStrategyInsight } from "../../../composables/useStrategyInsight";
+import {
+  formatDateTime,
+  parseErrorMessage,
+  resolveVIPStage,
+  formatDate,
+  formatPercent,
+  formatDateRange,
+  trendClassByNumber,
+  formatRate
+} from "../../../utils/finance";
+import { addUserVirtualSandbox } from "../../../api/userCenter";
 import { createForecastRun } from "../../../api/forecast";
 import {
   getFuturesStrategyInsight,
@@ -1981,86 +2010,39 @@ const activeStockView = computed(() => {
   };
 });
 
-const activeStockPerformanceRows = computed(() => {
-  const stockID = activeStockView.value?.id;
-  if (!stockID) {
-    return [];
-  }
-  const points = Array.isArray(stockPerformanceMap.value[stockID])
-    ? [...stockPerformanceMap.value[stockID]]
-    : [];
-  const benchmarkPoints = Array.isArray(stockBenchmarkMap.value[stockID])
-    ? [...stockBenchmarkMap.value[stockID]]
-    : [];
-  if (points.length === 0) {
-    return [];
-  }
+const {
+  performanceRows: activeStockPerformanceRows,
+  performanceSummary: activeStockPerformanceSummary
+} = useStrategyPerformance(
+  activeStockView,
+  stockPerformanceMap,
+  stockBenchmarkMap,
+  stockPerformanceStatsMap
+);
 
-  points.sort((a, b) => compareDateAsc(a?.date, b?.date));
-  const benchmarkMap = new Map();
-  benchmarkPoints.forEach((item) => {
-    if (item?.date) {
-      benchmarkMap.set(item.date, Number(item.return));
-    }
-  });
-
-  let acc = 1;
-  let benchmarkAcc = 1;
-  let hasValidValue = false;
-  return points.map((point) => {
-    const daily = Number(point?.return);
-    const benchmarkDaily = benchmarkMap.has(point?.date) ? Number(benchmarkMap.get(point?.date)) : NaN;
-    if (Number.isFinite(daily)) {
-      acc *= 1 + daily;
-      hasValidValue = true;
-    }
-    if (Number.isFinite(benchmarkDaily)) {
-      benchmarkAcc *= 1 + benchmarkDaily;
-    }
-    const cumulative = hasValidValue ? acc - 1 : null;
-    const benchmarkCumulative = Number.isFinite(benchmarkDaily) ? benchmarkAcc - 1 : null;
-    const excess = Number.isFinite(cumulative) && Number.isFinite(benchmarkCumulative)
-      ? cumulative - benchmarkCumulative
-      : null;
-    return {
-      date: formatDate(point?.date),
-      dailyReturn: formatPercent(daily),
-      cumulativeReturn: formatPercent(cumulative),
-      benchmarkReturn: formatPercent(benchmarkCumulative),
-      excessReturn: formatPercent(excess),
-      dailyClass: trendClassByNumber(daily),
-      cumulativeClass: trendClassByNumber(cumulative),
-      benchmarkClass: trendClassByNumber(benchmarkCumulative),
-      excessClass: trendClassByNumber(excess),
-      dailyRaw: daily,
-      cumulativeRaw: cumulative,
-      benchmarkRaw: benchmarkCumulative,
-      excessRaw: excess
-    };
-  });
-});
-
-const activeStockPerformanceSummary = computed(() => {
-  const stockID = activeStockView.value?.id;
-  if (stockID) {
-    const stats = stockPerformanceStatsMap.value[stockID];
-    if (stats) {
-      const benchmarkLabel = stats.benchmark_symbol ? `基准(${stats.benchmark_symbol})` : "基准";
-      return `样本 ${Number(stats.sample_days || 0)} 日 · 胜率 ${formatRate(stats.win_rate)} · 累计 ${formatPercent(
-        stats.cumulative_return
-      )} · ${benchmarkLabel} ${formatPercent(stats.benchmark_cumulative_return)} · 超额 ${formatPercent(
-        stats.excess_return
-      )} · 回撤 ${formatPercent(stats.max_drawdown)}`;
-    }
-  }
-  const rows = activeStockPerformanceRows.value.filter((item) => Number.isFinite(item.dailyRaw));
-  if (rows.length === 0) {
-    return "暂无统计";
-  }
-  const positiveDays = rows.filter((item) => item.dailyRaw > 0).length;
-  const cumulative = rows[rows.length - 1].cumulativeRaw;
-  return `样本 ${rows.length} 日 · 胜率 ${formatRate(positiveDays / rows.length)} · 累计 ${formatPercent(cumulative)}`;
-});
+const {
+  explanation: activeStockExplanation,
+  insightSections: activeStockInsightSections,
+  proofTags: activeStockProofTags,
+  seedHighlights: activeStockSeedHighlights,
+  scenarioCards: activeStockScenarioCards,
+  scenarioMeta: activeStockScenarioMeta,
+  relationshipSummary: activeStockRelationshipSummary,
+  agentOpinions: activeStockAgentOpinions,
+  riskCards: activeStockRiskCards,
+  explanationCards: activeStockExplanationCards,
+  originCards: activeStockOriginCards,
+  versionHistoryItems: activeStockVersionHistoryItems,
+  historyCompare: activeStockHistoryCompare,
+  versionDiff: activeStockVersionDiff,
+  deepForecast: activeStockDeepForecast
+} = useStrategyInsight(
+  activeStockView,
+  activeStockBase,
+  stockExplanationMap,
+  stockVersionHistoryMap,
+  selectedStockVersionHistoryKey
+);
 
 const activeStockScoreFramework = computed(() => {
   const stockID = activeStockView.value?.id;
@@ -2078,200 +2060,103 @@ const activeStockPerformanceStats = computed(() => {
   return stockPerformanceStatsMap.value[stockID] || null;
 });
 
-const activeStockExplanation = computed(() => {
-  const stockID = activeStockView.value?.id;
-  if (!stockID) {
-    return null;
-  }
-  return stockExplanationMap.value[stockID] || null;
-});
-
-const activeStockInsightSections = computed(() =>
-  buildStrategyInsightSections(activeStockExplanation.value, activeStockView.value?.reason || "")
-);
-
-const activeStockExplanationCards = computed(() => {
-  const explanation = activeStockExplanation.value || {};
-  const evidenceCount = Array.isArray(explanation.evidence_cards) ? explanation.evidence_cards.length : 0;
-  const agentCount = Number(explanation.workload_summary?.agent_count ?? 0);
-  const scenarioCount = Number(explanation.workload_summary?.scenario_count ?? 0);
-  const researchOutline = buildStrategyResearchOutlineRows(explanation, { limit: 1 })[0];
-  const activeThesis = buildStrategyThesisCardRows(explanation, "active", { limit: 1 })[0];
-  const historicalThesis = buildStrategyThesisCardRows(explanation, "historical", { limit: 1 })[0];
-  const watchSignal = buildStrategyWatchSignalRows(explanation, { limit: 1 })[0];
-  const calibration = buildStrategyConfidenceCalibrationSummary(explanation);
-  return [
-    {
-      label: "种子输入",
-      value: Array.isArray(explanation.seed_highlights) ? explanation.seed_highlights.length : 0,
-      note: explanation.seed_summary || activeStockInsightSections.value.whyNow || "系统会先处理种子输入，再逐步筛选。"
-    },
-    {
-      label: "证据卡片",
-      value: evidenceCount,
-      note: activeStockInsightSections.value.proofSource || "系统会把证据和多角色结论汇总后展示。"
-    },
-    {
-      label: "评审覆盖",
-      value: `${agentCount} 角 / ${scenarioCount} 景`,
-      note: buildStrategyRiskBoundaryText(explanation, "当前未补更多风险边界。")
-    },
-    researchOutline
-      ? {
-          label: "研究拆解",
-          value: researchOutline.title,
-          note: researchOutline.summary
-        }
-      : null,
-    activeThesis
-      ? {
-          label: "当前有效理由",
-          value: activeThesis.title,
-          note: activeThesis.summary
-        }
-      : null,
-    historicalThesis
-      ? {
-          label: "历史弱化理由",
-          value: historicalThesis.title,
-          note: historicalThesis.summary
-        }
-      : null,
-    watchSignal || calibration
-      ? {
-          label: "观察与校准",
-          value: watchSignal?.title || calibration?.summary || "继续观察",
-          note: firstMeaningfulStrategyText([watchSignal?.trigger, calibration?.deltaLabel, calibration?.note])
-        }
-      : null
-  ].filter(Boolean);
-});
-
-const activeStockProofTags = computed(() => buildListProofTags(activeStockExplanation.value, { limit: 4 }));
-const activeStockSeedHighlights = computed(() => activeStockExplanation.value?.seed_highlights || []);
-const activeStockScenarioCards = computed(() => buildStrategyScenarioSnapshotRows(activeStockExplanation.value));
-const activeStockScenarioMeta = computed(() => buildStrategyScenarioMetaSummary(activeStockExplanation.value));
-const activeStockRelationshipSummary = computed(() => buildStrategyRelationshipSnapshotSummary(activeStockExplanation.value));
-const activeStockAgentOpinions = computed(() => buildStrategyAgentOpinionRows(activeStockExplanation.value));
-const activeStockRiskCards = computed(() => buildStrategyRiskCards(activeStockExplanation.value));
-const activeStockOriginCards = computed(() => buildStrategyOriginCards(activeStockExplanation.value, formatDateTime));
-const activeStockDeepForecast = computed(() => buildStrategyDeepForecastSummary(activeStockExplanation.value));
-const activeStockVersionHistoryItems = computed(() => {
-  const stockID = activeStockView.value?.id;
-  const items = stockID ? stockVersionHistoryMap.value[stockID] : [];
-  if (Array.isArray(items) && items.length > 0) {
-    return mapStrategyVersionHistory(items, formatDateTime);
-  }
-  return buildFallbackStrategyVersionHistory(activeStockExplanation.value, {
-    reasonSummary: activeStockBase.value?.reason_summary || "",
-    strategyVersion: activeStockBase.value?.strategy_version || "record",
-    formatDateTime
-  });
-});
 const activeSelectedStockVersionHistory = computed(() => {
   return activeStockHistoryCompare.value?.selectedItem || null;
 });
-const activeStockHistoryCompare = computed(() => {
-  const items = activeStockVersionHistoryItems.value;
-  return buildStrategyHistoryCompareState({
-    historyItems: items,
-    selectedKey: selectedStockVersionHistoryKey.value,
-    fallbackItem: items[1] || items[0] || null,
-    explanation: activeStockExplanation.value,
-    selectedTitlePrefix: "当前对比 ",
-    formatDateTime,
-    fallbackRecordLabel: "record",
-    upgradedText: "所选历史版本和当前 explanation 的结论都发生了变化。",
-    reasonChangedText: "当前 explanation 对所选历史版本做了新的收敛。",
-    versionChangedText: "核心结论延续，但版本已发生刷新。"
-  });
-});
-const activeStockVersionDiff = computed(() => {
-  const base = activeStockBase.value;
-  const explanation = activeStockExplanation.value;
-  if (!base || !explanation) {
+
+const activeFuturesBase = computed(() => {
+  const items = rawFutures.value || [];
+  if (items.length === 0) {
     return null;
   }
-  return buildStrategyVersionDiff({
-    recordVersion: base.strategy_version || "record",
-    recordReason: base.reason_summary || "",
-    explanation,
-    formatDateTime,
-    fallbackRecordLabel: "record",
-    upgradedText: "记录版本和当前 explanation 的结论都发生了变化。",
-    reasonChangedText: "当前 explanation 对原始推荐理由做了新的收敛。",
-    versionChangedText: "核心结论仍在，但解释版本已经更新。"
-  });
+  if (activeFuturesID.value) {
+    const matched = items.find((item) => item.id === activeFuturesID.value);
+    if (matched) {
+      return matched;
+    }
+  }
+  return items[0];
 });
 
-const activeFuturesExplanation = computed(() => {
-  const strategyID = activeFuturesView.value?.id;
+const activeFuturesInsight = computed(() => {
+  const strategyID = activeFuturesBase.value?.id;
   if (!strategyID) {
     return null;
   }
-  return futuresExplanationMap.value[strategyID] || null;
+  return futuresInsightMap.value[strategyID] || null;
 });
 
-const activeFuturesInsightSections = computed(() =>
-  buildStrategyInsightSections(activeFuturesExplanation.value, activeFuturesView.value?.reason || "")
+const activeFuturesScoreFramework = computed(() => activeFuturesInsight.value?.score_framework || null);
+
+const activeFuturesPerformanceStats = computed(() => activeFuturesInsight.value?.performance_stats || null);
+
+const activeFuturesRelatedNews = computed(() => {
+  const items = activeFuturesInsight.value?.related_news;
+  return Array.isArray(items) ? items : [];
+});
+
+const activeFuturesRelatedEvents = computed(() => {
+  const items = activeFuturesInsight.value?.related_events;
+  return Array.isArray(items) ? items : [];
+});
+
+const activeFuturesView = computed(() => {
+  const base = activeFuturesBase.value;
+  if (!base) {
+    return null;
+  }
+  const insight = activeFuturesInsight.value || {};
+  const strategy = insight.strategy || base;
+  const guidance = insight.guidance || {};
+  const reasonParts = [strategy.reason_summary || base.reason_summary, guidance.invalid_condition].filter(Boolean);
+  return {
+    id: strategy.id || base.id,
+    name: `${strategy.contract || base.contract || "-"} ${strategy.name || base.name || ""}`.trim(),
+    reason: reasonParts.join("；") || "等待策略同步",
+    direction: mapDirection(strategy.direction),
+    risk: mapRisk(strategy.risk_level),
+    position: strategy.position_range || base.position_range || "-",
+    validRange: formatDateRange(strategy.valid_from || base.valid_from, strategy.valid_to || base.valid_to),
+    entryRange: guidance.entry_range || "-",
+    takeProfitRange: guidance.take_profit_range || "-",
+    stopLossRange: guidance.stop_loss_range || "-",
+    invalidCondition: guidance.invalid_condition || "-"
+  };
+});
+
+const {
+  performanceRows: activeFuturesPerformanceRows,
+  performanceSummary: activeFuturesPerformanceSummary
+} = useStrategyPerformance(
+  activeFuturesView,
+  computed(() => activeFuturesInsight.value?.performance || []),
+  computed(() => activeFuturesInsight.value?.benchmark || []),
+  computed(() => ({ [activeFuturesView.value?.id]: activeFuturesPerformanceStats.value }))
 );
 
-const activeFuturesExplanationCards = computed(() => {
-  const explanation = activeFuturesExplanation.value || {};
-  const evidenceCount = Array.isArray(explanation.evidence_cards) ? explanation.evidence_cards.length : 0;
-  const agentCount = Number(explanation.workload_summary?.agent_count ?? 0);
-  const scenarioCount = Number(explanation.workload_summary?.scenario_count ?? 0);
-  const researchOutline = buildStrategyResearchOutlineRows(explanation, { limit: 1 })[0];
-  const activeThesis = buildStrategyThesisCardRows(explanation, "active", { limit: 1 })[0];
-  const historicalThesis = buildStrategyThesisCardRows(explanation, "historical", { limit: 1 })[0];
-  const watchSignal = buildStrategyWatchSignalRows(explanation, { limit: 1 })[0];
-  const calibration = buildStrategyConfidenceCalibrationSummary(explanation);
-  return [
-    {
-      label: "种子输入",
-      value: Array.isArray(explanation.seed_highlights) ? explanation.seed_highlights.length : 0,
-      note: explanation.seed_summary || activeFuturesInsightSections.value.whyNow || "系统先处理合约种子，再收敛出可执行策略。"
-    },
-    {
-      label: "证据卡片",
-      value: evidenceCount,
-      note: activeFuturesInsightSections.value.proofSource || "系统会把证据和多角色结论汇总后展示。"
-    },
-    {
-      label: "评审覆盖",
-      value: `${agentCount} 角 / ${scenarioCount} 景`,
-      note: buildStrategyRiskBoundaryText(explanation, "当前未补更多风险边界。")
-    },
-    researchOutline
-      ? {
-          label: "研究拆解",
-          value: researchOutline.title,
-          note: researchOutline.summary
-        }
-      : null,
-    activeThesis
-      ? {
-          label: "当前有效理由",
-          value: activeThesis.title,
-          note: activeThesis.summary
-        }
-      : null,
-    historicalThesis
-      ? {
-          label: "历史弱化理由",
-          value: historicalThesis.title,
-          note: historicalThesis.summary
-        }
-      : null,
-    watchSignal || calibration
-      ? {
-          label: "观察与校准",
-          value: watchSignal?.title || calibration?.summary || "继续观察",
-          note: firstMeaningfulStrategyText([watchSignal?.trigger, calibration?.deltaLabel, calibration?.note])
-        }
-      : null
-  ].filter(Boolean);
-});
+const {
+  explanation: activeFuturesExplanation,
+  insightSections: activeFuturesInsightSections,
+  proofTags: activeFuturesProofTags,
+  seedHighlights: activeFuturesSeedHighlights,
+  scenarioCards: activeFuturesScenarioCards,
+  scenarioMeta: activeFuturesScenarioMeta,
+  relationshipSummary: activeFuturesRelationshipSummary,
+  agentOpinions: activeFuturesAgentOpinions,
+  riskCards: activeFuturesRiskCards,
+  explanationCards: activeFuturesExplanationCards,
+  originCards: activeFuturesOriginCards,
+  versionHistoryItems: activeFuturesVersionHistoryItems,
+  historyCompare: activeFuturesHistoryCompare,
+  versionDiff: activeFuturesVersionDiff,
+  deepForecast: activeFuturesDeepForecast
+} = useStrategyInsight(
+  activeFuturesView,
+  activeFuturesBase,
+  futuresExplanationMap,
+  futuresVersionHistoryMap,
+  selectedFuturesVersionHistoryKey
+);
 
 const activeFuturesSupplyChainEntities = computed(() => {
   const explanation = activeFuturesExplanation.value || {};
@@ -2356,63 +2241,8 @@ const activeFuturesSupplyChainSummaryCards = computed(() => {
   ];
 });
 
-const activeFuturesProofTags = computed(() => buildListProofTags(activeFuturesExplanation.value, { limit: 4 }));
-const activeFuturesSeedHighlights = computed(() => activeFuturesExplanation.value?.seed_highlights || []);
-const activeFuturesScenarioCards = computed(() => buildStrategyScenarioSnapshotRows(activeFuturesExplanation.value));
-const activeFuturesScenarioMeta = computed(() => buildStrategyScenarioMetaSummary(activeFuturesExplanation.value));
-const activeFuturesRelationshipSummary = computed(() => buildStrategyRelationshipSnapshotSummary(activeFuturesExplanation.value));
-const activeFuturesAgentOpinions = computed(() => buildStrategyAgentOpinionRows(activeFuturesExplanation.value));
-const activeFuturesRiskCards = computed(() => buildStrategyRiskCards(activeFuturesExplanation.value));
-const activeFuturesOriginCards = computed(() => buildStrategyOriginCards(activeFuturesExplanation.value, formatDateTime));
-const activeFuturesDeepForecast = computed(() => buildStrategyDeepForecastSummary(activeFuturesExplanation.value));
-const activeFuturesVersionHistoryItems = computed(() => {
-  const strategyID = activeFuturesView.value?.id;
-  const items = strategyID ? futuresVersionHistoryMap.value[strategyID] : [];
-  if (Array.isArray(items) && items.length > 0) {
-    return mapStrategyVersionHistory(items, formatDateTime);
-  }
-  return buildFallbackStrategyVersionHistory(activeFuturesExplanation.value, {
-    reasonSummary: activeFuturesBase.value?.reason_summary || "",
-    strategyVersion: "futures-mvp-v1",
-    formatDateTime
-  });
-});
 const activeSelectedFuturesVersionHistory = computed(() => {
   return activeFuturesHistoryCompare.value?.selectedItem || null;
-});
-const activeFuturesHistoryCompare = computed(() => {
-  const items = activeFuturesVersionHistoryItems.value;
-  return buildStrategyHistoryCompareState({
-    historyItems: items,
-    selectedKey: selectedFuturesVersionHistoryKey.value,
-    fallbackItem: items[1] || items[0] || null,
-    explanation: activeFuturesExplanation.value,
-    selectedTitlePrefix: "当前对比 ",
-    formatDateTime,
-    fallbackRecordLabel: "record",
-    upgradedText: "所选历史版本和当前 explanation 的结论都发生了变化。",
-    reasonChangedText: "当前 explanation 对所选期货历史版本做了新的收敛。",
-    versionChangedText: "核心策略主线延续，但版本已发生刷新。"
-  });
-});
-const activeFuturesVersionDiff = computed(() => {
-  const base = activeFuturesBase.value;
-  const insight = activeFuturesInsight.value || {};
-  const strategy = insight.strategy || {};
-  const explanation = activeFuturesExplanation.value;
-  if (!base || !explanation) {
-    return null;
-  }
-  return buildStrategyVersionDiff({
-    recordVersion: strategy.strategy_version || base.strategy_version || "record",
-    recordReason: strategy.reason_summary || base.reason_summary || "",
-    explanation,
-    formatDateTime,
-    fallbackRecordLabel: "record",
-    upgradedText: "记录版本和当前 explanation 的结论都发生了变化。",
-    reasonChangedText: "当前 explanation 对原始期货策略理由做了新的收敛。",
-    versionChangedText: "核心策略主线仍在，但解释版本已经更新。"
-  });
 });
 
 const activeStockTrackingState = computed(() => {
@@ -2656,129 +2486,6 @@ const futuresRows = computed(() =>
     };
   })
 );
-
-const activeFuturesBase = computed(() => {
-  const items = rawFutures.value || [];
-  if (items.length === 0) {
-    return null;
-  }
-  if (activeFuturesID.value) {
-    const matched = items.find((item) => item.id === activeFuturesID.value);
-    if (matched) {
-      return matched;
-    }
-  }
-  return items[0];
-});
-
-const activeFuturesInsight = computed(() => {
-  const strategyID = activeFuturesBase.value?.id;
-  if (!strategyID) {
-    return null;
-  }
-  return futuresInsightMap.value[strategyID] || null;
-});
-
-const activeFuturesScoreFramework = computed(() => activeFuturesInsight.value?.score_framework || null);
-
-const activeFuturesPerformanceStats = computed(() => activeFuturesInsight.value?.performance_stats || null);
-
-const activeFuturesRelatedNews = computed(() => {
-  const items = activeFuturesInsight.value?.related_news;
-  return Array.isArray(items) ? items : [];
-});
-
-const activeFuturesRelatedEvents = computed(() => {
-  const items = activeFuturesInsight.value?.related_events;
-  return Array.isArray(items) ? items : [];
-});
-
-const activeFuturesView = computed(() => {
-  const base = activeFuturesBase.value;
-  if (!base) {
-    return null;
-  }
-  const insight = activeFuturesInsight.value || {};
-  const strategy = insight.strategy || base;
-  const guidance = insight.guidance || {};
-  const reasonParts = [strategy.reason_summary || base.reason_summary, guidance.invalid_condition].filter(Boolean);
-  return {
-    id: strategy.id || base.id,
-    name: `${strategy.contract || base.contract || "-"} ${strategy.name || base.name || ""}`.trim(),
-    reason: reasonParts.join("；") || "等待策略同步",
-    direction: mapDirection(strategy.direction),
-    risk: mapRisk(strategy.risk_level),
-    position: strategy.position_range || base.position_range || "-",
-    validRange: formatDateRange(strategy.valid_from || base.valid_from, strategy.valid_to || base.valid_to),
-    entryRange: guidance.entry_range || "-",
-    takeProfitRange: guidance.take_profit_range || "-",
-    stopLossRange: guidance.stop_loss_range || "-",
-    invalidCondition: guidance.invalid_condition || "-"
-  };
-});
-
-const activeFuturesPerformanceRows = computed(() => {
-  const insight = activeFuturesInsight.value || {};
-  const points = Array.isArray(insight.performance) ? [...insight.performance] : [];
-  const benchmarkPoints = Array.isArray(insight.benchmark) ? [...insight.benchmark] : [];
-  if (points.length === 0) {
-    return [];
-  }
-  points.sort((a, b) => compareDateAsc(a?.date, b?.date));
-  const benchmarkMap = new Map();
-  benchmarkPoints.forEach((item) => {
-    if (item?.date) {
-      benchmarkMap.set(item.date, Number(item.return));
-    }
-  });
-  let acc = 1;
-  let benchmarkAcc = 1;
-  return points.map((point) => {
-    const daily = Number(point?.return);
-    const benchmarkDaily = benchmarkMap.has(point?.date) ? Number(benchmarkMap.get(point?.date)) : NaN;
-    if (Number.isFinite(daily)) {
-      acc *= 1 + daily;
-    }
-    if (Number.isFinite(benchmarkDaily)) {
-      benchmarkAcc *= 1 + benchmarkDaily;
-    }
-    const cumulative = Number.isFinite(daily) ? acc - 1 : null;
-    const benchmarkCumulative = Number.isFinite(benchmarkDaily) ? benchmarkAcc - 1 : null;
-    const excess = Number.isFinite(cumulative) && Number.isFinite(benchmarkCumulative)
-      ? cumulative - benchmarkCumulative
-      : null;
-    return {
-      date: formatDate(point?.date),
-      dailyReturn: formatPercent(daily),
-      cumulativeReturn: formatPercent(cumulative),
-      benchmarkReturn: formatPercent(benchmarkCumulative),
-      excessReturn: formatPercent(excess),
-      dailyClass: trendClassByNumber(daily),
-      cumulativeClass: trendClassByNumber(cumulative),
-      benchmarkClass: trendClassByNumber(benchmarkCumulative),
-      excessClass: trendClassByNumber(excess),
-      dailyRaw: daily
-    };
-  });
-});
-
-const activeFuturesPerformanceSummary = computed(() => {
-  const stats = activeFuturesPerformanceStats.value;
-  if (stats) {
-    const benchmarkLabel = stats.benchmark_symbol ? `基准(${stats.benchmark_symbol})` : "基准";
-    return `样本 ${Number(stats.sample_days || 0)} 日 · 胜率 ${formatRate(stats.win_rate)} · 累计 ${formatPercent(
-      stats.cumulative_return
-    )} · ${benchmarkLabel} ${formatPercent(stats.benchmark_cumulative_return)} · 超额 ${formatPercent(
-      stats.excess_return
-    )}`;
-  }
-  const rows = activeFuturesPerformanceRows.value.filter((item) => Number.isFinite(item.dailyRaw));
-  if (rows.length === 0) {
-    return "暂无统计";
-  }
-  const wins = rows.filter((item) => item.dailyRaw > 0).length;
-  return `样本 ${rows.length} 日 · 胜率 ${formatRate(wins / rows.length)}`;
-});
 
 const activeFuturesReasonSupports = computed(() => {
   const framework = activeFuturesScoreFramework.value;
@@ -3336,6 +3043,23 @@ function toggleActiveStockWatch() {
   watchlistVersion.value += 1;
 }
 
+const sandboxLoading = ref(false);
+
+async function joinVirtualSandbox() {
+  const stockID = activeStockBase.value?.id;
+  if (!stockID) return;
+  sandboxLoading.value = true;
+  try {
+    await addUserVirtualSandbox({ reco_id: stockID, add_price: stockDetailMap.value[stockID]?.current_price || 0 });
+    alert("已加入虚拟沙盘模拟");
+  } catch (error) {
+    console.error("加入沙盘失败:", error);
+    alert(error.response?.data?.error || "加入沙盘失败");
+  } finally {
+    sandboxLoading.value = false;
+  }
+}
+
 function handleWatchlistUpdate() {
   watchlistVersion.value += 1;
 }
@@ -3856,93 +3580,7 @@ function formatScore01(value) {
   return num.toFixed(2);
 }
 
-function trendClassByNumber(value) {
-  if (!Number.isFinite(value)) {
-    return "";
-  }
-  if (value > 0) {
-    return "up";
-  }
-  if (value < 0) {
-    return "down";
-  }
-  return "";
-}
 
-function formatRate(value) {
-  if (value === null || value === undefined || value === "") {
-    return "-";
-  }
-  const num = Number(value);
-  if (!Number.isFinite(num)) {
-    return "-";
-  }
-  return `${(num * 100).toFixed(1)}%`;
-}
-
-function formatPercent(value) {
-  if (value === null || value === undefined || value === "") {
-    return "-";
-  }
-  const num = Number(value);
-  if (!Number.isFinite(num)) {
-    return "-";
-  }
-  const percent = (num * 100).toFixed(2);
-  if (num > 0) {
-    return `+${percent}%`;
-  }
-  return `${percent}%`;
-}
-
-function formatDate(value) {
-  const ts = Date.parse(value || "");
-  if (Number.isNaN(ts)) {
-    return value || "-";
-  }
-  return new Date(ts).toLocaleDateString("zh-CN");
-}
-
-function formatDateRange(start, end) {
-  const startText = formatDate(start);
-  const endText = formatDate(end);
-  if (startText === "-" && endText === "-") {
-    return "-";
-  }
-  if (endText === "-") {
-    return `${startText} 起`;
-  }
-  if (startText === "-") {
-    return `截至 ${endText}`;
-  }
-  return `${startText} ~ ${endText}`;
-}
-
-function formatDateTime(value) {
-  const ts = Date.parse(value || "");
-  if (Number.isNaN(ts)) return "-";
-  return new Date(ts).toLocaleString("zh-CN", { hour12: false });
-}
-
-function resolveVIPStage(quota) {
-  const activationState = String(quota?.activation_state || "").toUpperCase();
-  if (activationState) {
-    return activationState === "ACTIVE";
-  }
-  const status = String(quota?.vip_status || "").toUpperCase();
-  if (status === "ACTIVE") {
-    return true;
-  }
-  const level = String(quota?.member_level || "").toUpperCase();
-  if (!level.startsWith("VIP")) {
-    return false;
-  }
-  const remainingDays = Number(quota?.vip_remaining_days);
-  if (Number.isFinite(remainingDays)) {
-    return remainingDays > 0;
-  }
-  return true;
-}
 
 function goStrategyArchive() {
   navigateWithStrategyTracking("/archive", "focus_archive", {
@@ -4149,14 +3787,7 @@ function openFuturesDiscussionComposer() {
   router.push(draft ? buildCommunityComposeRoute(draft) : "/community/new");
 }
 
-function parseErrorMessage(error) {
-  if (!error) {
-    return "unknown error";
-  }
-  const responseMessage =
-    error?.response?.data?.message || error?.response?.data?.error || error?.response?.statusText;
-  return responseMessage || error?.message || "unknown error";
-}
+
 
 function normalizeRouteValue(value) {
   return String(value || "").trim();

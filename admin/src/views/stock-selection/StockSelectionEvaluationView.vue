@@ -3,12 +3,15 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import StockSelectionModuleShell from "../../components/StockSelectionModuleShell.vue";
 import {
+  getStockSelectionOverview,
   listStockSelectionEvaluationLeaderboard,
   listStockSelectionProfiles,
   listStockSelectionTemplates
 } from "../../api/admin";
 import {
   averageStockSelectionMetric,
+  formatStockSelectionEvaluationStatus,
+  formatStockSelectionEvaluationScope,
   formatStockSelectionMarketRegime,
   formatStockSelectionPercent,
   stockSelectionMarketRegimeOptions
@@ -18,11 +21,13 @@ const loading = ref(false);
 const leaderboard = ref([]);
 const profiles = ref([]);
 const templates = ref([]);
+const evaluationBackfillState = ref({});
 
 const filters = reactive({
   template_id: "",
   profile_id: "",
-  market_regime: ""
+  market_regime: "",
+  evaluation_scope: ""
 });
 
 const summaryCards = computed(() => {
@@ -52,12 +57,25 @@ const summaryCards = computed(() => {
 });
 
 async function fetchMeta() {
-  const [templateResp, profileResp] = await Promise.all([
+  const [templateResp, profileResp, overviewResp] = await Promise.all([
     listStockSelectionTemplates({ page: 1, page_size: 100 }),
-    listStockSelectionProfiles({ page: 1, page_size: 100 })
+    listStockSelectionProfiles({ page: 1, page_size: 100 }),
+    getStockSelectionOverview()
   ]);
   templates.value = Array.isArray(templateResp?.items) ? templateResp.items : [];
   profiles.value = Array.isArray(profileResp?.items) ? profileResp.items : [];
+  evaluationBackfillState.value =
+    overviewResp?.evaluation_backfill_state && typeof overviewResp.evaluation_backfill_state === "object"
+      ? overviewResp.evaluation_backfill_state
+      : {};
+}
+
+function evaluationTagType(status) {
+  const normalized = String(status || "").toUpperCase();
+  if (normalized === "READY") return "success";
+  if (normalized === "PARTIAL") return "warning";
+  if (normalized === "FAILED") return "danger";
+  return "info";
 }
 
 async function fetchLeaderboard() {
@@ -97,6 +115,23 @@ onMounted(async () => {
         </div>
       </div>
 
+      <el-descriptions :column="4" border size="small" style="margin-bottom: 12px">
+        <el-descriptions-item label="评估回填状态">
+          <el-tag :type="evaluationTagType(evaluationBackfillState.status)">
+            {{ formatStockSelectionEvaluationStatus(evaluationBackfillState.status || "PENDING") }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="完成度">
+          {{ Number(evaluationBackfillState.ready_count || 0) }}/{{ Number(evaluationBackfillState.target_count || 0) }}
+        </el-descriptions-item>
+        <el-descriptions-item label="缺失 Horizon">
+          {{ Array.isArray(evaluationBackfillState.missing_horizons) && evaluationBackfillState.missing_horizons.length ? evaluationBackfillState.missing_horizons.join(" / ") : "-" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="说明">
+          {{ evaluationBackfillState.message || "-" }}
+        </el-descriptions-item>
+      </el-descriptions>
+
       <div class="toolbar" style="flex-wrap: wrap">
         <el-select v-model="filters.template_id" clearable placeholder="策略模板" style="width: 220px">
           <el-option
@@ -122,12 +157,20 @@ onMounted(async () => {
             :value="item.value"
           />
         </el-select>
+        <el-select v-model="filters.evaluation_scope" clearable placeholder="推荐头" style="width: 180px">
+          <el-option label="超短线主推荐" value="SHORT_TERM_PRIMARY" />
+          <el-option label="短波段辅助" value="SWING_AUXILIARY" />
+          <el-option label="候选池" value="CANDIDATE_POOL" />
+        </el-select>
         <el-button type="primary" @click="fetchLeaderboard">查询</el-button>
       </div>
 
       <el-table :data="leaderboard" border stripe size="small" v-loading="loading" empty-text="暂无评估数据">
         <el-table-column prop="template_name" label="模板" min-width="140" />
         <el-table-column prop="profile_name" label="配置方案" min-width="160" />
+        <el-table-column prop="evaluation_scope" label="推荐头" min-width="140">
+          <template #default="{ row }">{{ formatStockSelectionEvaluationScope(row.evaluation_scope) }}</template>
+        </el-table-column>
         <el-table-column prop="market_regime" label="市场状态" min-width="120">
           <template #default="{ row }">{{ formatStockSelectionMarketRegime(row.market_regime) }}</template>
         </el-table-column>

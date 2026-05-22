@@ -386,6 +386,40 @@ function buildPayload() {
     allow_auto_publish: Boolean(form.publish.allow_auto_publish)
   };
 
+  const marketAnalysisConfig = {
+    lookback_days: factorConfig.lookback_days,
+    trend_bias: seedMiningConfig.trend_bias,
+    resonance_bias: seedMiningConfig.resonance_bias,
+    review_required: publishConfig.review_required
+  };
+
+  const candidatePoolConfig = {
+    min_listing_days: universeConfig.min_listing_days,
+    min_avg_turnover: universeConfig.min_avg_turnover,
+    price_min: universeConfig.price_min,
+    price_max: universeConfig.price_max,
+    candidate_pool_limit: seedMiningConfig.candidate_pool_limit,
+    bucket_limit: seedMiningConfig.bucket_limit
+  };
+
+  const shortTermHeadConfig = {
+    limit: portfolioConfig.limit,
+    min_score: portfolioConfig.min_score,
+    max_risk_level: portfolioConfig.max_risk_level,
+    quant_weight: factorConfig.quant_weight,
+    event_weight: factorConfig.event_weight,
+    resonance_weight: factorConfig.resonance_weight,
+    liquidity_risk_weight: factorConfig.liquidity_risk_weight
+  };
+
+  const swingHeadConfig = {
+    limit: portfolioConfig.watchlist_limit,
+    max_symbol_per_bucket: portfolioConfig.max_symbol_per_bucket,
+    max_symbols_per_sector: portfolioConfig.max_symbols_per_sector,
+    quant_weight: factorConfig.quant_weight,
+    resonance_weight: factorConfig.resonance_weight
+  };
+
   return {
     name,
     template_id: form.template_id,
@@ -398,6 +432,10 @@ function buildPayload() {
     factor_config: factorConfig,
     portfolio_config: portfolioConfig,
     publish_config: publishConfig,
+    market_analysis_config: marketAnalysisConfig,
+    candidate_pool_config: candidatePoolConfig,
+    short_term_head_config: shortTermHeadConfig,
+    swing_head_config: swingHeadConfig,
     description: String(form.description || "").trim(),
     change_note: String(form.change_note || "").trim()
   };

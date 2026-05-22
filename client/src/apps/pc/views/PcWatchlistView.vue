@@ -8,7 +8,7 @@
           <span class="finance-pill finance-pill-compact finance-pill-info">变化工作台</span>
         </div>
         <div>
-          <p class="watchlist-kicker">我的关注</p>
+          <p class="watchlist-kicker">我的模拟沙盘</p>
           <h1>查看关注标的的最新变化</h1>
           <p class="watchlist-desc">
             保存推荐股票后，可在这里查看状态、资讯和风险边界变化。
@@ -22,7 +22,7 @@
       </div>
       <div class="watchlist-actions">
         <button class="primary-btn finance-primary-btn" type="button" :disabled="loading" @click="loadWatchlist">
-          {{ loading ? "同步中..." : "刷新我的关注" }}
+          {{ loading ? "同步中..." : "刷新模拟沙盘" }}
         </button>
         <button class="ghost-btn finance-ghost-btn" type="button" @click="goStrategies">去策略中心</button>
       </div>
@@ -117,6 +117,11 @@
           </div>
           <div class="watchlist-priority-grid">
             <article class="finance-list-card">
+              <p>虚拟买入价</p>
+              <strong>{{ priorityWatchItem.sandboxAddPrice ? priorityWatchItem.sandboxAddPrice.toFixed(2) : "未加入沙盘" }}</strong>
+              <span v-if="priorityWatchItem.sandboxReturn !== null" :class="priorityWatchItem.sandboxReturnClass">收益 {{ priorityWatchItem.sandboxReturnFormatted }}</span>
+            </article>
+            <article class="finance-list-card">
               <p>状态变化</p>
               <strong>{{ priorityWatchItem.statusSummary }}</strong>
               <span>{{ priorityWatchItem.statusNote }}</span>
@@ -125,11 +130,6 @@
               <p>资讯变化</p>
               <strong>{{ priorityWatchItem.latestNewsTitle }}</strong>
               <span>{{ priorityWatchItem.latestNewsTime }}</span>
-            </article>
-            <article class="finance-list-card">
-              <p>风险边界</p>
-              <strong>{{ priorityWatchItem.stopLoss }}</strong>
-              <span>{{ priorityWatchItem.takeProfit }}</span>
             </article>
             <article class="finance-list-card">
               <p>下一动作</p>
@@ -276,15 +276,19 @@
                 <strong>{{ item.risk }}</strong>
               </article>
               <article class="finance-list-card finance-list-card-panel">
-                <p>下一动作</p>
-                <strong>{{ item.nextAction }}</strong>
+                <p>虚拟买入价</p>
+                <strong>{{ item.sandboxAddPrice ? item.sandboxAddPrice.toFixed(2) : "未加入沙盘" }}</strong>
+              </article>
+              <article class="finance-list-card finance-list-card-panel" v-if="item.sandboxReturn !== null">
+                <p>沙盘动态收益</p>
+                <strong :class="item.sandboxReturnClass">{{ item.sandboxReturnFormatted }}</strong>
               </article>
               <article class="finance-list-card finance-list-card-panel">
                 <p>资讯变化</p>
                 <strong>{{ item.newsCount }} 条</strong>
               </article>
               <article class="finance-list-card finance-list-card-panel">
-                <p>累计表现</p>
+                <p>策略累计表现</p>
                 <strong :class="item.performanceClass">{{ item.performance }}</strong>
               </article>
             </div>
@@ -529,6 +533,7 @@ import {
   toStrategyTradeDate
 } from "../../../lib/strategy-version";
 import { WATCHLIST_EVENT, listWatchedStocks, removeWatchedStock, syncWatchedStockSnapshot } from "../../../lib/watchlist";
+import { getUserVirtualSandbox } from "../../../api/userCenter";
 
 const router = useRouter();
 const { isLoggedIn } = useClientAuth();
@@ -537,6 +542,7 @@ const loading = ref(false);
 const errorMessage = ref("");
 const lastUpdatedAt = ref("");
 const rawWatchedItems = ref([]);
+const sandboxItems = ref([]);
 const insightMap = ref({});
 const versionHistoryMap = ref({});
 const memberStageLoading = ref(false);
@@ -588,10 +594,25 @@ const watchedRows = computed(() =>
       versionChangedText: "持续跟踪的主线还在，但后端版本已经发生刷新。"
     });
 
+      const sandboxItem = sandboxItems.value.find(s => s.stock_recommendation_id === item.id);
+      const currentPrice = stats.current_price || detail.current_price || 0;
+      let sandboxReturn = null;
+      let sandboxReturnFormatted = "-";
+      let sandboxReturnClass = "";
+      if (sandboxItem && sandboxItem.add_price && currentPrice) {
+        sandboxReturn = ((currentPrice - sandboxItem.add_price) / sandboxItem.add_price) * 100;
+        sandboxReturnFormatted = formatPercent(sandboxReturn);
+        sandboxReturnClass = trendClassByNumber(sandboxReturn);
+      }
+
       return {
       id: item.id,
       name: `${item.symbol || "-"} ${item.name || ""}`.trim(),
       addedAt: formatDateTime(item.added_at),
+      sandboxAddPrice: sandboxItem ? sandboxItem.add_price : null,
+      sandboxReturn,
+      sandboxReturnFormatted,
+      sandboxReturnClass,
       reason: insight.recommendation?.reason_summary || item.reason_summary || "等待同步推荐逻辑。",
       explanationSummary: sections.whyNow || insight.recommendation?.reason_summary || item.reason_summary || "等待同步推荐逻辑。",
       proofTags: buildWatchProofTags(explanation),
@@ -784,6 +805,16 @@ const watchCapabilityCards = computed(() => [
 async function loadWatchlist() {
   loading.value = true;
   errorMessage.value = "";
+  
+  if (isLoggedIn.value) {
+    try {
+      const { data } = await getUserVirtualSandbox();
+      sandboxItems.value = data?.items || [];
+    } catch (e) {
+      console.warn("Failed to load virtual sandbox", e);
+    }
+  }
+
   rawWatchedItems.value = listWatchedStocks();
   if (rawWatchedItems.value.length === 0) {
     lastUpdatedAt.value = formatDateTime(new Date().toISOString());

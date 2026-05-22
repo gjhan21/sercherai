@@ -6,8 +6,10 @@ import StockSelectionModuleShell from "../../components/StockSelectionModuleShel
 import { createStockSelectionRun, getStockSelectionOverview } from "../../api/admin";
 import {
   formatStockSelectionLabel,
+  formatStockSelectionEvaluationStatus,
   formatStockSelectionMarketRegime,
   formatStockSelectionMode,
+  formatStockSelectionEvaluationScope,
   formatStockSelectionRunStatus,
   formatStockSelectionSource,
   formatStockSelectionUniverseScope
@@ -31,6 +33,11 @@ const overview = ref({
   data_freshness: {},
   evaluation_summary: {},
   evaluation_summary_1_3_5_10_20: {},
+  market_analysis: {},
+  candidate_pool_summary: {},
+  head_summary: {},
+  evaluation_backfill_state: {},
+  evaluation_split_summary: {},
   warnings: []
 });
 
@@ -50,6 +57,13 @@ const leaderboardRows = computed(() => {
   const items = overview.value?.evaluation_summary_1_3_5_10_20?.leaderboard_items;
   return Array.isArray(items) ? items : [];
 });
+
+const splitEvaluationRows = computed(() =>
+  Object.entries(overview.value?.evaluation_split_summary || {}).map(([scope, item]) => ({
+    scope,
+    ...(item || {})
+  }))
+);
 
 function formatDateTime(value) {
   const timestamp = Date.parse(value || "");
@@ -90,6 +104,28 @@ function runTagType(status) {
   if (normalized === "RUNNING") return "warning";
   return "info";
 }
+
+function evaluationBackfillTagType(status) {
+  const normalized = String(status || "").toUpperCase();
+  if (normalized === "READY") return "success";
+  if (normalized === "PARTIAL") return "warning";
+  if (normalized === "FAILED") return "danger";
+  return "info";
+}
+
+const evaluationBackfillSummary = computed(() => {
+  const state = overview.value?.evaluation_backfill_state || {};
+  const readyCount = Number(state.ready_count || 0);
+  const targetCount = Number(state.target_count || 0);
+  const missingHorizons = Array.isArray(state.missing_horizons) ? state.missing_horizons : [];
+  return {
+    status: state.status || "PENDING",
+    message: state.message || "-",
+    progress: targetCount > 0 ? `${readyCount}/${targetCount}` : "-",
+    missingText: missingHorizons.length ? missingHorizons.join(" / ") : "-",
+    lastUpdatedAt: state.last_updated_at || ""
+  };
+});
 
 async function fetchOverview() {
   loading.value = true;
@@ -184,39 +220,37 @@ onMounted(fetchOverview);
       </div>
 
       <div class="card" v-loading="loading">
-        <div class="card-title">最近运行</div>
+        <div class="card-title">大盘结论区</div>
         <el-descriptions :column="1" border size="small">
-          <el-descriptions-item label="运行编号">
-            {{ overview.latest_run?.run_id || "-" }}
+          <el-descriptions-item label="趋势状态">
+            {{ formatStockSelectionMarketRegime(overview.market_analysis?.trend_state || overview.market_regime) }}
           </el-descriptions-item>
-          <el-descriptions-item label="状态">
-            <el-tag :type="runTagType(overview.latest_run?.status)">
-              {{ formatStockSelectionRunStatus(overview.latest_run?.status) }}
-            </el-tag>
+          <el-descriptions-item label="次日节奏">
+            {{ formatStockSelectionLabel(overview.market_analysis?.next_day_rhythm) }}
           </el-descriptions-item>
-          <el-descriptions-item label="交易日">
-            {{ overview.latest_run?.trade_date || "-" }}
+          <el-descriptions-item label="风控姿态">
+            {{ overview.market_analysis?.risk_posture || "-" }}
           </el-descriptions-item>
-          <el-descriptions-item label="组合数量">
-            {{ overview.latest_run?.selected_count || 0 }}
+          <el-descriptions-item label="主推荐数量">
+            {{ overview.head_summary?.short_term_primary_count || 0 }}
           </el-descriptions-item>
-          <el-descriptions-item label="市场状态">
-            {{ formatStockSelectionMarketRegime(overview.market_regime) }}
+          <el-descriptions-item label="辅助推荐数量">
+            {{ overview.head_summary?.swing_auxiliary_count || 0 }}
           </el-descriptions-item>
         </el-descriptions>
       </div>
 
       <div class="card" v-loading="loading">
-        <div class="card-title">最近成功运行</div>
+        <div class="card-title">待选池压缩摘要</div>
         <el-descriptions :column="1" border size="small">
-          <el-descriptions-item label="运行编号">
-            {{ overview.latest_success_run?.run_id || "-" }}
+          <el-descriptions-item label="粗筛数量">
+            {{ overview.candidate_pool_summary?.coarse_count || 0 }}
           </el-descriptions-item>
-          <el-descriptions-item label="发布次数">
-            {{ overview.latest_success_run?.publish_count || 0 }}
+          <el-descriptions-item label="聚焦数量">
+            {{ overview.candidate_pool_summary?.focus_count || 0 }}
           </el-descriptions-item>
-          <el-descriptions-item label="最近发布时间">
-            {{ formatDateTime(overview.latest_success_run?.latest_publish_at) }}
+          <el-descriptions-item label="观察数量">
+            {{ overview.candidate_pool_summary?.watch_count || 0 }}
           </el-descriptions-item>
           <el-descriptions-item label="上下文新鲜度">
             {{ overview.data_freshness?.selected_trade_date || "-" }}
@@ -229,6 +263,49 @@ onMounted(fetchOverview);
           </el-descriptions-item>
         </el-descriptions>
       </div>
+    </div>
+
+    <div class="card" v-loading="loading">
+      <div class="card-title">最近运行</div>
+      <el-descriptions :column="2" border size="small">
+        <el-descriptions-item label="运行编号">
+          {{ overview.latest_run?.run_id || "-" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag :type="runTagType(overview.latest_run?.status)">
+            {{ formatStockSelectionRunStatus(overview.latest_run?.status) }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="交易日">
+          {{ overview.latest_run?.trade_date || "-" }}
+        </el-descriptions-item>
+        <el-descriptions-item label="市场状态">
+          {{ formatStockSelectionMarketRegime(overview.market_regime) }}
+        </el-descriptions-item>
+      </el-descriptions>
+    </div>
+
+    <div class="card" v-loading="loading">
+      <div class="card-title">评估回填状态</div>
+      <el-descriptions :column="1" border size="small">
+        <el-descriptions-item label="状态">
+          <el-tag :type="evaluationBackfillTagType(evaluationBackfillSummary.status)">
+            {{ formatStockSelectionEvaluationStatus(evaluationBackfillSummary.status) }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="完成度">
+          {{ evaluationBackfillSummary.progress }}
+        </el-descriptions-item>
+        <el-descriptions-item label="缺失 Horizon">
+          {{ evaluationBackfillSummary.missingText }}
+        </el-descriptions-item>
+        <el-descriptions-item label="说明">
+          {{ evaluationBackfillSummary.message }}
+        </el-descriptions-item>
+        <el-descriptions-item label="最近回填时间">
+          {{ formatDateTime(evaluationBackfillSummary.lastUpdatedAt) }}
+        </el-descriptions-item>
+      </el-descriptions>
     </div>
 
     <div class="card" v-if="Array.isArray(overview.latest_approved_portfolio) && overview.latest_approved_portfolio.length">
@@ -275,6 +352,28 @@ onMounted(fetchOverview);
         </el-table-column>
         <el-table-column prop="generated_at" label="生成时间" min-width="170">
           <template #default="{ row }">{{ formatDateTime(row.generated_at) }}</template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <div class="card" v-loading="loading">
+      <div class="card-title">分头评估摘要</div>
+      <el-table :data="splitEvaluationRows" border stripe size="small" empty-text="暂无分头评估摘要">
+        <el-table-column prop="scope" label="推荐头" min-width="150">
+          <template #default="{ row }">{{ formatStockSelectionEvaluationScope(row.scope) }}</template>
+        </el-table-column>
+        <el-table-column prop="sample_count" label="样本数" min-width="100" />
+        <el-table-column label="平均收益" min-width="120">
+          <template #default="{ row }">{{ formatPercent(row.avg_return_pct) }}</template>
+        </el-table-column>
+        <el-table-column label="平均超额" min-width="120">
+          <template #default="{ row }">{{ formatPercent(row.avg_excess_return_pct) }}</template>
+        </el-table-column>
+        <el-table-column label="命中率" min-width="110">
+          <template #default="{ row }">{{ formatPercent(row.hit_rate) }}</template>
+        </el-table-column>
+        <el-table-column label="平均回撤" min-width="120">
+          <template #default="{ row }">{{ formatPercent(row.avg_max_drawdown_pct) }}</template>
         </el-table-column>
       </el-table>
     </div>

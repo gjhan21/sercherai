@@ -71,7 +71,11 @@ function createDefaultForm() {
     max_risk_level: "MEDIUM",
     min_score: 75,
     review_required: true,
-    allow_auto_publish: false
+    allow_auto_publish: false,
+    market_lookback_days: 120,
+    short_term_limit: 2,
+    short_term_min_score: 72,
+    swing_limit: 5
   };
 }
 
@@ -130,7 +134,11 @@ function openEdit(item) {
     max_risk_level: item.portfolio_defaults_json?.max_risk_level || "MEDIUM",
     min_score: Number(item.portfolio_defaults_json?.min_score || 75),
     review_required: item.publish_defaults_json?.review_required !== false,
-    allow_auto_publish: Boolean(item.publish_defaults_json?.allow_auto_publish)
+    allow_auto_publish: Boolean(item.publish_defaults_json?.allow_auto_publish),
+    market_lookback_days: Number(item.market_analysis_defaults_json?.lookback_days || item.factor_defaults_json?.lookback_days || 120),
+    short_term_limit: Number(item.short_term_head_defaults_json?.limit || 2),
+    short_term_min_score: Number(item.short_term_head_defaults_json?.min_score || 72),
+    swing_limit: Number(item.swing_head_defaults_json?.limit || 5)
   });
   dialogVisible.value = true;
 }
@@ -191,6 +199,7 @@ function buildPayload() {
       resonance_bias: Number(form.resonance_bias)
     },
     factor_defaults_json: {
+      lookback_days: Number(form.market_lookback_days),
       quant_weight: Number(form.quant_weight_pct) / 100,
       event_weight: Number(form.event_weight_pct) / 100,
       resonance_weight: Number(form.resonance_weight_pct) / 100,
@@ -207,6 +216,28 @@ function buildPayload() {
     publish_defaults_json: {
       review_required: Boolean(form.review_required),
       allow_auto_publish: Boolean(form.allow_auto_publish)
+    },
+    market_analysis_defaults_json: {
+      lookback_days: Number(form.market_lookback_days),
+      market_regime_bias: form.market_regime_bias
+    },
+    candidate_pool_defaults_json: {
+      candidate_pool_limit: Number(form.candidate_pool_limit),
+      min_listing_days: Number(form.min_listing_days),
+      min_avg_turnover: Number(form.min_avg_turnover)
+    },
+    short_term_head_defaults_json: {
+      limit: Number(form.short_term_limit),
+      min_score: Number(form.short_term_min_score),
+      quant_weight: Number(form.quant_weight_pct) / 100,
+      event_weight: Number(form.event_weight_pct) / 100,
+      resonance_weight: Number(form.resonance_weight_pct) / 100,
+      liquidity_risk_weight: Number(form.liquidity_risk_weight_pct) / 100
+    },
+    swing_head_defaults_json: {
+      limit: Number(form.swing_limit),
+      quant_weight: Number(form.quant_weight_pct) / 100,
+      resonance_weight: Number(form.resonance_weight_pct) / 100
     }
   };
 }
@@ -259,7 +290,7 @@ onMounted(fetchTemplates);
 <template>
   <StockSelectionModuleShell
     title="智能选股策略模板"
-    description="系统模板与运营自定义模板统一在这里管理。模板定义默认参数和市场状态偏好，但不会直接发布。"
+    description="模板现在同时定义 `大盘分析 -> 趋势待选池 -> 超短线主推 -> 短波段辅推` 四层默认值，供 profile 继承和覆盖。"
   >
     <template #actions>
       <div class="toolbar" style="margin-bottom: 0; flex-wrap: wrap">
@@ -280,10 +311,11 @@ onMounted(fetchTemplates);
             {{ formatStockSelectionUniverseScope(row.universe_defaults_json?.universe_scope) }}
           </template>
         </el-table-column>
-        <el-table-column label="组合约束" min-width="220">
+        <el-table-column label="待选池 / 推荐头" min-width="260">
           <template #default="{ row }">
-            组合 {{ row.portfolio_defaults_json?.limit || 5 }} 只 / 观察 {{ row.portfolio_defaults_json?.watchlist_limit || 5 }} 只 /
-            {{ formatStockSelectionRiskLevel(row.portfolio_defaults_json?.max_risk_level) }}
+            待选 {{ row.candidate_pool_defaults_json?.candidate_pool_limit || row.seed_defaults_json?.candidate_pool_limit || 30 }} /
+            主推 {{ row.short_term_head_defaults_json?.limit || 2 }} /
+            辅推 {{ row.swing_head_defaults_json?.limit || 5 }}
           </template>
         </el-table-column>
         <el-table-column label="默认" min-width="90">
@@ -327,6 +359,9 @@ onMounted(fetchTemplates);
               />
             </el-select>
           </el-form-item>
+          <el-form-item label="大盘回看窗口">
+            <el-input-number v-model="form.market_lookback_days" :min="20" :max="365" />
+          </el-form-item>
           <el-form-item label="状态">
             <el-select v-model="form.status">
               <el-option
@@ -343,7 +378,7 @@ onMounted(fetchTemplates);
         </div>
 
         <div class="section-card">
-          <div class="section-title">股票池与种子</div>
+          <div class="section-title">趋势待选池</div>
           <div class="profile-form-grid">
             <el-form-item label="默认股票池范围">
               <el-select v-model="form.universe_scope">
@@ -427,7 +462,7 @@ onMounted(fetchTemplates);
         </div>
 
         <div class="section-card">
-          <div class="section-title">因子与组合</div>
+          <div class="section-title">推荐头与组合</div>
           <div class="profile-form-grid">
             <el-form-item label="量化主分权重(%)">
               <el-input-number v-model="form.quant_weight_pct" :min="0" :max="100" />
@@ -443,6 +478,15 @@ onMounted(fetchTemplates);
             </el-form-item>
             <el-form-item label="发布组合数量">
               <el-input-number v-model="form.limit" :min="1" :max="10" />
+            </el-form-item>
+            <el-form-item label="超短线主推数量">
+              <el-input-number v-model="form.short_term_limit" :min="1" :max="5" />
+            </el-form-item>
+            <el-form-item label="超短线最低分">
+              <el-input-number v-model="form.short_term_min_score" :min="1" :max="100" />
+            </el-form-item>
+            <el-form-item label="短波段辅助数量">
+              <el-input-number v-model="form.swing_limit" :min="1" :max="10" />
             </el-form-item>
             <el-form-item label="观察名单数量">
               <el-input-number v-model="form.watchlist_limit" :min="0" :max="20" />

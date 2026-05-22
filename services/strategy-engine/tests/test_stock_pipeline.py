@@ -41,9 +41,13 @@ def test_stock_selection_pipeline_filters_symbols_and_builds_publish_payloads() 
     assert report.stage_counts["UNIVERSE"] >= report.stage_counts["SEED_POOL"] >= report.stage_counts["PORTFOLIO"]
     assert "CANDIDATE_POOL" in report.stage_durations_ms
     assert report.market_regime in {"UPTREND", "ROTATION", "EVENT_DRIVEN", "DEFENSIVE", "RISK_OFF"}
-    assert len(report.stage_logs) == 10
+    assert len(report.stage_logs) == 13
     assert any(item.stage_key == "GRAPH_ENRICHMENT" for item in report.stage_logs)
     assert any(item.stage_key == "MEMORY_FEEDBACK" for item in report.stage_logs)
+    assert any(item.stage_key == "MARKET_ANALYSIS" for item in report.stage_logs)
+    assert any(item.stage_key == "TREND_CANDIDATE_POOL" for item in report.stage_logs)
+    assert any(item.stage_key == "SHORT_TERM_PRIMARY" for item in report.stage_logs)
+    assert any(item.stage_key == "SWING_AUXILIARY" for item in report.stage_logs)
     assert any(item.stage == "UNIVERSE" for item in report.candidate_snapshots)
     assert len(report.portfolio_entries) == report.selected_count
     assert report.evidence_records
@@ -59,5 +63,49 @@ def test_stock_selection_pipeline_filters_symbols_and_builds_publish_payloads() 
     assert "市场状态" in report.memory_feedback.summary
     assert all(regime not in report.memory_feedback.summary for regime in ["UPTREND", "ROTATION", "EVENT_DRIVEN", "DEFENSIVE", "RISK_OFF"])
     assert any("图谱增强完成" == item.detail_message for item in report.stage_logs)
-    assert any("已登记日终异步评估补写" == item.detail_message for item in report.stage_logs)
+    assert any("评估由后端异步回填" in item.detail_message for item in report.stage_logs)
     assert report.context_meta["run_id"].startswith("stock-")
+
+
+def test_stock_selection_pipeline_emits_layered_sections_for_dual_head_model() -> None:
+    pipeline = StockSelectionPipeline(
+        market_seed_loader=MarketSeedLoader(
+            settings=Settings(
+                go_backend_base_url="",
+                allow_sample_stock_seeds=True,
+            )
+        ),
+        stock_feature_factory=StockFeatureFactory(),
+        stock_selector=StockSelector(),
+        portfolio_guard=PortfolioGuard(),
+        stock_report_builder=StockReportBuilder(),
+    )
+
+    report, _warnings = pipeline.run(
+        {
+            "trade_date": "2026-03-17",
+            "limit": 3,
+            "seed_symbols": ["600519.SH", "601318.SH", "600036.SH", "601888.SH"],
+            "excluded_symbols": ["601888.SH"],
+            "max_risk_level": "MEDIUM",
+            "min_score": 70,
+            "template_snapshot": {"template_key": "DUAL_HEAD_TA"},
+        }
+    )
+
+    assert "market_analysis" in report.context_meta
+    assert "candidate_pool_summary" in report.context_meta
+    assert "head_output_summary" in report.context_meta
+    assert "market_conclusion" in report.evaluation_summary
+    assert "short_term_primary_recommendations" in report.evaluation_summary
+    assert "swing_auxiliary_recommendations" in report.evaluation_summary
+    assert any(item.stage_key == "MARKET_ANALYSIS" for item in report.stage_logs)
+    assert any(item.stage_key == "TREND_CANDIDATE_POOL" for item in report.stage_logs)
+    assert any(item.stage_key == "SHORT_TERM_PRIMARY" for item in report.stage_logs)
+    assert any(item.stage_key == "SWING_AUXILIARY" for item in report.stage_logs)
+    assert report.evaluation_records == []
+
+    portfolio_snapshots = [item for item in report.candidate_snapshots if item.stage == "PORTFOLIO"]
+    assert portfolio_snapshots
+    assert all(item.recommendation_head in {"SHORT_TERM_PRIMARY", "SWING_AUXILIARY"} for item in portfolio_snapshots)
+    assert all(item.selection_layer in {"L2_PRIMARY", "L2_AUXILIARY"} for item in portfolio_snapshots)

@@ -86,8 +86,8 @@ func (s *growthService) AdminListStockSelectionRunEvaluations(runID string, symb
 	return s.repo.AdminListStockSelectionRunEvaluations(runID, symbol)
 }
 
-func (s *growthService) AdminListStockSelectionEvaluationLeaderboard(templateID string, profileID string, marketRegime string) ([]model.StockSelectionEvaluationLeaderboardItem, error) {
-	return s.repo.AdminListStockSelectionEvaluationLeaderboard(templateID, profileID, marketRegime)
+func (s *growthService) AdminListStockSelectionEvaluationLeaderboard(templateID string, profileID string, marketRegime string, evaluationScope string) ([]model.StockSelectionEvaluationLeaderboardItem, error) {
+	return s.repo.AdminListStockSelectionEvaluationLeaderboard(templateID, profileID, marketRegime, evaluationScope)
 }
 
 func (s *growthService) AdminListStockSelectionReviews(status string, page int, pageSize int) ([]model.StockSelectionPublishReview, int, error) {

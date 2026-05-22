@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -711,6 +714,67 @@ func TestSyncMarketDataQuotes(t *testing.T) {
 	}
 	if payload.Code != 0 || payload.Data.Result.DataKind == "" || payload.Data.Result.BarCount <= 0 {
 		t.Fatalf("unexpected quotes sync payload: %+v", payload)
+	}
+}
+
+func TestIncrementalSyncStockQuotesUsesFormalMarketSyncService(t *testing.T) {
+	_, filePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve caller path")
+	}
+	sourcePath := filepath.Join(filepath.Dir(filePath), "market_data_sync_v2.go")
+	content, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	text := string(content)
+	if strings.Contains(text, "repo.GetLatestTradeDate(") || strings.Contains(text, "repo.FetchAndSaveStockQuotesByDate(") || strings.Contains(text, "repo.RebuildStockQuotesTruth(") {
+		t.Fatalf("expected IncrementalSyncStockQuotes to stop using legacy repo helpers directly")
+	}
+	if !strings.Contains(text, "AdminSyncStockQuotesFromMaster(") {
+		t.Fatalf("expected IncrementalSyncStockQuotes to use AdminSyncStockQuotesFromMaster")
+	}
+}
+
+func TestIncrementalSyncStockQuotesStartsFormalMarketSync(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handlers := newStockSelectionTestHandlers()
+
+	syncState.mu.Lock()
+	syncState.Running = false
+	syncState.Total = 0
+	syncState.Completed = 0
+	syncState.Failed = 0
+	syncState.FailedCodes = nil
+	syncState.Message = ""
+	syncState.StartTime = ""
+	syncState.mu.Unlock()
+
+	t.Setenv("TUSHARE_TOKEN", "test-token")
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stocks/quotes/incremental-sync", nil)
+
+	handlers.MarketData.IncrementalSyncStockQuotes(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Code int `json:"code"`
+		Data struct {
+			Running bool `json:"running"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Code != 0 {
+		t.Fatalf("expected success code, got %+v", payload)
+	}
+	if !payload.Data.Running {
+		t.Fatalf("expected running sync state, got %+v", payload)
 	}
 }
 

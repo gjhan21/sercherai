@@ -36,7 +36,8 @@ test("useMarketSyncConsole builds source options and stores sync results per car
   assert.equal(state.stockSyncOptions.value.length, 1);
   assert.equal(state.stockLastSyncResult.value.count, 12);
   assert.equal(state.syncCards.value[0].key, "stock_quotes");
-  assert.equal(state.syncCards.value[0].actions.length, 2);
+  assert.equal(state.syncCards.value[0].actions.length, 3);
+  assert.match(state.syncCards.value[0].hint, /每日增量同步/);
 });
 
 test("useMarketSyncConsole full stock sync updates master before FULL_MARKET quotes when stock symbols are empty", async () => {
@@ -145,6 +146,84 @@ test("useMarketSyncConsole quotes-only stock sync skips master refresh", async (
   assert.equal(callLog.length, 1);
   assert.equal(callLog[0].type, "quotes");
   assert.equal(callLog[0].payload.sync_mode, "FULL_MARKET");
+});
+
+test("useMarketSyncConsole stock daily incremental sync uses formal incremental service and polls progress", async () => {
+  const items = ref([
+    { source_key: "tushare", name: "Tushare", status: "ACTIVE", config: { provider: "tushare" } }
+  ]);
+  const healthMap = ref({ TUSHARE: { status: "HEALTHY" } });
+  const callLog = [];
+  const feedbackMessages = [];
+  const state = useMarketSyncConsole(
+    {
+      feedback: {
+        clear() {},
+        setMessage(message) {
+          feedbackMessages.push(message);
+        },
+        setError(message) {
+          throw new Error(message);
+        }
+      },
+      canEditMarket: true,
+      items,
+      healthMap,
+      defaultStockSourceKey: ref("TUSHARE"),
+      defaultFuturesSourceKey: ref("TUSHARE"),
+      defaultMarketNewsSourceKey: ref("AKSHARE")
+    },
+    {
+      incrementalSyncStockQuotes: async () => {
+        callLog.push({ type: "incremental_start" });
+        return { running: true, total: 2, completed: 0, message: "incremental sync started" };
+      },
+      getStockSyncProgress: async () => {
+        const callIndex = callLog.filter((item) => item.type === "progress").length;
+        const payload =
+          callIndex === 0
+            ? {
+                running: true,
+                total: 2,
+                completed: 1,
+                failed: 0,
+                failed_codes: [],
+                message: "正在通过正式市场数据链路执行增量同步"
+              }
+            : {
+                running: false,
+                total: 2,
+                completed: 2,
+                failed: 0,
+                failed_codes: [],
+                message: "增量同步完成，来源=TUSHARE，窗口天数=2"
+              };
+        callLog.push({ type: "progress", payload });
+        return payload;
+      },
+      wait: async () => {}
+    }
+  );
+
+  await state.handleSyncStockIncrementalSync();
+
+  assert.equal(callLog[0].type, "incremental_start");
+  assert.equal(callLog[1].type, "progress");
+  assert.equal(callLog[2].type, "progress");
+  assert.equal(state.stockLastSyncResult.value.count, 2);
+  assert.equal(state.stockLastSyncResult.value.result?.completed, 2);
+  assert.equal(state.stockLastSyncResult.value.result?.message, "增量同步完成，来源=TUSHARE，窗口天数=2");
+  assert.equal(feedbackMessages.at(-1), "股票每日增量同步完成，处理 2 条");
+
+  const stockCard = state.syncCards.value.find((item) => item.key === "stock_quotes");
+  assert.equal(stockCard.actions.length, 3);
+  assert.equal(stockCard.actions[1].key, "incremental");
+  assert.equal(stockCard.actions[1].label, "每日增量同步");
+  const messages = stockCard.logs.map((item) => item.message);
+  assert.equal(messages.some((item) => /固定走当前生效默认行情源/.test(item)), true);
+  assert.equal(messages.some((item) => /正式增量同步请求已发送/.test(item)), true);
+  assert.equal(messages.some((item) => /正在通过正式市场数据链路执行增量同步/.test(item)), true);
+  assert.equal(messages.some((item) => /增量同步完成，来源=TUSHARE，窗口天数=2/.test(item)), true);
 });
 
 test("useMarketSyncConsole full futures sync refreshes master before generic quotes sync", async () => {

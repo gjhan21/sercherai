@@ -31,6 +31,33 @@ class MarketSeed:
     theme_tags: list[str] = field(default_factory=list)
     risk_flags: list[str] = field(default_factory=list)
 
+    # Intraday / T+1 short-term fields
+    momentum1: float = 0.0
+    momentum2: float = 0.0
+    momentum3: float = 0.0
+    consecutive_down_days: int = 0
+    candle_body_pct: float = 0.0
+    lower_shadow_pct: float = 0.0
+    upper_shadow_pct: float = 0.0
+    is_bullish: bool = False
+    is_doji: bool = False
+    is_engulfing_bullish: bool = False
+    deviation_ma5: float = 0.0
+    deviation_ma10: float = 0.0
+    deviation_ma20: float = 0.0
+    deviation_ma60: float = 0.0
+    volume_20d_min_rank: int = 0
+    volume_contraction_days: int = 0
+    is_limit_up: bool = False
+    lu_time_rank: int = 0
+    seal_order_ratio: float = 0.0
+    limit_up_days: int = 0
+    is_opened: bool = False
+    is_natural_limit: bool = True
+    on_top_list: bool = False
+    top_net_amount: float = 0.0
+    top_buy_sell_ratio: float = 0.0
+
 
 @dataclass(slots=True)
 class MarketSeedLoadResult:
@@ -79,6 +106,38 @@ class StockFeature:
     theme_tags: list[str] = field(default_factory=list)
     risk_flags: list[str] = field(default_factory=list)
     risk_adjustment_score: float = 0.0
+    recommendation_head: str = ""
+    selection_layer: str = ""
+    technical_pattern: str = ""
+    strategy_name: str = ""
+    raw_intraday_score: float = 0.0
+    normalized_intraday_score: float = 0.0
+    multi_strategy_hit: int = 0
+    momentum1: float = 0.0
+    momentum2: float = 0.0
+    momentum3: float = 0.0
+    consecutive_down_days: int = 0
+    candle_body_pct: float = 0.0
+    lower_shadow_pct: float = 0.0
+    upper_shadow_pct: float = 0.0
+    is_bullish: bool = False
+    is_doji: bool = False
+    is_engulfing_bullish: bool = False
+    deviation_ma5: float = 0.0
+    deviation_ma10: float = 0.0
+    deviation_ma20: float = 0.0
+    deviation_ma60: float = 0.0
+    volume_20d_min_rank: int = 0
+    volume_contraction_days: int = 0
+    is_limit_up: bool = False
+    lu_time_rank: int = 0
+    seal_order_ratio: float = 0.0
+    limit_up_days: int = 0
+    is_opened: bool = False
+    is_natural_limit: bool = True
+    on_top_list: bool = False
+    top_net_amount: float = 0.0
+    top_buy_sell_ratio: float = 0.0
     positive_reasons: list[str] = field(default_factory=list)
     veto_reasons: list[str] = field(default_factory=list)
     evidence_cards: list[dict[str, Any]] = field(default_factory=list)
@@ -94,6 +153,8 @@ class StockFeature:
             "event": round(self.event_score, 2),
             "resonance": round(self.resonance_score, 2),
             "risk_adjustment": round(self.risk_adjustment_score, 2),
+            "intraday_score": round(self.raw_intraday_score, 2),
+            "strategy_name": self.strategy_name,
             "total_score": round(self.score, 2),
         }
 

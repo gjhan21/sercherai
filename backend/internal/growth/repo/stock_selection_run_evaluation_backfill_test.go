@@ -5,6 +5,8 @@ import (
 	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+
+	"sercherai/backend/internal/growth/model"
 )
 
 const stockSelectionEvaluationRunMetaQueryPattern = `(?s)SELECT r\.trade_date, COALESCE\(CAST\(r\.context_meta AS CHAR\), ''\), COALESCE\(CAST\(a\.report_snapshot AS CHAR\), ''\).*FROM stock_selection_runs r`
@@ -101,5 +103,39 @@ func TestNormalizeStockSelectionEvaluationSummary(t *testing.T) {
 	})
 	if summary["status"] != "COMPLETED" {
 		t.Fatalf("expected completed summary when payload exists, got %+v", summary)
+	}
+}
+
+func TestBuildStockSelectionEvaluationBackfillState(t *testing.T) {
+	pending := buildStockSelectionEvaluationBackfillState(nil)
+	if pending["status"] != "PENDING" {
+		t.Fatalf("expected pending state, got %+v", pending)
+	}
+
+	partial := buildStockSelectionEvaluationBackfillState([]model.StockSelectionRunEvaluation{
+		{HorizonDay: 1, EntryDate: "2026-05-20", ExitDate: "2026-05-21", EntryPrice: 1, ExitPrice: 1, UpdatedAt: "2026-05-21T10:00:00Z"},
+		{HorizonDay: 3, EntryDate: "2026-05-20", ExitDate: "2026-05-23", EntryPrice: 1, ExitPrice: 1, UpdatedAt: "2026-05-23T10:00:00Z"},
+	})
+	if partial["status"] != "PARTIAL" {
+		t.Fatalf("expected partial state, got %+v", partial)
+	}
+	if partial["ready_count"] != 2 {
+		t.Fatalf("expected ready_count=2, got %+v", partial["ready_count"])
+	}
+
+	readyRows := make([]model.StockSelectionRunEvaluation, 0, len(stockSelectionEvaluationHorizons))
+	for _, horizon := range stockSelectionEvaluationHorizons {
+		readyRows = append(readyRows, model.StockSelectionRunEvaluation{
+			HorizonDay: horizon,
+			EntryDate:  "2026-05-20",
+			ExitDate:   "2026-05-21",
+			EntryPrice: 1,
+			ExitPrice:  1,
+			UpdatedAt:  "2026-05-21T10:00:00Z",
+		})
+	}
+	ready := buildStockSelectionEvaluationBackfillState(readyRows)
+	if ready["status"] != "READY" {
+		t.Fatalf("expected ready state, got %+v", ready)
 	}
 }

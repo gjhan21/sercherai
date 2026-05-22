@@ -72,6 +72,11 @@ type StockSelectionCandidateSnapshot struct {
 	EvaluationStatus    string         `json:"evaluation_status,omitempty"`
 	RiskSummary         string         `json:"risk_summary,omitempty"`
 	FactorBreakdownJSON map[string]any `json:"factor_breakdown_json,omitempty"`
+	RecommendationHead  string         `json:"recommendation_head,omitempty"`
+	SelectionLayer      string         `json:"selection_layer,omitempty"`
+	ReasonTags          []string       `json:"reason_tags,omitempty"`
+	VetoTags            []string       `json:"veto_tags,omitempty"`
+	TechnicalPattern    string         `json:"technical_pattern,omitempty"`
 	CreatedAt           string         `json:"created_at,omitempty"`
 	UpdatedAt           string         `json:"updated_at,omitempty"`
 }
@@ -92,6 +97,11 @@ type StockSelectionPortfolioEntry struct {
 	EvaluationStatus    string         `json:"evaluation_status,omitempty"`
 	RiskSummary         string         `json:"risk_summary,omitempty"`
 	FactorBreakdownJSON map[string]any `json:"factor_breakdown_json,omitempty"`
+	RecommendationHead  string         `json:"recommendation_head,omitempty"`
+	SelectionLayer      string         `json:"selection_layer,omitempty"`
+	ReasonTags          []string       `json:"reason_tags,omitempty"`
+	VetoTags            []string       `json:"veto_tags,omitempty"`
+	TechnicalPattern    string         `json:"technical_pattern,omitempty"`
 	CreatedAt           string         `json:"created_at,omitempty"`
 	UpdatedAt           string         `json:"updated_at,omitempty"`
 }

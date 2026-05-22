@@ -15,6 +15,10 @@ type StockSelectionProfile struct {
 	FactorConfig         map[string]any                 `json:"factor_config,omitempty"`
 	PortfolioConfig      map[string]any                 `json:"portfolio_config,omitempty"`
 	PublishConfig        map[string]any                 `json:"publish_config,omitempty"`
+	MarketAnalysisConfig map[string]any                 `json:"market_analysis_config,omitempty"`
+	CandidatePoolConfig  map[string]any                 `json:"candidate_pool_config,omitempty"`
+	ShortTermHeadConfig  map[string]any                 `json:"short_term_head_config,omitempty"`
+	SwingHeadConfig      map[string]any                 `json:"swing_head_config,omitempty"`
 	Description          string                         `json:"description,omitempty"`
 	UpdatedBy            string                         `json:"updated_by,omitempty"`
 	UpdatedAt            string                         `json:"updated_at,omitempty"`

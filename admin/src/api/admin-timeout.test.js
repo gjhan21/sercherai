@@ -16,3 +16,14 @@ test("long-running data sync api helpers use dedicated timeout config", () => {
   assert.match(source, /syncFuturesInventory\(payload\)\s*\{\s*return http\.post\("\/admin\/futures\/inventory\/sync", payload, SYNC_REQUEST_CONFIG\);/s);
   assert.match(source, /syncMarketNewsSource\(payload\)\s*\{\s*return http\.post\("\/admin\/news\/market-sync", payload, SYNC_REQUEST_CONFIG\);/s);
 });
+
+test("daily strategy generation api helpers use dedicated timeout config", () => {
+  assert.match(
+    source,
+    /generateDailyStockRecommendations\(tradeDate = ""\)\s*\{\s*return http\.post\("\/admin\/stocks\/recommendations\/generate-daily", null, \{\s*params:\s*buildParams\(\{\s*trade_date:\s*tradeDate\s*\}\),\s*\.\.\.SYNC_REQUEST_CONFIG\s*\}\s*\);\s*\}/s
+  );
+  assert.match(
+    source,
+    /generateDailyFuturesStrategies\(tradeDate = ""\)\s*\{\s*return http\.post\("\/admin\/futures\/strategies\/generate-daily", null, \{\s*params:\s*buildParams\(\{\s*trade_date:\s*tradeDate\s*\}\),\s*\.\.\.SYNC_REQUEST_CONFIG\s*\}\s*\);\s*\}/s
+  );
+});

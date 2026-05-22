@@ -38,6 +38,9 @@ class StockReportBuilder:
         watchlist: list[StockFeature] | None = None,
         graph_snapshot: ResearchGraphSnapshot | None = None,
         memory_feedback: MemoryFeedback | None = None,
+        market_conclusion: dict | None = None,
+        short_term_primary_recommendations: list[dict] | None = None,
+        swing_auxiliary_recommendations: list[dict] | None = None,
     ) -> StockSelectionReport:
         trade_date = payload.trade_date or datetime.now().strftime("%Y-%m-%d")
         valid_from = f"{trade_date}T00:00:00Z"
@@ -155,6 +158,9 @@ class StockReportBuilder:
             graph_summary=graph_snapshot.summary if graph_snapshot else "",
             template_snapshot=template_snapshot or {},
             evaluation_summary=evaluation_summary or {},
+            market_conclusion=market_conclusion or {},
+            short_term_primary_recommendations=short_term_primary_recommendations or [],
+            swing_auxiliary_recommendations=swing_auxiliary_recommendations or [],
             related_entities=list(graph_snapshot.related_entities) if graph_snapshot else [],
             graph_entities=list(graph_snapshot.entities) if graph_snapshot else [],
             graph_relations=list(graph_snapshot.relations) if graph_snapshot else [],

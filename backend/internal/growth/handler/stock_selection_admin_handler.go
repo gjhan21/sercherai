@@ -50,6 +50,10 @@ type adminStockSelectionProfileRequest struct {
 	FactorConfig         map[string]any `json:"factor_config"`
 	PortfolioConfig      map[string]any `json:"portfolio_config"`
 	PublishConfig        map[string]any `json:"publish_config"`
+	MarketAnalysisConfig map[string]any `json:"market_analysis_config"`
+	CandidatePoolConfig  map[string]any `json:"candidate_pool_config"`
+	ShortTermHeadConfig  map[string]any `json:"short_term_head_config"`
+	SwingHeadConfig      map[string]any `json:"swing_head_config"`
 	Description          string         `json:"description"`
 	ChangeNote           string         `json:"change_note"`
 }
@@ -66,6 +70,10 @@ type adminStockSelectionTemplateRequest struct {
 	FactorDefaults    map[string]any `json:"factor_defaults_json"`
 	PortfolioDefaults map[string]any `json:"portfolio_defaults_json"`
 	PublishDefaults   map[string]any `json:"publish_defaults_json"`
+	MarketAnalysisDefaults map[string]any `json:"market_analysis_defaults_json"`
+	CandidatePoolDefaults  map[string]any `json:"candidate_pool_defaults_json"`
+	ShortTermHeadDefaults  map[string]any `json:"short_term_head_defaults_json"`
+	SwingHeadDefaults      map[string]any `json:"swing_head_defaults_json"`
 }
 
 type adminStockSelectionRollbackRequest struct {
@@ -414,7 +422,11 @@ func (h *AdminStockSelectionHandler) SetDefaultStockSelectionProfileTemplate(c *
 }
 
 func (h *AdminStockSelectionHandler) ListStockSelectionEvaluationLeaderboard(c *gin.Context) {
-	items, err := h.service.AdminListStockSelectionEvaluationLeaderboard(c.Query("template_id"), c.Query("profile_id"), c.Query("market_regime"))
+	scope := strings.TrimSpace(c.Query("scope"))
+	if scope == "" {
+		scope = strings.TrimSpace(c.Query("evaluation_scope"))
+	}
+	items, err := h.service.AdminListStockSelectionEvaluationLeaderboard(c.Query("template_id"), c.Query("profile_id"), c.Query("market_regime"), scope)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
@@ -748,6 +760,10 @@ func stockSelectionProfileFromRequest(req adminStockSelectionProfileRequest, ope
 		FactorConfig:         req.FactorConfig,
 		PortfolioConfig:      req.PortfolioConfig,
 		PublishConfig:        req.PublishConfig,
+		MarketAnalysisConfig: req.MarketAnalysisConfig,
+		CandidatePoolConfig:  req.CandidatePoolConfig,
+		ShortTermHeadConfig:  req.ShortTermHeadConfig,
+		SwingHeadConfig:      req.SwingHeadConfig,
 		Description:          req.Description,
 		UpdatedBy:            operator,
 	}
@@ -766,6 +782,10 @@ func stockSelectionTemplateFromRequest(req adminStockSelectionTemplateRequest, o
 		FactorDefaults:    req.FactorDefaults,
 		PortfolioDefaults: req.PortfolioDefaults,
 		PublishDefaults:   req.PublishDefaults,
+		MarketAnalysisDefaults: req.MarketAnalysisDefaults,
+		CandidatePoolDefaults:  req.CandidatePoolDefaults,
+		ShortTermHeadDefaults:  req.ShortTermHeadDefaults,
+		SwingHeadDefaults:      req.SwingHeadDefaults,
 		UpdatedBy:         operator,
 	}
 }

@@ -52,7 +52,11 @@ test("MarketCenterView consumes audit deep-link query state", () => {
   assert.match(text, /config_type/);
   assert.match(text, /config_id/);
   assert.match(text, /view/);
+  assert.match(text, /StrategyEngineConfigPanel/);
+  assert.match(text, /strategyConfigPanelRef/);
   assert.match(text, /focusStrategyConfigItem/);
+  assert.match(text, /focusPublishPolicyByID/);
+  assert.match(text, /activeTab\.value = "engine-config"/);
   assert.match(text, /handleViewStockPublishDetail/);
   assert.match(text, /handleViewStockPublishReplay/);
   assert.match(text, /handleViewFuturesPublishDetail/);

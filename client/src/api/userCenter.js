@@ -67,3 +67,11 @@ export function createSubscription(payload) {
 export function updateSubscription(id, payload) {
   return http.put(`/subscriptions/${encodeURIComponent(id)}`, payload);
 }
+
+export function addUserVirtualSandbox(payload) {
+  return http.post("/user/virtual-sandbox", payload);
+}
+
+export function getUserVirtualSandbox() {
+  return http.get("/user/virtual-sandbox");
+}

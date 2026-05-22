@@ -14,6 +14,21 @@ func (r *MySQLGrowthRepo) AdminListStockSelectionProfiles(status string, page in
 	status = strings.ToUpper(strings.TrimSpace(status))
 	offset := (page - 1) * pageSize
 
+	templateItems, _, err := r.AdminListStockSelectionProfileTemplates("", 1, 200)
+	if err != nil {
+		return nil, 0, err
+	}
+	templateMap := make(map[string]model.StockSelectionProfileTemplate, len(templateItems))
+	var defaultTemplate *model.StockSelectionProfileTemplate
+	for index := range templateItems {
+		template := templateItems[index]
+		templateMap[template.ID] = template
+		if template.IsDefault && defaultTemplate == nil {
+			cloned := template
+			defaultTemplate = &cloned
+		}
+	}
+
 	args := make([]any, 0, 4)
 	filter := ""
 	if status != "" {
@@ -42,6 +57,10 @@ SELECT
   COALESCE(CAST(p.factor_config AS CHAR), ''),
   COALESCE(CAST(p.portfolio_config AS CHAR), ''),
   COALESCE(CAST(p.publish_config AS CHAR), ''),
+  COALESCE(CAST(p.market_analysis_config AS CHAR), ''),
+  COALESCE(CAST(p.candidate_pool_config AS CHAR), ''),
+  COALESCE(CAST(p.short_term_head_config AS CHAR), ''),
+  COALESCE(CAST(p.swing_head_config AS CHAR), ''),
   COALESCE(p.description, ''),
   COALESCE(p.updated_by, ''),
   p.updated_at,
@@ -68,6 +87,7 @@ LIMIT ? OFFSET ?`
 		var item model.StockSelectionProfile
 		var isDefault bool
 		var universeConfig, seedConfig, factorConfig, portfolioConfig, publishConfig string
+		var marketAnalysisConfig, candidatePoolConfig, shortTermHeadConfig, swingHeadConfig string
 		var updatedAt, createdAt time.Time
 		if err := rows.Scan(
 			&item.ID,
@@ -84,6 +104,10 @@ LIMIT ? OFFSET ?`
 			&factorConfig,
 			&portfolioConfig,
 			&publishConfig,
+			&marketAnalysisConfig,
+			&candidatePoolConfig,
+			&shortTermHeadConfig,
+			&swingHeadConfig,
 			&item.Description,
 			&item.UpdatedBy,
 			&updatedAt,
@@ -97,6 +121,33 @@ LIMIT ? OFFSET ?`
 		item.FactorConfig = parseJSONMap(factorConfig)
 		item.PortfolioConfig = parseJSONMap(portfolioConfig)
 		item.PublishConfig = parseJSONMap(publishConfig)
+		item.MarketAnalysisConfig = parseJSONMap(marketAnalysisConfig)
+		item.CandidatePoolConfig = parseJSONMap(candidatePoolConfig)
+		item.ShortTermHeadConfig = parseJSONMap(shortTermHeadConfig)
+		item.SwingHeadConfig = parseJSONMap(swingHeadConfig)
+		template, hasTemplate := templateMap[item.TemplateID]
+		if !hasTemplate && defaultTemplate != nil {
+			template = *defaultTemplate
+			hasTemplate = true
+		}
+		if len(item.MarketAnalysisConfig) == 0 {
+			item.MarketAnalysisConfig = deriveStockSelectionMarketAnalysisConfig(item)
+		}
+		if len(item.CandidatePoolConfig) == 0 {
+			item.CandidatePoolConfig = deriveStockSelectionCandidatePoolConfig(item)
+		}
+		if len(item.ShortTermHeadConfig) == 0 {
+			item.ShortTermHeadConfig = deriveStockSelectionShortTermHeadConfig(item)
+		}
+		if len(item.SwingHeadConfig) == 0 {
+			item.SwingHeadConfig = deriveStockSelectionSwingHeadConfig(item)
+		}
+		if hasTemplate {
+			item.MarketAnalysisConfig = mergeStockSelectionConfigMaps(template.MarketAnalysisDefaults, item.MarketAnalysisConfig)
+			item.CandidatePoolConfig = mergeStockSelectionConfigMaps(template.CandidatePoolDefaults, item.CandidatePoolConfig)
+			item.ShortTermHeadConfig = mergeStockSelectionConfigMaps(template.ShortTermHeadDefaults, item.ShortTermHeadConfig)
+			item.SwingHeadConfig = mergeStockSelectionConfigMaps(template.SwingHeadDefaults, item.SwingHeadConfig)
+		}
 		item.UpdatedAt = updatedAt.Format(time.RFC3339)
 		item.CreatedAt = createdAt.Format(time.RFC3339)
 		items = append(items, item)
@@ -321,14 +372,19 @@ func (r *MySQLGrowthRepo) upsertStockSelectionProfile(item model.StockSelectionP
 	factorJSON := stockSelectionMustJSON(item.FactorConfig)
 	portfolioJSON := stockSelectionMustJSON(item.PortfolioConfig)
 	publishJSON := stockSelectionMustJSON(item.PublishConfig)
+	marketAnalysisJSON := stockSelectionMustJSON(item.MarketAnalysisConfig)
+	candidatePoolJSON := stockSelectionMustJSON(item.CandidatePoolConfig)
+	shortTermHeadJSON := stockSelectionMustJSON(item.ShortTermHeadConfig)
+	swingHeadJSON := stockSelectionMustJSON(item.SwingHeadConfig)
 
 	if createOnly {
 		_, err = tx.Exec(`
 INSERT INTO stock_selection_profiles (
   id, name, template_id, status, is_default, selection_mode_default, universe_scope,
   universe_config, seed_mining_config, factor_config, portfolio_config, publish_config,
+  market_analysis_config, candidate_pool_config, short_term_head_config, swing_head_config,
   description, updated_by, updated_at, created_at
-) VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+) VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
 			item.ID,
 			item.Name,
 			item.TemplateID,
@@ -341,6 +397,10 @@ INSERT INTO stock_selection_profiles (
 			factorJSON,
 			portfolioJSON,
 			publishJSON,
+			marketAnalysisJSON,
+			candidatePoolJSON,
+			shortTermHeadJSON,
+			swingHeadJSON,
 			item.Description,
 			operator,
 		)
@@ -358,6 +418,10 @@ SET name = ?,
     factor_config = ?,
     portfolio_config = ?,
     publish_config = ?,
+    market_analysis_config = ?,
+    candidate_pool_config = ?,
+    short_term_head_config = ?,
+    swing_head_config = ?,
     description = ?,
     updated_by = ?,
     updated_at = NOW()
@@ -373,6 +437,10 @@ WHERE id = ?`,
 			factorJSON,
 			portfolioJSON,
 			publishJSON,
+			marketAnalysisJSON,
+			candidatePoolJSON,
+			shortTermHeadJSON,
+			swingHeadJSON,
 			item.Description,
 			operator,
 			item.ID,
@@ -432,6 +500,18 @@ func normalizeStockSelectionProfile(item model.StockSelectionProfile) model.Stoc
 	if item.PublishConfig == nil {
 		item.PublishConfig = map[string]any{}
 	}
+	if item.MarketAnalysisConfig == nil {
+		item.MarketAnalysisConfig = map[string]any{}
+	}
+	if item.CandidatePoolConfig == nil {
+		item.CandidatePoolConfig = map[string]any{}
+	}
+	if item.ShortTermHeadConfig == nil {
+		item.ShortTermHeadConfig = map[string]any{}
+	}
+	if item.SwingHeadConfig == nil {
+		item.SwingHeadConfig = map[string]any{}
+	}
 	return item
 }
 
@@ -449,6 +529,10 @@ func buildStockSelectionProfileSnapshot(item model.StockSelectionProfile) map[st
 		"factor_config":          item.FactorConfig,
 		"portfolio_config":       item.PortfolioConfig,
 		"publish_config":         item.PublishConfig,
+		"market_analysis_config": item.MarketAnalysisConfig,
+		"candidate_pool_config":  item.CandidatePoolConfig,
+		"short_term_head_config": item.ShortTermHeadConfig,
+		"swing_head_config":      item.SwingHeadConfig,
 		"description":            item.Description,
 	}
 }
@@ -467,7 +551,55 @@ func profileFromSnapshot(snapshot map[string]any) model.StockSelectionProfile {
 		FactorConfig:         mapValue(snapshot["factor_config"]),
 		PortfolioConfig:      mapValue(snapshot["portfolio_config"]),
 		PublishConfig:        mapValue(snapshot["publish_config"]),
+		MarketAnalysisConfig: mapValue(snapshot["market_analysis_config"]),
+		CandidatePoolConfig:  mapValue(snapshot["candidate_pool_config"]),
+		ShortTermHeadConfig:  mapValue(snapshot["short_term_head_config"]),
+		SwingHeadConfig:      mapValue(snapshot["swing_head_config"]),
 		Description:          stringValue(snapshot["description"]),
 	}
 	return normalizeStockSelectionProfile(item)
+}
+
+func deriveStockSelectionMarketAnalysisConfig(item model.StockSelectionProfile) map[string]any {
+	result := mergeStockSelectionConfigMaps(nil, item.MarketAnalysisConfig)
+	if len(result) > 0 {
+		return result
+	}
+	result = map[string]any{}
+	copyStockSelectionPayloadFields(result, item.FactorConfig, []string{"lookback_days", "trend_bias", "resonance_bias"})
+	copyStockSelectionPayloadFields(result, item.PublishConfig, []string{"review_required"})
+	return result
+}
+
+func deriveStockSelectionCandidatePoolConfig(item model.StockSelectionProfile) map[string]any {
+	result := mergeStockSelectionConfigMaps(nil, item.CandidatePoolConfig)
+	if len(result) > 0 {
+		return result
+	}
+	result = map[string]any{}
+	copyStockSelectionPayloadFields(result, item.UniverseConfig, []string{"min_listing_days", "min_avg_turnover", "price_min", "price_max", "industry_whitelist", "industry_blacklist", "theme_whitelist", "theme_blacklist"})
+	copyStockSelectionPayloadFields(result, item.SeedMiningConfig, []string{"bucket_limit", "seed_pool_cap", "candidate_pool_limit"})
+	return result
+}
+
+func deriveStockSelectionShortTermHeadConfig(item model.StockSelectionProfile) map[string]any {
+	result := mergeStockSelectionConfigMaps(nil, item.ShortTermHeadConfig)
+	if len(result) > 0 {
+		return result
+	}
+	result = map[string]any{}
+	copyStockSelectionPayloadFields(result, item.PortfolioConfig, []string{"limit", "min_score", "max_risk_level", "watchlist_limit"})
+	copyStockSelectionPayloadFields(result, item.FactorConfig, []string{"quant_weight", "event_weight", "resonance_weight", "liquidity_risk_weight"})
+	return result
+}
+
+func deriveStockSelectionSwingHeadConfig(item model.StockSelectionProfile) map[string]any {
+	result := mergeStockSelectionConfigMaps(nil, item.SwingHeadConfig)
+	if len(result) > 0 {
+		return result
+	}
+	result = map[string]any{}
+	copyStockSelectionPayloadFields(result, item.PortfolioConfig, []string{"watchlist_limit", "max_symbol_per_bucket", "max_symbols_per_sector"})
+	copyStockSelectionPayloadFields(result, item.FactorConfig, []string{"quant_weight", "resonance_weight"})
+	return result
 }

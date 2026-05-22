@@ -5,14 +5,20 @@ from time import perf_counter
 from typing import Optional
 
 from app.domain.agents.agent_panel import AgentPanel
+from app.domain.candidates.trend_candidate_pool_builder import TrendCandidatePoolBuilder
+from app.domain.decision.intraday_decision_fusion import IntradayDecisionFusion
 from app.domain.decision.stock_decision_fusion import StockDecisionFusion
 from app.domain.features.stock_feature_factory import StockFeatureFactory
 from app.domain.graph.market_graph_builder import MarketGraphBuilder
 from app.domain.graph.strategy_graph_client import StrategyGraphClient
+from app.domain.heads.short_term_recommendation_head import ShortTermRecommendationHead
+from app.domain.heads.swing_recommendation_head import SwingRecommendationHead
+from app.domain.market.market_daily_analyzer import MarketDailyAnalyzer
 from app.domain.models import MarketSeed, StockFeature
 from app.domain.reports.stock_report_builder import StockReportBuilder
 from app.domain.risk.portfolio_guard import PortfolioGuard
 from app.domain.scenarios.stock_scenario_engine import StockScenarioEngine
+from app.domain.seeds.intraday_seed_miner import IntradaySeedMiner
 from app.domain.seeds.market_seed_loader import MarketSeedLoader
 from app.domain.seeds.stock_seed_miner import StockSeedMiner
 from app.domain.selectors.stock_selector import StockSelector
@@ -21,6 +27,7 @@ from app.schemas.research import MemoryFeedback, MemoryFeedbackItem, StrategyGra
 from app.schemas.stock import (
     StockCandidateSnapshot,
     StockEvidenceRecord,
+    StockEvaluationRecord,
     StockSelectionPayload,
     StockSelectionReport,
     StockStageLog,
@@ -53,6 +60,10 @@ class StockSelectionPipeline:
         self._stock_scenario_engine = stock_scenario_engine or StockScenarioEngine(agent_panel=AgentPanel())
         self._market_graph_builder = market_graph_builder or MarketGraphBuilder()
         self._strategy_graph_client = strategy_graph_client
+        self._market_daily_analyzer = MarketDailyAnalyzer()
+        self._trend_candidate_pool_builder = TrendCandidatePoolBuilder()
+        self._short_term_head = ShortTermRecommendationHead()
+        self._swing_head = SwingRecommendationHead()
 
     def run(self, raw_payload: dict) -> tuple[StockSelectionReport, list[str]]:
         payload = StockSelectionPayload.model_validate(raw_payload)
@@ -76,21 +87,24 @@ class StockSelectionPipeline:
         stage_logs: list[StockStageLog] = []
 
         regime_start = perf_counter()
-        market_regime = _detect_market_regime(seed_result.seeds, payload)
+        market_analysis = self._market_daily_analyzer.analyze(seed_result.seeds)
+        market_regime = _detect_market_regime(seed_result.seeds, payload, market_analysis.trend_state)
         regime_duration = _duration_ms(regime_start)
         stage_counts["MARKET_REGIME"] = len(seed_result.seeds)
         stage_durations_ms["MARKET_REGIME"] = regime_duration
         stage_logs.append(
             StockStageLog(
-                stage_key="MARKET_REGIME",
+                stage_key="MARKET_ANALYSIS",
                 stage_order=1,
                 input_count=len(seed_result.seeds),
                 output_count=len(seed_result.seeds),
                 duration_ms=regime_duration,
-                detail_message=f"已识别市场状态：{_market_regime_label(market_regime)}",
+                detail_message=market_analysis.summary,
                 payload_snapshot={
                     "template_key": payload.template_key,
                     "template_name": payload.template_name,
+                    "trend_state": market_analysis.trend_state,
+                    "next_day_rhythm": market_analysis.next_day_rhythm,
                 },
             )
         )
@@ -121,6 +135,23 @@ class StockSelectionPipeline:
             )
         )
 
+        candidate_layer_start = perf_counter()
+        trend_candidate_pool = self._trend_candidate_pool_builder.build(features, market_analysis)
+        candidate_layer_duration = _duration_ms(candidate_layer_start)
+        stage_counts["TREND_CANDIDATE_POOL"] = len(trend_candidate_pool.watch_pool)
+        stage_durations_ms["TREND_CANDIDATE_POOL"] = candidate_layer_duration
+        stage_logs.append(
+            StockStageLog(
+                stage_key="TREND_CANDIDATE_POOL",
+                stage_order=3,
+                input_count=len(features),
+                output_count=len(trend_candidate_pool.watch_pool),
+                duration_ms=candidate_layer_duration,
+                detail_message="趋势型待选池构建完成",
+                payload_snapshot=trend_candidate_pool.summary,
+            )
+        )
+
         graph_start = perf_counter()
         graph_snapshot = self._market_graph_builder.build_stock(
             features,
@@ -134,7 +165,7 @@ class StockSelectionPipeline:
         stage_logs.append(
             StockStageLog(
                 stage_key="GRAPH_ENRICHMENT",
-                stage_order=3,
+                stage_order=4,
                 input_count=len(features),
                 output_count=len(graph_snapshot.entities),
                 duration_ms=graph_duration,
@@ -154,7 +185,7 @@ class StockSelectionPipeline:
         stage_logs.append(
             StockStageLog(
                 stage_key="THEME_EVENT",
-                stage_order=4,
+                stage_order=5,
                 input_count=len(features),
                 output_count=len(features),
                 duration_ms=theme_event_duration,
@@ -163,63 +194,174 @@ class StockSelectionPipeline:
             )
         )
 
-        seed_pool_start = perf_counter()
-        seed_mining_result = self._stock_seed_miner.mine(features, payload, market_regime)
-        seed_pool_duration = _duration_ms(seed_pool_start)
-        seed_pool = seed_mining_result.seed_pool
-        if not seed_pool:
-            raise ValueError("stock selection seed pool is empty after mining")
-        stage_counts["SEED_POOL"] = len(seed_pool)
-        stage_durations_ms["SEED_POOL"] = seed_pool_duration
-        stage_logs.append(
-            StockStageLog(
-                stage_key="SEED_POOL",
-                stage_order=5,
-                input_count=len(features),
-                output_count=len(seed_pool),
-                duration_ms=seed_pool_duration,
-                detail_message="五大固定种子桶已完成市场状态与模板路由",
-                payload_snapshot={
-                    "bucket_members": seed_mining_result.bucket_members,
-                    "bucket_limits": seed_mining_result.bucket_limits,
-                },
-            )
-        )
+        is_intraday = _is_intraday_mode(payload)
 
-        candidate_start = perf_counter()
-        fused_seed_pool = self._stock_decision_fusion.fuse(seed_pool, payload)
-        candidate_pool = self._stock_selector.select(fused_seed_pool, payload.candidate_pool_limit)
-        candidate_duration = _duration_ms(candidate_start)
-        stage_counts["CANDIDATE_POOL"] = len(candidate_pool)
-        stage_durations_ms["CANDIDATE_POOL"] = candidate_duration
-        stage_logs.append(
-            StockStageLog(
-                stage_key="CANDIDATE_POOL",
-                stage_order=6,
-                input_count=len(seed_pool),
-                output_count=len(candidate_pool),
-                duration_ms=candidate_duration,
-                detail_message=(
-                    f"融合权重：量化 {payload.quant_weight:.2f}，事件 {payload.event_weight:.2f}，"
-                    f"共振 {payload.resonance_weight:.2f}，风险 {payload.liquidity_risk_weight:.2f}"
-                ),
-                payload_snapshot={"top_symbols": [item.symbol for item in candidate_pool[:10]]},
+        if is_intraday:
+            # === Intraday T+1 path: 7-strategy parallel mining + cross-strategy fusion ===
+            seed_pool_start = perf_counter()
+            intraday_miner = IntradaySeedMiner()
+            intraday_result = intraday_miner.mine(seed_result.seeds, market_regime)
+            seed_pool_duration = _duration_ms(seed_pool_start)
+
+            candidate_start = perf_counter()
+            intraday_fusion = IntradayDecisionFusion(
+                limit=payload.limit,
+                min_score=payload.min_score,
             )
-        )
+            fusion_result = intraday_fusion.fuse(intraday_result.strategy_results, market_regime)
+            candidate_pool = fusion_result.candidates
+            candidate_duration = _duration_ms(candidate_start)
+
+            total_strategy_candidates = sum(
+                len(r.candidates) for r in intraday_result.strategy_results.values()
+            )
+            active_strategies = [
+                k for k, r in intraday_result.strategy_results.items()
+                if r.candidates
+            ]
+
+            stage_counts["SEED_POOL"] = total_strategy_candidates
+            stage_durations_ms["SEED_POOL"] = seed_pool_duration
+            stage_logs.append(
+                StockStageLog(
+                    stage_key="SEED_POOL",
+                    stage_order=6,
+                    input_count=len(seed_result.seeds),
+                    output_count=total_strategy_candidates,
+                    duration_ms=seed_pool_duration,
+                    detail_message=f"七大T+1策略并行筛选完成，活跃策略：{len(active_strategies)}个",
+                    payload_snapshot={
+                        "active_strategies": active_strategies,
+                        "strategy_candidate_counts": {
+                            k: len(r.candidates)
+                            for k, r in intraday_result.strategy_results.items()
+                        },
+                    },
+                )
+            )
+
+            stage_counts["CANDIDATE_POOL"] = len(candidate_pool)
+            stage_durations_ms["CANDIDATE_POOL"] = candidate_duration
+            stage_logs.append(
+                StockStageLog(
+                    stage_key="CANDIDATE_POOL",
+                    stage_order=7,
+                    input_count=total_strategy_candidates,
+                    output_count=len(candidate_pool),
+                    duration_ms=candidate_duration,
+                    detail_message=(
+                        f"跨策略融合完成：{len(candidate_pool)}只候选，"
+                        f"市场环境 {market_regime}，"
+                        f"多策略共振标的 {sum(1 for c in candidate_pool if c.multi_strategy_hit >= 2)} 只"
+                    ),
+                    payload_snapshot={"top_symbols": [item.symbol for item in candidate_pool[:10]]},
+                )
+            )
+
+            # Accumulate intraday-specific warnings
+            if intraday_result.warnings:
+                pass  # warnings handled below via guard_result
+
+            seed_pool = candidate_pool
+        else:
+            # === Standard path: 5-bucket mining + weighted fusion ===
+            seed_pool_start = perf_counter()
+            seed_mining_result = self._stock_seed_miner.mine(features, payload, market_regime)
+            seed_pool_duration = _duration_ms(seed_pool_start)
+            seed_pool = seed_mining_result.seed_pool
+            if not seed_pool:
+                raise ValueError("stock selection seed pool is empty after mining")
+            stage_counts["SEED_POOL"] = len(seed_pool)
+            stage_durations_ms["SEED_POOL"] = seed_pool_duration
+            stage_logs.append(
+                StockStageLog(
+                    stage_key="SEED_POOL",
+                    stage_order=6,
+                    input_count=len(features),
+                    output_count=len(seed_pool),
+                    duration_ms=seed_pool_duration,
+                    detail_message="五大固定种子桶已完成市场状态与模板路由",
+                    payload_snapshot={
+                        "bucket_members": seed_mining_result.bucket_members,
+                        "bucket_limits": seed_mining_result.bucket_limits,
+                    },
+                )
+            )
+
+            candidate_start = perf_counter()
+            fused_seed_pool = self._stock_decision_fusion.fuse(seed_pool, payload)
+            candidate_pool = self._stock_selector.select(fused_seed_pool, payload.candidate_pool_limit)
+            candidate_duration = _duration_ms(candidate_start)
+            stage_counts["CANDIDATE_POOL"] = len(candidate_pool)
+            stage_durations_ms["CANDIDATE_POOL"] = candidate_duration
+            stage_logs.append(
+                StockStageLog(
+                    stage_key="CANDIDATE_POOL",
+                    stage_order=7,
+                    input_count=len(seed_pool),
+                    output_count=len(candidate_pool),
+                    duration_ms=candidate_duration,
+                    detail_message=(
+                        f"融合权重：量化 {payload.quant_weight:.2f}，事件 {payload.event_weight:.2f}，"
+                        f"共振 {payload.resonance_weight:.2f}，风险 {payload.liquidity_risk_weight:.2f}"
+                    ),
+                    payload_snapshot={"top_symbols": [item.symbol for item in candidate_pool[:10]]},
+                )
+            )
 
         portfolio_start = perf_counter()
-        guard_result = self._portfolio_guard.apply(candidate_pool, payload)
+        shared_pool = trend_candidate_pool.watch_pool or candidate_pool
+        short_term_intraday_inputs = {
+            item.symbol: {
+                "minute_confirmation_score": min(95, max(45, int(round((item.momentum5 + item.volume_ratio + item.trend_strength / 20) * 10)))),
+                "vwap_supported": item.momentum5 > 0 and item.volume_ratio >= 1.0,
+                "opening_range_intact": item.drawdown20 < 8,
+            }
+            for item in shared_pool
+        }
+        short_term_result = self._short_term_head.select(shared_pool, market_analysis, short_term_intraday_inputs)
+        swing_result = self._swing_head.select(shared_pool, market_analysis)
+        layered_candidates = _merge_layered_candidates(
+            candidate_pool,
+            short_term_result.recommendations,
+            swing_result.recommendations,
+        )
+        guard_result = self._portfolio_guard.apply(layered_candidates, payload)
         guarded = guard_result.portfolio
         watchlist = guard_result.watchlist
         portfolio_duration = _duration_ms(portfolio_start)
         stage_counts["PORTFOLIO"] = len(guarded)
         stage_counts["WATCHLIST"] = len(watchlist)
+        stage_counts["SHORT_TERM_PRIMARY"] = len(short_term_result.recommendations)
+        stage_counts["SWING_AUXILIARY"] = len(swing_result.recommendations)
         stage_durations_ms["PORTFOLIO"] = portfolio_duration
         stage_logs.append(
             StockStageLog(
+                stage_key="SHORT_TERM_PRIMARY",
+                stage_order=8,
+                input_count=len(shared_pool),
+                output_count=len(short_term_result.recommendations),
+                duration_ms=0,
+                detail_message="超短线主推荐头完成",
+                payload_snapshot=short_term_result.summary,
+            )
+        )
+        stage_logs.append(
+            StockStageLog(
+                stage_key="SWING_AUXILIARY",
+                stage_order=9,
+                input_count=len(shared_pool),
+                output_count=len(swing_result.recommendations),
+                duration_ms=0,
+                detail_message="短波段辅助推荐头完成",
+                payload_snapshot=swing_result.summary,
+            )
+        )
+        stage_logs.append(
+            StockStageLog(
                 stage_key="PORTFOLIO",
-                stage_order=7,
-                input_count=len(candidate_pool),
+                stage_order=10,
+                input_count=len(layered_candidates),
                 output_count=len(guarded),
                 duration_ms=portfolio_duration,
                 detail_message=(
@@ -240,9 +382,9 @@ class StockSelectionPipeline:
         if graph_write_result.status == "FAILED" and graph_write_result.error_message:
             warnings.append(f"图谱快照写入失败：{graph_write_result.error_message}")
 
-        candidate_snapshots = _build_candidate_snapshots(features, seed_pool, candidate_pool, guarded, watchlist)
-        evidence_records = _build_evidence_records(candidate_pool, guarded, watchlist)
-        evaluation_summary = _build_evaluation_summary(guarded, watchlist)
+        candidate_snapshots = _build_candidate_snapshots(features, seed_pool, candidate_pool, guarded, watchlist, short_term_result.recommendations, swing_result.recommendations)
+        evidence_records = _build_evidence_records(candidate_pool, guarded, watchlist, short_term_result.recommendations, swing_result.recommendations)
+        evaluation_summary = _build_evaluation_summary(guarded, watchlist, market_analysis, short_term_result.recommendations, swing_result.recommendations)
         memory_feedback = _build_memory_feedback(
             market_regime=market_regime,
             warnings=warnings,
@@ -265,11 +407,14 @@ class StockSelectionPipeline:
             watchlist=watchlist,
             graph_snapshot=graph_snapshot,
             memory_feedback=memory_feedback,
+            market_conclusion=_build_market_conclusion(market_analysis),
+            short_term_primary_recommendations=_serialize_head_recommendations(short_term_result.recommendations, "SHORT_TERM_PRIMARY"),
+            swing_auxiliary_recommendations=_serialize_head_recommendations(swing_result.recommendations, "SWING_AUXILIARY"),
         )
         stage_logs.append(
             StockStageLog(
                 stage_key="REVIEW_PAYLOAD",
-                stage_order=8,
+                stage_order=11,
                 input_count=len(guarded),
                 output_count=len(report.publish_payloads),
                 duration_ms=0,
@@ -283,19 +428,19 @@ class StockSelectionPipeline:
         stage_logs.append(
             StockStageLog(
                 stage_key="FORWARD_EVALUATION",
-                stage_order=9,
+                stage_order=12,
                 status="PENDING",
                 input_count=len(guarded) + len(watchlist),
                 output_count=0,
                 duration_ms=0,
-                detail_message="已登记日终异步评估补写",
+                detail_message="评估由后端异步回填，当前不生成占位评估",
                 payload_snapshot={"horizons": [1, 3, 5, 10, 20]},
             )
         )
         stage_logs.append(
             StockStageLog(
                 stage_key="MEMORY_FEEDBACK",
-                stage_order=10,
+                stage_order=13,
                 input_count=len(guarded) + len(watchlist),
                 output_count=len(memory_feedback.items),
                 duration_ms=0,
@@ -309,6 +454,12 @@ class StockSelectionPipeline:
         report.context_meta["run_id"] = run_id
         report.context_meta["graph_snapshot_id"] = graph_snapshot.snapshot_id
         report.context_meta["graph_write_status"] = graph_write_result.status
+        report.context_meta["market_analysis"] = _build_market_conclusion(market_analysis)
+        report.context_meta["candidate_pool_summary"] = trend_candidate_pool.summary
+        report.context_meta["head_output_summary"] = {
+            "short_term_primary_count": len(short_term_result.recommendations),
+            "swing_auxiliary_count": len(swing_result.recommendations),
+        }
         if payload.template_key:
             report.context_meta["template_key"] = payload.template_key
         if payload.template_name:
@@ -342,16 +493,20 @@ def _build_candidate_snapshots(
     candidate_pool: list[StockFeature],
     portfolio: list[StockFeature],
     watchlist: list[StockFeature],
+    short_term_recommendations: list[StockFeature],
+    swing_recommendations: list[StockFeature],
 ) -> list[StockCandidateSnapshot]:
     result: list[StockCandidateSnapshot] = []
     seed_symbols = {item.symbol for item in seed_pool}
     candidate_symbols = {item.symbol for item in candidate_pool}
     portfolio_symbols = {item.symbol for item in portfolio}
     watchlist_symbols = {item.symbol for item in watchlist}
-    result.extend(_build_stage_snapshots("UNIVERSE", _rank_by_quant(universe), seed_symbols, watchlist_symbols))
-    result.extend(_build_stage_snapshots("SEED_POOL", seed_pool, candidate_symbols, watchlist_symbols))
-    result.extend(_build_stage_snapshots("CANDIDATE_POOL", candidate_pool, portfolio_symbols, watchlist_symbols))
-    result.extend(_build_stage_snapshots("PORTFOLIO", portfolio, portfolio_symbols, watchlist_symbols))
+    short_term_symbols = {item.symbol for item in short_term_recommendations}
+    swing_symbols = {item.symbol for item in swing_recommendations}
+    result.extend(_build_stage_snapshots("UNIVERSE", _rank_by_quant(universe), seed_symbols, watchlist_symbols, short_term_symbols, swing_symbols))
+    result.extend(_build_stage_snapshots("SEED_POOL", seed_pool, candidate_symbols, watchlist_symbols, short_term_symbols, swing_symbols))
+    result.extend(_build_stage_snapshots("CANDIDATE_POOL", candidate_pool, portfolio_symbols, watchlist_symbols, short_term_symbols, swing_symbols))
+    result.extend(_build_stage_snapshots("PORTFOLIO", portfolio, portfolio_symbols, watchlist_symbols, short_term_symbols, swing_symbols))
     return result
 
 
@@ -360,6 +515,8 @@ def _build_stage_snapshots(
     ordered: list[StockFeature],
     selected_symbols: set[str],
     watchlist_symbols: set[str],
+    short_term_symbols: set[str],
+    swing_symbols: set[str],
 ) -> list[StockCandidateSnapshot]:
     snapshots: list[StockCandidateSnapshot] = []
     for index, item in enumerate(ordered, start=1):
@@ -379,6 +536,15 @@ def _build_stage_snapshots(
                 reason_summary=item.reason_summary,
                 evidence_summary=item.evidence_summary,
                 portfolio_role=portfolio_role,
+                recommendation_head=(
+                    _portfolio_recommendation_head_for_symbol(item.symbol, short_term_symbols, swing_symbols)
+                    if stage == "PORTFOLIO"
+                    else _recommendation_head_for_symbol(item.symbol, short_term_symbols, swing_symbols)
+                ),
+                selection_layer=_selection_layer_for_stage(stage, item.symbol, short_term_symbols, swing_symbols),
+                reason_tags=list(item.positive_reasons[:3]),
+                veto_tags=list(item.veto_reasons[:3]),
+                technical_pattern=_technical_pattern(item),
                 risk_summary=_feature_risk_summary(item),
                 factor_breakdown_json=item.factor_breakdown(),
             )
@@ -390,10 +556,16 @@ def _rank_by_quant(features: list[StockFeature]) -> list[StockFeature]:
     return sorted(features, key=lambda item: (-item.quant_score, -item.momentum20, item.symbol))
 
 
-def _detect_market_regime(seeds: list[MarketSeed], payload: StockSelectionPayload) -> str:
+def _detect_market_regime(seeds: list[MarketSeed], payload: StockSelectionPayload, fallback: str = "ROTATION") -> str:
     bias = str(payload.template_snapshot.get("market_regime_bias", "") or "").strip().upper()
     if bias in {"UPTREND", "ROTATION", "EVENT_DRIVEN", "DEFENSIVE", "RISK_OFF"}:
         return bias
+    if fallback in {"UPTREND", "RANGE_STRONG", "RANGE_NEUTRAL", "RANGE_WEAK", "RISK_OFF"}:
+        return {
+            "RANGE_STRONG": "ROTATION",
+            "RANGE_NEUTRAL": "ROTATION",
+            "RANGE_WEAK": "DEFENSIVE",
+        }.get(fallback, fallback)
     if not seeds:
         return "ROTATION"
     avg_momentum20 = sum(item.momentum20 for item in seeds) / len(seeds)
@@ -447,10 +619,14 @@ def _build_evidence_records(
     candidate_pool: list[StockFeature],
     portfolio: list[StockFeature],
     watchlist: list[StockFeature],
+    short_term_recommendations: list[StockFeature],
+    swing_recommendations: list[StockFeature],
 ) -> list[StockEvidenceRecord]:
     items: list[StockEvidenceRecord] = []
     seen: set[tuple[str, str]] = set()
     watchlist_symbols = {item.symbol for item in watchlist}
+    short_term_symbols = {item.symbol for item in short_term_recommendations}
+    swing_symbols = {item.symbol for item in swing_recommendations}
     for stage, features in (
         ("CANDIDATE_POOL", candidate_pool),
         ("PORTFOLIO", portfolio),
@@ -466,6 +642,13 @@ def _build_evidence_records(
                     name=item.name,
                     stage=stage,
                     portfolio_role=item.portfolio_role or ("WATCHLIST" if item.symbol in watchlist_symbols else "SATELLITE"),
+                    recommendation_head=(
+                        _portfolio_recommendation_head_for_symbol(item.symbol, short_term_symbols, swing_symbols)
+                        if stage == "PORTFOLIO"
+                        else _recommendation_head_for_symbol(item.symbol, short_term_symbols, swing_symbols)
+                    ),
+                    selection_layer=_selection_layer_for_stage(stage, item.symbol, short_term_symbols, swing_symbols),
+                    technical_pattern=_technical_pattern(item),
                     evidence_summary=item.evidence_summary,
                     evidence_cards=item.evidence_cards,
                     positive_reasons=item.positive_reasons,
@@ -478,7 +661,13 @@ def _build_evidence_records(
     return items
 
 
-def _build_evaluation_summary(portfolio: list[StockFeature], watchlist: list[StockFeature]) -> dict[str, object]:
+def _build_evaluation_summary(
+    portfolio: list[StockFeature],
+    watchlist: list[StockFeature],
+    market_analysis,
+    short_term_recommendations: list[StockFeature],
+    swing_recommendations: list[StockFeature],
+) -> dict[str, object]:
     horizons = {str(day): {"status": "PENDING"} for day in (1, 3, 5, 10, 20)}
     return {
         "status": "PENDING",
@@ -486,6 +675,9 @@ def _build_evaluation_summary(portfolio: list[StockFeature], watchlist: list[Sto
         "benchmark_symbol": "sh000001",
         "portfolio_count": len(portfolio),
         "watchlist_count": len(watchlist),
+        "market_conclusion": _build_market_conclusion(market_analysis),
+        "short_term_primary_recommendations": _serialize_head_recommendations(short_term_recommendations, "SHORT_TERM_PRIMARY"),
+        "swing_auxiliary_recommendations": _serialize_head_recommendations(swing_recommendations, "SWING_AUXILIARY"),
         **horizons,
     }
 
@@ -605,3 +797,92 @@ def _risk_level_label(value: str) -> str:
     }
     key = str(value or "").strip().upper()
     return mapping.get(key, key or "-")
+
+
+def _is_intraday_mode(payload: StockSelectionPayload) -> bool:
+    """Check if the payload requests intraday T+1 mode."""
+    key = (payload.template_key or "").strip().upper()
+    if key == "INTRADAY_T1":
+        return True
+    # Also check template_snapshot for runtime override
+    override = str(
+        payload.template_snapshot.get("template_key", "")
+        or payload.template_snapshot.get("strategy_mode", "")
+    ).strip().upper()
+    if override in {"INTRADAY_T1", "INTRADAY"}:
+        return True
+    return False
+
+
+def _build_market_conclusion(market_analysis) -> dict[str, object]:
+    return {
+        "trend_state": market_analysis.trend_state,
+        "next_day_rhythm": market_analysis.next_day_rhythm,
+        "risk_posture": market_analysis.risk_posture,
+        "summary": market_analysis.summary,
+        "breadth_summary": market_analysis.breadth_summary,
+    }
+
+
+def _serialize_head_recommendations(items: list[StockFeature], head_label: str) -> list[dict[str, object]]:
+    return [
+        {
+            "symbol": item.symbol,
+            "name": item.name,
+            "score": item.score,
+            "head_label": head_label,
+            "reason_summary": item.reason_summary,
+            "technical_pattern": _technical_pattern(item),
+        }
+        for item in items
+    ]
+
+
+def _merge_layered_candidates(
+    candidate_pool: list[StockFeature],
+    short_term_recommendations: list[StockFeature],
+    swing_recommendations: list[StockFeature],
+) -> list[StockFeature]:
+    merged: list[StockFeature] = []
+    seen: set[str] = set()
+    for collection in (short_term_recommendations, swing_recommendations, candidate_pool):
+        for item in collection:
+            if item.symbol in seen:
+                continue
+            seen.add(item.symbol)
+            merged.append(item)
+    return merged
+
+
+def _recommendation_head_for_symbol(symbol: str, short_term_symbols: set[str], swing_symbols: set[str]) -> str:
+    if symbol in short_term_symbols:
+        return "SHORT_TERM_PRIMARY"
+    if symbol in swing_symbols:
+        return "SWING_AUXILIARY"
+    return "SHARED_CANDIDATE_POOL"
+
+
+def _portfolio_recommendation_head_for_symbol(symbol: str, short_term_symbols: set[str], swing_symbols: set[str]) -> str:
+    if symbol in short_term_symbols:
+        return "SHORT_TERM_PRIMARY"
+    return "SWING_AUXILIARY"
+
+
+def _selection_layer_for_stage(stage: str, symbol: str, short_term_symbols: set[str], swing_symbols: set[str]) -> str:
+    if symbol in short_term_symbols:
+        return "L2_PRIMARY"
+    if symbol in swing_symbols:
+        return "L2_AUXILIARY"
+    if stage in {"CANDIDATE_POOL", "SEED_POOL", "UNIVERSE"}:
+        return "L1_CANDIDATE_POOL"
+    if stage == "PORTFOLIO":
+        return "L2_AUXILIARY"
+    return "L1_CANDIDATE_POOL"
+
+
+def _technical_pattern(item: StockFeature) -> str:
+    if item.momentum20 >= 8 and item.drawdown20 <= 6:
+        return "TREND_PULLBACK"
+    if item.trend_score >= 60 and item.momentum5 > 0:
+        return "TREND_CONTINUATION"
+    return "NEUTRAL_STRUCTURE"

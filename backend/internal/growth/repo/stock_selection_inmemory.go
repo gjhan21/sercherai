@@ -18,6 +18,10 @@ func (r *InMemoryGrowthRepo) AdminGetStockSelectionOverview() (model.AdminStockS
 		UniverseScope:        model.StrategyEngineDefaultStockUniverseScope,
 		UniverseConfig:       map[string]any{"min_listing_days": 180, "min_avg_turnover": 50000000},
 		PortfolioConfig:      map[string]any{"limit": 5, "max_risk_level": "MEDIUM", "min_score": 75},
+		MarketAnalysisConfig: map[string]any{"lookback_days": 120, "breadth_threshold": 0.58},
+		CandidatePoolConfig:  map[string]any{"candidate_pool_limit": 30, "focus_pool_limit": 12},
+		ShortTermHeadConfig:  map[string]any{"limit": 2, "min_score": 72, "max_chase_pct": 4},
+		SwingHeadConfig:      map[string]any{"limit": 5, "holding_days": "3-10"},
 		UpdatedBy:            "system",
 		UpdatedAt:            time.Now().UTC().Format(time.RFC3339),
 		CreatedAt:            time.Now().UTC().Format(time.RFC3339),
@@ -34,6 +38,34 @@ func (r *InMemoryGrowthRepo) AdminGetStockSelectionOverview() (model.AdminStockS
 		CandidateCount: 5,
 		SelectedCount:  3,
 		StageCounts:    map[string]int{"UNIVERSE": 10, "SEED_POOL": 8, "CANDIDATE_POOL": 5, "PORTFOLIO": 3},
+		ContextMeta: map[string]any{
+			"market_analysis": map[string]any{
+				"trend_state":      "RANGE_STRONG",
+				"next_day_rhythm":  "ATTACK",
+				"risk_posture":     "NORMAL",
+				"breadth_summary":  map[string]any{"positive_flow_ratio": 0.62},
+			},
+			"candidate_pool_summary": map[string]any{
+				"coarse_count": 100,
+				"focus_count":  30,
+				"watch_count":  12,
+			},
+			"head_output_summary": map[string]any{
+				"short_term_primary_count":  2,
+				"swing_auxiliary_count":     4,
+				"shared_watch_candidate_count": 12,
+			},
+			"stage_counts": map[string]int{
+				"MARKET_ANALYSIS":      1,
+				"UNIVERSE":             10,
+				"TREND_CANDIDATE_POOL": 12,
+				"SEED_POOL":            8,
+				"CANDIDATE_POOL":       5,
+				"SHORT_TERM_PRIMARY":   2,
+				"SWING_AUXILIARY":      4,
+				"PORTFOLIO":            3,
+			},
+		},
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:      time.Now().UTC().Format(time.RFC3339),
 	}
@@ -42,6 +74,13 @@ func (r *InMemoryGrowthRepo) AdminGetStockSelectionOverview() (model.AdminStockS
 		LatestTradeDate:  run.TradeDate,
 		LatestRun:        &run,
 		LatestSuccessRun: &run,
+		MarketAnalysis: map[string]any{
+			"trend_state":     "RANGE_STRONG",
+			"next_day_rhythm": "ATTACK",
+			"risk_posture":    "NORMAL",
+		},
+		CandidatePoolSummary: map[string]any{"coarse_count": 100, "focus_count": 30, "watch_count": 12},
+		HeadSummary: map[string]any{"short_term_primary_count": 2, "swing_auxiliary_count": 4},
 		DataFreshness:    map[string]any{"source": "in-memory"},
 		EvaluationSummary: map[string]any{
 			"5":  map[string]any{"win_rate": 0.6},
@@ -106,12 +145,25 @@ func (r *InMemoryGrowthRepo) AdminGetStockSelectionOverview() (model.AdminStockS
 					ProfileID:        model.StrategyEngineDefaultStockSelectionProfileID,
 					ProfileName:      "默认自动选股",
 					MarketRegime:     "ROTATION",
+					EvaluationScope:  "SHORT_TERM_PRIMARY",
 					SampleCount:      12,
 					ReturnByHorizon:  map[string]float64{"1": 0.004, "3": 0.011, "5": 0.023, "10": 0.041, "20": 0.068},
 					HitRateByHorizon: map[string]float64{"1": 0.58, "3": 0.61, "5": 0.66, "10": 0.69, "20": 0.72},
 					MaxDrawdownPct:   -0.031,
 				},
 			},
+		},
+		EvaluationSplitSummary: map[string]any{
+			"SHORT_TERM_PRIMARY": map[string]any{"sample_count": 12, "hit_rate": 0.66, "avg_return_pct": 0.023},
+			"SWING_AUXILIARY":    map[string]any{"sample_count": 20, "hit_rate": 0.71, "avg_return_pct": 0.041},
+		},
+		EvaluationBackfillState: map[string]any{
+			"status":           "PARTIAL",
+			"ready_count":      3,
+			"target_count":     5,
+			"missing_horizons": []int{10, 20},
+			"message":          "已完成部分 horizon 回填，等待更多后续行情",
+			"last_updated_at":  time.Now().UTC().Format(time.RFC3339),
 		},
 	}, nil
 }
@@ -185,6 +237,10 @@ func (r *InMemoryGrowthRepo) AdminListStockSelectionProfiles(status string, page
 		UniverseScope:        model.StrategyEngineDefaultStockUniverseScope,
 		UniverseConfig:       map[string]any{"min_listing_days": 180, "min_avg_turnover": 50000000},
 		PortfolioConfig:      map[string]any{"limit": 5, "max_risk_level": "MEDIUM", "min_score": 75},
+		MarketAnalysisConfig: map[string]any{"lookback_days": 120, "breadth_threshold": 0.58},
+		CandidatePoolConfig:  map[string]any{"candidate_pool_limit": 30, "focus_pool_limit": 12},
+		ShortTermHeadConfig:  map[string]any{"limit": 2, "min_score": 72, "max_chase_pct": 4},
+		SwingHeadConfig:      map[string]any{"limit": 5, "holding_days": "3-10"},
 		Versions: []model.StockSelectionProfileVersion{
 			{ID: "profile_default_stock_auto_v1", ProfileID: model.StrategyEngineDefaultStockSelectionProfileID, VersionNo: 1, Snapshot: map[string]any{"name": "默认自动选股"}},
 		},
@@ -244,6 +300,10 @@ func (r *InMemoryGrowthRepo) AdminListStockSelectionProfileTemplates(status stri
 			FactorDefaults:    map[string]any{"quant_weight": 0.7, "event_weight": 0.1, "resonance_weight": 0.1, "liquidity_risk_weight": 0.1},
 			PortfolioDefaults: map[string]any{"limit": 5, "watchlist_limit": 5, "max_risk_level": "MEDIUM"},
 			PublishDefaults:   map[string]any{"review_required": true},
+			MarketAnalysisDefaults: map[string]any{"lookback_days": 120},
+			CandidatePoolDefaults:  map[string]any{"candidate_pool_limit": 30, "focus_pool_limit": 12},
+			ShortTermHeadDefaults:  map[string]any{"limit": 2, "min_score": 72},
+			SwingHeadDefaults:      map[string]any{"limit": 5, "holding_days": "3-10"},
 		},
 	}, 1, nil
 }
@@ -268,13 +328,13 @@ func (r *InMemoryGrowthRepo) AdminSetDefaultStockSelectionProfileTemplate(id str
 
 func (r *InMemoryGrowthRepo) AdminListStockSelectionRunCandidates(runID string) ([]model.StockSelectionCandidateSnapshot, error) {
 	return []model.StockSelectionCandidateSnapshot{
-		{ID: "cand_demo_001", RunID: runID, Symbol: "600519.SH", Name: "贵州茅台", Stage: "PORTFOLIO", QuantScore: 88.2, RiskLevel: "LOW", Selected: true, Rank: 1, EvidenceSummary: "趋势、资金与质量三项同时达标", PortfolioRole: "CORE", EvaluationStatus: "PENDING", RiskSummary: "中期回撤控制", FactorBreakdownJSON: map[string]any{"trend": 82, "money_flow": 79, "quality": 81, "event": 68, "resonance": 77, "risk_adjustment": 74, "total_score": 84.2}},
+		{ID: "cand_demo_001", RunID: runID, Symbol: "600519.SH", Name: "贵州茅台", Stage: "PORTFOLIO", QuantScore: 88.2, RiskLevel: "LOW", Selected: true, Rank: 1, EvidenceSummary: "趋势、资金与质量三项同时达标", PortfolioRole: "CORE", EvaluationStatus: "PENDING", RiskSummary: "中期回撤控制", RecommendationHead: "SHORT_TERM_PRIMARY", SelectionLayer: "L2_PRIMARY", ReasonTags: []string{"trend_confirmed", "sector_resonance"}, VetoTags: []string{"weak_vwap_if_broken"}, TechnicalPattern: "strong_pullback", FactorBreakdownJSON: map[string]any{"trend": 82, "money_flow": 79, "quality": 81, "event": 68, "resonance": 77, "risk_adjustment": 74, "total_score": 84.2}},
 	}, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListStockSelectionRunPortfolio(runID string) ([]model.StockSelectionPortfolioEntry, error) {
 	return []model.StockSelectionPortfolioEntry{
-		{ID: "port_demo_001", RunID: runID, Symbol: "600519.SH", Name: "贵州茅台", Rank: 1, QuantScore: 88.2, RiskLevel: "LOW", WeightSuggestion: "10%-15%", EvidenceSummary: "趋势、资金与质量三项同时达标", PortfolioRole: "CORE", EvaluationStatus: "PENDING", RiskSummary: "中期回撤控制", FactorBreakdownJSON: map[string]any{"trend": 82, "money_flow": 79, "quality": 81, "event": 68, "resonance": 77, "risk_adjustment": 74, "total_score": 84.2}},
+		{ID: "port_demo_001", RunID: runID, Symbol: "600519.SH", Name: "贵州茅台", Rank: 1, QuantScore: 88.2, RiskLevel: "LOW", WeightSuggestion: "10%-15%", EvidenceSummary: "趋势、资金与质量三项同时达标", PortfolioRole: "CORE", EvaluationStatus: "PENDING", RiskSummary: "中期回撤控制", RecommendationHead: "SHORT_TERM_PRIMARY", SelectionLayer: "L2_PRIMARY", ReasonTags: []string{"trend_confirmed", "sector_resonance"}, VetoTags: []string{"weak_vwap_if_broken"}, TechnicalPattern: "strong_pullback", FactorBreakdownJSON: map[string]any{"trend": 82, "money_flow": 79, "quality": 81, "event": 68, "resonance": 77, "risk_adjustment": 74, "total_score": 84.2}},
 	}, nil
 }
 
@@ -297,6 +357,9 @@ func (r *InMemoryGrowthRepo) AdminListStockSelectionRunEvidence(runID string, sy
 			ThemeTags:       []string{"趋势成长", "资金共振"},
 			SectorTags:      []string{"消费"},
 			RiskFlags:       []string{"回撤超过5%需重审"},
+			RecommendationHead: "SHORT_TERM_PRIMARY",
+			SelectionLayer:     "L2_PRIMARY",
+			TechnicalPattern:   "strong_pullback",
 		},
 	}, nil
 }
@@ -319,24 +382,38 @@ func (r *InMemoryGrowthRepo) AdminListStockSelectionRunEvaluations(runID string,
 			MaxDrawdownPct:  -0.012,
 			HitFlag:         true,
 			BenchmarkSymbol: "000300.SH",
+			HeadLabel:       "超短线主推荐",
+			HoldingContract: "1-2D",
 		},
 	}, nil
 }
 
-func (r *InMemoryGrowthRepo) AdminListStockSelectionEvaluationLeaderboard(templateID string, profileID string, marketRegime string) ([]model.StockSelectionEvaluationLeaderboardItem, error) {
-	return []model.StockSelectionEvaluationLeaderboardItem{
+func (r *InMemoryGrowthRepo) AdminListStockSelectionEvaluationLeaderboard(templateID string, profileID string, marketRegime string, evaluationScope string) ([]model.StockSelectionEvaluationLeaderboardItem, error) {
+	items := []model.StockSelectionEvaluationLeaderboardItem{
 		{
 			TemplateID:       "sstpl_balanced_steady",
 			TemplateName:     "均衡稳健",
 			ProfileID:        model.StrategyEngineDefaultStockSelectionProfileID,
 			ProfileName:      "默认自动选股",
 			MarketRegime:     firstNonEmpty(marketRegime, "ROTATION"),
+			EvaluationScope:  "SHORT_TERM_PRIMARY",
 			SampleCount:      12,
 			ReturnByHorizon:  map[string]float64{"1": 0.004, "3": 0.011, "5": 0.023, "10": 0.041, "20": 0.068},
 			HitRateByHorizon: map[string]float64{"1": 0.58, "3": 0.61, "5": 0.66, "10": 0.69, "20": 0.72},
 			MaxDrawdownPct:   -0.031,
 		},
-	}, nil
+	}
+	scope := normalizeStockSelectionEvaluationScope(evaluationScope)
+	if scope == "" {
+		return items, nil
+	}
+	filtered := make([]model.StockSelectionEvaluationLeaderboardItem, 0, len(items))
+	for _, item := range items {
+		if item.EvaluationScope == stockSelectionDisplayEvaluationScope(scope) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListStockSelectionReviews(status string, page int, pageSize int) ([]model.StockSelectionPublishReview, int, error) {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -175,6 +176,20 @@ func TestDecodeTickerMDDailyRowsReturnsClearError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "未授权") {
 		t.Fatalf("expected unauthorized error, got %v", err)
+	}
+}
+
+func TestMarketIntradayQuoteUniquenessMigration(t *testing.T) {
+	content, err := os.ReadFile("../../../migrations/20260521_00_market_intraday_quote_uniqueness.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	sql := string(content)
+	if !strings.Contains(sql, "DELETE q1\nFROM market_intraday_quotes q1\nJOIN market_intraday_quotes q2") {
+		t.Fatalf("expected migration to deduplicate existing market_intraday_quotes rows before adding unique key")
+	}
+	if !strings.Contains(sql, "ADD UNIQUE KEY uk_market_intraday_quote (asset_class, instrument_key, quote_time, source_key)") {
+		t.Fatalf("expected migration to add uk_market_intraday_quote unique key")
 	}
 }
 

@@ -133,6 +133,33 @@ type StrategyEngineStockSeed struct {
 	Sector           string   `json:"sector,omitempty"`
 	ThemeTags        []string `json:"theme_tags,omitempty"`
 	RiskFlags        []string `json:"risk_flags,omitempty"`
+
+	// Intraday / T+1 short-term fields
+	Momentum1             float64 `json:"momentum1"`
+	Momentum2             float64 `json:"momentum2"`
+	Momentum3             float64 `json:"momentum3"`
+	ConsecutiveDownDays   int     `json:"consecutive_down_days"`
+	CandleBodyPct         float64 `json:"candle_body_pct"`
+	LowerShadowPct        float64 `json:"lower_shadow_pct"`
+	UpperShadowPct        float64 `json:"upper_shadow_pct"`
+	IsBullish             bool    `json:"is_bullish"`
+	IsDoji                bool    `json:"is_doji"`
+	IsEngulfingBullish    bool    `json:"is_engulfing_bullish"`
+	DeviationMA5          float64 `json:"deviation_ma5"`
+	DeviationMA10         float64 `json:"deviation_ma10"`
+	DeviationMA20         float64 `json:"deviation_ma20"`
+	DeviationMA60         float64 `json:"deviation_ma60"`
+	Volume20dMinRank      int     `json:"volume_20d_min_rank"`
+	VolumeContractionDays int     `json:"volume_contraction_days"`
+	IsLimitUp             bool    `json:"is_limit_up"`
+	LuTimeRank            int     `json:"lu_time_rank"`
+	SealOrderRatio        float64 `json:"seal_order_ratio"`
+	LimitUpDays           int     `json:"limit_up_days"`
+	IsOpened              bool    `json:"is_opened"`
+	IsNaturalLimit        bool    `json:"is_natural_limit"`
+	OnTopList             bool    `json:"on_top_list"`
+	TopNetAmount          float64 `json:"top_net_amount"`
+	TopBuySellRatio       float64 `json:"top_buy_sell_ratio"`
 }
 
 type StrategyEngineStockSelectionContextMeta struct {

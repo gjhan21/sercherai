@@ -9,15 +9,18 @@ const PcStrategyView = () => import("../views/PcStrategyView.vue");
 const PcArchiveView = () => import("../views/PcArchiveView.vue");
 const PcWatchlistView = () => import("../views/PcWatchlistView.vue");
 const PcNewsView = () => import("../views/PcNewsView.vue");
-const PcSearchView = () => import("../views/PcSearchView.vue");
-const PcCommunityView = () => import("../views/PcCommunityView.vue");
-const PcCommunityTopicView = () => import("../views/PcCommunityTopicView.vue");
-const PcCommunityComposeView = () => import("../views/PcCommunityComposeView.vue");
+const SearchView = () => import("../views/PcSearchView.vue");
+const CommunityView = () => import("../views/PcCommunityView.vue");
+const CommunityTopicView = () => import("../views/PcCommunityTopicView.vue");
+const CommunityComposeView = () => import("../views/PcCommunityComposeView.vue");
 const PcMembershipView = () => import("../views/PcMembershipView.vue");
 const PcProfileView = () => import("../views/PcProfileView.vue");
 const PcForecastRunView = () => import("../views/PcForecastRunView.vue");
-const PcDemoView = () => import("../views/demo/PcHomeDemo.vue");
-
+const PcHomeDemoView = () => import("../views/demo/PcHomeDemo.vue");
+const PcHomeDemoCurrentView = () => import("../views/demo/PcHomeDemoCurrent.vue");
+const PcHomeDemoAView = () => import("../views/demo/PcHomeDemoA.vue");
+const PcHomeDemoBView = () => import("../views/demo/PcHomeDemoB.vue");
+const PcHomeDemoCView = () => import("../views/demo/PcHomeDemoC.vue");
 
 const routes = [
   {
@@ -45,17 +48,20 @@ const routes = [
       { path: "strategies", name: "pc-strategies", component: PcStrategyView },
       { path: "archive", name: "pc-archive", component: PcArchiveView },
       { path: "news", name: "pc-news", component: PcNewsView },
-      { path: "search", name: "pc-search", component: PcSearchView },
-      { path: "community", name: "pc-community", component: PcCommunityView },
-      { path: "community/topics/:id", name: "pc-community-topic", component: PcCommunityTopicView },
-      { path: "community/new", name: "pc-community-compose", component: PcCommunityComposeView, meta: { requiresAuth: true } },
+      { path: "search", name: "pc-search", component: SearchView },
+      { path: "community", name: "pc-community", component: CommunityView },
+      { path: "community/topics/:id", name: "pc-community-topic", component: CommunityTopicView },
+      { path: "community/new", name: "pc-community-compose", component: CommunityComposeView, meta: { requiresAuth: true } },
       { path: "watchlist", redirect: buildProfileModuleRoute("watchlist") },
       { path: "membership", name: "pc-membership", component: PcMembershipView, meta: { requiresAuth: true } },
       { path: "profile", name: "pc-profile", component: PcProfileView, meta: { requiresAuth: true } },
       { path: "profile/watchlist", name: "pc-profile-watchlist", component: PcWatchlistView, meta: { requiresAuth: true } },
       { path: "forecast/runs/:id", name: "forecast-run", component: PcForecastRunView, meta: { requiresAuth: true } },
-      { path: "demo", name: "pc-demo", component: PcDemoView }
-
+      { path: "demo", name: "pc-demo", component: PcHomeDemoView },
+      { path: "demo/current", name: "pc-demo-current", component: PcHomeDemoCurrentView },
+      { path: "demo/a", name: "pc-demo-a", component: PcHomeDemoAView },
+      { path: "demo/b", name: "pc-demo-b", component: PcHomeDemoBView },
+      { path: "demo/c", name: "pc-demo-c", component: PcHomeDemoCView }
     ]
   },
   {

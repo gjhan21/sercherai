@@ -34,6 +34,9 @@ export const stockSelectionRiskLevelOptions = [
 
 export const stockSelectionMarketRegimeOptions = [
   { label: "上升趋势", value: "UPTREND" },
+  { label: "震荡偏强", value: "RANGE_STRONG" },
+  { label: "震荡中性", value: "RANGE_NEUTRAL" },
+  { label: "震荡偏弱", value: "RANGE_WEAK" },
   { label: "轮动切换", value: "ROTATION" },
   { label: "事件驱动", value: "EVENT_DRIVEN" },
   { label: "防御修复", value: "DEFENSIVE" },
@@ -41,12 +44,15 @@ export const stockSelectionMarketRegimeOptions = [
 ];
 
 export const stockSelectionStageOptions = [
-  { label: "市场状态", value: "MARKET_REGIME" },
+  { label: "大盘分析", value: "MARKET_ANALYSIS" },
   { label: "股票池", value: "UNIVERSE" },
+  { label: "趋势待选池", value: "TREND_CANDIDATE_POOL" },
   { label: "图谱增强", value: "GRAPH_ENRICHMENT" },
   { label: "题材/事件增强", value: "THEME_EVENT" },
   { label: "种子池", value: "SEED_POOL" },
   { label: "候选池", value: "CANDIDATE_POOL" },
+  { label: "超短线主推", value: "SHORT_TERM_PRIMARY" },
+  { label: "短波段辅推", value: "SWING_AUXILIARY" },
   { label: "最终组合", value: "PORTFOLIO" },
   { label: "观察名单", value: "WATCHLIST" },
   { label: "审核发布载荷", value: "REVIEW_PAYLOAD" },
@@ -73,18 +79,36 @@ const labelMap = {
   HIGH: "高风险",
   CORE: "核心",
   SATELLITE: "卫星",
+  SHORT_TERM_PRIMARY: "超短线主推荐",
+  SWING_AUXILIARY: "短波段辅助",
+  TREND_CANDIDATE_POOL: "趋势待选池",
+  L0_UNIVERSE: "L0 全市场",
+  L0_SEED: "L0 种子层",
+  L1_SHARED: "L1 共享待选池",
+  L2_PRIMARY: "L2 主推荐",
+  L2_AUXILIARY: "L2 辅助推荐",
   PORTFOLIO: "组合",
   UPTREND: "上升趋势",
+  RANGE_STRONG: "震荡偏强",
+  RANGE_NEUTRAL: "震荡中性",
+  RANGE_WEAK: "震荡偏弱",
   ROTATION: "轮动切换",
   EVENT_DRIVEN: "事件驱动",
   DEFENSIVE: "防御修复",
   RISK_OFF: "风险回避",
-  MARKET_REGIME: "市场状态",
+  ATTACK: "进攻",
+  REPAIR: "修复",
+  NEUTRAL: "中性观察",
+  DEFENSE: "防守",
+  MARKET_ANALYSIS: "大盘分析",
   UNIVERSE: "股票池",
+  TREND_CANDIDATE_POOL: "趋势待选池",
   GRAPH_ENRICHMENT: "图谱增强",
   THEME_EVENT: "题材/事件增强",
   SEED_POOL: "种子池",
   CANDIDATE_POOL: "候选池",
+  SHORT_TERM_PRIMARY: "超短线主推",
+  SWING_AUXILIARY: "短波段辅推",
   PORTFOLIO: "最终组合",
   WATCHLIST: "观察名单",
   REVIEW_PAYLOAD: "审核发布载荷",
@@ -127,8 +151,10 @@ const assetDomainMap = {
 
 const evaluationStatusMap = {
   PENDING: "评估中",
+  PARTIAL: "部分完成",
   DONE: "已完成",
   COMPLETED: "已完成",
+  READY: "已完成",
   FAILED: "评估失败",
   SKIPPED: "未评估"
 };
@@ -137,7 +163,9 @@ const evaluationScopeMap = {
   PORTFOLIO: "最终组合",
   CANDIDATE: "候选池",
   CANDIDATE_POOL: "候选池",
-  WATCHLIST: "观察名单"
+  WATCHLIST: "观察名单",
+  SHORT_TERM_PRIMARY: "超短线主推荐",
+  SWING_AUXILIARY: "短波段辅助"
 };
 
 const graphWriteStatusMap = {

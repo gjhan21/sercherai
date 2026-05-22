@@ -185,7 +185,7 @@ type GrowthRepo interface {
 	AdminListStockSelectionRunPortfolio(runID string) ([]model.StockSelectionPortfolioEntry, error)
 	AdminListStockSelectionRunEvidence(runID string, symbol string) ([]model.StockSelectionRunEvidence, error)
 	AdminListStockSelectionRunEvaluations(runID string, symbol string) ([]model.StockSelectionRunEvaluation, error)
-	AdminListStockSelectionEvaluationLeaderboard(templateID string, profileID string, marketRegime string) ([]model.StockSelectionEvaluationLeaderboardItem, error)
+	AdminListStockSelectionEvaluationLeaderboard(templateID string, profileID string, marketRegime string, evaluationScope string) ([]model.StockSelectionEvaluationLeaderboardItem, error)
 	AdminListStockSelectionReviews(status string, page int, pageSize int) ([]model.StockSelectionPublishReview, int, error)
 	AdminApproveStockSelectionReview(runID string, operator string, reviewNote string, force bool, overrideReason string) (model.StockSelectionPublishReview, error)
 	AdminRejectStockSelectionReview(runID string, operator string, reviewNote string) (model.StockSelectionPublishReview, error)

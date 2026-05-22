@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import StrategyEngineConfigPanel from "../components/StrategyEngineConfigPanel.vue";
 
 import {
   compareFuturesStrategyEnginePublishVersions,
@@ -36,6 +37,7 @@ import { hasPermission } from "../lib/session";
 const route = useRoute();
 const router = useRouter();
 const activeTab = ref("stocks");
+const strategyConfigPanelRef = ref(null);
 
 const marketCenterRouteFocusKey = ref("");
 const errorMessage = ref("");
@@ -541,6 +543,24 @@ async function applyMarketCenterObjectFocus(query = route.query, options = {}) {
 
   const publishID = state.publish_id;
   const view = state.view || "detail";
+  if (state.config_type && state.config_id) {
+    activeTab.value = "engine-config";
+    await nextTick();
+    const focused = await strategyConfigPanelRef.value?.focusStrategyConfigItem?.(state.config_type, state.config_id);
+    if (focused) {
+      marketCenterRouteFocusKey.value = focusKey;
+    }
+    return;
+  }
+  if (state.policy_id) {
+    activeTab.value = "engine-config";
+    await nextTick();
+    const focused = await strategyConfigPanelRef.value?.focusPublishPolicyByID?.(state.policy_id);
+    if (focused) {
+      marketCenterRouteFocusKey.value = focusKey;
+    }
+    return;
+  }
   const targetTab = state.tab === "futures" || state.job_type.includes("FUTURES") ? "futures" : "stocks";
   activeTab.value = targetTab;
 
@@ -1540,6 +1560,10 @@ async function refreshCurrentTab() {
     ]);
     return;
   }
+  if (activeTab.value === "engine-config") {
+    await strategyConfigPanelRef.value?.refreshAll?.();
+    return;
+  }
 
   await fetchEvents();
 }
@@ -2361,6 +2385,10 @@ watch(
             />
           </div>
         </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="策略引擎配置" name="engine-config">
+        <StrategyEngineConfigPanel ref="strategyConfigPanelRef" />
       </el-tab-pane>
     </el-tabs>
 

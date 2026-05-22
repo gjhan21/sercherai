@@ -1,6 +1,6 @@
 <template>
   <div class="pc-shell">
-    <header class="pc-header">
+    <header v-if="!isDemoPage" class="pc-header">
       <div class="pc-container pc-header-inner">
         <RouterLink class="pc-brand" to="/home">
           <span class="pc-brand-mark">S</span>
@@ -87,7 +87,7 @@
 
               <div class="pc-search-actions">
                 <button type="button" class="pc-search-more" @click="openSearchResultsPage()">
-                  🚀 查看 "{{ activeSearchKeyword }}" 的探索结果与 AI 深度推演
+                  🚀 查看更多搜索结果：{{ activeSearchKeyword }}（含 AI 深度推演）
                 </button>
               </div>
             </div>
@@ -124,6 +124,11 @@ import { useClientAuth } from "../../../shared/auth/client-auth";
 const route = useRoute();
 const router = useRouter();
 const { isLoggedIn } = useClientAuth();
+
+const isDemoPage = computed(() => {
+  return route.path.startsWith("/demo") || route.path.includes("Demo");
+});
+
 const searchBarRef = ref(null);
 const searchKeyword = ref(normalizeGlobalSearchKeyword(route.query.q || ""));
 const searchLoading = ref(false);

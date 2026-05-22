@@ -9,7 +9,9 @@ import {
 } from "../../api/admin";
 import {
   formatStockSelectionDateTime,
+  formatStockSelectionLabel,
   formatStockSelectionMode,
+  formatStockSelectionMarketRegime,
   formatStockSelectionUniverseScope
 } from "../../lib/stock-selection";
 
@@ -34,9 +36,27 @@ const defaultTemplate = computed(() => {
 const selectedRun = computed(() => runs.value.find((item) => item.run_id === selectedRunID.value) || runs.value[0] || null);
 const profileUniverse = computed(() => defaultProfile.value?.universe_config || {});
 const templateUniverse = computed(() => defaultTemplate.value?.universe_defaults_json || {});
+const profileCandidatePool = computed(() => defaultProfile.value?.candidate_pool_config || {});
+const templateCandidatePool = computed(() => defaultTemplate.value?.candidate_pool_defaults_json || {});
+const profileMarketAnalysis = computed(() => defaultProfile.value?.market_analysis_config || {});
+const templateMarketAnalysis = computed(() => defaultTemplate.value?.market_analysis_defaults_json || {});
 const runFilters = computed(() => selectedRun.value?.context_meta?.universe_filters || {});
+const runMarketAnalysis = computed(() => selectedRun.value?.context_meta?.market_analysis || {});
+const runCandidatePoolSummary = computed(() => selectedRun.value?.context_meta?.candidate_pool_summary || {});
 
 const comparisonRows = computed(() => [
+  {
+    label: "大盘趋势识别",
+    template: formatStockSelectionMarketRegime(templateMarketAnalysis.value.market_regime_bias || defaultTemplate.value?.market_regime_bias),
+    profile: formatStockSelectionLabel(profileMarketAnalysis.value.market_regime_bias || defaultTemplate.value?.market_regime_bias),
+    runtime: formatStockSelectionMarketRegime(runMarketAnalysis.value.trend_state || selectedRun.value?.market_regime)
+  },
+  {
+    label: "次日节奏",
+    template: "-",
+    profile: formatStockSelectionLabel(profileMarketAnalysis.value.next_day_rhythm),
+    runtime: formatStockSelectionLabel(runMarketAnalysis.value.next_day_rhythm)
+  },
   {
     label: "股票池范围",
     template: formatStockSelectionUniverseScope(templateUniverse.value.universe_scope || defaultTemplate.value?.universe_scope),
@@ -60,6 +80,18 @@ const comparisonRows = computed(() => [
     template: valueOrDash(templateUniverse.value.min_avg_turnover),
     profile: valueOrDash(profileUniverse.value.min_avg_turnover),
     runtime: valueOrDash(runFilters.value.min_avg_turnover)
+  },
+  {
+    label: "待选池上限",
+    template: valueOrDash(templateCandidatePool.value.candidate_pool_limit || templateUniverse.value.candidate_pool_limit),
+    profile: valueOrDash(profileCandidatePool.value.candidate_pool_limit || profileUniverse.value.candidate_pool_limit),
+    runtime: valueOrDash(runCandidatePoolSummary.value.watch_count)
+  },
+  {
+    label: "聚焦池上限",
+    template: valueOrDash(templateCandidatePool.value.focus_pool_limit),
+    profile: valueOrDash(profileCandidatePool.value.focus_pool_limit),
+    runtime: valueOrDash(runCandidatePoolSummary.value.focus_count)
   },
   {
     label: "价格区间",
@@ -183,8 +215,8 @@ onMounted(fetchData);
 
 <template>
   <StockSelectionModuleShell
-    title="智能选股股票池规则"
-    description="把默认模板、默认配置和最近成功运行实际生效的过滤条件拆开来看，方便确认股票池边界是否按预期执行。"
+    title="智能选股待选池规则"
+    description="这里专门看第一层 `5000+ -> 趋势型待选池` 的规则，包括大盘分析参数、股票池边界和待选池压缩结果。"
   >
     <template #actions>
       <div class="toolbar" style="margin-bottom: 0; flex-wrap: wrap">
@@ -202,7 +234,7 @@ onMounted(fetchData);
 
     <div class="overview-grid">
       <div class="card" v-loading="loading">
-        <div class="card-title">默认模板</div>
+        <div class="card-title">大盘分析模板</div>
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item label="模板名称">
             {{ defaultTemplate?.name || "-" }}
@@ -210,11 +242,14 @@ onMounted(fetchData);
           <el-descriptions-item label="模板说明">
             {{ defaultTemplate?.description || "-" }}
           </el-descriptions-item>
+          <el-descriptions-item label="默认趋势偏好">
+            {{ formatStockSelectionMarketRegime(defaultTemplate?.market_regime_bias) }}
+          </el-descriptions-item>
         </el-descriptions>
       </div>
 
       <div class="card" v-loading="loading">
-        <div class="card-title">默认配置</div>
+        <div class="card-title">待选池配置</div>
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item label="配置名称">
             {{ defaultProfile?.name || "-" }}
@@ -229,7 +264,7 @@ onMounted(fetchData);
       </div>
 
       <div class="card" v-loading="loading">
-        <div class="card-title">最近运行</div>
+        <div class="card-title">最近运行压缩结果</div>
         <el-descriptions :column="1" border size="small">
           <el-descriptions-item label="运行编号">
             {{ selectedRun?.run_id || "-" }}
@@ -241,14 +276,14 @@ onMounted(fetchData);
             {{ formatStockSelectionDateTime(selectedRun?.completed_at) }}
           </el-descriptions-item>
           <el-descriptions-item label="结果流转">
-            {{ selectedRun?.universe_count || 0 }} -> {{ selectedRun?.seed_count || 0 }} -> {{ selectedRun?.candidate_count || 0 }} -> {{ selectedRun?.selected_count || 0 }}
+            {{ selectedRun?.universe_count || 0 }} -> {{ runCandidatePoolSummary?.coarse_count || selectedRun?.seed_count || 0 }} -> {{ runCandidatePoolSummary?.focus_count || selectedRun?.candidate_count || 0 }} -> {{ runCandidatePoolSummary?.watch_count || selectedRun?.selected_count || 0 }}
           </el-descriptions-item>
         </el-descriptions>
       </div>
     </div>
 
     <div class="card" v-loading="loading">
-      <div class="card-title">规则对照</div>
+      <div class="card-title">大盘分析与待选池规则对照</div>
       <el-table :data="comparisonRows" border stripe size="small">
         <el-table-column prop="label" label="规则项" min-width="160" />
         <el-table-column prop="template" label="模板默认" min-width="160" />
@@ -286,6 +321,12 @@ onMounted(fetchData);
       <div class="card" v-loading="loading">
         <div class="card-title">最近运行回放</div>
         <el-descriptions :column="1" border size="small">
+          <el-descriptions-item label="趋势状态">
+            {{ formatStockSelectionMarketRegime(runMarketAnalysis.trend_state) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="次日节奏">
+            {{ formatStockSelectionLabel(runMarketAnalysis.next_day_rhythm) }}
+          </el-descriptions-item>
           <el-descriptions-item label="实际交易日">
             {{ selectedRun?.context_meta?.selected_trade_date || "-" }}
           </el-descriptions-item>

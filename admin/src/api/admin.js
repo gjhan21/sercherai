@@ -839,7 +839,8 @@ export function listQuantEvaluation(params) {
 
 export function generateDailyStockRecommendations(tradeDate = "") {
   return http.post("/admin/stocks/recommendations/generate-daily", null, {
-    params: buildParams({ trade_date: tradeDate })
+    params: buildParams({ trade_date: tradeDate }),
+    ...SYNC_REQUEST_CONFIG
   });
 }
 
@@ -865,7 +866,8 @@ export function listFuturesStrategies(params) {
 
 export function generateDailyFuturesStrategies(tradeDate = "") {
   return http.post("/admin/futures/strategies/generate-daily", null, {
-    params: buildParams({ trade_date: tradeDate })
+    params: buildParams({ trade_date: tradeDate }),
+    ...SYNC_REQUEST_CONFIG
   });
 }
 

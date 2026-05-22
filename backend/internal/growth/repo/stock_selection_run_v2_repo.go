@@ -186,28 +186,102 @@ func stockSelectionEvidenceMapKey(symbol string, stage string) string {
 	return strings.ToUpper(strings.TrimSpace(symbol)) + "::" + strings.ToUpper(strings.TrimSpace(stage))
 }
 
+func stockSelectionEvaluationMaterializedPredicate(alias string) string {
+	alias = strings.TrimSpace(alias)
+	if alias != "" {
+		alias += "."
+	}
+	return fmt.Sprintf(
+		"COALESCE(%sentry_price, 0) > 0 AND COALESCE(%sexit_price, 0) > 0 AND %sentry_date IS NOT NULL AND %sexit_date IS NOT NULL",
+		alias,
+		alias,
+		alias,
+		alias,
+	)
+}
+
+func stockSelectionEvaluationRowIsMaterialized(item model.StockSelectionRunEvaluation) bool {
+	return strings.TrimSpace(item.EntryDate) != "" &&
+		strings.TrimSpace(item.ExitDate) != "" &&
+		item.EntryPrice > 0 &&
+		item.ExitPrice > 0
+}
+
+func stockSelectionEvaluationStatusMapKey(symbol string, scope string) string {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	scope = stockSelectionDisplayEvaluationScope(scope)
+	return symbol + "::" + scope
+}
+
+func stockSelectionEvaluationStatusFromReadyCount(readyCount int) string {
+	switch {
+	case readyCount <= 0:
+		return "PENDING"
+	case readyCount >= len(stockSelectionEvaluationHorizons):
+		return "READY"
+	default:
+		return "PARTIAL"
+	}
+}
+
+func buildStockSelectionEvaluationStatusMap(rows []model.StockSelectionRunEvaluation) map[string]string {
+	readySetMap := map[string]map[int]struct{}{}
+	for _, item := range rows {
+		symbol := strings.ToUpper(strings.TrimSpace(item.Symbol))
+		scope := stockSelectionDisplayEvaluationScope(item.EvaluationScope)
+		if symbol == "" || scope == "" {
+			continue
+		}
+		key := stockSelectionEvaluationStatusMapKey(symbol, scope)
+		if readySetMap[key] == nil {
+			readySetMap[key] = map[int]struct{}{}
+		}
+		readySetMap[key][item.HorizonDay] = struct{}{}
+	}
+
+	result := make(map[string]string, len(readySetMap))
+	for key, readySet := range readySetMap {
+		result[key] = stockSelectionEvaluationStatusFromReadyCount(len(readySet))
+	}
+	return result
+}
+
+func resolveStockSelectionEvaluationStatus(
+	evaluationMap map[string]string,
+	symbol string,
+	preferredScopes ...string,
+) string {
+	for _, scope := range preferredScopes {
+		if status, ok := evaluationMap[stockSelectionEvaluationStatusMapKey(symbol, scope)]; ok {
+			return status
+		}
+	}
+	return "PENDING"
+}
+
 func (r *MySQLGrowthRepo) loadStockSelectionRunEvaluationStatusMap(runID string) (map[string]string, error) {
 	rows, err := r.db.Query(`
-SELECT symbol, COUNT(*)
+SELECT symbol, evaluation_scope, horizon_day
 FROM stock_selection_run_evaluations
 WHERE run_id = ?
-GROUP BY symbol`, strings.TrimSpace(runID))
+  AND `+stockSelectionEvaluationMaterializedPredicate("")+`
+ORDER BY symbol ASC, evaluation_scope ASC, horizon_day ASC`, strings.TrimSpace(runID))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	result := map[string]string{}
+	items := make([]model.StockSelectionRunEvaluation, 0)
 	for rows.Next() {
-		var symbol string
-		var count int
-		if err := rows.Scan(&symbol, &count); err != nil {
+		var item model.StockSelectionRunEvaluation
+		if err := rows.Scan(&item.Symbol, &item.EvaluationScope, &item.HorizonDay); err != nil {
 			return nil, err
 		}
-		if count > 0 {
-			result[strings.ToUpper(strings.TrimSpace(symbol))] = "READY"
-		}
+		items = append(items, item)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return buildStockSelectionEvaluationStatusMap(items), nil
 }
 
 func buildPreviousPublishDiff(symbol string, previousSnapshot []map[string]any) map[string]any {
@@ -234,6 +308,7 @@ SELECT id, run_id, symbol, stage, COALESCE(name, ''), COALESCE(portfolio_role, '
        COALESCE(CAST(evidence_cards_json AS CHAR), ''), COALESCE(CAST(positive_reasons_json AS CHAR), ''),
        COALESCE(CAST(veto_reasons_json AS CHAR), ''), COALESCE(CAST(theme_tags_json AS CHAR), ''),
        COALESCE(CAST(sector_tags_json AS CHAR), ''), COALESCE(CAST(risk_flags_json AS CHAR), ''),
+       COALESCE(recommendation_head, ''), COALESCE(selection_layer, ''), COALESCE(technical_pattern, ''),
        DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%sZ'), DATE_FORMAT(updated_at, '%Y-%m-%dT%H:%i:%sZ')
 FROM stock_selection_run_evidence
 WHERE run_id = ?`
@@ -265,6 +340,9 @@ WHERE run_id = ?`
 			&themeJSON,
 			&sectorJSON,
 			&riskJSON,
+			&item.RecommendationHead,
+			&item.SelectionLayer,
+			&item.TechnicalPattern,
 			&item.CreatedAt,
 			&item.UpdatedAt,
 		); err != nil {
@@ -288,6 +366,7 @@ func (r *MySQLGrowthRepo) AdminListStockSelectionRunEvaluations(runID string, sy
 SELECT id, run_id, symbol, horizon_day, evaluation_scope, COALESCE(name, ''),
        COALESCE(DATE_FORMAT(entry_date, '%Y-%m-%d'), ''), COALESCE(DATE_FORMAT(exit_date, '%Y-%m-%d'), ''),
        entry_price, exit_price, return_pct, excess_return_pct, max_drawdown_pct, hit_flag, COALESCE(benchmark_symbol, ''),
+       COALESCE(head_label, ''), COALESCE(holding_contract, ''),
        DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%sZ'), DATE_FORMAT(updated_at, '%Y-%m-%dT%H:%i:%sZ')
 FROM stock_selection_run_evaluations
 WHERE run_id = ?`
@@ -320,10 +399,23 @@ WHERE run_id = ?`
 			&item.MaxDrawdownPct,
 			&item.HitFlag,
 			&item.BenchmarkSymbol,
+			&item.HeadLabel,
+			&item.HoldingContract,
 			&item.CreatedAt,
 			&item.UpdatedAt,
 		); err != nil {
 			return nil, err
+		}
+		rawScope := item.EvaluationScope
+		item.EvaluationScope = stockSelectionDisplayEvaluationScope(item.EvaluationScope)
+		if strings.TrimSpace(item.HeadLabel) == "" || item.EvaluationScope != rawScope {
+			item.HeadLabel = stockSelectionHeadLabel(item.EvaluationScope)
+		}
+		if strings.TrimSpace(item.HoldingContract) == "" || item.EvaluationScope != rawScope {
+			item.HoldingContract = stockSelectionHoldingContract(item.EvaluationScope)
+		}
+		if !stockSelectionEvaluationRowIsMaterialized(item) {
+			continue
 		}
 		items = append(items, item)
 	}
@@ -376,6 +468,7 @@ func (r *MySQLGrowthRepo) AdminCompareStockSelectionRuns(runIDs []string) (model
 			PortfolioSymbols: currentSymbols,
 			AddedSymbols:     added,
 			RemovedSymbols:   removed,
+			HeadSummary:      stockSelectionMapValue(run.ContextMeta["head_output_summary"]),
 		})
 		if index == 0 {
 			result.BaseRunID = run.RunID
@@ -411,7 +504,45 @@ func diffStringSlices(previous []string, current []string) ([]string, []string) 
 	return added, removed
 }
 
-func (r *MySQLGrowthRepo) AdminListStockSelectionEvaluationLeaderboard(templateID string, profileID string, marketRegime string) ([]model.StockSelectionEvaluationLeaderboardItem, error) {
+func normalizeStockSelectionEvaluationScope(scope string) string {
+	scope = strings.ToUpper(strings.TrimSpace(scope))
+	switch scope {
+	case "SHORT_TERM_PRIMARY", "SWING_AUXILIARY", "CANDIDATE_POOL", "PORTFOLIO", "CANDIDATE":
+		return scope
+	default:
+		return ""
+	}
+}
+
+func stockSelectionCompatibleEvaluationScopes(scope string) []string {
+	switch normalizeStockSelectionEvaluationScope(scope) {
+	case "SHORT_TERM_PRIMARY":
+		return []string{"SHORT_TERM_PRIMARY", "PORTFOLIO"}
+	case "SWING_AUXILIARY":
+		return []string{"SWING_AUXILIARY"}
+	case "CANDIDATE_POOL":
+		return []string{"CANDIDATE_POOL", "CANDIDATE"}
+	case "PORTFOLIO":
+		return []string{"PORTFOLIO", "SHORT_TERM_PRIMARY"}
+	case "CANDIDATE":
+		return []string{"CANDIDATE", "CANDIDATE_POOL"}
+	default:
+		return nil
+	}
+}
+
+func stockSelectionDisplayEvaluationScope(scope string) string {
+	switch normalizeStockSelectionEvaluationScope(scope) {
+	case "PORTFOLIO":
+		return "SHORT_TERM_PRIMARY"
+	case "CANDIDATE":
+		return "CANDIDATE_POOL"
+	default:
+		return normalizeStockSelectionEvaluationScope(scope)
+	}
+}
+
+func (r *MySQLGrowthRepo) AdminListStockSelectionEvaluationLeaderboard(templateID string, profileID string, marketRegime string, evaluationScope string) ([]model.StockSelectionEvaluationLeaderboardItem, error) {
 	r.ensureStockSelectionEvaluationLeaderboardCoverage(templateID, profileID, marketRegime)
 	args := []any{}
 	conditions := []string{}
@@ -427,6 +558,14 @@ func (r *MySQLGrowthRepo) AdminListStockSelectionEvaluationLeaderboard(templateI
 		conditions = append(conditions, "r.market_regime = ?")
 		args = append(args, strings.ToUpper(strings.TrimSpace(marketRegime)))
 	}
+	if compatibleScopes := stockSelectionCompatibleEvaluationScopes(evaluationScope); len(compatibleScopes) > 0 {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(compatibleScopes)), ",")
+		conditions = append(conditions, "e.evaluation_scope IN ("+placeholders+")")
+		for _, scope := range compatibleScopes {
+			args = append(args, scope)
+		}
+	}
+	conditions = append(conditions, stockSelectionEvaluationMaterializedPredicate("e"))
 	filter := ""
 	if len(conditions) > 0 {
 		filter = " WHERE " + strings.Join(conditions, " AND ")
@@ -439,6 +578,7 @@ SELECT
   r.profile_id,
   COALESCE(p.name, ''),
   COALESCE(r.market_regime, ''),
+  COALESCE(e.evaluation_scope, ''),
   e.horizon_day,
   e.return_pct,
   e.hit_flag,
@@ -459,9 +599,10 @@ ORDER BY COALESCE(r.template_id, ''), r.profile_id, COALESCE(r.market_regime, ''
 		count     int
 	}
 	type leaderboardKey struct {
-		templateID   string
-		profileID    string
-		marketRegime string
+		templateID      string
+		profileID       string
+		marketRegime    string
+		evaluationScope string
 	}
 	type leaderboardAggregate struct {
 		model.StockSelectionEvaluationLeaderboardItem
@@ -470,14 +611,15 @@ ORDER BY COALESCE(r.template_id, ''), r.profile_id, COALESCE(r.market_regime, ''
 	aggregateMap := map[leaderboardKey]*leaderboardAggregate{}
 	order := make([]leaderboardKey, 0)
 	for rows.Next() {
-		var templateIDValue, templateName, profileIDValue, profileName, regime string
+		var templateIDValue, templateName, profileIDValue, profileName, regime, evaluationScope string
 		var horizonDay int
 		var returnPct, maxDrawdown float64
 		var hitFlag bool
-		if err := rows.Scan(&templateIDValue, &templateName, &profileIDValue, &profileName, &regime, &horizonDay, &returnPct, &hitFlag, &maxDrawdown); err != nil {
+		if err := rows.Scan(&templateIDValue, &templateName, &profileIDValue, &profileName, &regime, &evaluationScope, &horizonDay, &returnPct, &hitFlag, &maxDrawdown); err != nil {
 			return nil, err
 		}
-		key := leaderboardKey{templateID: templateIDValue, profileID: profileIDValue, marketRegime: regime}
+		displayScope := stockSelectionDisplayEvaluationScope(evaluationScope)
+		key := leaderboardKey{templateID: templateIDValue, profileID: profileIDValue, marketRegime: regime, evaluationScope: displayScope}
 		entry, ok := aggregateMap[key]
 		if !ok {
 			entry = &leaderboardAggregate{
@@ -487,6 +629,7 @@ ORDER BY COALESCE(r.template_id, ''), r.profile_id, COALESCE(r.market_regime, ''
 					ProfileID:        profileIDValue,
 					ProfileName:      profileName,
 					MarketRegime:     regime,
+					EvaluationScope:  displayScope,
 					ReturnByHorizon:  map[string]float64{},
 					HitRateByHorizon: map[string]float64{},
 				},
@@ -556,7 +699,8 @@ SELECT
   COALESCE(MIN(max_drawdown_pct), 0),
   COALESCE(DATE_FORMAT(MAX(updated_at), '%Y-%m-%dT%H:%i:%sZ'), '')
 FROM stock_selection_run_evaluations
-WHERE evaluation_scope = 'PORTFOLIO'
+WHERE evaluation_scope IN ('PORTFOLIO', 'SHORT_TERM_PRIMARY')
+  AND ` + stockSelectionEvaluationMaterializedPredicate("") + `
 GROUP BY horizon_day
 ORDER BY horizon_day ASC`)
 	if err != nil {
@@ -607,6 +751,185 @@ ORDER BY horizon_day ASC`)
 	return summary, nil
 }
 
+func (r *MySQLGrowthRepo) loadStockSelectionOverviewEvaluationSplitSummary() (map[string]any, error) {
+	r.ensureStockSelectionEvaluationLeaderboardCoverage("", "", "")
+
+	rows, err := r.db.Query(`
+SELECT
+  evaluation_scope,
+  COUNT(*),
+  COALESCE(AVG(return_pct), 0),
+  COALESCE(AVG(excess_return_pct), 0),
+  COALESCE(AVG(CASE WHEN hit_flag THEN 1 ELSE 0 END), 0),
+  COALESCE(AVG(max_drawdown_pct), 0),
+  COALESCE(MIN(max_drawdown_pct), 0),
+  COALESCE(DATE_FORMAT(MAX(updated_at), '%Y-%m-%dT%H:%i:%sZ'), '')
+FROM stock_selection_run_evaluations
+WHERE evaluation_scope IN ('SHORT_TERM_PRIMARY', 'SWING_AUXILIARY', 'CANDIDATE_POOL', 'PORTFOLIO', 'CANDIDATE')
+  AND ` + stockSelectionEvaluationMaterializedPredicate("") + `
+GROUP BY evaluation_scope
+ORDER BY evaluation_scope ASC`)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return map[string]any{}, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := map[string]any{}
+	for rows.Next() {
+		var (
+			scope              string
+			sampleCount        int
+			avgReturnPct       float64
+			avgExcessReturnPct float64
+			hitRate            float64
+			avgMaxDrawdownPct  float64
+			worstDrawdownPct   float64
+			generatedAt        string
+		)
+		if err := rows.Scan(&scope, &sampleCount, &avgReturnPct, &avgExcessReturnPct, &hitRate, &avgMaxDrawdownPct, &worstDrawdownPct, &generatedAt); err != nil {
+			return nil, err
+		}
+		displayScope := stockSelectionDisplayEvaluationScope(scope)
+		result[displayScope] = map[string]any{
+			"evaluation_scope":       displayScope,
+			"head_label":             stockSelectionHeadLabel(displayScope),
+			"sample_count":           sampleCount,
+			"avg_return_pct":         avgReturnPct,
+			"avg_excess_return_pct":  avgExcessReturnPct,
+			"hit_rate":               hitRate,
+			"avg_max_drawdown_pct":   avgMaxDrawdownPct,
+			"worst_max_drawdown_pct": worstDrawdownPct,
+			"generated_at":           generatedAt,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (r *MySQLGrowthRepo) loadStockSelectionOverviewEvaluationBackfillState() (map[string]any, error) {
+	r.ensureStockSelectionEvaluationLeaderboardCoverage("", "", "")
+
+	rows, err := r.db.Query(`
+SELECT
+  horizon_day,
+  COALESCE(DATE_FORMAT(MAX(updated_at), '%Y-%m-%dT%H:%i:%sZ'), '')
+FROM stock_selection_run_evaluations
+WHERE evaluation_scope IN ('SHORT_TERM_PRIMARY', 'SWING_AUXILIARY', 'CANDIDATE_POOL', 'PORTFOLIO', 'CANDIDATE')
+  AND ` + stockSelectionEvaluationMaterializedPredicate("") + `
+GROUP BY horizon_day
+ORDER BY horizon_day ASC`)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return buildStockSelectionEvaluationBackfillState(nil), nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	rowsForState := make([]model.StockSelectionRunEvaluation, 0, len(stockSelectionEvaluationHorizons))
+	for rows.Next() {
+		var horizonDay int
+		var updatedAt string
+		if err := rows.Scan(&horizonDay, &updatedAt); err != nil {
+			return nil, err
+		}
+		rowsForState = append(rowsForState, model.StockSelectionRunEvaluation{
+			HorizonDay: horizonDay,
+			EntryDate:  "READY",
+			ExitDate:   "READY",
+			EntryPrice: 1,
+			ExitPrice:  1,
+			UpdatedAt:  updatedAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return buildStockSelectionEvaluationBackfillState(rowsForState), nil
+}
+
+func (r *MySQLGrowthRepo) loadStockSelectionRunEvaluationBackfillStates(runIDs []string) (map[string]map[string]any, error) {
+	normalized := make([]string, 0, len(runIDs))
+	seen := map[string]struct{}{}
+	for _, item := range runIDs {
+		runID := strings.TrimSpace(item)
+		if runID == "" {
+			continue
+		}
+		if _, ok := seen[runID]; ok {
+			continue
+		}
+		seen[runID] = struct{}{}
+		normalized = append(normalized, runID)
+	}
+
+	result := make(map[string]map[string]any, len(normalized))
+	for _, runID := range normalized {
+		result[runID] = buildStockSelectionEvaluationBackfillState(nil)
+	}
+	if len(normalized) == 0 {
+		return result, nil
+	}
+
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(normalized)), ",")
+	args := make([]any, 0, len(normalized))
+	for _, runID := range normalized {
+		args = append(args, runID)
+	}
+
+	rows, err := r.db.Query(`
+SELECT
+  run_id,
+  horizon_day,
+  COALESCE(DATE_FORMAT(MAX(updated_at), '%Y-%m-%dT%H:%i:%sZ'), '')
+FROM stock_selection_run_evaluations
+WHERE run_id IN (`+placeholders+`)
+  AND `+stockSelectionEvaluationMaterializedPredicate("")+`
+GROUP BY run_id, horizon_day
+ORDER BY run_id ASC, horizon_day ASC`, args...)
+	if err != nil {
+		if isTableNotFoundError(err) {
+			return result, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+
+	rowsByRunID := map[string][]model.StockSelectionRunEvaluation{}
+	for rows.Next() {
+		var runID string
+		var horizonDay int
+		var updatedAt string
+		if err := rows.Scan(&runID, &horizonDay, &updatedAt); err != nil {
+			return nil, err
+		}
+		rowsByRunID[runID] = append(rowsByRunID[runID], model.StockSelectionRunEvaluation{
+			RunID:      runID,
+			HorizonDay: horizonDay,
+			EntryDate:  "READY",
+			ExitDate:   "READY",
+			EntryPrice: 1,
+			ExitPrice:  1,
+			UpdatedAt:  updatedAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for _, runID := range normalized {
+		if rowsForState := rowsByRunID[runID]; len(rowsForState) > 0 {
+			result[runID] = buildStockSelectionEvaluationBackfillState(rowsForState)
+		}
+	}
+	return result, nil
+}
+
 func (r *MySQLGrowthRepo) enrichStockSelectionCandidateSnapshots(runID string, items []model.StockSelectionCandidateSnapshot) {
 	evidenceMap, _ := r.loadStockSelectionRunEvidenceMap(runID)
 	evaluationMap, _ := r.loadStockSelectionRunEvaluationStatusMap(runID)
@@ -617,15 +940,33 @@ func (r *MySQLGrowthRepo) enrichStockSelectionCandidateSnapshots(runID string, i
 			items[index].EvidenceSummary = evidence.EvidenceSummary
 			items[index].PortfolioRole = evidence.PortfolioRole
 			items[index].RiskSummary = strings.Join(evidence.RiskFlags, "；")
+			items[index].RecommendationHead = evidence.RecommendationHead
+			items[index].SelectionLayer = evidence.SelectionLayer
+			items[index].TechnicalPattern = evidence.TechnicalPattern
+			items[index].ReasonTags = append([]string{}, evidence.PositiveReasons...)
+			items[index].VetoTags = append([]string{}, evidence.VetoReasons...)
 		}
 		if items[index].PortfolioRole == "" && items[index].Stage == "PORTFOLIO" {
 			items[index].PortfolioRole = "CORE"
 		}
-		if status, ok := evaluationMap[strings.ToUpper(strings.TrimSpace(items[index].Symbol))]; ok {
-			items[index].EvaluationStatus = status
-		} else {
-			items[index].EvaluationStatus = "PENDING"
+		if items[index].RecommendationHead == "" {
+			items[index].RecommendationHead = stockSelectionInferRecommendationHead(items[index].Stage, items[index].FactorBreakdownJSON)
 		}
+		if items[index].SelectionLayer == "" {
+			items[index].SelectionLayer = stockSelectionInferSelectionLayer(items[index].Stage)
+		}
+		if items[index].TechnicalPattern == "" {
+			items[index].TechnicalPattern = stockSelectionInferTechnicalPattern(items[index].FactorBreakdownJSON)
+		}
+		evaluationScope := stockSelectionInferEvaluationScopeForCandidate(items[index].Stage, items[index].RecommendationHead)
+		items[index].EvaluationStatus = resolveStockSelectionEvaluationStatus(
+			evaluationMap,
+			items[index].Symbol,
+			evaluationScope,
+			"CANDIDATE_POOL",
+			"SHORT_TERM_PRIMARY",
+			"SWING_AUXILIARY",
+		)
 		items[index].PreviousPublishDiff = buildPreviousPublishDiff(items[index].Symbol, previousSnapshot)
 	}
 }
@@ -640,15 +981,106 @@ func (r *MySQLGrowthRepo) enrichStockSelectionPortfolioEntries(runID string, ite
 			items[index].EvidenceSummary = evidence.EvidenceSummary
 			items[index].PortfolioRole = evidence.PortfolioRole
 			items[index].RiskSummary = strings.Join(evidence.RiskFlags, "；")
+			items[index].RecommendationHead = evidence.RecommendationHead
+			items[index].SelectionLayer = evidence.SelectionLayer
+			items[index].TechnicalPattern = evidence.TechnicalPattern
+			items[index].ReasonTags = append([]string{}, evidence.PositiveReasons...)
+			items[index].VetoTags = append([]string{}, evidence.VetoReasons...)
 		}
 		if items[index].PortfolioRole == "" {
 			items[index].PortfolioRole = "CORE"
 		}
-		if status, ok := evaluationMap[strings.ToUpper(strings.TrimSpace(items[index].Symbol))]; ok {
-			items[index].EvaluationStatus = status
-		} else {
-			items[index].EvaluationStatus = "PENDING"
+		if items[index].RecommendationHead == "" {
+			items[index].RecommendationHead = stockSelectionInferRecommendationHead("PORTFOLIO", items[index].FactorBreakdownJSON)
 		}
+		if items[index].SelectionLayer == "" {
+			items[index].SelectionLayer = "L2_PRIMARY"
+		}
+		if items[index].TechnicalPattern == "" {
+			items[index].TechnicalPattern = stockSelectionInferTechnicalPattern(items[index].FactorBreakdownJSON)
+		}
+		evaluationScope := stockSelectionDisplayEvaluationScope(items[index].RecommendationHead)
+		if evaluationScope == "" {
+			evaluationScope = "SHORT_TERM_PRIMARY"
+		}
+		items[index].EvaluationStatus = resolveStockSelectionEvaluationStatus(
+			evaluationMap,
+			items[index].Symbol,
+			evaluationScope,
+			"SHORT_TERM_PRIMARY",
+			"SWING_AUXILIARY",
+			"CANDIDATE_POOL",
+		)
 		items[index].PreviousPublishDiff = buildPreviousPublishDiff(items[index].Symbol, previousSnapshot)
 	}
+}
+
+func stockSelectionInferEvaluationScopeForCandidate(stage string, recommendationHead string) string {
+	if scope := stockSelectionDisplayEvaluationScope(recommendationHead); scope != "" {
+		return scope
+	}
+	if strings.EqualFold(strings.TrimSpace(stage), "PORTFOLIO") {
+		return "SHORT_TERM_PRIMARY"
+	}
+	return "CANDIDATE_POOL"
+}
+
+func stockSelectionHeadLabel(scope string) string {
+	switch strings.ToUpper(strings.TrimSpace(scope)) {
+	case "SHORT_TERM_PRIMARY":
+		return "超短线主推荐"
+	case "SWING_AUXILIARY":
+		return "短波段辅助"
+	case "CANDIDATE_POOL":
+		return "共享待选池"
+	case "PORTFOLIO":
+		return "正式组合"
+	default:
+		return strings.ToUpper(strings.TrimSpace(scope))
+	}
+}
+
+func stockSelectionHoldingContract(scope string) string {
+	switch strings.ToUpper(strings.TrimSpace(scope)) {
+	case "SHORT_TERM_PRIMARY":
+		return "1-2D"
+	case "SWING_AUXILIARY":
+		return "3-10D"
+	case "CANDIDATE_POOL":
+		return "WATCH"
+	default:
+		return "STANDARD"
+	}
+}
+
+func stockSelectionInferRecommendationHead(stage string, factorBreakdown map[string]any) string {
+	if item := stringValue(factorBreakdown["recommendation_head"]); item != "" {
+		return item
+	}
+	if strings.EqualFold(strings.TrimSpace(stage), "PORTFOLIO") {
+		return "SHORT_TERM_PRIMARY"
+	}
+	return ""
+}
+
+func stockSelectionInferSelectionLayer(stage string) string {
+	switch strings.ToUpper(strings.TrimSpace(stage)) {
+	case "UNIVERSE":
+		return "L0_UNIVERSE"
+	case "SEED_POOL":
+		return "L0_SEED"
+	case "CANDIDATE_POOL":
+		return "L1_SHARED"
+	case "PORTFOLIO":
+		return "L2_PRIMARY"
+	default:
+		return ""
+	}
+}
+
+func stockSelectionInferTechnicalPattern(factorBreakdown map[string]any) string {
+	if item := stringValue(factorBreakdown["technical_pattern"]); item != "" {
+		return item
+	}
+	return stringValue(factorBreakdown["style_tag"])
 }

@@ -15,6 +15,7 @@ import {
 import {
   formatStockSelectionAssetDomain,
   formatStockSelectionDateTime,
+  formatStockSelectionEvaluationStatus,
   formatStockSelectionGraphEntityKey,
   formatStockSelectionGraphEntityType,
   formatStockSelectionGraphRelationType,
@@ -78,6 +79,23 @@ function getRunContext(run) {
   return run?.context_meta && typeof run.context_meta === "object" ? run.context_meta : {};
 }
 
+function getRunMarketAnalysis(run) {
+  return getRunContext(run)?.market_analysis || {};
+}
+
+function getRunCandidatePoolSummary(run) {
+  return getRunContext(run)?.candidate_pool_summary || {};
+}
+
+function getRunHeadSummary(run) {
+  return getRunContext(run)?.head_output_summary || {};
+}
+
+function getRunEvaluationBackfillState(run) {
+  const state = getRunContext(run)?.evaluation_backfill_state;
+  return state && typeof state === "object" ? state : {};
+}
+
 function getRunGraphSnapshotID(run) {
   return String(getRunContext(run)?.graph_snapshot_id || "").trim();
 }
@@ -131,6 +149,14 @@ function getRunMemoryFeedback(run) {
           .filter(Boolean)
       : []
   };
+}
+
+function evaluationTagType(status) {
+  const normalized = String(status || "").toUpperCase();
+  if (normalized === "READY") return "success";
+  if (normalized === "PARTIAL") return "warning";
+  if (normalized === "FAILED") return "danger";
+  return "info";
 }
 
 function formatGovernanceValue(value, fallback = "-") {
@@ -407,6 +433,13 @@ onMounted(async () => {
             <el-tag :type="tagType(row.review_status)">{{ formatStockSelectionReviewStatus(row.review_status) }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="评估回填" min-width="110">
+          <template #default="{ row }">
+            <el-tag :type="evaluationTagType(getRunEvaluationBackfillState(row).status)">
+              {{ formatStockSelectionEvaluationStatus(getRunEvaluationBackfillState(row).status || "PENDING") }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="universe_count" label="股票池" min-width="90" />
         <el-table-column prop="seed_count" label="种子池" min-width="90" />
         <el-table-column prop="candidate_count" label="候选池" min-width="100" />
@@ -530,6 +563,50 @@ onMounted(async () => {
               </el-descriptions-item>
               <el-descriptions-item label="20日均成交额下限">
                 {{ selectedRun.context_meta?.universe_filters?.min_avg_turnover ?? "-" }}
+              </el-descriptions-item>
+            </el-descriptions>
+          </div>
+
+          <div class="card" style="margin-top: 12px" v-if="selectedRun.context_meta">
+            <div class="card-title">分层输出摘要</div>
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item label="大盘趋势">
+                {{ formatStockSelectionMarketRegime(getRunMarketAnalysis(selectedRun)?.trend_state || selectedRun.market_regime) }}
+              </el-descriptions-item>
+              <el-descriptions-item label="次日节奏">
+                {{ getRunMarketAnalysis(selectedRun)?.next_day_rhythm || "-" }}
+              </el-descriptions-item>
+              <el-descriptions-item label="粗筛 / 聚焦 / 观察">
+                {{ getRunCandidatePoolSummary(selectedRun)?.coarse_count || 0 }} /
+                {{ getRunCandidatePoolSummary(selectedRun)?.focus_count || 0 }} /
+                {{ getRunCandidatePoolSummary(selectedRun)?.watch_count || 0 }}
+              </el-descriptions-item>
+              <el-descriptions-item label="主推 / 辅推">
+                {{ getRunHeadSummary(selectedRun)?.short_term_primary_count || 0 }} /
+                {{ getRunHeadSummary(selectedRun)?.swing_auxiliary_count || 0 }}
+              </el-descriptions-item>
+            </el-descriptions>
+          </div>
+
+          <div class="card" style="margin-top: 12px" v-if="selectedRun.context_meta">
+            <div class="card-title">评估回填状态</div>
+            <el-descriptions :column="2" border size="small">
+              <el-descriptions-item label="状态">
+                <el-tag :type="evaluationTagType(getRunEvaluationBackfillState(selectedRun).status)">
+                  {{ formatStockSelectionEvaluationStatus(getRunEvaluationBackfillState(selectedRun).status || "PENDING") }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="完成度">
+                {{ Number(getRunEvaluationBackfillState(selectedRun).ready_count || 0) }}/{{ Number(getRunEvaluationBackfillState(selectedRun).target_count || 0) }}
+              </el-descriptions-item>
+              <el-descriptions-item label="缺失 Horizon">
+                {{ Array.isArray(getRunEvaluationBackfillState(selectedRun).missing_horizons) && getRunEvaluationBackfillState(selectedRun).missing_horizons.length ? getRunEvaluationBackfillState(selectedRun).missing_horizons.join(" / ") : "-" }}
+              </el-descriptions-item>
+              <el-descriptions-item label="最近回填时间">
+                {{ formatDateTime(getRunEvaluationBackfillState(selectedRun).last_updated_at) }}
+              </el-descriptions-item>
+              <el-descriptions-item label="说明" :span="2">
+                {{ getRunEvaluationBackfillState(selectedRun).message || "-" }}
               </el-descriptions-item>
             </el-descriptions>
           </div>

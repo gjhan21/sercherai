@@ -13,6 +13,10 @@ type StockSelectionProfileTemplate struct {
 	FactorDefaults    map[string]any `json:"factor_defaults_json,omitempty"`
 	PortfolioDefaults map[string]any `json:"portfolio_defaults_json,omitempty"`
 	PublishDefaults   map[string]any `json:"publish_defaults_json,omitempty"`
+	MarketAnalysisDefaults map[string]any `json:"market_analysis_defaults_json,omitempty"`
+	CandidatePoolDefaults  map[string]any `json:"candidate_pool_defaults_json,omitempty"`
+	ShortTermHeadDefaults  map[string]any `json:"short_term_head_defaults_json,omitempty"`
+	SwingHeadDefaults      map[string]any `json:"swing_head_defaults_json,omitempty"`
 	UpdatedBy         string         `json:"updated_by,omitempty"`
 	UpdatedAt         string         `json:"updated_at,omitempty"`
 	CreatedAt         string         `json:"created_at,omitempty"`
@@ -40,6 +44,9 @@ type StockSelectionRunEvidence struct {
 	ThemeTags       []string         `json:"theme_tags_json,omitempty"`
 	SectorTags      []string         `json:"sector_tags_json,omitempty"`
 	RiskFlags       []string         `json:"risk_flags_json,omitempty"`
+	RecommendationHead string        `json:"recommendation_head,omitempty"`
+	SelectionLayer     string        `json:"selection_layer,omitempty"`
+	TechnicalPattern   string        `json:"technical_pattern,omitempty"`
 	CreatedAt       string           `json:"created_at,omitempty"`
 	UpdatedAt       string           `json:"updated_at,omitempty"`
 }
@@ -60,6 +67,8 @@ type StockSelectionRunEvaluation struct {
 	MaxDrawdownPct  float64 `json:"max_drawdown_pct"`
 	HitFlag         bool    `json:"hit_flag"`
 	BenchmarkSymbol string  `json:"benchmark_symbol,omitempty"`
+	HeadLabel       string  `json:"head_label,omitempty"`
+	HoldingContract string  `json:"holding_contract,omitempty"`
 	CreatedAt       string  `json:"created_at,omitempty"`
 	UpdatedAt       string  `json:"updated_at,omitempty"`
 }
@@ -77,6 +86,7 @@ type StockSelectionRunCompareItem struct {
 	PortfolioSymbols []string `json:"portfolio_symbols,omitempty"`
 	AddedSymbols     []string `json:"added_symbols,omitempty"`
 	RemovedSymbols   []string `json:"removed_symbols,omitempty"`
+	HeadSummary      map[string]any `json:"head_summary,omitempty"`
 }
 
 type StockSelectionRunCompareResult struct {
@@ -90,6 +100,7 @@ type StockSelectionEvaluationLeaderboardItem struct {
 	ProfileID         string             `json:"profile_id,omitempty"`
 	ProfileName       string             `json:"profile_name,omitempty"`
 	MarketRegime      string             `json:"market_regime,omitempty"`
+	EvaluationScope   string             `json:"evaluation_scope,omitempty"`
 	SampleCount       int                `json:"sample_count"`
 	ReturnByHorizon   map[string]float64 `json:"return_by_horizon,omitempty"`
 	HitRateByHorizon  map[string]float64 `json:"hit_rate_by_horizon,omitempty"`

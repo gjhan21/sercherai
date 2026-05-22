@@ -105,6 +105,9 @@ func TestAdminListStockSelectionRunsHandlesPendingReviewWithoutPublishVersion(t 
 			"2026-03-21T09:00:05Z",
 			"2026-03-21T09:00:05Z",
 		))
+	mock.ExpectQuery(`(?s)SELECT\s+run_id,\s+horizon_day,\s+COALESCE\(DATE_FORMAT\(MAX\(updated_at\), '%Y-%m-%dT%H:%i:%sZ'\), ''\)\s+FROM stock_selection_run_evaluations`).
+		WithArgs("ssr_demo_pending").
+		WillReturnRows(sqlmock.NewRows([]string{"run_id", "horizon_day", "updated_at"}))
 
 	items, total, err := repo.AdminListStockSelectionRuns("", "", "", 1, 20)
 	if err != nil {
@@ -121,6 +124,9 @@ func TestAdminListStockSelectionRunsHandlesPendingReviewWithoutPublishVersion(t 
 	}
 	if items[0].Review.PublishVersion != 0 {
 		t.Fatalf("expected pending review publish version to default to 0, got %d", items[0].Review.PublishVersion)
+	}
+	if items[0].ContextMeta["evaluation_backfill_state"] == nil {
+		t.Fatalf("expected evaluation_backfill_state to be attached")
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)
