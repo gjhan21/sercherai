@@ -21,6 +21,10 @@ test("newclient package exposes aggregate build", () => {
   assert.match(pkg.scripts.build, /build:h5/);
 });
 
+test("newclient package declares axios for shared http client", () => {
+  assert.equal(typeof pkg.dependencies?.axios, "string");
+});
+
 test("deploy script builds and publishes newclient", () => {
   assert.match(deploy, /NEWCLIENT_PORT/);
   assert.match(deploy, /\$\{WWW_DIR\}\/newclient/);

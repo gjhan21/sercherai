@@ -12,6 +12,7 @@
     "build:h5": "vite build --config vite.h5.config.js"
   },
   "dependencies": {
+    "axios": "^1.11.0",
     "vue": "^3.5.20",
     "vue-router": "^4.5.1"
   },
