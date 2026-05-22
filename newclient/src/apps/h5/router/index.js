@@ -13,6 +13,7 @@ const routes = [
   { path: "/profile/settings", name: "h5-settings", component: () => import("../views/user/Settings.vue"), meta: {} },
   { path: "/futures/arbitrage", name: "h5-futures-arb", component: () => import("../views/futures/FuturesArbitrage.vue"), meta: {} },
   { path: "/futures/arbitrage/:id", name: "h5-futures-arb-detail", component: () => import("../views/futures/FuturesArbitrageDetail.vue"), meta: {} },
+  { path: "/forecast/:id", name: "h5-forecast-detail", component: () => import("../views/forecast/ForecastDetailView.vue"), meta: {} },
   { path: "/login", name: "h5-login", component: () => import("../views/user/Login.vue"), meta: { layout: "blank" } },
   { path: "/register", name: "h5-register", component: () => import("../views/user/Register.vue"), meta: { layout: "blank" } },
   { path: "/:pathMatch(.*)*", redirect: "/" }
