@@ -6,6 +6,80 @@ import (
 	"sercherai/backend/internal/growth/model"
 )
 
+func TestBuildStrategyForecastL3ResearchPackIncludesStockDomainEvidence(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+	run, err := repo.CreateStrategyForecastL3Run(model.StrategyForecastL3RunCreateInput{
+		TargetType:    model.StrategyForecastL3TargetTypeStock,
+		TargetID:      "sr_001",
+		TargetKey:     "600519.SH",
+		TargetLabel:   "贵州茅台",
+		TriggerType:   model.StrategyForecastL3TriggerTypeAdminManual,
+		RequestUserID: "admin_001",
+		Reason:        "manual deep forecast",
+	})
+	if err != nil {
+		t.Fatalf("CreateStrategyForecastL3Run() error = %v", err)
+	}
+
+	pack, err := buildStrategyForecastL3ResearchPack(repo, run)
+	if err != nil {
+		t.Fatalf("buildStrategyForecastL3ResearchPack() error = %v", err)
+	}
+
+	if pack.StockEvidence.Fundamental.Summary == "" {
+		t.Fatalf("expected stock fundamental evidence summary, got %+v", pack.StockEvidence)
+	}
+	if len(pack.StockEvidence.Technical.SupportingPoints) == 0 {
+		t.Fatalf("expected stock technical evidence supporting points, got %+v", pack.StockEvidence.Technical)
+	}
+	if len(pack.StockEvidence.Flow.SupportingPoints) == 0 {
+		t.Fatalf("expected stock flow evidence supporting points, got %+v", pack.StockEvidence.Flow)
+	}
+	if len(pack.StockEvidence.Valuation.SupportingPoints) == 0 {
+		t.Fatalf("expected stock valuation evidence supporting points, got %+v", pack.StockEvidence.Valuation)
+	}
+	if len(pack.StockEvidence.Event.SupportingPoints) == 0 {
+		t.Fatalf("expected stock event evidence supporting points, got %+v", pack.StockEvidence.Event)
+	}
+}
+
+func TestBuildStrategyForecastL3ResearchPackIncludesFuturesDomainEvidence(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+	run, err := repo.CreateStrategyForecastL3Run(model.StrategyForecastL3RunCreateInput{
+		TargetType:    model.StrategyForecastL3TargetTypeFutures,
+		TargetID:      "fs_001",
+		TargetKey:     "IF2603",
+		TargetLabel:   "股指趋势跟踪",
+		TriggerType:   model.StrategyForecastL3TriggerTypeAdminManual,
+		RequestUserID: "admin_001",
+		Reason:        "manual deep forecast",
+	})
+	if err != nil {
+		t.Fatalf("CreateStrategyForecastL3Run() error = %v", err)
+	}
+
+	pack, err := buildStrategyForecastL3ResearchPack(repo, run)
+	if err != nil {
+		t.Fatalf("buildStrategyForecastL3ResearchPack() error = %v", err)
+	}
+
+	if pack.FuturesEvidence.SupplyDemand.Summary == "" {
+		t.Fatalf("expected futures supply-demand evidence summary, got %+v", pack.FuturesEvidence)
+	}
+	if len(pack.FuturesEvidence.TermStructure.SupportingPoints) == 0 {
+		t.Fatalf("expected futures term-structure evidence supporting points, got %+v", pack.FuturesEvidence.TermStructure)
+	}
+	if len(pack.FuturesEvidence.TapeTechnical.SupportingPoints) == 0 {
+		t.Fatalf("expected futures tape-technical evidence supporting points, got %+v", pack.FuturesEvidence.TapeTechnical)
+	}
+	if len(pack.FuturesEvidence.PositionFlow.SupportingPoints) == 0 {
+		t.Fatalf("expected futures position-flow evidence supporting points, got %+v", pack.FuturesEvidence.PositionFlow)
+	}
+	if len(pack.FuturesEvidence.MacroEvent.SupportingPoints) == 0 {
+		t.Fatalf("expected futures macro-event evidence supporting points, got %+v", pack.FuturesEvidence.MacroEvent)
+	}
+}
+
 func TestExecuteForecastL3RunBuildsReportAndLogs(t *testing.T) {
 	repo := NewInMemoryGrowthRepo()
 	run, err := repo.CreateStrategyForecastL3Run(model.StrategyForecastL3RunCreateInput{

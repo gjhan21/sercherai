@@ -23,6 +23,8 @@ type strategyForecastL3ResearchPack struct {
 	L2Vetoed          bool
 	L2VetoReason      string
 	EvaluationSummary string
+	StockEvidence     model.StrategyForecastL3StockEvidence
+	FuturesEvidence   model.StrategyForecastL3FuturesEvidence
 }
 
 type strategyForecastL3RoleResult struct {

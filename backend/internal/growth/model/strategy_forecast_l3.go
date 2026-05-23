@@ -19,10 +19,10 @@ const (
 	StrategyForecastL3ContextQualityPartial = "PARTIAL"
 	StrategyForecastL3ContextQualityFull    = "FULL"
 
-	StrategyForecastL3ValidationStatusSkipped    = "SKIPPED"
-	StrategyForecastL3ValidationStatusPending    = "PENDING"
-	StrategyForecastL3ValidationStatusCompleted  = "COMPLETED"
-	StrategyForecastL3ValidationStatusDegraded   = "DEGRADED"
+	StrategyForecastL3ValidationStatusSkipped     = "SKIPPED"
+	StrategyForecastL3ValidationStatusPending     = "PENDING"
+	StrategyForecastL3ValidationStatusCompleted   = "COMPLETED"
+	StrategyForecastL3ValidationStatusDegraded    = "DEGRADED"
 	StrategyForecastL3ValidationStatusUnavailable = "UNAVAILABLE"
 )
 
@@ -43,31 +43,31 @@ type StrategyForecastL3RunCreateInput struct {
 }
 
 type StrategyForecastL3Run struct {
-	ID             string                       `json:"id"`
-	TargetType     string                       `json:"target_type"`
-	TargetID       string                       `json:"target_id"`
-	TargetKey      string                       `json:"target_key"`
-	TargetLabel    string                       `json:"target_label"`
-	Source         string                       `json:"source,omitempty"`
-	TriggerType    string                       `json:"trigger_type"`
-	RequestUserID  string                       `json:"request_user_id,omitempty"`
-	OperatorUserID string                       `json:"operator_user_id,omitempty"`
-	EngineKey      string                       `json:"engine_key"`
-	Status         string                       `json:"status"`
-	ContextQuality string                       `json:"context_quality,omitempty"`
-	ValidationStatus string                     `json:"validation_status,omitempty"`
-	PriorityScore  float64                      `json:"priority_score"`
-	Reason         string                       `json:"reason,omitempty"`
-	FailureReason  string                       `json:"failure_reason,omitempty"`
-	ContextMeta    map[string]any               `json:"context_meta,omitempty"`
-	Summary        StrategyForecastL3Summary    `json:"summary"`
-	ReportRef      *StrategyForecastL3ReportRef `json:"report_ref,omitempty"`
-	QueuedAt       string                       `json:"queued_at,omitempty"`
-	StartedAt      string                       `json:"started_at,omitempty"`
-	FinishedAt     string                       `json:"finished_at,omitempty"`
-	CancelledAt    string                       `json:"cancelled_at,omitempty"`
-	CreatedAt      string                       `json:"created_at"`
-	UpdatedAt      string                       `json:"updated_at"`
+	ID               string                       `json:"id"`
+	TargetType       string                       `json:"target_type"`
+	TargetID         string                       `json:"target_id"`
+	TargetKey        string                       `json:"target_key"`
+	TargetLabel      string                       `json:"target_label"`
+	Source           string                       `json:"source,omitempty"`
+	TriggerType      string                       `json:"trigger_type"`
+	RequestUserID    string                       `json:"request_user_id,omitempty"`
+	OperatorUserID   string                       `json:"operator_user_id,omitempty"`
+	EngineKey        string                       `json:"engine_key"`
+	Status           string                       `json:"status"`
+	ContextQuality   string                       `json:"context_quality,omitempty"`
+	ValidationStatus string                       `json:"validation_status,omitempty"`
+	PriorityScore    float64                      `json:"priority_score"`
+	Reason           string                       `json:"reason,omitempty"`
+	FailureReason    string                       `json:"failure_reason,omitempty"`
+	ContextMeta      map[string]any               `json:"context_meta,omitempty"`
+	Summary          StrategyForecastL3Summary    `json:"summary"`
+	ReportRef        *StrategyForecastL3ReportRef `json:"report_ref,omitempty"`
+	QueuedAt         string                       `json:"queued_at,omitempty"`
+	StartedAt        string                       `json:"started_at,omitempty"`
+	FinishedAt       string                       `json:"finished_at,omitempty"`
+	CancelledAt      string                       `json:"cancelled_at,omitempty"`
+	CreatedAt        string                       `json:"created_at"`
+	UpdatedAt        string                       `json:"updated_at"`
 }
 
 type StrategyForecastL3RunDetail struct {
@@ -78,26 +78,26 @@ type StrategyForecastL3RunDetail struct {
 }
 
 type StrategyForecastL3Report struct {
-	ID                   string                               `json:"id"`
-	RunID                string                               `json:"run_id"`
-	Version              int                                  `json:"version"`
-	HeadlineVerdict      string                               `json:"headline_verdict,omitempty"`
-	ExecutiveSummary     string                               `json:"executive_summary"`
-	PrimaryScenario      string                               `json:"primary_scenario"`
-	StateAssessment      *StrategyForecastL3StateAssessment   `json:"state_assessment,omitempty"`
+	ID                   string                                `json:"id"`
+	RunID                string                                `json:"run_id"`
+	Version              int                                   `json:"version"`
+	HeadlineVerdict      string                                `json:"headline_verdict,omitempty"`
+	ExecutiveSummary     string                                `json:"executive_summary"`
+	PrimaryScenario      string                                `json:"primary_scenario"`
+	StateAssessment      *StrategyForecastL3StateAssessment    `json:"state_assessment,omitempty"`
 	DimensionEvidence    []StrategyForecastL3DimensionEvidence `json:"dimension_evidence,omitempty"`
 	ScenarioAssessment   *StrategyForecastL3ScenarioAssessment `json:"scenario_assessment,omitempty"`
 	ValidationReview     *StrategyForecastL3ValidationReview   `json:"validation_review,omitempty"`
-	AlternativeScenarios []StrategyForecastL3Scenario         `json:"alternative_scenarios,omitempty"`
-	TriggerChecklist     []StrategyForecastL3ChecklistItem    `json:"trigger_checklist,omitempty"`
-	InvalidationSignals  []string                             `json:"invalidation_signals,omitempty"`
-	RoleDisagreements    []StrategyForecastL3RoleDisagreement `json:"role_disagreements,omitempty"`
-	ActionGuidance       []string                             `json:"action_guidance,omitempty"`
-	MarkdownBody         string                               `json:"markdown_body,omitempty"`
-	HTMLBody             string                               `json:"html_body,omitempty"`
-	Summary              StrategyForecastL3Summary            `json:"summary"`
-	CreatedAt            string                               `json:"created_at"`
-	UpdatedAt            string                               `json:"updated_at"`
+	AlternativeScenarios []StrategyForecastL3Scenario          `json:"alternative_scenarios,omitempty"`
+	TriggerChecklist     []StrategyForecastL3ChecklistItem     `json:"trigger_checklist,omitempty"`
+	InvalidationSignals  []string                              `json:"invalidation_signals,omitempty"`
+	RoleDisagreements    []StrategyForecastL3RoleDisagreement  `json:"role_disagreements,omitempty"`
+	ActionGuidance       []string                              `json:"action_guidance,omitempty"`
+	MarkdownBody         string                                `json:"markdown_body,omitempty"`
+	HTMLBody             string                                `json:"html_body,omitempty"`
+	Summary              StrategyForecastL3Summary             `json:"summary"`
+	CreatedAt            string                                `json:"created_at"`
+	UpdatedAt            string                                `json:"updated_at"`
 }
 
 type StrategyForecastL3Scenario struct {
@@ -108,9 +108,9 @@ type StrategyForecastL3Scenario struct {
 }
 
 type StrategyForecastL3StateAssessment struct {
-	CurrentState string `json:"current_state,omitempty"`
-	RiskBoundary string `json:"risk_boundary,omitempty"`
-	Source       string `json:"source,omitempty"`
+	CurrentState   string `json:"current_state,omitempty"`
+	RiskBoundary   string `json:"risk_boundary,omitempty"`
+	Source         string `json:"source,omitempty"`
 	ContextQuality string `json:"context_quality,omitempty"`
 }
 
@@ -121,6 +121,28 @@ type StrategyForecastL3DimensionEvidence struct {
 	Summary          string   `json:"summary,omitempty"`
 	SupportingPoints []string `json:"supporting_points,omitempty"`
 	RiskPoints       []string `json:"risk_points,omitempty"`
+}
+
+type StrategyForecastL3EvidenceSlice struct {
+	Summary          string   `json:"summary,omitempty"`
+	SupportingPoints []string `json:"supporting_points,omitempty"`
+	RiskPoints       []string `json:"risk_points,omitempty"`
+}
+
+type StrategyForecastL3StockEvidence struct {
+	Fundamental StrategyForecastL3EvidenceSlice `json:"fundamental,omitempty"`
+	Technical   StrategyForecastL3EvidenceSlice `json:"technical,omitempty"`
+	Flow        StrategyForecastL3EvidenceSlice `json:"flow,omitempty"`
+	Valuation   StrategyForecastL3EvidenceSlice `json:"valuation,omitempty"`
+	Event       StrategyForecastL3EvidenceSlice `json:"event,omitempty"`
+}
+
+type StrategyForecastL3FuturesEvidence struct {
+	SupplyDemand  StrategyForecastL3EvidenceSlice `json:"supply_demand,omitempty"`
+	TermStructure StrategyForecastL3EvidenceSlice `json:"term_structure,omitempty"`
+	TapeTechnical StrategyForecastL3EvidenceSlice `json:"tape_technical,omitempty"`
+	PositionFlow  StrategyForecastL3EvidenceSlice `json:"position_flow,omitempty"`
+	MacroEvent    StrategyForecastL3EvidenceSlice `json:"macro_event,omitempty"`
 }
 
 type StrategyForecastL3ScenarioAssessment struct {

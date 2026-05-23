@@ -193,11 +193,11 @@ func runStrategyForecastL3Validation(
 	client := llm.NewClient(cfg)
 	content, err := client.ChatCompletion([]llm.ChatMessage{
 		{
-			Role: "system",
+			Role:    "system",
 			Content: "你是深度推演复核器。请仅返回 JSON，字段包括 verdict, scenario_consistency, supporting_evidence, counter_evidence, blind_spots, risk_review, action_review, llm_summary。",
 		},
 		{
-			Role: "user",
+			Role:    "user",
 			Content: buildStrategyForecastL3ValidationPrompt(run, pack, roles),
 		},
 	})
@@ -301,6 +301,7 @@ func buildStrategyForecastL3ResearchPack(
 			pack.L2Vetoed = insight.Explanation.ScenarioMeta.Vetoed
 			pack.L2VetoReason = insight.Explanation.ScenarioMeta.VetoReason
 			pack.EvaluationSummary = fmt.Sprintf("sample_days=%d cumulative_return=%.4f", insight.PerformanceStats.SampleDays, insight.PerformanceStats.CumulativeReturn)
+			pack.StockEvidence = buildStrategyForecastL3StockEvidence(insight)
 		}
 		if strings.TrimSpace(run.TargetID) != "" {
 			history, err := reader.GetStockRecommendationVersionHistory(run.RequestUserID, run.TargetID)
@@ -333,6 +334,7 @@ func buildStrategyForecastL3ResearchPack(
 			pack.L2Vetoed = insight.Explanation.ScenarioMeta.Vetoed
 			pack.L2VetoReason = insight.Explanation.ScenarioMeta.VetoReason
 			pack.EvaluationSummary = fmt.Sprintf("sample_days=%d cumulative_return=%.4f", insight.PerformanceStats.SampleDays, insight.PerformanceStats.CumulativeReturn)
+			pack.FuturesEvidence = buildStrategyForecastL3FuturesEvidence(insight)
 		}
 		if strings.TrimSpace(run.TargetID) != "" {
 			history, err := reader.GetFuturesStrategyVersionHistory(run.RequestUserID, run.TargetID)
@@ -352,6 +354,294 @@ func buildStrategyForecastL3ResearchPack(
 		return strategyForecastL3ResearchPack{}, fmt.Errorf("no usable forecast l3 context for %s", run.TargetKey)
 	}
 	return pack, nil
+}
+
+func buildStrategyForecastL3StockEvidence(insight model.StockRecommendationInsight) model.StrategyForecastL3StockEvidence {
+	quote := firstStockQuantScore(insight.Explanation)
+	fundamentalPoints := uniqueForecastL3Strings(nonEmptyStrings(
+		firstNonEmpty(insight.Recommendation.ReasonSummary, insight.Explanation.ConsensusSummary),
+		firstNonEmpty(insight.Explanation.ConfidenceReason, insight.Explanation.SeedSummary),
+		stockPerformanceSummaryText(insight.PerformanceStats),
+	))
+	fundamentalRisks := uniqueForecastL3Strings(nonEmptyStrings(
+		insight.Detail.RiskNote,
+		insight.Explanation.RiskBoundary,
+	))
+
+	technicalPoints := uniqueForecastL3Strings(nonEmptyStrings(
+		fmt.Sprintf("20日动量%.2f，趋势强度%.2f。", quote.Momentum20, quote.TrendStrength),
+		fmt.Sprintf("20日波动率%.2f，量比%.2f。", quote.Volatility20, quote.VolumeRatio),
+		fmt.Sprintf("技术评分%.2f，20日回撤%.2f。", insight.Detail.TechScore, quote.Drawdown20),
+	))
+	technicalRisks := uniqueForecastL3Strings(nonEmptyStrings(
+		technicalRiskFromQuote(quote),
+		insight.Detail.RiskNote,
+	))
+
+	flowPoints := uniqueForecastL3Strings(nonEmptyStrings(
+		fmt.Sprintf("资金流评分%.2f，净流入%.2f。", quote.FlowScore, quote.NetMFAmount),
+		fmt.Sprintf("换手率%.2f，资金流因子%.2f。", quote.TurnoverRate, insight.Detail.MoneyFlowScore),
+	))
+	flowRisks := uniqueForecastL3Strings(nonEmptyStrings(
+		flowRiskFromQuote(quote),
+	))
+
+	valuationPoints := uniqueForecastL3Strings(nonEmptyStrings(
+		fmt.Sprintf("PE(TTM) %.2f，PB %.2f。", quote.PeTTM, quote.PB),
+		fmt.Sprintf("估值评分%.2f。", quote.ValueScore),
+	))
+	valuationRisks := uniqueForecastL3Strings(nonEmptyStrings(
+		valuationRiskFromQuote(quote),
+	))
+
+	eventPoints := make([]string, 0, len(insight.RelatedNews)+2)
+	eventPoints = append(eventPoints, nonEmptyStrings(
+		fmt.Sprintf("新闻热度%d，正向新闻占比%.2f。", quote.NewsHeat, quote.PositiveNewsRate),
+		fmt.Sprintf("新闻评分%.2f。", quote.NewsScore),
+	)...)
+	for _, item := range insight.RelatedNews {
+		eventPoints = append(eventPoints, firstNonEmpty(item.Title, item.Summary))
+	}
+	eventRisks := uniqueForecastL3Strings(nonEmptyStrings(
+		eventRiskFromQuote(quote),
+	))
+
+	return model.StrategyForecastL3StockEvidence{
+		Fundamental: model.StrategyForecastL3EvidenceSlice{
+			Summary:          firstNonEmpty(insight.Recommendation.ReasonSummary, insight.Explanation.ConsensusSummary),
+			SupportingPoints: fundamentalPoints,
+			RiskPoints:       fundamentalRisks,
+		},
+		Technical: model.StrategyForecastL3EvidenceSlice{
+			Summary:          firstNonEmpty(technicalPoints...),
+			SupportingPoints: technicalPoints,
+			RiskPoints:       technicalRisks,
+		},
+		Flow: model.StrategyForecastL3EvidenceSlice{
+			Summary:          firstNonEmpty(flowPoints...),
+			SupportingPoints: flowPoints,
+			RiskPoints:       flowRisks,
+		},
+		Valuation: model.StrategyForecastL3EvidenceSlice{
+			Summary:          firstNonEmpty(valuationPoints...),
+			SupportingPoints: valuationPoints,
+			RiskPoints:       valuationRisks,
+		},
+		Event: model.StrategyForecastL3EvidenceSlice{
+			Summary:          firstNonEmpty(eventPoints...),
+			SupportingPoints: uniqueForecastL3Strings(eventPoints),
+			RiskPoints:       eventRisks,
+		},
+	}
+}
+
+func buildStrategyForecastL3FuturesEvidence(insight model.FuturesStrategyInsight) model.StrategyForecastL3FuturesEvidence {
+	seed := firstFuturesSeed(insight.Explanation)
+	supplyDemandPoints := uniqueForecastL3Strings(nonEmptyStrings(
+		firstNonEmpty(insight.Explanation.InventorySummary, inventorySummaryText(seed)),
+		fmt.Sprintf("库存压力%.2f，库存变动%.2f，库存水平%.2f。", seed.InventoryPressure, seed.InventoryChangePct, seed.InventoryLevel),
+		firstNonEmpty(seed.InventoryBrandGradeSummary, inventoryFocusText(seed)),
+	))
+	supplyDemandRisks := uniqueForecastL3Strings(nonEmptyStrings(
+		supplyDemandRiskFromSeed(seed),
+		insight.Guidance.InvalidCondition,
+	))
+
+	termStructurePoints := uniqueForecastL3Strings(nonEmptyStrings(
+		fmt.Sprintf("基差%.2f，Carry %.2f，期限结构%.2f。", seed.BasisPct, seed.CarryPct, seed.TermStructurePct),
+		fmt.Sprintf("曲线斜率%.2f，基差-期限一致性%.2f。", seed.CurveSlopePct, seed.BasisTermAlignment),
+		firstNonEmpty(seed.StructureSignalSummary),
+	))
+	termStructureRisks := uniqueForecastL3Strings(nonEmptyStrings(
+		termStructureRiskFromSeed(seed),
+	))
+
+	tapePoints := uniqueForecastL3Strings(nonEmptyStrings(
+		fmt.Sprintf("趋势强度%.2f，14日波动率%.2f，量比%.2f。", seed.TrendStrength, seed.Volatility14, seed.VolumeRatio),
+		fmt.Sprintf("价差压力%.2f，跨合约联动%.2f。", seed.SpreadPressure, seed.CrossContractLinkage),
+	))
+	tapeRisks := uniqueForecastL3Strings(nonEmptyStrings(
+		tapeRiskFromSeed(seed),
+	))
+
+	positionPoints := uniqueForecastL3Strings(nonEmptyStrings(
+		fmt.Sprintf("持仓变化%.2f，换手率%.2f，流向偏置%.2f。", seed.OIChangePct, seed.TurnoverRatio, seed.FlowBias),
+		fmt.Sprintf("策略方向%s，仓位建议%s。", insight.Guidance.GuidanceDirection, insight.Guidance.PositionLevel),
+	))
+	positionRisks := uniqueForecastL3Strings(nonEmptyStrings(
+		positionRiskFromSeed(seed),
+	))
+
+	macroPoints := make([]string, 0, len(insight.RelatedNews)+len(insight.RelatedEvents)+2)
+	macroPoints = append(macroPoints, nonEmptyStrings(
+		firstNonEmpty(insight.Explanation.MarketRegime, seed.Regime),
+		futuresPerformanceSummaryText(insight.PerformanceStats),
+	)...)
+	for _, item := range insight.RelatedNews {
+		macroPoints = append(macroPoints, firstNonEmpty(item.Title, item.Summary))
+	}
+	for _, item := range insight.RelatedEvents {
+		macroPoints = append(macroPoints, firstNonEmpty(item.Summary, item.EventType))
+	}
+	macroRisks := uniqueForecastL3Strings(nonEmptyStrings(
+		insight.Guidance.InvalidCondition,
+		insight.Explanation.RiskBoundary,
+	))
+
+	return model.StrategyForecastL3FuturesEvidence{
+		SupplyDemand: model.StrategyForecastL3EvidenceSlice{
+			Summary:          firstNonEmpty(insight.Explanation.InventorySummary, inventorySummaryText(seed), insight.Strategy.ReasonSummary),
+			SupportingPoints: supplyDemandPoints,
+			RiskPoints:       supplyDemandRisks,
+		},
+		TermStructure: model.StrategyForecastL3EvidenceSlice{
+			Summary:          firstNonEmpty(termStructurePoints...),
+			SupportingPoints: termStructurePoints,
+			RiskPoints:       termStructureRisks,
+		},
+		TapeTechnical: model.StrategyForecastL3EvidenceSlice{
+			Summary:          firstNonEmpty(tapePoints...),
+			SupportingPoints: tapePoints,
+			RiskPoints:       tapeRisks,
+		},
+		PositionFlow: model.StrategyForecastL3EvidenceSlice{
+			Summary:          firstNonEmpty(positionPoints...),
+			SupportingPoints: positionPoints,
+			RiskPoints:       positionRisks,
+		},
+		MacroEvent: model.StrategyForecastL3EvidenceSlice{
+			Summary:          firstNonEmpty(macroPoints...),
+			SupportingPoints: uniqueForecastL3Strings(macroPoints),
+			RiskPoints:       macroRisks,
+		},
+	}
+}
+
+func firstStockQuantScore(explanation model.StrategyClientExplanation) model.StockQuantScore {
+	if len(explanation.EvaluationMeta) == 0 {
+		return model.StockQuantScore{}
+	}
+	raw, ok := explanation.EvaluationMeta["stock_quant_score"]
+	if !ok {
+		return model.StockQuantScore{}
+	}
+	var score model.StockQuantScore
+	if decodeStrategyForecastL3Meta(raw, &score) {
+		return score
+	}
+	return model.StockQuantScore{}
+}
+
+func firstFuturesSeed(explanation model.StrategyClientExplanation) model.StrategyEngineFuturesSeed {
+	if len(explanation.EvaluationMeta) == 0 {
+		return model.StrategyEngineFuturesSeed{}
+	}
+	raw, ok := explanation.EvaluationMeta["futures_seed"]
+	if !ok {
+		return model.StrategyEngineFuturesSeed{}
+	}
+	var seed model.StrategyEngineFuturesSeed
+	if decodeStrategyForecastL3Meta(raw, &seed) {
+		return seed
+	}
+	return model.StrategyEngineFuturesSeed{}
+}
+
+func decodeStrategyForecastL3Meta(raw any, target any) bool {
+	payload, err := json.Marshal(raw)
+	if err != nil {
+		return false
+	}
+	return json.Unmarshal(payload, target) == nil
+}
+
+func nonEmptyStrings(items ...string) []string {
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if value := strings.TrimSpace(item); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func stockPerformanceSummaryText(stats model.StockRecommendationPerformanceSummary) string {
+	return fmt.Sprintf("sample_days=%d cumulative_return=%.4f", stats.SampleDays, stats.CumulativeReturn)
+}
+
+func futuresPerformanceSummaryText(stats model.FuturesStrategyPerformanceSummary) string {
+	return fmt.Sprintf("sample_days=%d cumulative_return=%.4f", stats.SampleDays, stats.CumulativeReturn)
+}
+
+func technicalRiskFromQuote(quote model.StockQuantScore) string {
+	if quote.Drawdown20 > 0 {
+		return fmt.Sprintf("20日回撤%.2f提示技术面仍有回吐压力。", quote.Drawdown20)
+	}
+	return ""
+}
+
+func flowRiskFromQuote(quote model.StockQuantScore) string {
+	if quote.NetMFAmount < 0 {
+		return fmt.Sprintf("净资金流入%.2f偏弱，资金承接需要继续验证。", quote.NetMFAmount)
+	}
+	return ""
+}
+
+func valuationRiskFromQuote(quote model.StockQuantScore) string {
+	if quote.PeTTM > 0 && quote.PB > 0 {
+		return fmt.Sprintf("PE(TTM) %.2f、PB %.2f 对估值安全边际提出约束。", quote.PeTTM, quote.PB)
+	}
+	return ""
+}
+
+func eventRiskFromQuote(quote model.StockQuantScore) string {
+	if quote.PositiveNewsRate > 0 && quote.PositiveNewsRate < 0.6 {
+		return fmt.Sprintf("正向新闻占比%.2f，事件驱动一致性不足。", quote.PositiveNewsRate)
+	}
+	return ""
+}
+
+func inventorySummaryText(seed model.StrategyEngineFuturesSeed) string {
+	if seed.InventoryPressure == 0 && seed.InventoryChangePct == 0 && seed.InventoryLevel == 0 {
+		return ""
+	}
+	return fmt.Sprintf("库存压力%.2f，库存变动%.2f，库存水平%.2f。", seed.InventoryPressure, seed.InventoryChangePct, seed.InventoryLevel)
+}
+
+func inventoryFocusText(seed model.StrategyEngineFuturesSeed) string {
+	parts := nonEmptyStrings(seed.InventoryFocusArea, seed.InventoryFocusWarehouse, seed.InventoryFocusBrand, seed.InventoryFocusPlace, seed.InventoryFocusGrade)
+	if len(parts) == 0 {
+		return ""
+	}
+	return "库存关注点：" + strings.Join(parts, " / ")
+}
+
+func supplyDemandRiskFromSeed(seed model.StrategyEngineFuturesSeed) string {
+	if seed.InventoryChangePct > 0 {
+		return fmt.Sprintf("库存变动%.2f偏高，供需改善节奏可能慢于预期。", seed.InventoryChangePct)
+	}
+	return ""
+}
+
+func termStructureRiskFromSeed(seed model.StrategyEngineFuturesSeed) string {
+	if seed.BasisTermAlignment < 0 {
+		return fmt.Sprintf("基差-期限结构一致性%.2f，曲线与现货信号存在背离。", seed.BasisTermAlignment)
+	}
+	return ""
+}
+
+func tapeRiskFromSeed(seed model.StrategyEngineFuturesSeed) string {
+	if seed.Volatility14 > 0 {
+		return fmt.Sprintf("14日波动率%.2f，盘面波动仍需用仓位控制消化。", seed.Volatility14)
+	}
+	return ""
+}
+
+func positionRiskFromSeed(seed model.StrategyEngineFuturesSeed) string {
+	if seed.FlowBias < 0 {
+		return fmt.Sprintf("流向偏置%.2f 偏空，持仓与换手共振尚未完全站稳。", seed.FlowBias)
+	}
+	return ""
 }
 
 func newStrategyForecastL3Log(runID string, stepKey string, status string, message string, payload map[string]any, now time.Time) model.StrategyForecastL3Log {
