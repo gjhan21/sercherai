@@ -2,10 +2,10 @@
   <section class="forecast-lab-page">
     <div class="forecast-lab-hero">
       <div class="hero-copy">
-        <p class="forecast-lab-kicker">Forecast L3</p>
-        <h1>深度推演工作台</h1>
+        <p class="forecast-lab-kicker">研究入口</p>
+        <h1>深度研究中心</h1>
         <p class="forecast-lab-subtitle">
-          汇总最近可追踪的深推演运行，支持从股票分析、期货策略和直接 `run_id` 进入完整报告。
+          汇总值得继续深挖的股票与期货，先看研究聚焦和最近研究结论，再进入完整深推演报告。
         </p>
         <div class="journey-context">
           <span class="journey-chip">{{ currentFlowLabel }}</span>
@@ -36,6 +36,20 @@
         </div>
       </div>
       <p class="card-copy">{{ focusedTargetNarrative }}</p>
+      <div class="focus-metrics">
+        <article>
+          <span>最近研究状态</span>
+          <strong>{{ focusedResearchStatus }}</strong>
+        </article>
+        <article>
+          <span>结构化报告</span>
+          <strong>{{ focusedReportAvailability }}</strong>
+        </article>
+        <article>
+          <span>是否完成模型复核</span>
+          <strong>{{ focusedValidationStatus }}</strong>
+        </article>
+      </div>
       <div class="entry-actions">
         <button class="btn-primary" type="button" @click="handleFocusedTargetAction" :disabled="submittingFocusedRun">
           {{ focusActionLabel }}
@@ -73,7 +87,28 @@
 
     <section class="forecast-lab-card">
       <div class="card-head">
-        <strong>{{ recentEntryTitle }}</strong>
+        <strong>研究聚焦</strong>
+      </div>
+      <p class="card-copy">{{ researchFocusNarrative }}</p>
+      <div class="focus-metrics">
+        <article>
+          <span>值得继续深挖</span>
+          <strong>{{ researchFocusCount }} 个标的</strong>
+        </article>
+        <article>
+          <span>最近研究结论</span>
+          <strong>{{ recentResearchCount }} 条</strong>
+        </article>
+        <article>
+          <span>运行动态</span>
+          <strong>{{ activeRunCount }} 条待跟踪</strong>
+        </article>
+      </div>
+    </section>
+
+    <section class="forecast-lab-card">
+      <div class="card-head">
+        <strong>最近研究结论</strong>
         <span class="card-meta">{{ displayedRecentEntries.length }} 条</span>
       </div>
       <div v-if="displayedRecentEntries.length" class="entry-list">
@@ -86,6 +121,11 @@
             <span class="entry-status" :class="`tone-${entry.summary.tone || 'muted'}`">{{ entry.summary.statusLabel }}</span>
           </div>
           <p class="entry-summary">{{ entry.summary.summary }}</p>
+          <div class="entry-metrics">
+            <span>最近研究状态：{{ entry.summary.statusLabel }}</span>
+            <span>结构化报告：{{ entry.summary.reportAvailable ? "已生成" : "待生成" }}</span>
+            <span>模型复核：{{ entry.validationStatusLabel }}</span>
+          </div>
           <div v-if="entry.summary.note" class="entry-note">{{ entry.summary.note }}</div>
           <div class="entry-actions">
             <RouterLink class="card-link" :to="entry.detailTo">查看完整深度推演</RouterLink>
@@ -101,7 +141,7 @@
 
     <section class="forecast-lab-card">
       <div class="card-head">
-        <strong>{{ runSectionTitle }}</strong>
+        <strong>运行动态</strong>
         <span class="card-meta">{{ displayedRuns.length }} 条</span>
       </div>
       <div v-if="displayedRuns.length" class="run-list">
@@ -136,6 +176,7 @@ import { createForecastRun, listForecastRuns } from "@/api/forecast.js";
 import { useClientAuth } from "@/shared/auth/client-auth";
 import { canLaunchForecastContext, resolveForecastContextFromRoute } from "@/shared/lib/forecast-context.js";
 import { buildDeepForecastSummary } from "@/shared/lib/forecast-summary.js";
+import { localizeForecastValidationStatus } from "@/shared/lib/forecast-localization.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -215,6 +256,7 @@ const recentEntries = computed(() => {
         targetLabel: item.name || "",
         targetType: "STOCK",
         summary,
+        validationStatusLabel: localizeForecastValidationStatus(item?.deep_forecast_summary?.validation_status || item?.summary?.validation_status) || "未触发模型复核",
         detailTo: `/forecast/${encodeURIComponent(summary.runId)}`,
         hostTo: { path: `/identify/${item.symbol}` }
       };
@@ -233,6 +275,7 @@ const recentEntries = computed(() => {
         targetLabel: item.name || item.contract || "",
         targetType: "FUTURES",
         summary,
+        validationStatusLabel: localizeForecastValidationStatus(item?.explanation?.deep_forecast_summary?.validation_status || item?.explanation?.summary?.validation_status) || "未触发模型复核",
         detailTo: `/forecast/${encodeURIComponent(summary.runId)}`,
         hostTo: { path: `/futures/strategy/${item.id}` }
       };
@@ -255,8 +298,37 @@ const displayedRuns = computed(() => {
   if (!hasFocusedTarget.value || showAllContext.value) return runs.value;
   return focusedRuns.value;
 });
-const recentEntryTitle = computed(() => (hasFocusedTarget.value && !showAllContext.value ? "聚焦该标的最近入口" : "最近深推演入口"));
-const runSectionTitle = computed(() => (hasFocusedTarget.value && !showAllContext.value ? "聚焦该标的最近运行" : "运行清单"));
+const researchFocusCount = computed(() => {
+  if (hasFocusedTarget.value && !showAllContext.value) return Math.max(focusedRecentEntries.value.length, focusedRuns.value.length, hasFocusedTarget.value ? 1 : 0);
+  return new Set([...recentEntries.value.map((entry) => entry.targetKey || entry.targetLabel), ...runs.value.map((run) => run.target_key || run.target_label)].filter(Boolean)).size;
+});
+const recentResearchCount = computed(() => displayedRecentEntries.value.length);
+const activeRunCount = computed(() =>
+  displayedRuns.value.filter((run) => ["QUEUED", "RUNNING", "FAILED"].includes(formatStatus(run.status))).length
+);
+const focusedSummary = computed(() => focusedRecentEntries.value[0]?.summary || null);
+const focusedRun = computed(() => focusedRuns.value[0] || null);
+const focusedResearchStatus = computed(() => {
+  if (focusedSummary.value?.statusLabel) return focusedSummary.value.statusLabel;
+  if (focusedRun.value?.status) return statusLabel(focusedRun.value.status);
+  return "待补充";
+});
+const focusedReportAvailability = computed(() => {
+  if (focusedSummary.value?.reportAvailable === true) return "已生成";
+  if (focusedSummary.value?.reportAvailable === false) return "待生成";
+  return hasFocusedTarget.value ? "待补充" : "-";
+});
+const focusedValidationStatus = computed(() => {
+  if (focusedRun.value?.validation_status) return localizeForecastValidationStatus(focusedRun.value.validation_status) || "待补充";
+  if (focusedRecentEntries.value[0]?.validationStatusLabel) return focusedRecentEntries.value[0].validationStatusLabel;
+  return hasFocusedTarget.value ? "待补充" : "-";
+});
+const researchFocusNarrative = computed(() => {
+  if (hasFocusedTarget.value && !showAllContext.value) {
+    return `${focusedTargetDisplayName.value} 已经切到研究聚焦态。这里会优先展示它的最近研究结论、结构化报告可用性，以及仍需持续跟踪的运行动态。`;
+  }
+  return "这里优先展示值得继续深挖的标的、最近研究结论，以及仍需跟踪的运行动态，帮助你从推荐或策略快速进入研究视角。";
+});
 const focusedTargetNarrative = computed(() => {
   if (authRequired.value) {
     return `你正从${currentFlowLabel.value.replace("来自", "")}带着 ${focusedTargetDisplayName.value} 进入深度推演。当前未登录，所以这里只先展示该标的的聚焦承接位；登录后可以直接发起或查看它的最近运行。`;
@@ -513,6 +585,9 @@ watch(
 .focus-target h3 { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
 .focus-target p { color: var(--text-secondary); font-family: var(--font-mono); }
 .focus-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+.focus-metrics { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-top: 14px; }
+.focus-metrics article { display: grid; gap: 8px; padding: 14px; border-radius: var(--radius-md); background: rgba(255,255,255,.02); border: 1px solid var(--border); }
+.focus-metrics span, .entry-metrics span { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .08em; }
 .hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .btn-primary, .btn-ghost, .card-link, .inline-link { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-full); font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; }
 .btn-primary { padding: 10px 18px; border: none; background: linear-gradient(135deg,var(--accent-gold),var(--accent-gold-dim)); color: #000; }
@@ -532,12 +607,13 @@ watch(
 .tone-failed { color: var(--negative); background: rgba(255,90,95,.08); border-color: rgba(255,90,95,.2); }
 .tone-muted { color: var(--text-secondary); background: rgba(255,255,255,.04); border-color: var(--border); }
 .entry-note { margin-top: 6px; }
+.entry-metrics { display: grid; gap: 6px; margin-top: 8px; }
 .entry-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 .inline-link { border-color: var(--border); color: var(--text-secondary); }
 .empty-state { display: grid; gap: 8px; padding: 20px; border-radius: var(--radius-md); border: 1px dashed var(--border); background: rgba(255,255,255,.015); }
 .empty-state strong { font-size: 15px; }
 .error-state { margin-top: 12px; color: var(--negative); }
 @media (max-width: 900px) {
-  .forecast-lab-hero, .focus-target { display: grid; }
+  .forecast-lab-hero, .focus-target, .focus-metrics { display: grid; }
 }
 </style>

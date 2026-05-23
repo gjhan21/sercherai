@@ -1,9 +1,9 @@
 <template>
   <section class="h5-forecast-lab">
     <div class="h5-forecast-hero">
-      <p class="h5-forecast-kicker">Forecast L3</p>
-      <h1>深度推演</h1>
-      <p>这里承接推荐、策略和 `run_id` 入口，先看聚焦对象，再进入完整报告。</p>
+      <p class="h5-forecast-kicker">研究入口</p>
+      <h1>深度研究中心</h1>
+      <p>这里承接推荐、策略和 `run_id` 入口，先看研究聚焦和最近研究结论，再进入完整报告。</p>
       <div class="h5-forecast-actions">
         <button class="h5-primary-btn" type="button" @click="handlePrimaryAction" :disabled="loading || submittingFocusedRun">
           {{ actionBusyLabel }}
@@ -28,6 +28,20 @@
         </div>
       </div>
       <p>{{ focusedTargetNarrative }}</p>
+      <div class="h5-focus-metrics">
+        <div>
+          <span>最近研究状态</span>
+          <strong>{{ focusedResearchStatus }}</strong>
+        </div>
+        <div>
+          <span>结构化报告</span>
+          <strong>{{ focusedReportAvailability }}</strong>
+        </div>
+        <div>
+          <span>是否完成模型复核</span>
+          <strong>{{ focusedValidationStatus }}</strong>
+        </div>
+      </div>
       <div class="h5-forecast-actions">
         <button class="h5-primary-btn" type="button" @click="handleFocusedTargetAction" :disabled="submittingFocusedRun">
           {{ focusActionLabel }}
@@ -49,7 +63,28 @@
 
     <div class="h5-forecast-card">
       <div class="h5-forecast-head">
-        <strong>{{ recentEntryTitle }}</strong>
+        <strong>研究聚焦</strong>
+      </div>
+      <p>{{ researchFocusNarrative }}</p>
+      <div class="h5-focus-metrics">
+        <div>
+          <span>值得继续深挖</span>
+          <strong>{{ researchFocusCount }} 个标的</strong>
+        </div>
+        <div>
+          <span>最近研究结论</span>
+          <strong>{{ recentResearchCount }} 条</strong>
+        </div>
+        <div>
+          <span>运行动态</span>
+          <strong>{{ activeRunCount }} 条待跟踪</strong>
+        </div>
+      </div>
+    </div>
+
+    <div class="h5-forecast-card">
+      <div class="h5-forecast-head">
+        <strong>最近研究结论</strong>
         <span>{{ displayedRecentEntries.length }} 条</span>
       </div>
       <div v-if="displayedRecentEntries.length" class="h5-forecast-list">
@@ -62,6 +97,20 @@
             <span class="h5-entry-status" :class="`tone-${entry.summary.tone || 'muted'}`">{{ entry.summary.statusLabel }}</span>
           </div>
           <p>{{ entry.summary.summary }}</p>
+          <div class="h5-focus-metrics compact">
+            <div>
+              <span>最近研究状态</span>
+              <strong>{{ entry.summary.statusLabel }}</strong>
+            </div>
+            <div>
+              <span>结构化报告</span>
+              <strong>{{ entry.summary.reportAvailable ? "已生成" : "待生成" }}</strong>
+            </div>
+            <div>
+              <span>模型复核</span>
+              <strong>{{ entry.validationStatusLabel }}</strong>
+            </div>
+          </div>
           <div class="h5-forecast-actions compact">
             <RouterLink class="h5-forecast-link" :to="entry.detailTo">查看完整深度推演</RouterLink>
           </div>
@@ -75,7 +124,7 @@
 
     <div class="h5-forecast-card">
       <div class="h5-forecast-head">
-        <strong>{{ runSectionTitle }}</strong>
+        <strong>运行动态</strong>
         <span>{{ displayedRuns.length }} 条</span>
       </div>
       <div v-if="displayedRuns.length" class="h5-forecast-list">
@@ -107,6 +156,7 @@ import { createForecastRun, listForecastRuns } from "@/api/forecast.js";
 import { listFuturesArbitrage, listStockRecommendations } from "@/api/market.js";
 import { useClientAuth } from "@/shared/auth/client-auth";
 import { canLaunchForecastContext, resolveForecastContextFromRoute } from "@/shared/lib/forecast-context.js";
+import { localizeForecastValidationStatus } from "@/shared/lib/forecast-localization.js";
 import { buildDeepForecastSummary } from "@/shared/lib/forecast-summary.js";
 
 const route = useRoute();
@@ -167,6 +217,7 @@ const recentEntries = computed(() => {
         targetLabel: item.name || "",
         targetType: "STOCK",
         summary,
+        validationStatusLabel: localizeForecastValidationStatus(item?.deep_forecast_summary?.validation_status || item?.summary?.validation_status) || "未触发模型复核",
         detailTo: `/forecast/${encodeURIComponent(summary.runId)}`
       };
     })
@@ -184,6 +235,7 @@ const recentEntries = computed(() => {
         targetLabel: item.contract_a || item.contract_b || "",
         targetType: "FUTURES",
         summary,
+        validationStatusLabel: localizeForecastValidationStatus(item?.deep_forecast_summary?.validation_status || item?.summary?.validation_status) || "未触发模型复核",
         detailTo: `/forecast/${encodeURIComponent(summary.runId)}`
       };
     })
@@ -205,12 +257,41 @@ const displayedRuns = computed(() => {
   if (!hasFocusedTarget.value || showAllContext.value) return runs.value;
   return focusedRuns.value;
 });
-const recentEntryTitle = computed(() => (hasFocusedTarget.value && !showAllContext.value ? "聚焦该标的最近入口" : "最近深推演入口"));
-const runSectionTitle = computed(() => (hasFocusedTarget.value && !showAllContext.value ? "聚焦该标的最近运行" : "运行清单"));
+const researchFocusCount = computed(() => {
+  if (hasFocusedTarget.value && !showAllContext.value) return Math.max(focusedRecentEntries.value.length, focusedRuns.value.length, hasFocusedTarget.value ? 1 : 0);
+  return new Set([...recentEntries.value.map((entry) => entry.targetKey || entry.targetLabel), ...runs.value.map((run) => run.target_key || run.target_label)].filter(Boolean)).size;
+});
+const recentResearchCount = computed(() => displayedRecentEntries.value.length);
+const activeRunCount = computed(() =>
+  displayedRuns.value.filter((run) => ["QUEUED", "RUNNING", "FAILED"].includes(formatStatus(run.status))).length
+);
 const focusCardMeta = computed(() => {
   if (!hasFocusedTarget.value) return "";
   if (showAllContext.value) return "正在查看全部运行清单";
   return focusedRuns.value.length || focusedRecentEntries.value.length ? "已切到该标的聚焦态" : "等待发起这只标的的深度推演";
+});
+const focusedSummary = computed(() => focusedRecentEntries.value[0]?.summary || null);
+const focusedRun = computed(() => focusedRuns.value[0] || null);
+const focusedResearchStatus = computed(() => {
+  if (focusedSummary.value?.statusLabel) return focusedSummary.value.statusLabel;
+  if (focusedRun.value?.status) return statusLabel(focusedRun.value.status);
+  return "待补充";
+});
+const focusedReportAvailability = computed(() => {
+  if (focusedSummary.value?.reportAvailable === true) return "已生成";
+  if (focusedSummary.value?.reportAvailable === false) return "待生成";
+  return hasFocusedTarget.value ? "待补充" : "-";
+});
+const focusedValidationStatus = computed(() => {
+  if (focusedRun.value?.validation_status) return localizeForecastValidationStatus(focusedRun.value.validation_status) || "待补充";
+  if (focusedRecentEntries.value[0]?.validationStatusLabel) return focusedRecentEntries.value[0].validationStatusLabel;
+  return hasFocusedTarget.value ? "待补充" : "-";
+});
+const researchFocusNarrative = computed(() => {
+  if (hasFocusedTarget.value && !showAllContext.value) {
+    return `${focusedTargetDisplayName.value} 已经切到研究聚焦态。这里会优先展示它的最近研究结论、结构化报告可用性，以及仍需持续跟踪的运行动态。`;
+  }
+  return "这里优先展示值得继续深挖的标的、最近研究结论，以及仍需跟踪的运行动态，帮助你快速切到研究视角。";
 });
 const focusedTargetNarrative = computed(() => {
   if (authRequired.value) {
@@ -433,6 +514,11 @@ watch(
 .h5-focus-target h3 { font-size: 18px; font-weight: 800; margin-bottom: 4px; }
 .h5-focus-target p { font-family: var(--font-mono); }
 .h5-focus-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+.h5-focus-metrics { display: grid; gap: 10px; margin-top: 12px; }
+.h5-focus-metrics.compact { margin-top: 8px; }
+.h5-focus-metrics div { display: grid; gap: 6px; padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: rgba(255,255,255,.02); }
+.h5-focus-metrics span { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .08em; }
+.h5-focus-metrics strong { line-height: 1.6; white-space: normal; word-break: break-word; }
 .h5-chip { padding: 6px 10px; border-radius: var(--radius-full); border: 1px solid var(--border-gold); color: var(--accent-gold); background: var(--accent-gold-glow); font-size: 11px; }
 .h5-chip.muted { border-color: var(--border); color: var(--text-secondary); background: rgba(255,255,255,.04); }
 .h5-forecast-list { display: grid; gap: 10px; }
