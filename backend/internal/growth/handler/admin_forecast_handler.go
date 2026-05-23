@@ -32,6 +32,9 @@ func (h *AdminForecastHandler) CreateForecastL3Run(c *gin.Context) {
 		TargetID:       req.TargetID,
 		TargetKey:      req.TargetKey,
 		TargetLabel:    req.TargetLabel,
+		Source:         firstNonEmpty(strings.TrimSpace(req.Source), "ADMIN_CONSOLE"),
+		SourceID:       req.SourceID,
+		SourcePath:     firstNonEmpty(strings.TrimSpace(req.SourcePath), "/admin/forecast-lab"),
 		TriggerType:    firstNonEmpty(strings.TrimSpace(req.TriggerType), model.StrategyForecastL3TriggerTypeAdminManual),
 		RequestUserID:  operatorUserID,
 		OperatorUserID: operatorUserID,
@@ -150,7 +153,13 @@ func isForecastL3BadRequest(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "invalid") || strings.Contains(msg, "required") || strings.Contains(msg, "not supported")
+	return strings.Contains(msg, "invalid") ||
+		strings.Contains(msg, "required") ||
+		strings.Contains(msg, "not supported") ||
+		strings.Contains(msg, "trigger is disabled") ||
+		strings.Contains(msg, "active run limit reached") ||
+		strings.Contains(msg, "daily run limit reached") ||
+		strings.Contains(msg, "user daily run limit reached")
 }
 
 func firstNonEmpty(s ...string) string {

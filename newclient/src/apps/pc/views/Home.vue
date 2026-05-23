@@ -60,6 +60,11 @@
         <span class="qm-title">鉴别分析</span>
         <span class="qm-desc">输入股票 AI 分析</span>
       </button>
+      <button class="quick-module glass card-hover" @click="$router.push('/forecast-lab')">
+        <span class="qm-icon" style="background:rgba(14,165,233,.14);color:var(--accent-cyan)">◌</span>
+        <span class="qm-title">深度推演</span>
+        <span class="qm-desc">查看 L3 运行与报告</span>
+      </button>
       <button class="quick-module glass card-hover" @click="$router.push('/news')">
         <span class="qm-icon" style="background:var(--positive-bg);color:var(--positive)">📰</span>
         <span class="qm-title">资讯中心</span>

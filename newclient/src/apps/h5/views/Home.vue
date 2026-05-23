@@ -25,6 +25,26 @@
     </section>
 
     <section class="h5-section">
+      <div class="h5-section-header"><h2 class="h5-section-title">快捷入口</h2></div>
+      <div class="h5-shortcuts">
+        <button class="h5-shortcut-card" @click="$router.push('/forecast-lab')">
+          <span class="h5-shortcut-icon forecast">◌</span>
+          <div class="h5-shortcut-copy">
+            <strong>深度推演</strong>
+            <span>查看 L3 运行与完整报告</span>
+          </div>
+        </button>
+        <button class="h5-shortcut-card" @click="$router.push('/markets')">
+          <span class="h5-shortcut-icon market">◎</span>
+          <div class="h5-shortcut-copy">
+            <strong>行情详情</strong>
+            <span>从股票详情继续进入推演</span>
+          </div>
+        </button>
+      </div>
+    </section>
+
+    <section class="h5-section">
       <div class="h5-section-header"><h2 class="h5-section-title">AI 精选推荐</h2><button class="h5-link" @click="$router.push('/markets')">更多</button></div>
       <div class="h5-picks-scroll">
         <div v-for="stock in topPicks" :key="stock.symbol" class="h5-pick-card" @click="$router.push('/markets/' + stock.symbol)">
@@ -129,6 +149,14 @@ onMounted(loadPicks);
 .h5-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .h5-section-title { font-size: 16px; font-weight: 700; }
 .h5-link { font-size: 12px; color: var(--accent-gold); font-weight: 600; }
+.h5-shortcuts { display: grid; gap: 8px; }
+.h5-shortcut-card { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border); background: rgba(255,255,255,.02); text-align: left; }
+.h5-shortcut-icon { width: 38px; height: 38px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; }
+.h5-shortcut-icon.forecast { background: rgba(14,165,233,.14); color: var(--accent-cyan); }
+.h5-shortcut-icon.market { background: rgba(240,185,11,.12); color: var(--accent-gold); }
+.h5-shortcut-copy { display: grid; gap: 3px; }
+.h5-shortcut-copy strong { font-size: 14px; font-weight: 700; }
+.h5-shortcut-copy span { font-size: 12px; color: var(--text-secondary); }
 .h5-indices { display: grid; gap: 8px; }
 .h5-index-card { padding: 12px; border-radius: var(--radius-sm); background: rgba(255,255,255,.02); border: 1px solid var(--border); }
 .h5-index-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }

@@ -27,6 +27,13 @@
       mode="h5"
       heading="深度推演"
     />
+    <button
+      v-if="stock && stock.symbol"
+      class="h5-forecast-lab-btn"
+      @click="router.push(forecastLabEntryTo)"
+    >
+      带着完整上下文进入深度推演
+    </button>
     <button v-if="stock" class="h5-full-analysis" @click="$router.push('/identify/' + stock.symbol)">查看完整 AI 分析报告 →</button>
     <div v-else class="h5-empty"><p>加载中...</p></div>
   </div>
@@ -34,15 +41,17 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { getStockBySymbol, STOCK_MASTER } from "@/mock/stocks.js";
 import { listStockRecommendations } from "@/api/market.js"
 import { useClientAuth } from "@/shared/auth/client-auth";
 import DeepForecastSummaryCard from "@/shared/components/deep-forecast/DeepForecastSummaryCard.vue";
 import { useDeepForecastEntry } from "@/shared/composables/useDeepForecastEntry.js";
+import { buildForecastContextQuery } from "@/shared/lib/forecast-context.js";
 const { isLoggedIn } = useClientAuth();
 
 const route = useRoute();
+const router = useRouter();
 const loading = ref(false);
 const stockData = ref(null);
 const stock = computed(() => stockData.value);
@@ -51,6 +60,24 @@ const {
   to: forecastEntryTo,
   visible: forecastEntryVisible
 } = useDeepForecastEntry(stock, { mode: "h5" });
+const forecastLabEntryTo = computed(() => {
+  const current = stock.value || {};
+  const targetKey = current.symbol || "";
+  const targetLabel = current.name || targetKey;
+  return {
+    path: "/forecast-lab",
+    query: buildForecastContextQuery({
+      targetType: "STOCK",
+      targetId: current.id || current.recommendation_id || "",
+      targetKey,
+      targetLabel,
+      source: "STOCK_DETAIL",
+      sourceId: current.id || current.recommendation_id || targetKey,
+      sourcePath: targetKey ? `/stock/${targetKey}` : "/markets",
+      from: "identify"
+    })
+  };
+});
 
 const aiBrief = computed(() => {
   if (!stock.value) return '暂无数据';
@@ -104,6 +131,7 @@ onMounted(loadStock);
 .h5-section-header { margin-bottom: 10px; }
 .h5-section-header h3 { font-size: 14px; font-weight: 700; }
 .h5-ai-brief { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+.h5-forecast-lab-btn { width: 100%; padding: 12px; border-radius: var(--radius-full); border: 1px solid var(--accent-gold); color: var(--accent-gold); font-size: 14px; font-weight: 700; text-align: center; background: rgba(240,185,11,.08); cursor: pointer; }
 .h5-full-analysis { width: 100%; padding: 14px; border-radius: var(--radius-full); border: 1px solid var(--accent-gold); color: var(--accent-gold); font-size: 14px; font-weight: 600; text-align: center; background: none; cursor: pointer; }
 .h5-empty { text-align: center; padding: 40px; color: var(--text-secondary); }
 </style>

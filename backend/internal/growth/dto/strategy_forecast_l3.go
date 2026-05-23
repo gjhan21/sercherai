@@ -7,6 +7,9 @@ type StrategyForecastL3CreateRequest struct {
 	TargetID      string  `json:"target_id"`
 	TargetKey     string  `json:"target_key"`
 	TargetLabel   string  `json:"target_label"`
+	Source        string  `json:"source"`
+	SourceID      string  `json:"source_id"`
+	SourcePath    string  `json:"source_path"`
 	TriggerType   string  `json:"trigger_type" binding:"omitempty,oneof=ADMIN_MANUAL AUTO_PRIORITY USER_REQUEST"`
 	PriorityScore float64 `json:"priority_score" binding:"omitempty,gte=0,lte=1"`
 	Reason        string  `json:"reason"`

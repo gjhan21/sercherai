@@ -23,6 +23,9 @@ const (
 	forecastL3QualityEnabledConfigKey          = "growth.forecast_l3.quality.enabled"
 	forecastL3QualityIntervalMinutesConfigKey  = "growth.forecast_l3.quality.interval_minutes"
 	forecastL3DefaultEngineKeyConfigKey        = "growth.forecast_l3.default_engine_key"
+	forecastL3ValidationEnabledConfigKey       = "growth.forecast_l3.validation.enabled"
+	forecastL3ValidationUserOnlyConfigKey      = "growth.forecast_l3.validation.user_request_only"
+	forecastL3ContextRequireTargetIDConfigKey  = "growth.forecast_l3.context_require_target_id"
 )
 
 type forecastL3RuntimeConfig struct {
@@ -41,6 +44,9 @@ type forecastL3RuntimeConfig struct {
 	QualityEnabled          bool
 	QualityIntervalMinutes  int
 	DefaultEngineKey        string
+	ValidationEnabled       bool
+	ValidationUserRequestOnly bool
+	ContextRequireTargetID  bool
 }
 
 var defaultForecastL3RuntimeConfig = forecastL3RuntimeConfig{
@@ -59,6 +65,9 @@ var defaultForecastL3RuntimeConfig = forecastL3RuntimeConfig{
 	QualityEnabled:          true,
 	QualityIntervalMinutes:  60,
 	DefaultEngineKey:        model.StrategyForecastL3EngineLocalSynthesis,
+	ValidationEnabled:       true,
+	ValidationUserRequestOnly: true,
+	ContextRequireTargetID:  true,
 }
 
 func (r *MySQLGrowthRepo) loadForecastL3RuntimeConfig() forecastL3RuntimeConfig {
@@ -129,6 +138,9 @@ func parseForecastL3RuntimeConfig(values map[string]string) forecastL3RuntimeCon
 		1,
 		1440,
 	)
+	config.ValidationEnabled = parseForecastConfigBool(values[forecastL3ValidationEnabledConfigKey], config.ValidationEnabled)
+	config.ValidationUserRequestOnly = parseForecastConfigBool(values[forecastL3ValidationUserOnlyConfigKey], config.ValidationUserRequestOnly)
+	config.ContextRequireTargetID = parseForecastConfigBool(values[forecastL3ContextRequireTargetIDConfigKey], config.ContextRequireTargetID)
 	config.DefaultEngineKey = parseForecastConfigString(
 		values[forecastL3DefaultEngineKeyConfigKey],
 		config.DefaultEngineKey,

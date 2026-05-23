@@ -37,6 +37,7 @@ func buildStrategyForecastL3Report(
 	run model.StrategyForecastL3Run,
 	pack strategyForecastL3ResearchPack,
 	roles []strategyForecastL3RoleResult,
+	validation strategyForecastL3ValidationResult,
 	now time.Time,
 ) model.StrategyForecastL3Report {
 	reportID := newID("l3report")
@@ -48,13 +49,23 @@ func buildStrategyForecastL3Report(
 	roleDisagreements := buildStrategyForecastL3RoleDisagreements(roles)
 	alternativeScenarios := buildStrategyForecastL3AlternativeScenarios(run.TargetType, pack)
 	invalidationSignals := buildStrategyForecastL3InvalidationSignals(pack)
+	stateAssessment := buildStrategyForecastL3StateAssessment(run, pack, primaryScenario)
+	dimensionEvidence := buildStrategyForecastL3DimensionEvidence(run.TargetType, roles, pack)
+	scenarioAssessment := buildStrategyForecastL3ScenarioAssessment(primaryScenario, alternativeScenarios, triggerChecklist, invalidationSignals, actionGuidance)
+	validationReview := buildStrategyForecastL3ValidationReview(validation)
+	headlineVerdict := buildStrategyForecastL3HeadlineVerdict(targetLabel, primaryScenario, validationReview)
 
 	report := model.StrategyForecastL3Report{
 		ID:                   reportID,
 		RunID:                run.ID,
 		Version:              1,
+		HeadlineVerdict:      headlineVerdict,
 		ExecutiveSummary:     executiveSummary,
 		PrimaryScenario:      primaryScenario,
+		StateAssessment:      stateAssessment,
+		DimensionEvidence:    dimensionEvidence,
+		ScenarioAssessment:   scenarioAssessment,
+		ValidationReview:     validationReview,
 		AlternativeScenarios: alternativeScenarios,
 		TriggerChecklist:     triggerChecklist,
 		InvalidationSignals:  invalidationSignals,
@@ -71,6 +82,9 @@ func buildStrategyForecastL3Report(
 		TargetType:       run.TargetType,
 		TargetKey:        run.TargetKey,
 		TargetLabel:      targetLabel,
+		Source:           run.Source,
+		ContextQuality:   run.ContextQuality,
+		ValidationStatus: validationReview.Status,
 		ExecutiveSummary: executiveSummary,
 		PrimaryScenario:  primaryScenario,
 		ActionGuidance:   firstString(actionGuidance),
@@ -82,6 +96,132 @@ func buildStrategyForecastL3Report(
 	report.MarkdownBody = buildStrategyForecastL3Markdown(run, pack, report)
 	report.HTMLBody = buildStrategyForecastL3HTML(run, pack, report)
 	return report
+}
+
+func buildStrategyForecastL3HeadlineVerdict(targetLabel string, primaryScenario string, validation *model.StrategyForecastL3ValidationReview) string {
+	label := firstNonEmpty(targetLabel, "当前标的")
+	scenarioText := primaryScenario
+	if validation != nil && strings.TrimSpace(validation.Verdict) != "" {
+		return fmt.Sprintf("%s：%s", label, strings.TrimSpace(validation.Verdict))
+	}
+	return fmt.Sprintf("%s 当前更偏向 %s 情景。", label, scenarioText)
+}
+
+func buildStrategyForecastL3StateAssessment(
+	run model.StrategyForecastL3Run,
+	pack strategyForecastL3ResearchPack,
+	primaryScenario string,
+) *model.StrategyForecastL3StateAssessment {
+	return &model.StrategyForecastL3StateAssessment{
+		CurrentState:   primaryScenario,
+		RiskBoundary:   strings.TrimSpace(pack.RiskBoundary),
+		Source:         firstNonEmpty(run.Source, run.TriggerType),
+		ContextQuality: firstNonEmpty(run.ContextQuality, model.StrategyForecastL3ContextQualityPartial),
+	}
+}
+
+func buildStrategyForecastL3DimensionEvidence(
+	targetType string,
+	roles []strategyForecastL3RoleResult,
+	pack strategyForecastL3ResearchPack,
+) []model.StrategyForecastL3DimensionEvidence {
+	items := make([]model.StrategyForecastL3DimensionEvidence, 0, len(roles))
+	for _, role := range roles {
+		items = append(items, model.StrategyForecastL3DimensionEvidence{
+			Dimension:        normalizeStrategyForecastL3Dimension(targetType, role.Role),
+			Stance:           role.Stance,
+			Confidence:       role.Confidence,
+			Summary:          role.Summary,
+			SupportingPoints: uniqueForecastL3Strings(append([]string{}, pack.RelatedHighlights...)),
+			RiskPoints:       uniqueForecastL3Strings(append([]string{}, pack.Invalidations...)),
+		})
+	}
+	if len(items) == 0 {
+		items = append(items, model.StrategyForecastL3DimensionEvidence{
+			Dimension:  normalizeStrategyForecastL3Dimension(targetType, "CORE"),
+			Stance:     "NEUTRAL",
+			Confidence: 0.5,
+			Summary:    firstNonEmpty(pack.CoreThesis, "当前仍在等待更多证据完成结构化分析。"),
+			RiskPoints: uniqueForecastL3Strings(pack.Invalidations),
+		})
+	}
+	return items
+}
+
+func normalizeStrategyForecastL3Dimension(targetType string, role string) string {
+	roleKey := strings.ToUpper(strings.TrimSpace(role))
+	if strings.EqualFold(targetType, model.StrategyForecastL3TargetTypeFutures) {
+		switch roleKey {
+		case "SUPPLY_DEMAND":
+			return "SUPPLY_DEMAND"
+		case "HEDGE":
+			return "TERM_STRUCTURE"
+		case "SPEC_FLOW":
+			return "POSITION_FLOW"
+		case "MACRO":
+			return "MACRO_EVENT"
+		case "RISK":
+			return "TAPE_TECHNICAL"
+		default:
+			return roleKey
+		}
+	}
+	switch roleKey {
+	case "INDUSTRY":
+		return "FUNDAMENTAL"
+	case "FLOW":
+		return "FLOW"
+	case "EVENT":
+		return "EVENT"
+	case "MACRO":
+		return "VALUATION"
+	case "RISK":
+		return "TECHNICAL"
+	default:
+		return roleKey
+	}
+}
+
+func buildStrategyForecastL3ScenarioAssessment(
+	primaryScenario string,
+	alternatives []model.StrategyForecastL3Scenario,
+	checklist []model.StrategyForecastL3ChecklistItem,
+	invalidationSignals []string,
+	actionGuidance []string,
+) *model.StrategyForecastL3ScenarioAssessment {
+	secondary := make([]string, 0, len(alternatives))
+	for _, item := range alternatives {
+		if strings.TrimSpace(item.Name) == "" || strings.EqualFold(item.Name, primaryScenario) {
+			continue
+		}
+		secondary = append(secondary, item.Name)
+	}
+	triggers := make([]string, 0, len(checklist))
+	for _, item := range checklist {
+		triggers = append(triggers, firstNonEmpty(item.Trigger, item.Label))
+	}
+	return &model.StrategyForecastL3ScenarioAssessment{
+		CurrentState:           primaryScenario,
+		PrimaryScenario:        primaryScenario,
+		SecondaryScenarios:     uniqueForecastL3Strings(secondary),
+		TriggerConditions:      uniqueForecastL3Strings(triggers),
+		InvalidationConditions: uniqueForecastL3Strings(invalidationSignals),
+		ActionPlan:             uniqueForecastL3Strings(actionGuidance),
+	}
+}
+
+func buildStrategyForecastL3ValidationReview(validation strategyForecastL3ValidationResult) *model.StrategyForecastL3ValidationReview {
+	return &model.StrategyForecastL3ValidationReview{
+		Verdict:             strings.TrimSpace(validation.Verdict),
+		ScenarioConsistency: strings.TrimSpace(validation.ScenarioConsistency),
+		SupportingEvidence:  uniqueForecastL3Strings(validation.SupportingEvidence),
+		CounterEvidence:     uniqueForecastL3Strings(validation.CounterEvidence),
+		BlindSpots:          uniqueForecastL3Strings(validation.BlindSpots),
+		RiskReview:          uniqueForecastL3Strings(validation.RiskReview),
+		ActionReview:        uniqueForecastL3Strings(validation.ActionReview),
+		LLMSummary:          strings.TrimSpace(validation.LLMSummary),
+		Status:              firstNonEmpty(validation.Status, model.StrategyForecastL3ValidationStatusSkipped),
+	}
 }
 
 func resolveStrategyForecastL3PrimaryScenario(targetType string, roles []strategyForecastL3RoleResult, pack strategyForecastL3ResearchPack) string {
@@ -134,12 +274,12 @@ func buildStrategyForecastL3ActionGuidance(pack strategyForecastL3ResearchPack, 
 		guidance = []string{}
 	}
 	if primaryScenario == "bear" || primaryScenario == "reversal" {
-		guidance = append(guidance, "Reduce exposure first and wait for confirmation.")
+		guidance = append(guidance, "优先降低仓位暴露，等待确认信号后再行动。")
 	} else {
-		guidance = append(guidance, "Keep position sizing disciplined and wait for confirmation.")
+		guidance = append(guidance, "控制仓位节奏，等待确认信号后再行动。")
 	}
 	if trimmed := strings.TrimSpace(pack.RiskBoundary); trimmed != "" {
-		guidance = append(guidance, "Risk boundary: "+trimmed)
+		guidance = append(guidance, "风险边界："+trimmed)
 	}
 	return uniqueForecastL3Strings(guidance)
 }
@@ -150,24 +290,24 @@ func buildStrategyForecastL3TriggerChecklist(pack strategyForecastL3ResearchPack
 		items = append(items, model.StrategyForecastL3ChecklistItem{
 			Label:   item,
 			Status:  "WATCH",
-			Note:    "Track whether this signal remains aligned with the thesis.",
+			Note:    "持续跟踪该信号是否仍与核心逻辑保持一致。",
 			Trigger: item,
 		})
 	}
 	if trimmed := strings.TrimSpace(pack.EvaluationSummary); trimmed != "" {
 		items = append(items, model.StrategyForecastL3ChecklistItem{
-			Label:   "Evaluation feedback",
+			Label:   "复盘反馈",
 			Status:  "READY",
 			Note:    trimmed,
-			Trigger: "Compare post-publish performance with current setup.",
+			Trigger: "将发布后的表现与当前推演设定持续对照。",
 		})
 	}
 	if len(items) == 0 {
 		items = append(items, model.StrategyForecastL3ChecklistItem{
-			Label:   "Primary scenario confirmation",
+			Label:   "主情景确认",
 			Status:  "WATCH",
-			Note:    "Wait for the main evidence chain to confirm.",
-			Trigger: "Confirm price, flow and event alignment.",
+			Note:    "等待主证据链进一步确认。",
+			Trigger: "确认价格、资金与事件三条线共振。",
 		})
 	}
 	return items
@@ -189,15 +329,15 @@ func buildStrategyForecastL3RoleDisagreements(roles []strategyForecastL3RoleResu
 func buildStrategyForecastL3AlternativeScenarios(targetType string, pack strategyForecastL3ResearchPack) []model.StrategyForecastL3Scenario {
 	if strings.EqualFold(targetType, model.StrategyForecastL3TargetTypeFutures) {
 		return []model.StrategyForecastL3Scenario{
-			{Name: "trend_continue", Probability: 0.34, Thesis: pack.CoreThesis, Action: "Follow the trend with tighter risk control."},
-			{Name: "base", Probability: 0.46, Thesis: "Wait for confirmation from spread, inventory and flow.", Action: "Observe and confirm."},
-			{Name: "reversal", Probability: 0.20, Thesis: "Failure of the main evidence chain can force a fast reversal.", Action: "Reduce exposure quickly."},
+			{Name: "trend_continue", Probability: 0.34, Thesis: pack.CoreThesis, Action: "控制风险的前提下顺势跟踪。"},
+			{Name: "base", Probability: 0.46, Thesis: "等待价差、库存与资金流三条线进一步确认。", Action: "先观察，再确认。"},
+			{Name: "reversal", Probability: 0.20, Thesis: "主证据链一旦失效，价格可能快速反转。", Action: "快速降低仓位暴露。"},
 		}
 	}
 	return []model.StrategyForecastL3Scenario{
-		{Name: "bull", Probability: 0.32, Thesis: pack.CoreThesis, Action: "Add only after confirmation."},
-		{Name: "base", Probability: 0.48, Thesis: "Main thesis still needs confirmation from flow and events.", Action: "Hold and verify."},
-		{Name: "bear", Probability: 0.20, Thesis: "If the risk boundary breaks, the current setup is invalidated.", Action: "Reduce and reassess."},
+		{Name: "bull", Probability: 0.32, Thesis: pack.CoreThesis, Action: "仅在确认信号出现后再加仓。"},
+		{Name: "base", Probability: 0.48, Thesis: "核心逻辑仍需等待资金面与事件面的进一步确认。", Action: "先持有，并持续验证主逻辑。"},
+		{Name: "bear", Probability: 0.20, Thesis: "一旦风险边界被击穿，当前交易设定即告失效。", Action: "降低仓位，并重新评估交易设定。"},
 	}
 }
 
@@ -207,7 +347,7 @@ func buildStrategyForecastL3InvalidationSignals(pack strategyForecastL3ResearchP
 		signals = append(signals, pack.RiskBoundary)
 	}
 	if len(signals) == 0 {
-		signals = []string{"Primary evidence chain fails to confirm."}
+		signals = []string{"主证据链未能得到确认。"}
 	}
 	return signals
 }
@@ -253,7 +393,7 @@ func buildStrategyForecastL3Markdown(
 	}
 	lines = append(lines, "", "## 主线推演", report.PrimaryScenario)
 	if len(report.AlternativeScenarios) > 0 {
-		lines = append(lines, "", "## 后续发展预测 (Alternative Scenarios)")
+		lines = append(lines, "", "## 后续发展预测")
 		for _, alt := range report.AlternativeScenarios {
 			prob := fmt.Sprintf("%.0f%%", alt.Probability*100)
 			lines = append(lines, fmt.Sprintf("- **%s (发生概率: %s)**: %s", alt.Name, prob, alt.Thesis))
@@ -305,7 +445,7 @@ func buildStrategyForecastL3HTML(
 	}
 	builder.WriteString("<h2>主线推演</h2><p>" + htmlEscape(report.PrimaryScenario) + "</p>")
 	if len(report.AlternativeScenarios) > 0 {
-		builder.WriteString("<h2>后续发展预测 (Alternative Scenarios)</h2><ul>")
+		builder.WriteString("<h2>后续发展预测</h2><ul>")
 		for _, alt := range report.AlternativeScenarios {
 			prob := fmt.Sprintf("%.0f%%", alt.Probability*100)
 			builder.WriteString("<li><strong>" + htmlEscape(alt.Name) + " (发生概率: " + prob + ")</strong>: " + htmlEscape(alt.Thesis) + "<br/><em>操作指引:</em> " + htmlEscape(alt.Action) + "</li>")

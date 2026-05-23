@@ -659,8 +659,13 @@ SELECT
 	id,
 	run_id,
 	version,
+	COALESCE(headline_verdict, ''),
 	COALESCE(executive_summary, ''),
 	COALESCE(primary_scenario, ''),
+	COALESCE(CAST(state_assessment_json AS CHAR), ''),
+	COALESCE(CAST(dimension_evidence_json AS CHAR), ''),
+	COALESCE(CAST(scenario_assessment_json AS CHAR), ''),
+	COALESCE(CAST(validation_review_json AS CHAR), ''),
 	COALESCE(CAST(alternative_scenarios_json AS CHAR), ''),
 	COALESCE(CAST(trigger_checklist_json AS CHAR), ''),
 	COALESCE(CAST(invalidation_signals_json AS CHAR), ''),
@@ -771,14 +776,20 @@ func (r *MySQLGrowthRepo) persistMySQLStrategyForecastL3Execution(result strateg
 	if result.Report != nil {
 		if _, err := r.db.Exec(`
 INSERT INTO strategy_forecast_l3_reports (
-	id, run_id, version, executive_summary, primary_scenario,
+	id, run_id, version, headline_verdict, executive_summary, primary_scenario,
+	state_assessment_json, dimension_evidence_json, scenario_assessment_json, validation_review_json,
 	alternative_scenarios_json, trigger_checklist_json, invalidation_signals_json,
 	role_disagreements_json, action_guidance_json, markdown_body, html_body,
 	summary_json, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
+	headline_verdict = VALUES(headline_verdict),
 	executive_summary = VALUES(executive_summary),
 	primary_scenario = VALUES(primary_scenario),
+	state_assessment_json = VALUES(state_assessment_json),
+	dimension_evidence_json = VALUES(dimension_evidence_json),
+	scenario_assessment_json = VALUES(scenario_assessment_json),
+	validation_review_json = VALUES(validation_review_json),
 	alternative_scenarios_json = VALUES(alternative_scenarios_json),
 	trigger_checklist_json = VALUES(trigger_checklist_json),
 	invalidation_signals_json = VALUES(invalidation_signals_json),
@@ -791,8 +802,13 @@ ON DUPLICATE KEY UPDATE
 			result.Report.ID,
 			result.Report.RunID,
 			result.Report.Version,
+			nullableString(result.Report.HeadlineVerdict),
 			nullableString(result.Report.ExecutiveSummary),
 			nullableString(result.Report.PrimaryScenario),
+			nullableForecastL3JSON(marshalJSONText(result.Report.StateAssessment)),
+			nullableForecastL3JSON(marshalJSONText(result.Report.DimensionEvidence)),
+			nullableForecastL3JSON(marshalJSONText(result.Report.ScenarioAssessment)),
+			nullableForecastL3JSON(marshalJSONText(result.Report.ValidationReview)),
 			nullableForecastL3JSON(marshalJSONText(result.Report.AlternativeScenarios)),
 			nullableForecastL3JSON(marshalJSONText(result.Report.TriggerChecklist)),
 			nullableForecastL3JSON(marshalJSONText(result.Report.InvalidationSignals)),
@@ -876,26 +892,63 @@ func buildStrategyForecastL3QueuedRun(input model.StrategyForecastL3RunCreateInp
 	if triggerType == "" {
 		triggerType = model.StrategyForecastL3TriggerTypeUserRequest
 	}
+	targetID := strings.TrimSpace(input.TargetID)
+	source := strings.ToUpper(strings.TrimSpace(input.Source))
+	sourceID := strings.TrimSpace(input.SourceID)
+	sourcePath := strings.TrimSpace(input.SourcePath)
+	contextQuality := model.StrategyForecastL3ContextQualityPartial
+	if targetID != "" {
+		contextQuality = model.StrategyForecastL3ContextQualityFull
+	}
+	if triggerType == model.StrategyForecastL3TriggerTypeUserRequest {
+		if source == "" || sourcePath == "" {
+			return model.StrategyForecastL3Run{}, time.Time{}, fmt.Errorf("%w: source is required for user-request deep forecast", errStrategyForecastL3InvalidInput)
+		}
+		if config.ContextRequireTargetID && targetID == "" {
+			return model.StrategyForecastL3Run{}, time.Time{}, fmt.Errorf("%w: target_id is required for user-request deep forecast", errStrategyForecastL3InvalidInput)
+		}
+	}
 	now := time.Now().UTC()
 	runID := newID("l3run")
 	engineKey := strings.TrimSpace(config.DefaultEngineKey)
 	if engineKey == "" {
 		engineKey = model.StrategyForecastL3EngineLocalSynthesis
 	}
+	contextMeta := cloneStringAnyMap(input.ContextMeta)
+	if contextMeta == nil {
+		contextMeta = map[string]any{}
+	}
+	if source != "" {
+		contextMeta["source"] = source
+	}
+	if sourceID != "" {
+		contextMeta["source_id"] = sourceID
+	}
+	if sourcePath != "" {
+		contextMeta["source_path"] = sourcePath
+	}
+	contextMeta["context_quality"] = contextQuality
+	validationStatus := model.StrategyForecastL3ValidationStatusSkipped
+	if config.ValidationEnabled && (!config.ValidationUserRequestOnly || triggerType == model.StrategyForecastL3TriggerTypeUserRequest) {
+		validationStatus = model.StrategyForecastL3ValidationStatusPending
+	}
 	run := model.StrategyForecastL3Run{
 		ID:             runID,
 		TargetType:     targetType,
-		TargetID:       strings.TrimSpace(input.TargetID),
+		TargetID:       targetID,
 		TargetKey:      targetKey,
 		TargetLabel:    strings.TrimSpace(input.TargetLabel),
+		Source:         source,
 		TriggerType:    triggerType,
 		RequestUserID:  strings.TrimSpace(input.RequestUserID),
 		OperatorUserID: strings.TrimSpace(input.OperatorUserID),
 		EngineKey:      engineKey,
 		Status:         model.StrategyForecastL3StatusQueued,
+		ContextQuality: contextQuality,
+		ValidationStatus: validationStatus,
 		PriorityScore:  input.PriorityScore,
 		Reason:         strings.TrimSpace(input.Reason),
-		ContextMeta:    cloneStringAnyMap(input.ContextMeta),
+		ContextMeta:    contextMeta,
 		QueuedAt:       now.Format(time.RFC3339),
 		CreatedAt:      now.Format(time.RFC3339),
 		UpdatedAt:      now.Format(time.RFC3339),
@@ -908,6 +961,9 @@ func buildStrategyForecastL3QueuedRun(input model.StrategyForecastL3RunCreateInp
 		TargetType:      run.TargetType,
 		TargetKey:       run.TargetKey,
 		TargetLabel:     run.TargetLabel,
+		Source:          run.Source,
+		ContextQuality:  run.ContextQuality,
+		ValidationStatus: run.ValidationStatus,
 		PriorityScore:   run.PriorityScore,
 		ReportAvailable: false,
 	}
@@ -1042,6 +1098,10 @@ func scanStrategyForecastL3Report(scanner interface {
 	Scan(dest ...interface{}) error
 }) (model.StrategyForecastL3Report, error) {
 	var item model.StrategyForecastL3Report
+	var stateAssessmentJSON sql.NullString
+	var dimensionEvidenceJSON sql.NullString
+	var scenarioAssessmentJSON sql.NullString
+	var validationReviewJSON sql.NullString
 	var alternativeScenariosJSON sql.NullString
 	var triggerChecklistJSON sql.NullString
 	var invalidationSignalsJSON sql.NullString
@@ -1054,8 +1114,13 @@ func scanStrategyForecastL3Report(scanner interface {
 		&item.ID,
 		&item.RunID,
 		&item.Version,
+		&item.HeadlineVerdict,
 		&item.ExecutiveSummary,
 		&item.PrimaryScenario,
+		&stateAssessmentJSON,
+		&dimensionEvidenceJSON,
+		&scenarioAssessmentJSON,
+		&validationReviewJSON,
 		&alternativeScenariosJSON,
 		&triggerChecklistJSON,
 		&invalidationSignalsJSON,
@@ -1070,6 +1135,10 @@ func scanStrategyForecastL3Report(scanner interface {
 		return model.StrategyForecastL3Report{}, err
 	}
 	item.AlternativeScenarios = parseStrategyForecastL3ScenarioList(alternativeScenariosJSON.String)
+	item.StateAssessment = parseStrategyForecastL3StateAssessment(stateAssessmentJSON.String)
+	item.DimensionEvidence = parseStrategyForecastL3DimensionEvidenceList(dimensionEvidenceJSON.String)
+	item.ScenarioAssessment = parseStrategyForecastL3ScenarioAssessment(scenarioAssessmentJSON.String)
+	item.ValidationReview = parseStrategyForecastL3ValidationReview(validationReviewJSON.String)
 	item.TriggerChecklist = parseStrategyForecastL3Checklist(triggerChecklistJSON.String)
 	item.InvalidationSignals = parseStrategyForecastL3StringList(invalidationSignalsJSON.String)
 	item.RoleDisagreements = parseStrategyForecastL3RoleDisagreements(roleDisagreementsJSON.String)
@@ -1196,6 +1265,54 @@ func parseStrategyForecastL3ScenarioList(raw string) []model.StrategyForecastL3S
 		return nil
 	}
 	return items
+}
+
+func parseStrategyForecastL3StateAssessment(raw string) *model.StrategyForecastL3StateAssessment {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var item model.StrategyForecastL3StateAssessment
+	if err := json.Unmarshal([]byte(raw), &item); err != nil {
+		return nil
+	}
+	return &item
+}
+
+func parseStrategyForecastL3DimensionEvidenceList(raw string) []model.StrategyForecastL3DimensionEvidence {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var items []model.StrategyForecastL3DimensionEvidence
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil
+	}
+	return items
+}
+
+func parseStrategyForecastL3ScenarioAssessment(raw string) *model.StrategyForecastL3ScenarioAssessment {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var item model.StrategyForecastL3ScenarioAssessment
+	if err := json.Unmarshal([]byte(raw), &item); err != nil {
+		return nil
+	}
+	return &item
+}
+
+func parseStrategyForecastL3ValidationReview(raw string) *model.StrategyForecastL3ValidationReview {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var item model.StrategyForecastL3ValidationReview
+	if err := json.Unmarshal([]byte(raw), &item); err != nil {
+		return nil
+	}
+	return &item
 }
 
 func parseStrategyForecastL3Checklist(raw string) []model.StrategyForecastL3ChecklistItem {

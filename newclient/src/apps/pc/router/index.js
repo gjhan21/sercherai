@@ -43,6 +43,7 @@ const routes = [
 
   // Search
   { path: "/search", name: "search", component: () => import("../views/SearchPage.vue"), meta: { title: "搜索", section: "home" } },
+  { path: "/forecast-lab", name: "forecast-lab", component: () => import("../views/forecast/ForecastLabView.vue"), meta: { title: "深度推演", section: "forecast", icon: "forecast" } },
   { path: "/forecast/:id", name: "forecast-detail", component: () => import("../views/forecast/ForecastDetailView.vue"), meta: { title: "深推演报告", section: "recs" } },
 
   // Legacy redirect

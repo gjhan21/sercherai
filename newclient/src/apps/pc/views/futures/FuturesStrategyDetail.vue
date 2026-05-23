@@ -39,6 +39,13 @@
         mode="pc"
         heading="深度推演"
       />
+      <button
+        v-if="strategy"
+        class="forecast-lab-entry-btn"
+        @click="router.push(forecastLabEntryTo)"
+      >
+        带着完整上下文进入深度推演
+      </button>
       <div class="insight-grid">
         <div class="insight-card" v-if="insight.guidance">
           <h4>操作指引</h4>
@@ -59,14 +66,16 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { getFuturesStrategyDetail, getFuturesStrategyInsight } from "@/api/market.js";
 import DeepForecastSummaryCard from "@/shared/components/deep-forecast/DeepForecastSummaryCard.vue";
 import { useDeepForecastEntry } from "@/shared/composables/useDeepForecastEntry.js";
+import { buildForecastContextQuery } from "@/shared/lib/forecast-context.js";
 
 const MOCK_STRAT = { id:"strat_1", contract:"IF 主连", name:"IF跨期套利策略", direction:"LONG", risk_level:"MEDIUM", position_range:"10%-15%", valid_from:"2026-01-01", valid_to:"2026-06-30", reason_summary:"基于历史价差回归规律，当前价差处于近年高分位，开仓做空价差" };
 
 const route = useRoute();
+const router = useRouter();
 const strategy = ref(null);
 const insight = ref(null);
 const forecastEntrySource = computed(() => insight.value?.explanation || null);
@@ -75,6 +84,25 @@ const {
   to: forecastEntryTo,
   visible: forecastEntryVisible
 } = useDeepForecastEntry(forecastEntrySource, { mode: "pc" });
+const forecastLabEntryTo = computed(() => {
+  const current = strategy.value || {};
+  const targetKey = current.contract || current.name || "";
+  const targetLabel = current.name || current.contract || "";
+  return {
+    path: "/forecast-lab",
+    query: buildForecastContextQuery({
+      targetType: "FUTURES",
+      targetId: current.id || route.params.id,
+      targetKey,
+      targetLabel,
+      source: "STRATEGY",
+      sourceId: current.id || route.params.id,
+      sourcePath: current.id ? `/futures/strategy/${current.id}` : "/recommendations/strategies",
+      from: "strategies",
+      strategyId: current.id || route.params.id
+    })
+  };
+});
 
 function directionLabel(d) { return d === 'LONG' ? '做多' : d === 'SHORT' ? '做空' : '中性'; }
 function riskLabel(r) { const m = { HIGH:'高风险', MEDIUM:'中风险', LOW:'低风险' }; return m[r] || r; }
@@ -113,6 +141,7 @@ onMounted(loadDetail);
 .insight-section { margin-bottom: 16px; }
 .insight-section h3 { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: var(--accent-gold); }
 .insight-section p { font-size: 14px; color: var(--text-secondary); line-height: 1.7; }
+.forecast-lab-entry-btn { width: 100%; margin: 12px 0 0; padding: 12px 16px; border-radius: var(--radius-full); border: 1px solid var(--border-gold); background: rgba(240,185,11,.08); color: var(--accent-gold); font-size: 13px; font-weight: 700; cursor: pointer; }
 .insight-grid { display: grid; gap: 12px; }
 .insight-card { padding: 16px; border-radius: var(--radius-md); background: rgba(255,255,255,.02); border: 1px solid var(--border); }
 .insight-card h4 { font-size: 14px; font-weight: 700; margin-bottom: 12px; }

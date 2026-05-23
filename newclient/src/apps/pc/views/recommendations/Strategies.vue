@@ -1,5 +1,22 @@
 <template>
   <div class="strategies-page">
+    <section class="flow-strip glass fade-in-up">
+      <div class="flow-copy">
+        <p class="flow-kicker">机会主线</p>
+        <h2>第 2 步：形成策略</h2>
+        <p>{{ contextSummary }}</p>
+      </div>
+      <div class="flow-steps">
+        <span class="flow-step">1. 每日推荐</span>
+        <span class="flow-step active">2. 交易策略</span>
+        <span class="flow-step">3. 深度推演</span>
+      </div>
+      <div class="flow-actions">
+        <button class="flow-btn ghost" @click="goToRecommendations()">回看推荐来源</button>
+        <button class="flow-btn" @click="goToForecastLab()">进入深度推演</button>
+      </div>
+    </section>
+
     <section class="section fade-in-up">
       <div class="section-header">
         <h2 class="section-title">交易策略</h2>
@@ -27,7 +44,10 @@
             </div>
             <p class="strat-reason">{{ strategy.reason_summary || strategy.reason || 'AI 策略推荐' }}</p>
           </div>
-          <button class="btn-ghost strat-backtest-btn" @click="$router.push('/recommendations/backtest')">查看回测 →</button>
+          <div class="strat-actions">
+            <button class="btn-ghost strat-backtest-btn" @click.stop="$router.push('/recommendations/backtest')">查看回测 →</button>
+            <button class="btn-primary strat-forecast-btn" @click.stop="goToForecastLab(strategy)">进入深度推演</button>
+          </div>
         </article>
       </div>
     </section>
@@ -35,12 +55,24 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { STRATEGIES as MOCK_STRATEGIES } from "@/mock/recommendations.js";
 import { listFuturesStrategies } from "@/api/market.js";
+import { buildForecastContextQuery } from "@/shared/lib/forecast-context.js";
 
+const route = useRoute();
+const router = useRouter();
 const loading = ref(false);
 const strategyList = ref(MOCK_STRATEGIES);
+const selectedSymbol = computed(() => String(route.query.symbol || "").trim());
+const selectedName = computed(() => String(route.query.name || "").trim());
+const contextSummary = computed(() => {
+  if (!selectedSymbol.value) {
+    return "把推荐机会收敛成可执行策略，再继续进入深度推演确认运行与报告。";
+  }
+  return `你当前正在承接 ${selectedName.value || selectedSymbol.value} 的推荐机会，先看策略，再继续进入深度推演。`;
+});
 
 async function loadStrategies() {
   loading.value = true;
@@ -62,11 +94,51 @@ async function loadStrategies() {
   finally { loading.value = false; }
 }
 
+function goToRecommendations() {
+  router.push({
+    path: "/recommendations",
+    query: selectedSymbol.value
+      ? { symbol: selectedSymbol.value, name: selectedName.value || "", from: "strategies" }
+      : { from: "strategies" }
+  });
+}
+
+function goToForecastLab(strategy) {
+  const target = selectedSymbol.value || strategy?.symbol || strategy?.contract || "";
+  const targetType = strategy?.id ? "FUTURES" : "STOCK";
+  const targetLabel = selectedName.value || strategy?.name || strategy?.contract || "";
+  router.push({
+    path: "/forecast-lab",
+    query: buildForecastContextQuery({
+      targetType,
+      targetId: strategy?.id || "",
+      targetKey: target,
+      targetLabel,
+      source: "STRATEGY",
+      sourceId: strategy?.id || "",
+      sourcePath: "/recommendations/strategies",
+      from: "strategies",
+      strategyId: strategy?.id || ""
+    })
+  });
+}
+
 onMounted(loadStrategies);
 </script>
 
 <style scoped>
 .strategies-page { display: grid; gap: 20px; max-width: 1400px; }
+.flow-strip { display: grid; gap: 14px; padding: 18px 20px; border-radius: var(--radius-lg); border: 1px solid var(--border); background: linear-gradient(135deg, rgba(240,185,11,.08), rgba(255,255,255,.02)); }
+.flow-copy h2 { font-size: 22px; font-weight: 800; margin: 4px 0 6px; }
+.flow-copy p { color: var(--text-secondary); line-height: 1.7; }
+.flow-kicker { font-size: 11px; color: var(--accent-gold); text-transform: uppercase; letter-spacing: .08em; }
+.flow-steps { display: flex; gap: 8px; flex-wrap: wrap; }
+.flow-step { padding: 8px 12px; border-radius: var(--radius-full); border: 1px solid var(--border); color: var(--text-secondary); font-size: 12px; }
+.flow-step.active { border-color: var(--border-gold); color: var(--accent-gold); background: var(--accent-gold-glow); }
+.flow-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.flow-btn, .btn-primary { display: inline-flex; align-items: center; justify-content: center; padding: 10px 14px; border-radius: var(--radius-full); font-size: 13px; font-weight: 600; cursor: pointer; }
+.flow-btn { border: none; background: linear-gradient(135deg,var(--accent-gold),var(--accent-gold-dim)); color: #000; }
+.flow-btn.ghost, .btn-ghost { border: 1px solid var(--border); background: none; color: var(--text-secondary); }
 .section { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; }
 .section-header { margin-bottom: 16px; }
 .section-title { font-size: 20px; font-weight: 700; }
@@ -84,7 +156,9 @@ onMounted(loadStrategies);
 .strat-detail-block p { font-size: 13px; line-height: 1.6; color: var(--text-secondary); }
 .strat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .strat-reason { font-size: 12px; color: var(--text-muted); line-height: 1.6; padding: 8px; background: rgba(255,255,255,.02); border-radius: 6px; }
-.strat-backtest-btn { margin-top: 16px; width: 100%; justify-content: center; display: flex; }
+.strat-actions { display: grid; gap: 8px; margin-top: 16px; }
+.strat-backtest-btn, .strat-forecast-btn { width: 100%; justify-content: center; display: flex; }
+.strat-forecast-btn { border: none; background: linear-gradient(135deg,var(--accent-gold),var(--accent-gold-dim)); color: #000; }
 .btn-ghost { padding: 8px 16px; border-radius: var(--radius-full); border: 1px solid var(--border); font-size: 12px; color: var(--text-secondary); background: none; cursor: pointer; }
 .btn-ghost:hover { border-color: var(--border-light); color: var(--text-primary); }
 @media (max-width: 1200px) { .strategies-grid { grid-template-columns: 1fr; } }

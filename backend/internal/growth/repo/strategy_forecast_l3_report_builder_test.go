@@ -35,17 +35,42 @@ func TestBuildForecastL3ReportSynthesizesExecutiveSummaryAndMarkdown(t *testing.
 		{Role: "RISK", Stance: "CAUTION", Confidence: 0.62, Summary: "高位追涨赔率一般，需要确认成交额。"},
 	}
 
-	report := buildStrategyForecastL3Report(run, pack, roles, time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC))
+	report := buildStrategyForecastL3Report(run, pack, roles, strategyForecastL3ValidationResult{
+		Status:              model.StrategyForecastL3ValidationStatusCompleted,
+		Verdict:             "模型复核认为主情景与现有证据基本一致。",
+		ScenarioConsistency: "主情景整体自洽。",
+		SupportingEvidence:  []string{"机构调研热度回升"},
+		CounterEvidence:     []string{"资金回流转负"},
+		BlindSpots:          []string{"缺少更长窗口验证"},
+		RiskReview:          []string{"跌破关键支撑位则主情景失效。"},
+		ActionReview:        []string{"先看量能确认"},
+		LLMSummary:          "当前复核支持继续围绕主情景跟踪。",
+	}, time.Date(2026, 3, 29, 12, 0, 0, 0, time.UTC))
 	if report.ExecutiveSummary == "" || report.PrimaryScenario == "" {
 		t.Fatalf("expected report summary and scenario to be built, got %+v", report)
 	}
 	if len(report.ActionGuidance) == 0 || len(report.TriggerChecklist) == 0 {
 		t.Fatalf("expected action guidance and trigger checklist, got %+v", report)
 	}
-	if !strings.Contains(report.MarkdownBody, "## Action Guidance") {
-		t.Fatalf("expected markdown to contain action guidance section, got %q", report.MarkdownBody)
+	if report.StateAssessment == nil || report.HeadlineVerdict == "" {
+		t.Fatalf("expected structured report state and headline verdict, got %+v", report)
 	}
-	if !strings.Contains(report.HTMLBody, "<h2>Primary Scenario</h2>") {
-		t.Fatalf("expected html to contain scenario section, got %q", report.HTMLBody)
+	if len(report.DimensionEvidence) == 0 {
+		t.Fatalf("expected structured dimension evidence, got %+v", report)
+	}
+	if report.ScenarioAssessment == nil {
+		t.Fatalf("expected scenario assessment, got %+v", report)
+	}
+	if report.ValidationReview == nil {
+		t.Fatalf("expected validation review placeholder, got %+v", report)
+	}
+	if strings.Contains(report.MarkdownBody, "Action Guidance") || strings.Contains(report.MarkdownBody, "Alternative Scenarios") {
+		t.Fatalf("expected markdown body to be localized in chinese, got %q", report.MarkdownBody)
+	}
+	if !strings.Contains(report.MarkdownBody, "## 综合应对与操作指引") {
+		t.Fatalf("expected markdown to contain chinese action guidance section, got %q", report.MarkdownBody)
+	}
+	if !strings.Contains(report.HTMLBody, "<h2>主线推演</h2>") {
+		t.Fatalf("expected html to contain chinese scenario section, got %q", report.HTMLBody)
 	}
 }

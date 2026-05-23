@@ -23,6 +23,10 @@
         <span class="nav-icon" v-html="searchIcon"></span>
         <span class="nav-label">搜索</span>
       </RouterLink>
+      <RouterLink to="/forecast-lab" class="nav-item" :class="{ active: isActive('/forecast-lab') }" @click="closeAll">
+        <span class="nav-icon" v-html="forecastIcon"></span>
+        <span class="nav-label">深度推演</span>
+      </RouterLink>
 
       <!-- Section: 推荐股票 -->
       <div class="sidebar-section">
@@ -113,6 +117,7 @@ const route = useRoute();
 
 const homeIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12l8-8 8 8"/><path d="M6 10v8h4v-4h4v4h4v-8"/></svg>';
 const searchIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/></svg>';
+const forecastIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 18l4-5 4 3 6-9 2 1"/><path d="M4 4v14h16"/></svg>';
 const starIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
 const newsIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5h14v16H5z"/><path d="M8 9h8M8 13h6M8 17h4"/></svg>';
 const communityIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>';

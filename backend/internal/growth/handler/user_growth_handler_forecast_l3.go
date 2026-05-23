@@ -27,6 +27,9 @@ func (h *UserGrowthHandler) CreateForecastL3Run(c *gin.Context) {
 		TargetID:      req.TargetID,
 		TargetKey:     req.TargetKey,
 		TargetLabel:   req.TargetLabel,
+		Source:        req.Source,
+		SourceID:      req.SourceID,
+		SourcePath:    req.SourcePath,
 		TriggerType:   firstNonEmpty(strings.TrimSpace(req.TriggerType), model.StrategyForecastL3TriggerTypeUserRequest),
 		RequestUserID: userID,
 		PriorityScore: req.PriorityScore,
@@ -84,4 +87,3 @@ func (h *UserGrowthHandler) GetForecastL3RunDetail(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, dto.OK(detail))
 }
-

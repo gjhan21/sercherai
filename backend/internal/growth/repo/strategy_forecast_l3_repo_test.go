@@ -16,7 +16,7 @@ const forecastL3ActiveCountQueryPattern = `SELECT COUNT\(\*\) FROM strategy_fore
 const forecastL3TodayCountQueryPattern = `SELECT COUNT\(\*\) FROM strategy_forecast_l3_runs WHERE DATE\(created_at\) = CURDATE\(\)`
 const forecastL3RunListQueryPattern = `(?s)SELECT\s+id,\s*target_type,\s*COALESCE\(target_id, ''\),\s*target_key,`
 const forecastL3RunByIDQueryPattern = `(?s)SELECT\s+id,\s*target_type,\s*COALESCE\(target_id, ''\),\s*target_key,.*FROM strategy_forecast_l3_runs\s+WHERE id = \?`
-const forecastL3ReportByRunIDQueryPattern = `(?s)SELECT\s+id,\s*run_id,\s*version,\s*COALESCE\(executive_summary, ''\),.*FROM strategy_forecast_l3_reports\s+WHERE run_id = \?\s+ORDER BY version DESC LIMIT 1`
+const forecastL3ReportByRunIDQueryPattern = `(?s)SELECT\s+id,\s*run_id,\s*version,\s*COALESCE\(headline_verdict, ''\),\s*COALESCE\(executive_summary, ''\),.*FROM strategy_forecast_l3_reports\s+WHERE run_id = \?\s+ORDER BY version DESC LIMIT 1`
 const forecastL3LogsByRunIDQueryPattern = `(?s)SELECT\s+id,\s*run_id,\s*step_key,\s*status,\s*COALESCE\(message, ''\),.*FROM strategy_forecast_l3_logs\s+WHERE run_id = \?\s+ORDER BY created_at ASC, id ASC`
 const forecastL3VIPUserQueryPattern = `SELECT member_level, kyc_status, vip_expire_at FROM users WHERE id = \?`
 
@@ -59,6 +59,9 @@ func TestCreateStrategyForecastL3RunPersistsQueuedRecord(t *testing.T) {
 		OperatorUserID: "admin_001",
 		PriorityScore:  0.82,
 		Reason:         "manual deep forecast",
+		Source:         "ADMIN_CONSOLE",
+		SourceID:       "seed-admin",
+		SourcePath:     "/admin/forecast-lab",
 		ContextMeta:    map[string]any{"source": "admin"},
 	})
 	if err != nil {
@@ -73,8 +76,31 @@ func TestCreateStrategyForecastL3RunPersistsQueuedRecord(t *testing.T) {
 	if run.TargetKey != "600519.SH" || run.TriggerType != model.StrategyForecastL3TriggerTypeAdminManual {
 		t.Fatalf("expected persisted run to echo target and trigger, got %+v", run)
 	}
+	if run.Source != "ADMIN_CONSOLE" || run.ContextQuality != model.StrategyForecastL3ContextQualityFull {
+		t.Fatalf("expected run source and context quality to be populated, got %+v", run)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestCreateStrategyForecastL3RunRejectsUserRequestWithoutTargetID(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+
+	_, err := repo.CreateStrategyForecastL3Run(model.StrategyForecastL3RunCreateInput{
+		TargetType:    model.StrategyForecastL3TargetTypeStock,
+		TargetKey:     "600519.SH",
+		TargetLabel:   "贵州茅台",
+		TriggerType:   model.StrategyForecastL3TriggerTypeUserRequest,
+		RequestUserID: "user_001",
+		PriorityScore: 0.61,
+		Reason:        "need deeper view",
+		Source:        "RECOMMENDATION",
+		SourceID:      "reco_001",
+		SourcePath:    "/recommendations",
+	})
+	if err == nil {
+		t.Fatalf("expected missing target_id to fail for strict user-request context")
 	}
 }
 
@@ -219,8 +245,13 @@ func TestGetStrategyForecastL3RunDetailAggregatesReportAndLogs(t *testing.T) {
 			"id",
 			"run_id",
 			"version",
+			"headline_verdict",
 			"executive_summary",
 			"primary_scenario",
+			"state_assessment_json",
+			"dimension_evidence_json",
+			"scenario_assessment_json",
+			"validation_review_json",
 			"alternative_scenarios_json",
 			"trigger_checklist_json",
 			"invalidation_signals_json",
@@ -235,8 +266,13 @@ func TestGetStrategyForecastL3RunDetailAggregatesReportAndLogs(t *testing.T) {
 			"l3report_demo_001",
 			"l3run_demo_001",
 			1,
+			"螺纹主力：模型复核认为主情景与现有证据基本一致。",
 			"高位分歧扩大，先看基差和库存。",
 			"base",
+			`{"current_state":"base","risk_boundary":"跌破关键支撑","source":"RECOMMENDATION","context_quality":"FULL"}`,
+			`[{"dimension":"SUPPLY_DEMAND","stance":"CONSTRUCTIVE","confidence":0.82,"summary":"供需基本面验证暂未恶化。","supporting_points":["库存"],"risk_points":["基差快速恶化"]}]`,
+			`{"current_state":"base","primary_scenario":"base","secondary_scenarios":["bull","bear"],"trigger_conditions":["库存拐点"],"invalidation_conditions":["跌破关键支撑"],"action_plan":["等库存确认"]}`,
+			`{"verdict":"模型复核认为主情景与现有证据基本一致。","scenario_consistency":"主情景整体自洽。","supporting_evidence":["库存拐点"],"counter_evidence":["基差快速恶化"],"blind_spots":["缺少更长窗口验证"],"risk_review":["关注回撤"],"action_review":["等库存确认"],"llm_summary":"当前复核支持继续跟踪。","status":"COMPLETED"}`,
 			`[{"name":"bull","probability":0.22,"thesis":"补涨延续","action":"跟随"},{"name":"bear","probability":0.18,"thesis":"高位回撤","action":"收缩"}]`,
 			`[{"label":"库存","status":"WATCH","note":"继续跟踪","trigger":"库存拐点"}]`,
 			`["跌破关键支撑","基差快速恶化"]`,
@@ -349,8 +385,13 @@ func TestGetStrategyForecastL3RunDetailForUserHidesFullReportForNonVIP(t *testin
 			"id",
 			"run_id",
 			"version",
+			"headline_verdict",
 			"executive_summary",
 			"primary_scenario",
+			"state_assessment_json",
+			"dimension_evidence_json",
+			"scenario_assessment_json",
+			"validation_review_json",
 			"alternative_scenarios_json",
 			"trigger_checklist_json",
 			"invalidation_signals_json",
@@ -365,8 +406,13 @@ func TestGetStrategyForecastL3RunDetailForUserHidesFullReportForNonVIP(t *testin
 			"l3report_demo_001",
 			"l3run_demo_001",
 			1,
+			"贵州茅台：模型复核认为主情景与现有证据基本一致。",
 			"摘要仍然可读。",
 			"base",
+			`{"current_state":"base","risk_boundary":"跌破关键支撑","source":"RECOMMENDATION","context_quality":"FULL"}`,
+			`[{"dimension":"FUNDAMENTAL","stance":"BULLISH","confidence":0.78,"summary":"基本面仍稳健。","supporting_points":["量能"],"risk_points":["跌破关键支撑"]}]`,
+			`{"current_state":"base","primary_scenario":"base","secondary_scenarios":["bull"],"trigger_conditions":["放量确认"],"invalidation_conditions":["跌破关键支撑"],"action_plan":["等量能确认"]}`,
+			`{"verdict":"模型复核认为主情景与现有证据基本一致。","scenario_consistency":"主情景整体自洽。","supporting_evidence":["放量确认"],"counter_evidence":["跌破关键支撑"],"blind_spots":["缺少更长窗口验证"],"risk_review":["关注回撤"],"action_review":["等量能确认"],"llm_summary":"当前复核支持继续跟踪。","status":"COMPLETED"}`,
 			`[{"name":"bull","probability":0.22,"thesis":"补涨延续","action":"跟随"}]`,
 			`[{"label":"量能","status":"WATCH","note":"继续跟踪","trigger":"放量确认"}]`,
 			`["跌破关键支撑"]`,

@@ -111,6 +111,13 @@
             heading="深度推演"
             style="margin-bottom: 12px;"
           />
+          <button
+            v-if="showResult && (reco?.symbol || symbol)"
+            class="deep-forecast-lab-btn"
+            @click="router.push(forecastLabEntryTo)"
+          >
+            带着完整上下文进入深度推演
+          </button>
           <div class="agent-list">
             <div v-for="agent in agentOpinions" :key="agent.role" class="agent-card">
               <div class="agent-head">
@@ -214,6 +221,7 @@ import { STOCK_MASTER } from "@/mock/stocks.js";
 import { getStockRecommendationInsight, listStockRecommendations } from "@/api/market.js";
 import DeepForecastSummaryCard from "@/shared/components/deep-forecast/DeepForecastSummaryCard.vue";
 import { useDeepForecastEntry } from "@/shared/composables/useDeepForecastEntry.js";
+import { buildForecastContextQuery } from "@/shared/lib/forecast-context.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -271,6 +279,24 @@ const {
   to: forecastEntryTo,
   visible: forecastEntryVisible
 } = useDeepForecastEntry(forecastEntrySource, { mode: "pc" });
+const forecastLabEntryTo = computed(() => {
+  const recommendation = reco.value || {};
+  const targetKey = recommendation.symbol || symbol.value;
+  const targetLabel = recommendation.name || targetKey;
+  return {
+    path: "/forecast-lab",
+    query: buildForecastContextQuery({
+      targetType: "STOCK",
+      targetId: recommendation.id || recommendation.recommendation_id || recommendation.reco_id || "",
+      targetKey,
+      targetLabel,
+      source: "IDENTIFY",
+      sourceId: recommendation.id || recommendation.recommendation_id || recommendation.reco_id || targetKey,
+      sourcePath: targetKey ? `/identify/${targetKey}` : "/identify",
+      from: "identify"
+    })
+  };
+});
 
 function riskLabel(r) { const m = { HIGH:'高风险', MEDIUM:'中风险', LOW:'低风险' }; return m[r] || r; }
 function stanceLabel(s) {
@@ -450,6 +476,7 @@ async function analyzeStock(input) {
 .analysis-grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 
 /* Agents */
+.deep-forecast-lab-btn { width: 100%; margin-bottom: 12px; padding: 12px 16px; border-radius: var(--radius-full); border: 1px solid var(--border-gold); background: rgba(240,185,11,.08); color: var(--accent-gold); font-size: 13px; font-weight: 700; cursor: pointer; }
 .agent-list { display: grid; gap: 8px; }
 .agent-card { padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
 .agent-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }

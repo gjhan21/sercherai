@@ -1,5 +1,22 @@
 <template>
   <div class="daily-recs-page">
+    <section class="flow-strip glass fade-in-up">
+      <div class="flow-copy">
+        <p class="flow-kicker">机会主线</p>
+        <h2>第 1 步：发现机会</h2>
+        <p>先从今日 AI 精选里确认机会，再进入交易策略与深度推演完成决策闭环。</p>
+      </div>
+      <div class="flow-steps">
+        <span class="flow-step active">1. 每日推荐</span>
+        <span class="flow-step">2. 交易策略</span>
+        <span class="flow-step">3. 深度推演</span>
+      </div>
+      <div class="flow-actions">
+        <button class="flow-btn" @click="goToStrategies()">查看交易策略</button>
+        <button class="flow-btn ghost" @click="goToForecastLab()">查看深度推演</button>
+      </div>
+    </section>
+
     <!-- AI Picks -->
     <section class="section fade-in-up">
       <div class="section-header">
@@ -44,6 +61,10 @@
           <div class="pick-footer">
             <button class="pick-detail-btn" @click.stop="$router.push('/identify?q=' + stock.symbol)">分析 →</button>
             <span class="pick-strategy">策略: {{ stock.strategy.positionSize }}</span>
+          </div>
+          <div class="pick-journey">
+            <button class="journey-btn" @click.stop="goToStrategies(stock)">查看对应策略</button>
+            <button class="journey-btn ghost" @click.stop="goToForecastLab(stock)">进入深度推演</button>
           </div>
         </article>
       </div>
@@ -127,6 +148,7 @@ import { STOCK_MASTER } from "@/mock/stocks.js";
 import { DAILY_RECS as MOCK_RECS } from "@/mock/recommendations.js";
 import { listStockRecommendations, getStockKline, getStockPatternMatch } from "@/api/market.js"
 import KlineChart from "@/apps/pc/components/KlineChart.vue"
+import { buildForecastContextQuery } from "@/shared/lib/forecast-context.js";
 import { useClientAuth } from "@/shared/auth/client-auth";
 const { isLoggedIn } = useClientAuth();
 
@@ -186,6 +208,43 @@ function showDetail(stock) {
   chartSymbol.value = stock.symbol;
 }
 
+function goToStrategies(stock) {
+  const target = stock?.symbol || chartSymbol.value || "";
+  router.push({
+    path: "/recommendations/strategies",
+    query: target
+      ? { symbol: target, name: stock?.name || chartStock.value?.name || "", from: "recommendations" }
+      : { from: "recommendations" }
+  });
+}
+
+function goToForecastLab(stock) {
+  const target = stock?.symbol || chartSymbol.value || "";
+  const targetLabel = stock?.name || chartStock.value?.name || "";
+  router.push({
+    path: "/forecast-lab",
+    query: buildForecastContextQuery(
+      target
+        ? {
+            targetType: "STOCK",
+            targetId: stock?.id || "",
+            targetKey: target,
+            targetLabel,
+            source: "RECOMMENDATION",
+            sourceId: stock?.id || "",
+            sourcePath: "/recommendations",
+            from: "recommendations"
+          }
+        : {
+            targetType: "STOCK",
+            source: "RECOMMENDATION",
+            sourcePath: "/recommendations",
+            from: "recommendations"
+          }
+    )
+  });
+}
+
 async function loadDailyRecs() {
   if (!isLoggedIn.value) return;
   try {
@@ -240,6 +299,17 @@ async function loadPrediction() {
 <style scoped>
 .daily-recs-page { display: grid; gap: 20px; max-width: 1400px; }
 
+.flow-strip { display: grid; gap: 14px; padding: 18px 20px; border-radius: var(--radius-lg); border: 1px solid var(--border); background: linear-gradient(135deg, rgba(240,185,11,.08), rgba(255,255,255,.02)); }
+.flow-copy h2 { font-size: 22px; font-weight: 800; margin: 4px 0 6px; }
+.flow-copy p { color: var(--text-secondary); line-height: 1.7; }
+.flow-kicker { font-size: 11px; color: var(--accent-gold); text-transform: uppercase; letter-spacing: .08em; }
+.flow-steps { display: flex; gap: 8px; flex-wrap: wrap; }
+.flow-step { padding: 8px 12px; border-radius: var(--radius-full); border: 1px solid var(--border); color: var(--text-secondary); font-size: 12px; }
+.flow-step.active { border-color: var(--border-gold); color: var(--accent-gold); background: var(--accent-gold-glow); }
+.flow-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.flow-btn, .journey-btn { display: inline-flex; align-items: center; justify-content: center; padding: 10px 14px; border-radius: var(--radius-full); font-size: 13px; font-weight: 600; cursor: pointer; border: none; background: linear-gradient(135deg,var(--accent-gold),var(--accent-gold-dim)); color: #000; }
+.flow-btn.ghost, .journey-btn.ghost { background: none; border: 1px solid var(--border-gold); color: var(--accent-gold); }
+
 .recs-summary-stats { display: flex; gap: 16px; }
 .recs-stat { padding: 12px 20px; border-radius: var(--radius-md); background: rgba(255,255,255,0.03); border: 1px solid var(--border); }
 .recs-stat-value { display: block; font-size: 22px; font-weight: 700; color: var(--accent-gold); }
@@ -283,6 +353,8 @@ async function loadPrediction() {
 .pick-badge.badge-low { background: rgba(139,147,176,.1); color: var(--text-secondary); }
 .pick-badge.risk-badge { background: rgba(255,255,255,.04); color: var(--text-secondary); }
 .pick-footer { display: flex; align-items: center; justify-content: space-between; }
+.pick-journey { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.journey-btn { padding: 9px 12px; font-size: 12px; }
 .pick-tags { display: flex; gap: 6px; }
 .pick-strategy { font-size: 11px; color: var(--text-muted); }
 .pick-detail-btn { padding: 4px 12px; border-radius: var(--radius-full); border: 1px solid var(--accent-gold); color: var(--accent-gold); font-size: 11px; font-weight: 600; background: none; cursor: pointer; }
@@ -324,7 +396,7 @@ async function loadPrediction() {
 .strat-val { font-size: 13px; font-weight: 600; }
 
 @media (max-width: 1200px) { .picks-grid, .strategy-summary-grid { grid-template-columns: repeat(2,1fr); } }
-@media (max-width: 900px) { .picks-grid, .strategy-summary-grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .picks-grid, .strategy-summary-grid { grid-template-columns: 1fr; } .pick-journey { grid-template-columns: 1fr; } }
 .predict-btn { display: inline-flex; align-items: center; gap: 8px; padding: 9px 22px; border-radius: var(--radius-full); background: #f0b90b; background: linear-gradient(135deg, #f0b90b, #d4a00a); color: #0b0e1a; font-size: 13px; font-weight: 700; border: none; cursor: pointer; transition: all .25s; box-shadow: 0 2px 12px rgba(240,185,11,.25); margin-left: auto; flex-shrink: 0; }
 .predict-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(240,185,11,.35); }
 .predict-btn:disabled { opacity: .5; cursor: default; transform: none; }

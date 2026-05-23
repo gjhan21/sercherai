@@ -75,7 +75,7 @@ let searchTimer = null;
 const isBlankLayout = computed(() => route.meta?.layout === "blank");
 
 const sectionTitles = {
-  home: '智投首页', recs: '推荐股票', identify: '鉴别分析',
+  home: '智投首页', recs: '推荐股票', identify: '鉴别分析', forecast: '深度推演',
   news: '资讯中心', community: '社区', user: '我的'
 };
 

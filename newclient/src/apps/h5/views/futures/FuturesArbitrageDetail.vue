@@ -18,8 +18,8 @@
     </div>
     <div class="h5-forecast-entry">
       <strong>深度推演</strong>
-      <p>如当前期货机会已生成 L3 推演，可从完整推演页继续查看运行状态与报告。</p>
-      <RouterLink to="/forecast/demo" class="h5-forecast-link">查看完整深度推演</RouterLink>
+      <p>如当前期货机会已生成 L3 推演，可先查看完整报告；若需要新的研究任务，也可以带着这次机会的完整上下文进入深度推演入口。</p>
+      <button class="h5-forecast-link h5-forecast-entry-btn" @click="router.push(forecastLabEntryTo)">带着完整上下文进入深度推演</button>
     </div>
     <button class="h5-alert-btn" @click="showAlert = !showAlert">🔔 {{ showAlert ? '取消' : '设置提醒' }}</button>
     <div v-if="showAlert" class="h5-alert-form">
@@ -32,17 +32,37 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { computed, onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { getFuturesArbitrageDetail, createFuturesAlert } from "@/api/market.js";
+import { buildForecastContextQuery } from "@/shared/lib/forecast-context.js";
 
 const MOCK_ARB = [{id:"arb_1",contract_a:"IF 主连",contract_b:"IC 主连",type:"CALENDAR",entry_point:186,exit_point:132,stop_point:208,percentile:0.86},{id:"arb_2",contract_a:"IH 主连",contract_b:"IF 主连",type:"CROSS",entry_point:-76,exit_point:-42,stop_point:-94,percentile:0.79}];
 
 const route = useRoute();
+const router = useRouter();
 const item = ref(null);
 const showAlert = ref(false);
 const alertThreshold = ref("");
 const alertMsg = ref("");
+const forecastLabEntryTo = computed(() => {
+  const current = item.value || {};
+  const targetKey = current.contract_a || current.contract_b || "";
+  const targetLabel = [current.contract_a, current.contract_b].filter(Boolean).join(" / ") || targetKey;
+  return {
+    path: "/forecast-lab",
+    query: buildForecastContextQuery({
+      targetType: "FUTURES",
+      targetId: current.id || route.params.id,
+      targetKey,
+      targetLabel,
+      source: "FUTURES_DETAIL",
+      sourceId: current.id || route.params.id,
+      sourcePath: current.id ? `/futures/arbitrage/${current.id}` : "/markets",
+      from: "strategies"
+    })
+  };
+});
 
 function typeLabel(t) { return t === 'CALENDAR' ? '跨期' : '跨品种'; }
 function riskLabel(r) { const m = { HIGH:'高风险', MEDIUM:'中风险', LOW:'低风险' }; return m[r] || r; }
@@ -82,4 +102,5 @@ onMounted(loadDetail);
 .h5-forecast-entry { padding: 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); display: grid; gap: 8px; }
 .h5-forecast-entry p { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
 .h5-forecast-link { display: inline-flex; justify-content: center; padding: 10px; border-radius: var(--radius-full); border: 1px solid var(--accent-gold); color: var(--accent-gold); text-decoration: none; font-size: 13px; font-weight: 600; }
+.h5-forecast-entry-btn { width: 100%; background: rgba(240,185,11,.08); cursor: pointer; }
 </style>

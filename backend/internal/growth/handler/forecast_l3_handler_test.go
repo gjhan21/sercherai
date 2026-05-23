@@ -36,7 +36,7 @@ func TestCreateForecastL3RunReturnsQueuedRun(t *testing.T) {
 	attachUserID(router, "user_001")
 	router.POST("/api/v1/forecast/runs", growthHandler.CreateForecastL3Run)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/forecast/runs", bytes.NewBufferString(`{"target_type":"STOCK","target_key":"600519.SH","target_label":"贵州茅台","priority_score":0.81,"reason":"need deeper view"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/forecast/runs", bytes.NewBufferString(`{"target_type":"STOCK","target_id":"reco_001","target_key":"600519.SH","target_label":"贵州茅台","source":"RECOMMENDATION","source_id":"reco_001","source_path":"/recommendations","priority_score":0.81,"reason":"need deeper view"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -60,6 +60,22 @@ func TestCreateForecastL3RunReturnsQueuedRun(t *testing.T) {
 	}
 	if payload.Data.ID == "" || payload.Data.Status != "QUEUED" {
 		t.Fatalf("expected queued run response, got %+v", payload.Data)
+	}
+}
+
+func TestCreateForecastL3RunRejectsMissingStrictContextForUserRequest(t *testing.T) {
+	growthHandler := newUserGrowthHandlerForTest(t)
+	router := gin.New()
+	attachUserID(router, "user_001")
+	router.POST("/api/v1/forecast/runs", growthHandler.CreateForecastL3Run)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/forecast/runs", bytes.NewBufferString(`{"target_type":"STOCK","target_key":"600519.SH","target_label":"贵州茅台","reason":"need deeper view"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -150,6 +166,7 @@ func TestAdminRetryForecastL3RunOK(t *testing.T) {
 func repoRunInput(targetType string, targetKey string, userID string) model.StrategyForecastL3RunCreateInput {
 	return model.StrategyForecastL3RunCreateInput{
 		TargetType:     targetType,
+		TargetID:       targetKey,
 		TargetKey:      targetKey,
 		TargetLabel:    targetKey,
 		TriggerType:    "ADMIN_MANUAL",
@@ -157,5 +174,8 @@ func repoRunInput(targetType string, targetKey string, userID string) model.Stra
 		OperatorUserID: userID,
 		PriorityScore:  0.8,
 		Reason:         "seeded handler test run",
+		Source:         "ADMIN_CONSOLE",
+		SourceID:       "seed-admin",
+		SourcePath:     "/admin/forecast-lab",
 	}
 }
