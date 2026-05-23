@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"strings"
 	"testing"
 
 	"sercherai/backend/internal/growth/model"
@@ -77,6 +78,28 @@ func TestBuildStrategyForecastL3ResearchPackIncludesFuturesDomainEvidence(t *tes
 	}
 	if len(pack.FuturesEvidence.MacroEvent.SupportingPoints) == 0 {
 		t.Fatalf("expected futures macro-event evidence supporting points, got %+v", pack.FuturesEvidence.MacroEvent)
+	}
+}
+
+func TestBuildStrategyForecastL3ResearchPackSkipsMisleadingZeroEvidenceWhenMetaMissing(t *testing.T) {
+	insight := model.StockRecommendationInsight{
+		Recommendation: model.StockRecommendation{
+			Name:          "测试股票",
+			ReasonSummary: "仅保留主线结论。",
+		},
+		Detail: model.StockRecommendationDetail{
+			RiskNote: "关注风险边界。",
+		},
+		Explanation: model.StrategyClientExplanation{
+			ConsensusSummary: "主线结论仍需验证。",
+			EvaluationMeta:   map[string]any{},
+		},
+	}
+
+	evidence := buildStrategyForecastL3StockEvidence(insight)
+	joined := strings.Join(append(append([]string{}, evidence.Technical.SupportingPoints...), evidence.Valuation.SupportingPoints...), " | ")
+	if strings.Contains(joined, "0.00") {
+		t.Fatalf("expected no fabricated zero-valued evidence, got %q", joined)
 	}
 }
 

@@ -257,6 +257,7 @@ func buildStrategyForecastL3ValidationPrompt(
 		fmt.Sprintf("invalidations=%s", strings.Join(pack.Invalidations, " | ")),
 		fmt.Sprintf("action_hints=%s", strings.Join(pack.ActionHints, " | ")),
 	}
+	parts = append(parts, buildStrategyForecastL3DomainEvidencePromptLines(run.TargetType, pack)...)
 	for _, role := range roles {
 		parts = append(parts, fmt.Sprintf("role=%s stance=%s confidence=%.2f summary=%s", role.Role, role.Stance, role.Confidence, role.Summary))
 	}
@@ -357,7 +358,7 @@ func buildStrategyForecastL3ResearchPack(
 }
 
 func buildStrategyForecastL3StockEvidence(insight model.StockRecommendationInsight) model.StrategyForecastL3StockEvidence {
-	quote := firstStockQuantScore(insight.Explanation)
+	quote, hasQuote := firstStockQuantScore(insight.Explanation)
 	fundamentalPoints := uniqueForecastL3Strings(nonEmptyStrings(
 		firstNonEmpty(insight.Recommendation.ReasonSummary, insight.Explanation.ConsensusSummary),
 		firstNonEmpty(insight.Explanation.ConfidenceReason, insight.Explanation.SeedSummary),
@@ -368,42 +369,59 @@ func buildStrategyForecastL3StockEvidence(insight model.StockRecommendationInsig
 		insight.Explanation.RiskBoundary,
 	))
 
-	technicalPoints := uniqueForecastL3Strings(nonEmptyStrings(
-		fmt.Sprintf("20日动量%.2f，趋势强度%.2f。", quote.Momentum20, quote.TrendStrength),
-		fmt.Sprintf("20日波动率%.2f，量比%.2f。", quote.Volatility20, quote.VolumeRatio),
-		fmt.Sprintf("技术评分%.2f，20日回撤%.2f。", insight.Detail.TechScore, quote.Drawdown20),
-	))
+	technicalPoints := make([]string, 0, 3)
+	if hasQuote && (quote.Momentum20 != 0 || quote.TrendStrength != 0) {
+		technicalPoints = append(technicalPoints, fmt.Sprintf("20日动量%.2f，趋势强度%.2f。", quote.Momentum20, quote.TrendStrength))
+	}
+	if hasQuote && (quote.Volatility20 != 0 || quote.VolumeRatio != 0) {
+		technicalPoints = append(technicalPoints, fmt.Sprintf("20日波动率%.2f，量比%.2f。", quote.Volatility20, quote.VolumeRatio))
+	}
+	if insight.Detail.TechScore > 0 || (hasQuote && quote.Drawdown20 != 0) {
+		technicalPoints = append(technicalPoints, fmt.Sprintf("技术评分%.2f，20日回撤%.2f。", insight.Detail.TechScore, quote.Drawdown20))
+	}
+	technicalPoints = uniqueForecastL3Strings(technicalPoints)
 	technicalRisks := uniqueForecastL3Strings(nonEmptyStrings(
-		technicalRiskFromQuote(quote),
+		technicalRiskFromQuote(quote, hasQuote),
 		insight.Detail.RiskNote,
 	))
 
-	flowPoints := uniqueForecastL3Strings(nonEmptyStrings(
-		fmt.Sprintf("资金流评分%.2f，净流入%.2f。", quote.FlowScore, quote.NetMFAmount),
-		fmt.Sprintf("换手率%.2f，资金流因子%.2f。", quote.TurnoverRate, insight.Detail.MoneyFlowScore),
-	))
+	flowPoints := make([]string, 0, 2)
+	if hasQuote && (quote.FlowScore != 0 || quote.NetMFAmount != 0) {
+		flowPoints = append(flowPoints, fmt.Sprintf("资金流评分%.2f，净流入%.2f。", quote.FlowScore, quote.NetMFAmount))
+	}
+	if (hasQuote && quote.TurnoverRate != 0) || insight.Detail.MoneyFlowScore > 0 {
+		flowPoints = append(flowPoints, fmt.Sprintf("换手率%.2f，资金流因子%.2f。", quote.TurnoverRate, insight.Detail.MoneyFlowScore))
+	}
+	flowPoints = uniqueForecastL3Strings(flowPoints)
 	flowRisks := uniqueForecastL3Strings(nonEmptyStrings(
-		flowRiskFromQuote(quote),
+		flowRiskFromQuote(quote, hasQuote),
 	))
 
-	valuationPoints := uniqueForecastL3Strings(nonEmptyStrings(
-		fmt.Sprintf("PE(TTM) %.2f，PB %.2f。", quote.PeTTM, quote.PB),
-		fmt.Sprintf("估值评分%.2f。", quote.ValueScore),
-	))
+	valuationPoints := make([]string, 0, 2)
+	if hasQuote && (quote.PeTTM > 0 || quote.PB > 0) {
+		valuationPoints = append(valuationPoints, fmt.Sprintf("PE(TTM) %.2f，PB %.2f。", quote.PeTTM, quote.PB))
+	}
+	if hasQuote && quote.ValueScore != 0 {
+		valuationPoints = append(valuationPoints, fmt.Sprintf("估值评分%.2f。", quote.ValueScore))
+	}
+	valuationPoints = uniqueForecastL3Strings(valuationPoints)
 	valuationRisks := uniqueForecastL3Strings(nonEmptyStrings(
-		valuationRiskFromQuote(quote),
+		valuationRiskFromQuote(quote, hasQuote),
 	))
 
 	eventPoints := make([]string, 0, len(insight.RelatedNews)+2)
-	eventPoints = append(eventPoints, nonEmptyStrings(
-		fmt.Sprintf("新闻热度%d，正向新闻占比%.2f。", quote.NewsHeat, quote.PositiveNewsRate),
-		fmt.Sprintf("新闻评分%.2f。", quote.NewsScore),
-	)...)
+	if hasQuote && (quote.NewsHeat > 0 || quote.PositiveNewsRate > 0) {
+		eventPoints = append(eventPoints, fmt.Sprintf("新闻热度%d，正向新闻占比%.2f。", quote.NewsHeat, quote.PositiveNewsRate))
+	}
+	if hasQuote && quote.NewsScore != 0 {
+		eventPoints = append(eventPoints, fmt.Sprintf("新闻评分%.2f。", quote.NewsScore))
+	}
 	for _, item := range insight.RelatedNews {
 		eventPoints = append(eventPoints, firstNonEmpty(item.Title, item.Summary))
 	}
+	eventPoints = uniqueForecastL3Strings(eventPoints)
 	eventRisks := uniqueForecastL3Strings(nonEmptyStrings(
-		eventRiskFromQuote(quote),
+		eventRiskFromQuote(quote, hasQuote),
 	))
 
 	return model.StrategyForecastL3StockEvidence{
@@ -429,47 +447,53 @@ func buildStrategyForecastL3StockEvidence(insight model.StockRecommendationInsig
 		},
 		Event: model.StrategyForecastL3EvidenceSlice{
 			Summary:          firstNonEmpty(eventPoints...),
-			SupportingPoints: uniqueForecastL3Strings(eventPoints),
+			SupportingPoints: eventPoints,
 			RiskPoints:       eventRisks,
 		},
 	}
 }
 
 func buildStrategyForecastL3FuturesEvidence(insight model.FuturesStrategyInsight) model.StrategyForecastL3FuturesEvidence {
-	seed := firstFuturesSeed(insight.Explanation)
+	seed, hasSeed := firstFuturesSeed(insight.Explanation)
 	supplyDemandPoints := uniqueForecastL3Strings(nonEmptyStrings(
 		firstNonEmpty(insight.Explanation.InventorySummary, inventorySummaryText(seed)),
-		fmt.Sprintf("库存压力%.2f，库存变动%.2f，库存水平%.2f。", seed.InventoryPressure, seed.InventoryChangePct, seed.InventoryLevel),
+		conditionalString(hasSeed && (seed.InventoryPressure != 0 || seed.InventoryChangePct != 0 || seed.InventoryLevel != 0),
+			fmt.Sprintf("库存压力%.2f，库存变动%.2f，库存水平%.2f。", seed.InventoryPressure, seed.InventoryChangePct, seed.InventoryLevel)),
 		firstNonEmpty(seed.InventoryBrandGradeSummary, inventoryFocusText(seed)),
 	))
 	supplyDemandRisks := uniqueForecastL3Strings(nonEmptyStrings(
-		supplyDemandRiskFromSeed(seed),
+		supplyDemandRiskFromSeed(seed, hasSeed),
 		insight.Guidance.InvalidCondition,
 	))
 
 	termStructurePoints := uniqueForecastL3Strings(nonEmptyStrings(
-		fmt.Sprintf("基差%.2f，Carry %.2f，期限结构%.2f。", seed.BasisPct, seed.CarryPct, seed.TermStructurePct),
-		fmt.Sprintf("曲线斜率%.2f，基差-期限一致性%.2f。", seed.CurveSlopePct, seed.BasisTermAlignment),
+		conditionalString(hasSeed && (seed.BasisPct != 0 || seed.CarryPct != 0 || seed.TermStructurePct != 0),
+			fmt.Sprintf("基差%.2f，Carry %.2f，期限结构%.2f。", seed.BasisPct, seed.CarryPct, seed.TermStructurePct)),
+		conditionalString(hasSeed && (seed.CurveSlopePct != 0 || seed.BasisTermAlignment != 0),
+			fmt.Sprintf("曲线斜率%.2f，基差-期限一致性%.2f。", seed.CurveSlopePct, seed.BasisTermAlignment)),
 		firstNonEmpty(seed.StructureSignalSummary),
 	))
 	termStructureRisks := uniqueForecastL3Strings(nonEmptyStrings(
-		termStructureRiskFromSeed(seed),
+		termStructureRiskFromSeed(seed, hasSeed),
 	))
 
 	tapePoints := uniqueForecastL3Strings(nonEmptyStrings(
-		fmt.Sprintf("趋势强度%.2f，14日波动率%.2f，量比%.2f。", seed.TrendStrength, seed.Volatility14, seed.VolumeRatio),
-		fmt.Sprintf("价差压力%.2f，跨合约联动%.2f。", seed.SpreadPressure, seed.CrossContractLinkage),
+		conditionalString(hasSeed && (seed.TrendStrength != 0 || seed.Volatility14 != 0 || seed.VolumeRatio != 0),
+			fmt.Sprintf("趋势强度%.2f，14日波动率%.2f，量比%.2f。", seed.TrendStrength, seed.Volatility14, seed.VolumeRatio)),
+		conditionalString(hasSeed && (seed.SpreadPressure != 0 || seed.CrossContractLinkage != 0),
+			fmt.Sprintf("价差压力%.2f，跨合约联动%.2f。", seed.SpreadPressure, seed.CrossContractLinkage)),
 	))
 	tapeRisks := uniqueForecastL3Strings(nonEmptyStrings(
-		tapeRiskFromSeed(seed),
+		tapeRiskFromSeed(seed, hasSeed),
 	))
 
 	positionPoints := uniqueForecastL3Strings(nonEmptyStrings(
-		fmt.Sprintf("持仓变化%.2f，换手率%.2f，流向偏置%.2f。", seed.OIChangePct, seed.TurnoverRatio, seed.FlowBias),
-		fmt.Sprintf("策略方向%s，仓位建议%s。", insight.Guidance.GuidanceDirection, insight.Guidance.PositionLevel),
+		conditionalString(hasSeed && (seed.OIChangePct != 0 || seed.TurnoverRatio != 0 || seed.FlowBias != 0),
+			fmt.Sprintf("持仓变化%.2f，换手率%.2f，流向偏置%.2f。", seed.OIChangePct, seed.TurnoverRatio, seed.FlowBias)),
+		guidancePositionText(insight.Guidance.GuidanceDirection, insight.Guidance.PositionLevel),
 	))
 	positionRisks := uniqueForecastL3Strings(nonEmptyStrings(
-		positionRiskFromSeed(seed),
+		positionRiskFromSeed(seed, hasSeed),
 	))
 
 	macroPoints := make([]string, 0, len(insight.RelatedNews)+len(insight.RelatedEvents)+2)
@@ -517,34 +541,34 @@ func buildStrategyForecastL3FuturesEvidence(insight model.FuturesStrategyInsight
 	}
 }
 
-func firstStockQuantScore(explanation model.StrategyClientExplanation) model.StockQuantScore {
+func firstStockQuantScore(explanation model.StrategyClientExplanation) (model.StockQuantScore, bool) {
 	if len(explanation.EvaluationMeta) == 0 {
-		return model.StockQuantScore{}
+		return model.StockQuantScore{}, false
 	}
 	raw, ok := explanation.EvaluationMeta["stock_quant_score"]
 	if !ok {
-		return model.StockQuantScore{}
+		return model.StockQuantScore{}, false
 	}
 	var score model.StockQuantScore
 	if decodeStrategyForecastL3Meta(raw, &score) {
-		return score
+		return score, true
 	}
-	return model.StockQuantScore{}
+	return model.StockQuantScore{}, false
 }
 
-func firstFuturesSeed(explanation model.StrategyClientExplanation) model.StrategyEngineFuturesSeed {
+func firstFuturesSeed(explanation model.StrategyClientExplanation) (model.StrategyEngineFuturesSeed, bool) {
 	if len(explanation.EvaluationMeta) == 0 {
-		return model.StrategyEngineFuturesSeed{}
+		return model.StrategyEngineFuturesSeed{}, false
 	}
 	raw, ok := explanation.EvaluationMeta["futures_seed"]
 	if !ok {
-		return model.StrategyEngineFuturesSeed{}
+		return model.StrategyEngineFuturesSeed{}, false
 	}
 	var seed model.StrategyEngineFuturesSeed
 	if decodeStrategyForecastL3Meta(raw, &seed) {
-		return seed
+		return seed, true
 	}
-	return model.StrategyEngineFuturesSeed{}
+	return model.StrategyEngineFuturesSeed{}, false
 }
 
 func decodeStrategyForecastL3Meta(raw any, target any) bool {
@@ -566,35 +590,53 @@ func nonEmptyStrings(items ...string) []string {
 }
 
 func stockPerformanceSummaryText(stats model.StockRecommendationPerformanceSummary) string {
+	if stats.SampleDays == 0 && stats.CumulativeReturn == 0 {
+		return ""
+	}
 	return fmt.Sprintf("sample_days=%d cumulative_return=%.4f", stats.SampleDays, stats.CumulativeReturn)
 }
 
 func futuresPerformanceSummaryText(stats model.FuturesStrategyPerformanceSummary) string {
+	if stats.SampleDays == 0 && stats.CumulativeReturn == 0 {
+		return ""
+	}
 	return fmt.Sprintf("sample_days=%d cumulative_return=%.4f", stats.SampleDays, stats.CumulativeReturn)
 }
 
-func technicalRiskFromQuote(quote model.StockQuantScore) string {
+func technicalRiskFromQuote(quote model.StockQuantScore, hasQuote bool) string {
+	if !hasQuote {
+		return ""
+	}
 	if quote.Drawdown20 > 0 {
 		return fmt.Sprintf("20日回撤%.2f提示技术面仍有回吐压力。", quote.Drawdown20)
 	}
 	return ""
 }
 
-func flowRiskFromQuote(quote model.StockQuantScore) string {
+func flowRiskFromQuote(quote model.StockQuantScore, hasQuote bool) string {
+	if !hasQuote {
+		return ""
+	}
 	if quote.NetMFAmount < 0 {
 		return fmt.Sprintf("净资金流入%.2f偏弱，资金承接需要继续验证。", quote.NetMFAmount)
 	}
 	return ""
 }
 
-func valuationRiskFromQuote(quote model.StockQuantScore) string {
+func valuationRiskFromQuote(quote model.StockQuantScore, hasQuote bool) string {
+	if !hasQuote {
+		return ""
+	}
 	if quote.PeTTM > 0 && quote.PB > 0 {
 		return fmt.Sprintf("PE(TTM) %.2f、PB %.2f 对估值安全边际提出约束。", quote.PeTTM, quote.PB)
 	}
 	return ""
 }
 
-func eventRiskFromQuote(quote model.StockQuantScore) string {
+func eventRiskFromQuote(quote model.StockQuantScore, hasQuote bool) string {
+	if !hasQuote {
+		return ""
+	}
 	if quote.PositiveNewsRate > 0 && quote.PositiveNewsRate < 0.6 {
 		return fmt.Sprintf("正向新闻占比%.2f，事件驱动一致性不足。", quote.PositiveNewsRate)
 	}
@@ -616,32 +658,97 @@ func inventoryFocusText(seed model.StrategyEngineFuturesSeed) string {
 	return "库存关注点：" + strings.Join(parts, " / ")
 }
 
-func supplyDemandRiskFromSeed(seed model.StrategyEngineFuturesSeed) string {
+func supplyDemandRiskFromSeed(seed model.StrategyEngineFuturesSeed, hasSeed bool) string {
+	if !hasSeed {
+		return ""
+	}
 	if seed.InventoryChangePct > 0 {
 		return fmt.Sprintf("库存变动%.2f偏高，供需改善节奏可能慢于预期。", seed.InventoryChangePct)
 	}
 	return ""
 }
 
-func termStructureRiskFromSeed(seed model.StrategyEngineFuturesSeed) string {
+func termStructureRiskFromSeed(seed model.StrategyEngineFuturesSeed, hasSeed bool) string {
+	if !hasSeed {
+		return ""
+	}
 	if seed.BasisTermAlignment < 0 {
 		return fmt.Sprintf("基差-期限结构一致性%.2f，曲线与现货信号存在背离。", seed.BasisTermAlignment)
 	}
 	return ""
 }
 
-func tapeRiskFromSeed(seed model.StrategyEngineFuturesSeed) string {
+func tapeRiskFromSeed(seed model.StrategyEngineFuturesSeed, hasSeed bool) string {
+	if !hasSeed {
+		return ""
+	}
 	if seed.Volatility14 > 0 {
 		return fmt.Sprintf("14日波动率%.2f，盘面波动仍需用仓位控制消化。", seed.Volatility14)
 	}
 	return ""
 }
 
-func positionRiskFromSeed(seed model.StrategyEngineFuturesSeed) string {
+func positionRiskFromSeed(seed model.StrategyEngineFuturesSeed, hasSeed bool) string {
+	if !hasSeed {
+		return ""
+	}
 	if seed.FlowBias < 0 {
 		return fmt.Sprintf("流向偏置%.2f 偏空，持仓与换手共振尚未完全站稳。", seed.FlowBias)
 	}
 	return ""
+}
+
+func guidancePositionText(direction string, level string) string {
+	direction = strings.TrimSpace(direction)
+	level = strings.TrimSpace(level)
+	switch {
+	case direction != "" && level != "":
+		return fmt.Sprintf("策略方向%s，仓位建议%s。", direction, level)
+	case direction != "":
+		return fmt.Sprintf("策略方向%s。", direction)
+	case level != "":
+		return fmt.Sprintf("仓位建议%s。", level)
+	default:
+		return ""
+	}
+}
+
+func conditionalString(ok bool, value string) string {
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func buildStrategyForecastL3DomainEvidencePromptLines(
+	targetType string,
+	pack strategyForecastL3ResearchPack,
+) []string {
+	lines := make([]string, 0, 10)
+	appendEvidence := func(dimension string, evidence model.StrategyForecastL3EvidenceSlice) {
+		if strings.TrimSpace(evidence.Summary) == "" && len(evidence.SupportingPoints) == 0 && len(evidence.RiskPoints) == 0 {
+			return
+		}
+		lines = append(lines,
+			fmt.Sprintf("dimension=%s summary=%s", dimension, evidence.Summary),
+			fmt.Sprintf("dimension=%s supporting=%s", dimension, strings.Join(evidence.SupportingPoints, " | ")),
+			fmt.Sprintf("dimension=%s risks=%s", dimension, strings.Join(evidence.RiskPoints, " | ")),
+		)
+	}
+	if strings.EqualFold(targetType, model.StrategyForecastL3TargetTypeFutures) {
+		appendEvidence("SUPPLY_DEMAND", pack.FuturesEvidence.SupplyDemand)
+		appendEvidence("TERM_STRUCTURE", pack.FuturesEvidence.TermStructure)
+		appendEvidence("TAPE_TECHNICAL", pack.FuturesEvidence.TapeTechnical)
+		appendEvidence("POSITION_FLOW", pack.FuturesEvidence.PositionFlow)
+		appendEvidence("MACRO_EVENT", pack.FuturesEvidence.MacroEvent)
+		return lines
+	}
+	appendEvidence("FUNDAMENTAL", pack.StockEvidence.Fundamental)
+	appendEvidence("TECHNICAL", pack.StockEvidence.Technical)
+	appendEvidence("FLOW", pack.StockEvidence.Flow)
+	appendEvidence("VALUATION", pack.StockEvidence.Valuation)
+	appendEvidence("EVENT", pack.StockEvidence.Event)
+	return lines
 }
 
 func newStrategyForecastL3Log(runID string, stepKey string, status string, message string, payload map[string]any, now time.Time) model.StrategyForecastL3Log {

@@ -480,8 +480,12 @@ func TestInMemoryStrategyForecastL3RunLifecycle(t *testing.T) {
 
 	run, err := repo.CreateStrategyForecastL3Run(model.StrategyForecastL3RunCreateInput{
 		TargetType:    model.StrategyForecastL3TargetTypeStock,
+		TargetID:      "sr_001",
 		TargetKey:     "000001.SZ",
 		TargetLabel:   "平安银行",
+		Source:        "recommendations",
+		SourceID:      "sr_001",
+		SourcePath:    "/recommendations",
 		TriggerType:   model.StrategyForecastL3TriggerTypeUserRequest,
 		RequestUserID: "user_001",
 		PriorityScore: 0.61,

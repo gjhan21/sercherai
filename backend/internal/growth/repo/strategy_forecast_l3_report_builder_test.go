@@ -74,3 +74,168 @@ func TestBuildForecastL3ReportSynthesizesExecutiveSummaryAndMarkdown(t *testing.
 		t.Fatalf("expected html to contain chinese scenario section, got %q", report.HTMLBody)
 	}
 }
+
+func TestBuildForecastL3ReportBuildsStockDimensionEvidenceFromDomainEvidence(t *testing.T) {
+	report := buildStrategyForecastL3Report(
+		model.StrategyForecastL3Run{
+			ID:          "l3run_stock_report",
+			TargetType:  model.StrategyForecastL3TargetTypeStock,
+			TargetKey:   "600519.SH",
+			TargetLabel: "贵州茅台",
+			TriggerType: model.StrategyForecastL3TriggerTypeUserRequest,
+			Status:      model.StrategyForecastL3StatusRunning,
+		},
+		strategyForecastL3ResearchPack{
+			TargetType:   model.StrategyForecastL3TargetTypeStock,
+			TargetKey:    "600519.SH",
+			TargetLabel:  "贵州茅台",
+			CoreThesis:   "估值承压但资金仍在支撑。",
+			RiskBoundary: "跌破关键支撑位则主线失效。",
+			StockEvidence: model.StrategyForecastL3StockEvidence{
+				Fundamental: model.StrategyForecastL3EvidenceSlice{Summary: "盈利质量稳定。", SupportingPoints: []string{"绩效回撤可控"}},
+				Technical:   model.StrategyForecastL3EvidenceSlice{Summary: "20日动量维持正值。", SupportingPoints: []string{"趋势强度抬升"}},
+				Flow:        model.StrategyForecastL3EvidenceSlice{Summary: "主力净流入修复。", SupportingPoints: []string{"换手温和放大"}},
+				Valuation:   model.StrategyForecastL3EvidenceSlice{Summary: "PE处于可跟踪区间。", SupportingPoints: []string{"PB未失控"}},
+				Event:       model.StrategyForecastL3EvidenceSlice{Summary: "新闻偏正向。", SupportingPoints: []string{"资讯热度回升"}},
+			},
+		},
+		nil,
+		strategyForecastL3ValidationResult{},
+		time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC),
+	)
+
+	if got := len(report.DimensionEvidence); got < 5 {
+		t.Fatalf("expected at least five stock dimensions, got %d (%+v)", got, report.DimensionEvidence)
+	}
+	if report.ScenarioAssessment == nil || len(report.ScenarioAssessment.ActionPlan) == 0 {
+		t.Fatalf("expected structured scenario assessment, got %+v", report.ScenarioAssessment)
+	}
+	if report.StateAssessment == nil || report.StateAssessment.CurrentState == "" {
+		t.Fatalf("expected current state assessment, got %+v", report.StateAssessment)
+	}
+	if !containsDimension(report.DimensionEvidence, "TECHNICAL") || !containsDimension(report.DimensionEvidence, "VALUATION") {
+		t.Fatalf("expected stock dimensions to include technical and valuation, got %+v", report.DimensionEvidence)
+	}
+	if !containsForecastString(report.ScenarioAssessment.TriggerConditions, "趋势强度抬升") {
+		t.Fatalf("expected stock scenario triggers to include evidence-derived trigger, got %+v", report.ScenarioAssessment.TriggerConditions)
+	}
+	if !containsForecastString(report.ScenarioAssessment.ActionPlan, "优先等待技术面与资金面继续共振确认。") {
+		t.Fatalf("expected stock scenario actions to include evidence-derived action, got %+v", report.ScenarioAssessment.ActionPlan)
+	}
+}
+
+func TestBuildForecastL3ValidationPromptIncludesDomainEvidence(t *testing.T) {
+	prompt := buildStrategyForecastL3ValidationPrompt(
+		model.StrategyForecastL3Run{
+			TargetType:  model.StrategyForecastL3TargetTypeFutures,
+			TargetKey:   "AU2408",
+			TargetLabel: "沪金主力",
+		},
+		strategyForecastL3ResearchPack{
+			TargetType:  model.StrategyForecastL3TargetTypeFutures,
+			TargetKey:   "AU2408",
+			TargetLabel: "沪金主力",
+			CoreThesis:  "基差与库存共同支撑近月。",
+			FuturesEvidence: model.StrategyForecastL3FuturesEvidence{
+				SupplyDemand:  model.StrategyForecastL3EvidenceSlice{Summary: "库存压力缓和。", SupportingPoints: []string{"库存延续去化"}},
+				TermStructure: model.StrategyForecastL3EvidenceSlice{Summary: "近月结构占优。", SupportingPoints: []string{"基差与期限结构同向"}},
+			},
+		},
+		nil,
+	)
+
+	if !strings.Contains(prompt, "库存压力缓和") || !strings.Contains(prompt, "近月结构占优") {
+		t.Fatalf("expected domain evidence in validation prompt, got %q", prompt)
+	}
+}
+
+func TestBuildForecastL3ReportBuildsFuturesDimensionEvidenceFromDomainEvidence(t *testing.T) {
+	report := buildStrategyForecastL3Report(
+		model.StrategyForecastL3Run{
+			ID:          "l3run_futures_report",
+			TargetType:  model.StrategyForecastL3TargetTypeFutures,
+			TargetKey:   "AU2408",
+			TargetLabel: "沪金主力",
+			TriggerType: model.StrategyForecastL3TriggerTypeUserRequest,
+			Status:      model.StrategyForecastL3StatusRunning,
+		},
+		strategyForecastL3ResearchPack{
+			TargetType:   model.StrategyForecastL3TargetTypeFutures,
+			TargetKey:    "AU2408",
+			TargetLabel:  "沪金主力",
+			CoreThesis:   "近月结构和库存去化仍支撑主线。",
+			RiskBoundary: "期限结构转弱且流向翻空，则主线失效。",
+			FuturesEvidence: model.StrategyForecastL3FuturesEvidence{
+				SupplyDemand:  model.StrategyForecastL3EvidenceSlice{Summary: "库存压力缓和。", SupportingPoints: []string{"库存延续去化"}, RiskPoints: []string{"若库存反弹则供需修复放缓"}},
+				TermStructure: model.StrategyForecastL3EvidenceSlice{Summary: "近月结构占优。", SupportingPoints: []string{"基差与期限结构同向"}, RiskPoints: []string{"若结构背离则主线减弱"}},
+				TapeTechnical: model.StrategyForecastL3EvidenceSlice{Summary: "趋势维持。", SupportingPoints: []string{"盘面波动受控"}},
+				PositionFlow:  model.StrategyForecastL3EvidenceSlice{Summary: "持仓资金偏多。", SupportingPoints: []string{"流向偏置仍偏多"}},
+				MacroEvent:    model.StrategyForecastL3EvidenceSlice{Summary: "宏观事件中性偏稳。", SupportingPoints: []string{"风险偏好未明显恶化"}},
+			},
+		},
+		nil,
+		strategyForecastL3ValidationResult{},
+		time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC),
+	)
+
+	if !containsDimension(report.DimensionEvidence, "SUPPLY_DEMAND") || !containsDimension(report.DimensionEvidence, "TERM_STRUCTURE") {
+		t.Fatalf("expected futures dimensions to include supply-demand and term-structure, got %+v", report.DimensionEvidence)
+	}
+	if report.StateAssessment == nil || report.StateAssessment.CurrentState == "" {
+		t.Fatalf("expected futures current state assessment, got %+v", report.StateAssessment)
+	}
+	if !containsForecastString(report.ScenarioAssessment.InvalidationConditions, "若结构背离则主线减弱") {
+		t.Fatalf("expected futures invalidation conditions to include evidence-derived risk, got %+v", report.ScenarioAssessment.InvalidationConditions)
+	}
+}
+
+func TestBuildForecastL3ReportFallsBackToRoleEvidenceWhenDomainEvidenceMissing(t *testing.T) {
+	report := buildStrategyForecastL3Report(
+		model.StrategyForecastL3Run{
+			ID:          "l3run_fallback_report",
+			TargetType:  model.StrategyForecastL3TargetTypeStock,
+			TargetKey:   "000001.SZ",
+			TargetLabel: "平安银行",
+			TriggerType: model.StrategyForecastL3TriggerTypeAdminManual,
+			Status:      model.StrategyForecastL3StatusRunning,
+		},
+		strategyForecastL3ResearchPack{
+			TargetType:        model.StrategyForecastL3TargetTypeStock,
+			TargetKey:         "000001.SZ",
+			TargetLabel:       "平安银行",
+			CoreThesis:        "等待更多证据确认。",
+			RelatedHighlights: []string{"资金面仍待确认"},
+			Invalidations:     []string{"跌破关键支撑位"},
+		},
+		[]strategyForecastL3RoleResult{
+			{Role: "FLOW", Stance: "WATCH", Confidence: 0.62, Summary: "资金面仍待确认。"},
+		},
+		strategyForecastL3ValidationResult{},
+		time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC),
+	)
+
+	if len(report.DimensionEvidence) == 0 {
+		t.Fatalf("expected fallback role-driven dimension evidence, got %+v", report.DimensionEvidence)
+	}
+	if report.DimensionEvidence[0].Summary == "" {
+		t.Fatalf("expected fallback dimension evidence summary, got %+v", report.DimensionEvidence[0])
+	}
+}
+
+func containsDimension(items []model.StrategyForecastL3DimensionEvidence, target string) bool {
+	for _, item := range items {
+		if item.Dimension == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsForecastString(items []string, target string) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
+}
