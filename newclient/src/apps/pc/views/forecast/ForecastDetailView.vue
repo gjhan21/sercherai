@@ -214,15 +214,32 @@
       <section class="forecast-card">
         <div class="forecast-head">
           <strong>证据支撑</strong>
-          <span class="forecast-meta">{{ dimensionEvidence.length }} 个维度</span>
+          <span class="forecast-meta">{{ evidenceSections.length }} 个研究维度</span>
         </div>
-        <div v-if="dimensionEvidence.length" class="forecast-grid">
-          <article v-for="item in dimensionEvidence" :key="`${item.dimension}-${item.summary}`">
-            <span>{{ item.dimension }}</span>
-            <strong>{{ item.stance }} · {{ item.confidence }}</strong>
-            <p class="forecast-summary">{{ item.summary }}</p>
-            <small class="forecast-meta">支撑：{{ item.supportingPoints }}</small>
-            <small class="forecast-meta">风险：{{ item.riskPoints }}</small>
+        <div v-if="evidenceSections.length" class="evidence-grid">
+          <article v-for="item in evidenceSections" :key="item.key" class="evidence-card">
+            <div class="evidence-head">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.summary }}</strong>
+            </div>
+            <dl class="evidence-metrics">
+              <div>
+                <dt>当前立场</dt>
+                <dd>{{ item.stanceLabel }}</dd>
+              </div>
+              <div>
+                <dt>置信度</dt>
+                <dd>{{ item.confidenceLabel }}</dd>
+              </div>
+              <div>
+                <dt>支撑点</dt>
+                <dd>{{ item.supportingText }}</dd>
+              </div>
+              <div>
+                <dt>风险点</dt>
+                <dd>{{ item.riskText }}</dd>
+              </div>
+            </dl>
           </article>
         </div>
         <p v-else class="forecast-empty">当前还没有补齐结构化维度证据。</p>
@@ -337,7 +354,6 @@ import { useForecastRunDetail } from "@/shared/composables/useForecastRunDetail.
 import {
   localizeForecastChecklistStatus,
   localizeForecastContextQuality,
-  localizeForecastDimension,
   localizeForecastConfidence,
   localizeForecastEngine,
   localizeForecastProbability,
@@ -348,6 +364,7 @@ import {
   localizeForecastText,
   localizeForecastValidationStatus
 } from "@/shared/lib/forecast-localization.js";
+import { buildForecastEvidenceSections } from "@/shared/lib/forecast-report-view-model.js";
 import { buildDeepForecastSummary } from "@/shared/lib/forecast-summary.js";
 
 const route = useRoute();
@@ -381,15 +398,11 @@ const summaryConfidence = computed(() => localizeForecastConfidence(run.value?.s
 const stateAssessment = computed(() => report.value?.state_assessment || null);
 const scenarioAssessment = computed(() => report.value?.scenario_assessment || null);
 const validationReview = computed(() => report.value?.validation_review || null);
-const dimensionEvidence = computed(() =>
-  (Array.isArray(report.value?.dimension_evidence) ? report.value.dimension_evidence : []).map((item) => ({
-    dimension: localizeForecastDimension(item?.dimension),
-    stance: localizeForecastText(item?.stance) || "中性",
-    confidence: localizeForecastProbability(item?.confidence),
-    summary: localizeForecastText(item?.summary) || "当前未补更多维度摘要。",
-    supportingPoints: formatBulletSummary(item?.supporting_points, "等待更多支持证据。"),
-    riskPoints: formatBulletSummary(item?.risk_points, "等待更多风险提示。")
-  }))
+const evidenceSections = computed(() =>
+  buildForecastEvidenceSections({
+    targetType: run.value?.target_type,
+    dimensionEvidence: report.value?.dimension_evidence
+  })
 );
 const headlineVerdict = computed(() =>
   localizeForecastText(report.value?.headline_verdict || report.value?.executive_summary || forecastSummary.value?.summary) || "当前未生成核心判断。"
@@ -595,8 +608,17 @@ onMounted(() => {
 .forecast-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
 .forecast-meta { font-size: 12px; color: var(--text-muted); }
 .forecast-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
-.forecast-grid article, .forecast-log-item { padding: 14px; border-radius: var(--radius-sm); background: rgba(255,255,255,.02); border: 1px solid var(--border); }
+.forecast-grid article, .forecast-log-item, .evidence-card { padding: 14px; border-radius: var(--radius-sm); background: rgba(255,255,255,.02); border: 1px solid var(--border); }
 .forecast-grid article { display: grid; gap: 8px; align-content: start; }
+.evidence-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.evidence-card { display: grid; gap: 12px; }
+.evidence-head { display: grid; gap: 8px; }
+.evidence-head span { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.evidence-head strong { line-height: 1.6; white-space: normal; word-break: break-word; }
+.evidence-metrics { display: grid; gap: 10px; }
+.evidence-metrics div { display: grid; gap: 6px; }
+.evidence-metrics dt { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.evidence-metrics dd { margin: 0; color: var(--text-secondary); line-height: 1.6; white-space: normal; word-break: break-word; }
 .forecast-log-list { display: grid; gap: 10px; }
 .log-top { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .forecast-log-item p { color: var(--text-secondary); line-height: 1.6; margin-bottom: 6px; }
@@ -613,7 +635,8 @@ onMounted(() => {
 
 @media (max-width: 900px) {
   .forecast-hero,
-  .forecast-grid {
+  .forecast-grid,
+  .evidence-grid {
     display: grid;
     grid-template-columns: 1fr;
   }

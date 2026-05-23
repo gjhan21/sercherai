@@ -164,15 +164,30 @@
       <div class="h5-card">
         <div class="h5-card-head">
           <strong>证据支撑</strong>
-          <span>{{ dimensionEvidence.length }} 个维度</span>
+          <span>{{ evidenceSections.length }} 个研究维度</span>
         </div>
-        <div v-if="dimensionEvidence.length" class="h5-log-list">
-          <div v-for="item in dimensionEvidence" :key="`${item.dimension}-${item.summary}`" class="h5-log-item">
-            <strong>{{ item.dimension }}</strong>
-            <span>{{ item.stance }} · {{ item.confidence }}</span>
+        <div v-if="evidenceSections.length" class="h5-evidence-list">
+          <div v-for="item in evidenceSections" :key="item.key" class="h5-log-item">
+            <strong>{{ item.label }}</strong>
             <p>{{ item.summary }}</p>
-            <small>支撑：{{ item.supportingPoints }}</small>
-            <small>风险：{{ item.riskPoints }}</small>
+            <div class="h5-evidence-grid">
+              <div>
+                <span>当前立场</span>
+                <strong>{{ item.stanceLabel }}</strong>
+              </div>
+              <div>
+                <span>置信度</span>
+                <strong>{{ item.confidenceLabel }}</strong>
+              </div>
+              <div>
+                <span>支撑点</span>
+                <strong>{{ item.supportingText }}</strong>
+              </div>
+              <div>
+                <span>风险点</span>
+                <strong>{{ item.riskText }}</strong>
+              </div>
+            </div>
           </div>
         </div>
         <p v-else class="h5-copy">当前还没有补齐结构化维度证据。</p>
@@ -292,7 +307,6 @@ import { useForecastRunDetail } from "@/shared/composables/useForecastRunDetail.
 import {
   localizeForecastChecklistStatus,
   localizeForecastContextQuality,
-  localizeForecastDimension,
   localizeForecastProbability,
   localizeForecastScenarioName,
   localizeForecastSource,
@@ -301,6 +315,7 @@ import {
   localizeForecastText,
   localizeForecastValidationStatus
 } from "@/shared/lib/forecast-localization.js";
+import { buildForecastEvidenceSections } from "@/shared/lib/forecast-report-view-model.js";
 import { buildDeepForecastSummary } from "@/shared/lib/forecast-summary.js";
 
 const route = useRoute();
@@ -332,15 +347,11 @@ const targetTitle = computed(() => runMeta.value?.targetLabel || runMeta.value?.
 const stateAssessment = computed(() => report.value?.state_assessment || null);
 const scenarioAssessment = computed(() => report.value?.scenario_assessment || null);
 const validationReview = computed(() => report.value?.validation_review || null);
-const dimensionEvidence = computed(() =>
-  (Array.isArray(report.value?.dimension_evidence) ? report.value.dimension_evidence : []).map((item) => ({
-    dimension: localizeForecastDimension(item?.dimension),
-    stance: localizeForecastText(item?.stance) || "中性",
-    confidence: localizeForecastProbability(item?.confidence),
-    summary: localizeForecastText(item?.summary) || "当前未补更多维度摘要。",
-    supportingPoints: formatBulletSummary(item?.supporting_points, "等待更多支持证据。"),
-    riskPoints: formatBulletSummary(item?.risk_points, "等待更多风险提示。")
-  }))
+const evidenceSections = computed(() =>
+  buildForecastEvidenceSections({
+    targetType: run.value?.target_type,
+    dimensionEvidence: report.value?.dimension_evidence
+  })
 );
 const primaryActionGuidance = computed(() => {
   const actions = report.value?.action_guidance;
@@ -544,6 +555,10 @@ onMounted(() => {
 .h5-summary-grid div, .h5-log-item { padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: rgba(255,255,255,.02); }
 .h5-summary-grid div { display: grid; gap: 8px; align-content: start; }
 .h5-summary-grid strong { line-height: 1.6; white-space: normal; word-break: break-word; }
+.h5-evidence-list { display: grid; gap: 10px; }
+.h5-evidence-grid { display: grid; gap: 10px; margin-top: 10px; }
+.h5-evidence-grid div { display: grid; gap: 6px; padding: 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: rgba(255,255,255,.02); }
+.h5-evidence-grid strong { line-height: 1.6; white-space: normal; word-break: break-word; }
 .h5-log-item strong { display: block; margin-bottom: 4px; }
 .h5-log-item p { color: var(--text-secondary); line-height: 1.6; margin: 6px 0; }
 .h5-log-item small { color: var(--text-muted); }

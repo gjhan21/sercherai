@@ -25,9 +25,11 @@ test("h5 forecast detail view renders report and log surfaces", () => {
   assert.match(text, /角色分歧/);
   assert.match(text, /useForecastRunDetail/);
   assert.match(text, /getMembershipQuota/);
+  assert.match(text, /buildForecastEvidenceSections/);
   assert.match(text, /已进入推演队列|正在生成深推演报告|本次深推演未完成|不存在或已失效/);
   assert.match(text, /一句话结论|执行摘要/);
   assert.match(text, /发起时间|完成时间|回工作台|回推演工作台/);
+  assert.match(text, /当前立场|支撑点|风险点|置信度/);
   assert.doesNotMatch(text, />Forecast L3</);
 });
 
