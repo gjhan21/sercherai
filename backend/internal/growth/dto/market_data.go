@@ -38,7 +38,7 @@ type MarketDerivedTruthRebuildRequest struct {
 
 type MarketDataBackfillRequest struct {
 	RunType               string   `json:"run_type" binding:"required,oneof=FULL INCREMENTAL REBUILD_ONLY"`
-	AssetScope            []string `json:"asset_scope" binding:"required,min=1,dive,oneof=STOCK INDEX ETF LOF CBOND"`
+	AssetScope            []string `json:"asset_scope" binding:"required,min=1,dive,oneof=STOCK INDEX ETF LOF CBOND FUTURES"`
 	SourceKey             string   `json:"source_key"`
 	TradeDateFrom         string   `json:"trade_date_from"`
 	TradeDateTo           string   `json:"trade_date_to"`

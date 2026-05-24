@@ -20,7 +20,7 @@ defineProps({
       <div>
         <h3 style="margin: 0">数据同步操作台</h3>
         <p class="muted" style="margin: 6px 0 0">
-          股票、期货、市场资讯的手动同步统一收口在这里；如果上游源失败，可直接切换默认源、AUTO 或自定义回退链路。
+          股票和期货同步任务已迁移到任务中心；这里保留资讯同步、默认源查看和同步入口引导。
         </p>
       </div>
       <div class="inline-actions inline-actions--left">

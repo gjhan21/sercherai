@@ -28,12 +28,15 @@ import {
 import {
   buildMarketBackfillGuideCards,
   buildMarketBackfillOverviewCards,
+  buildSyncJobPayloadFromTemplate,
+  buildSyncJobTemplateOptions,
   buildSystemJobsActionCards,
   buildSystemJobsGuideCards,
   buildSystemJobsOverviewCards,
   buildSystemJobsTabOptions,
   buildSchedulerDefinitionCreateOptions,
   buildSchedulerDefinitionOptions,
+  formatSyncJobTypeLabel,
   validateSchedulerDefinitionJobName
 } from "../lib/system-jobs-admin";
 import {
@@ -229,6 +232,7 @@ const triggerForm = reactive({
   batch_size: undefined
 });
 const marketBackfillForm = reactive({
+  sync_template: "STOCK_FULL",
   run_type: "FULL",
   asset_scope: ["STOCK", "INDEX", "ETF", "LOF", "CBOND"],
   source_key: "TUSHARE",
@@ -256,16 +260,18 @@ const runStatusOptions = [
   { label: "失败", value: "FAILED" }
 ];
 const marketBackfillRunTypeOptions = [
-  { label: "全量回填", value: "FULL" },
-  { label: "增量回填", value: "INCREMENTAL" },
+  { label: "全量同步", value: "FULL" },
+  { label: "每日增量同步", value: "INCREMENTAL" },
   { label: "仅重建", value: "REBUILD_ONLY" }
 ];
+const syncJobTemplateOptions = buildSyncJobTemplateOptions();
 const marketBackfillAssetOptions = [
   { label: "股票", value: "STOCK" },
   { label: "指数", value: "INDEX" },
   { label: "ETF", value: "ETF" },
   { label: "LOF", value: "LOF" },
-  { label: "可转债", value: "CBOND" }
+  { label: "可转债", value: "CBOND" },
+  { label: "期货", value: "FUTURES" }
 ];
 const marketBackfillStageOptions = [
   { label: "Universe", value: "UNIVERSE" },
@@ -1102,6 +1108,7 @@ function normalizeBackfillTab(rawTab) {
 
 function resetMarketBackfillForm() {
   Object.assign(marketBackfillForm, {
+    sync_template: "STOCK_FULL",
     run_type: "FULL",
     asset_scope: ["STOCK", "INDEX", "ETF", "LOF", "CBOND"],
     source_key: "TUSHARE",
@@ -1115,9 +1122,21 @@ function resetMarketBackfillForm() {
 }
 
 function buildMarketBackfillPayload() {
+  const templatePayload =
+    marketBackfillForm.run_type === "REBUILD_ONLY"
+      ? {}
+      : buildSyncJobPayloadFromTemplate(marketBackfillForm.sync_template, {
+          source_key: String(marketBackfillForm.source_key || "").trim().toUpperCase(),
+          trade_date_from: String(marketBackfillForm.trade_date_from || "").trim(),
+          trade_date_to: String(marketBackfillForm.trade_date_to || "").trim(),
+          batch_size: marketBackfillForm.batch_size,
+          force_refresh_universe: !!marketBackfillForm.force_refresh_universe,
+          rebuild_truth_after_sync: !!marketBackfillForm.rebuild_truth_after_sync
+        });
   const batchSize = Number.parseInt(String(marketBackfillForm.batch_size || ""), 10);
   return cleanupPayload({
-    run_type: String(marketBackfillForm.run_type || "").trim().toUpperCase(),
+    ...templatePayload,
+    run_type: String(marketBackfillForm.run_type || templatePayload.run_type || "").trim().toUpperCase(),
     asset_scope: Array.from(
       new Set(
         (marketBackfillForm.asset_scope || [])
@@ -1125,9 +1144,9 @@ function buildMarketBackfillPayload() {
           .filter(Boolean)
       )
     ),
-    source_key: String(marketBackfillForm.source_key || "").trim().toUpperCase(),
-    trade_date_from: String(marketBackfillForm.trade_date_from || "").trim(),
-    trade_date_to: String(marketBackfillForm.trade_date_to || "").trim(),
+    source_key: String(marketBackfillForm.source_key || templatePayload.source_key || "").trim().toUpperCase(),
+    trade_date_from: String(marketBackfillForm.trade_date_from || templatePayload.trade_date_from || "").trim(),
+    trade_date_to: String(marketBackfillForm.trade_date_to || templatePayload.trade_date_to || "").trim(),
     batch_size: Number.isFinite(batchSize) && batchSize > 0 ? batchSize : undefined,
     stages: Array.from(
       new Set(
@@ -1163,7 +1182,7 @@ async function fetchMarketBackfillRuns(options = {}) {
     marketBackfillRuns.value = [];
     marketBackfillRunTotal.value = 0;
     if (!preserveFeedback) {
-      errorMessage.value = normalizeErrorMessage(error, "加载市场回填总单失败");
+      errorMessage.value = normalizeErrorMessage(error, "加载同步任务列表失败");
     }
   } finally {
     marketBackfillRunsLoading.value = false;
@@ -1183,7 +1202,7 @@ async function fetchMarketBackfillSnapshots(options = {}) {
   } catch (error) {
     marketBackfillSnapshots.value = [];
     if (!preserveFeedback) {
-      errorMessage.value = normalizeErrorMessage(error, "加载 Universe 快照失败");
+      errorMessage.value = normalizeErrorMessage(error, "加载同步快照失败");
     }
   } finally {
     marketBackfillSnapshotsLoading.value = false;
@@ -1221,7 +1240,7 @@ async function fetchCurrentMarketBackfillRun(runID, options = {}) {
   } catch (error) {
     currentMarketBackfillRun.value = null;
     if (!preserveFeedback) {
-      errorMessage.value = normalizeErrorMessage(error, "加载回填总单详情失败");
+      errorMessage.value = normalizeErrorMessage(error, "加载同步任务详情失败");
     }
   } finally {
     marketBackfillRunDetailLoading.value = false;
@@ -1254,7 +1273,7 @@ async function fetchMarketBackfillRunDetails(options = {}) {
     marketBackfillDetails.value = [];
     marketBackfillDetailTotal.value = 0;
     if (!preserveFeedback) {
-      errorMessage.value = normalizeErrorMessage(error, "加载回填批次明细失败");
+      errorMessage.value = normalizeErrorMessage(error, "加载同步批次明细失败");
     }
   } finally {
     marketBackfillDetailsLoading.value = false;
@@ -1267,7 +1286,7 @@ async function handleCreateMarketBackfillRun() {
   }
   const payload = buildMarketBackfillPayload();
   if (!payload.run_type || !Array.isArray(payload.asset_scope) || payload.asset_scope.length === 0) {
-    errorMessage.value = "运行类型和资产范围不能为空";
+    errorMessage.value = "同步任务模板和资产范围不能为空";
     return;
   }
   const longHistoryValidationMessage = validateMarketBackfillLongHistoryInput(payload);
@@ -1280,7 +1299,7 @@ async function handleCreateMarketBackfillRun() {
   message.value = "";
   try {
     const result = await createMarketDataBackfillRun(payload);
-    message.value = `已创建回填任务：${result.run_id || "-"}，状态=${formatMarketBackfillStatusLabel(result.status)}`;
+    message.value = `已创建同步任务：${result.run_id || "-"}，状态=${formatMarketBackfillStatusLabel(result.status)}`;
     marketBackfillRunPage.value = 1;
     await Promise.all([
       fetchMarketBackfillWorkspace({ preserveFeedback: true }),
@@ -1291,7 +1310,7 @@ async function handleCreateMarketBackfillRun() {
       await handleOpenMarketBackfillRun({ id: result.run_id });
     }
   } catch (error) {
-    errorMessage.value = normalizeErrorMessage(error, "创建市场回填任务失败");
+    errorMessage.value = normalizeErrorMessage(error, "创建同步任务失败");
   } finally {
     marketBackfillCreating.value = false;
   }
@@ -1300,7 +1319,7 @@ async function handleCreateMarketBackfillRun() {
 async function handleOpenMarketBackfillRun(item) {
   const runID = String(item?.id || item?.run_id || "").trim();
   if (!runID) {
-    errorMessage.value = "回填总单 ID 为空，无法查看详情";
+    errorMessage.value = "同步任务 ID 为空，无法查看详情";
     return;
   }
   currentMarketBackfillRun.value = { id: runID };
@@ -1327,13 +1346,13 @@ async function handleRetryMarketBackfillRun(item) {
   }
   const runID = String(item?.id || "").trim();
   if (!runID) {
-    errorMessage.value = "回填总单 ID 为空，无法重试";
+    errorMessage.value = "同步任务 ID 为空，无法重试";
     return;
   }
   try {
     await ElMessageBox.confirm(
       "将仅重试失败或未完成的批次，不会重新从头全量执行，是否继续？",
-      "确认重试市场回填",
+      "确认重试同步任务",
       {
         type: "warning",
         confirmButtonText: "确认重试",
@@ -1342,10 +1361,10 @@ async function handleRetryMarketBackfillRun(item) {
     );
   } catch (error) {
     if (error === "cancel" || error === "close") {
-      message.value = "已取消回填重试";
+      message.value = "已取消同步任务重试";
       return;
     }
-    errorMessage.value = normalizeErrorMessage(error, "回填重试确认失败");
+    errorMessage.value = normalizeErrorMessage(error, "同步任务重试确认失败");
     return;
   }
 
@@ -1354,7 +1373,7 @@ async function handleRetryMarketBackfillRun(item) {
   message.value = "";
   try {
     const result = await retryMarketDataBackfillRun(runID, { retry_mode: "FAILED_ONLY" });
-    message.value = `已发起回填重试：${result.run_id || "-"}，状态=${formatMarketBackfillStatusLabel(result.status)}`;
+    message.value = `已发起同步任务重试：${result.run_id || "-"}，状态=${formatMarketBackfillStatusLabel(result.status)}`;
     await Promise.all([
       fetchMarketBackfillWorkspace({ preserveFeedback: true }),
       fetchMetrics(),
@@ -1367,7 +1386,7 @@ async function handleRetryMarketBackfillRun(item) {
       ]);
     }
   } catch (error) {
-    errorMessage.value = normalizeErrorMessage(error, "重试市场回填任务失败");
+    errorMessage.value = normalizeErrorMessage(error, "重试同步任务失败");
   } finally {
     marketBackfillRetryingMap.value[runID] = false;
   }
@@ -1423,10 +1442,10 @@ function canRetryMarketBackfillRun(item) {
 
 function formatMarketBackfillSummary(summary) {
   if (!summary) {
-    return "暂无回填摘要";
+    return "暂无同步摘要";
   }
   if (typeof summary === "string") {
-    return summary.trim() || "暂无回填摘要";
+    return summary.trim() || "暂无同步摘要";
   }
   try {
     return JSON.stringify(summary, null, 2);
@@ -2135,6 +2154,34 @@ function runSummaryPercent(row, key, digits = 2) {
 }
 
 watch(
+  () => marketBackfillForm.sync_template,
+  (nextValue) => {
+    const normalized = String(nextValue || "").trim().toUpperCase();
+    if (!normalized || normalized === "REBUILD_ONLY") {
+      return;
+    }
+    const templatePayload = buildSyncJobPayloadFromTemplate(normalized, {
+      source_key: String(marketBackfillForm.source_key || "").trim().toUpperCase() || "TUSHARE",
+      trade_date_from: String(marketBackfillForm.trade_date_from || "").trim(),
+      trade_date_to: String(marketBackfillForm.trade_date_to || "").trim(),
+      batch_size: marketBackfillForm.batch_size,
+      force_refresh_universe: !!marketBackfillForm.force_refresh_universe,
+      rebuild_truth_after_sync: !!marketBackfillForm.rebuild_truth_after_sync
+    });
+    marketBackfillForm.run_type = templatePayload.run_type;
+    marketBackfillForm.asset_scope = Array.isArray(templatePayload.asset_scope)
+      ? templatePayload.asset_scope.slice()
+      : [];
+    marketBackfillForm.stages = Array.isArray(templatePayload.stages) ? templatePayload.stages.slice() : [];
+    marketBackfillForm.force_refresh_universe = !!templatePayload.force_refresh_universe;
+    marketBackfillForm.rebuild_truth_after_sync = !!templatePayload.rebuild_truth_after_sync;
+    if (templatePayload.source_key) {
+      marketBackfillForm.source_key = templatePayload.source_key;
+    }
+  }
+);
+
+watch(
   () => marketBackfillForm.run_type,
   (nextValue) => {
     const normalized = String(nextValue || "").trim().toUpperCase();
@@ -2412,9 +2459,9 @@ onMounted(() => {
         <div class="card jobs-panel-card">
           <div class="section-header section-header--stack">
             <div>
-              <h3 style="margin: 0">市场数据回填工作台</h3>
+              <h3 style="margin: 0">市场同步任务中心</h3>
               <p class="section-copy">
-                先看最近回填总单和 Universe 快照，再决定是新建全量回填，还是只重试失败批次。
+                先看最近同步任务和同步快照，再决定是发起股票/期货全量同步，还是只重试失败批次。
               </p>
             </div>
             <div class="inline-actions inline-actions--left">
@@ -2422,7 +2469,7 @@ onMounted(() => {
                 :loading="marketBackfillRunsLoading || marketBackfillSnapshotsLoading"
                 @click="fetchMarketBackfillWorkspace"
               >
-                刷新工作台
+                刷新任务中心
               </el-button>
               <el-button v-if="canEditSystemJobs" @click="resetMarketBackfillForm">重置新建表单</el-button>
             </div>
@@ -2448,21 +2495,21 @@ onMounted(() => {
         <div class="card jobs-panel-card">
           <div class="section-header section-header--stack">
             <div>
-              <h3 style="margin: 0">新建回填任务</h3>
+              <h3 style="margin: 0">新建同步任务</h3>
               <p class="section-copy">
-                这里只发起真实回填总单。全量、增量和仅重建都走同一套链路，不再分散在多个入口。
+                先选择同步任务模板，再按需要微调来源、日期和批量大小。股票与期货都统一走同一套任务链路。
               </p>
             </div>
           </div>
 
           <el-form label-position="top">
             <div class="market-backfill-form-grid">
-              <el-form-item label="运行类型" required>
-                <el-select v-model="marketBackfillForm.run_type">
+              <el-form-item label="同步任务模板" required>
+                <el-select v-model="marketBackfillForm.sync_template">
                   <el-option
-                    v-for="item in marketBackfillRunTypeOptions"
+                    v-for="item in syncJobTemplateOptions"
                     :key="item.value"
-                    :label="item.label"
+                    :label="`${item.label} · ${item.description}`"
                     :value="item.value"
                   />
                 </el-select>
@@ -2485,7 +2532,7 @@ onMounted(() => {
                   multiple
                   collapse-tags
                   collapse-tags-tooltip
-                  placeholder="选择要回填的资产"
+                  placeholder="选择同步资产范围"
                 >
                   <el-option
                     v-for="item in marketBackfillAssetOptions"
@@ -2501,7 +2548,7 @@ onMounted(() => {
                   multiple
                   collapse-tags
                   collapse-tags-tooltip
-                  placeholder="不选则按默认阶段执行"
+                  placeholder="默认按任务模板阶段执行"
                 >
                   <el-option
                     v-for="item in marketBackfillStageOptions"
@@ -2543,7 +2590,7 @@ onMounted(() => {
           </el-form>
 
           <el-alert
-            title="股票支持行情、daily_basic、moneyflow 和 truth；其他资产当前先走 universe、master、quotes 与 truth。超过 365 天的股票长历史回补目前只支持 STOCK + provider 为 TUSHARE 的数据源 + FULL，且会自动跳过 daily_basic / moneyflow。"
+            title="股票全量/增量同步会自动带上行情、增强因子和 Truth；期货同步第一阶段统一纳入任务中心，优先覆盖 Universe、主数据、行情和 Truth。超过 365 天的股票长历史同步目前只支持 STOCK + TUSHARE + FULL，且会自动跳过 daily_basic / moneyflow。"
             type="info"
             :closable="false"
             show-icon
@@ -2565,10 +2612,10 @@ onMounted(() => {
               :loading="marketBackfillCreating"
               @click="handleCreateMarketBackfillRun"
             >
-              发起回填
+              发起同步
             </el-button>
             <el-text type="info">
-              当前默认会创建总单并直接执行，执行结果会同步回写任务运行记录。
+              当前默认会创建同步任务并直接执行，执行结果会同步回写任务运行记录。
             </el-text>
           </div>
         </div>
@@ -2576,9 +2623,9 @@ onMounted(() => {
         <div class="card jobs-panel-card">
           <div class="section-header section-header--stack">
             <div>
-              <h3 style="margin: 0">回填总单</h3>
+              <h3 style="margin: 0">同步任务列表</h3>
               <p class="section-copy">
-                这里先看每次回填的状态、阶段和资产范围。真正定位问题时，再展开批次明细。
+                这里先看每次同步的状态、阶段和资产范围。真正定位问题时，再展开批次明细。
               </p>
             </div>
           </div>
@@ -2600,7 +2647,7 @@ onMounted(() => {
             <el-select
               v-model="marketBackfillFilters.run_type"
               clearable
-              placeholder="全部类型"
+              placeholder="全部任务类型"
               style="width: 150px"
             >
               <el-option
@@ -2638,13 +2685,13 @@ onMounted(() => {
             border
             stripe
             v-loading="marketBackfillRunsLoading"
-            empty-text="暂无市场回填总单"
+            empty-text="暂无同步任务"
           >
-            <el-table-column prop="id" label="总单ID" min-width="180" />
-            <el-table-column label="运行类型" min-width="110">
+            <el-table-column prop="id" label="任务ID" min-width="180" />
+            <el-table-column label="任务类型" min-width="140">
               <template #default="{ row }">
                 <div class="stack-inline">
-                  <span>{{ formatMarketBackfillRunTypeLabel(row.run_type) }}</span>
+                  <span>{{ formatSyncJobTypeLabel(row) }}</span>
                   <el-tag v-if="isLongHistoryBackfillRun(row)" size="small" type="warning">
                     股票长历史
                   </el-tag>
@@ -2708,9 +2755,9 @@ onMounted(() => {
         <div class="card jobs-panel-card">
           <div class="section-header section-header--stack">
             <div>
-              <h3 style="margin: 0">最近 Universe 快照</h3>
+              <h3 style="margin: 0">最近同步快照</h3>
               <p class="section-copy">
-                快照是回填链路的第一步。先确认证券全集覆盖和来源，再决定后续补数范围。
+                快照是同步链路的第一步。先确认证券全集覆盖和来源，再决定后续补数范围。
               </p>
             </div>
           </div>
@@ -2720,7 +2767,7 @@ onMounted(() => {
             border
             stripe
             v-loading="marketBackfillSnapshotsLoading"
-            empty-text="暂无 Universe 快照"
+            empty-text="暂无同步快照"
           >
             <el-table-column prop="snapshot_date" label="快照日期" min-width="110" />
             <el-table-column label="摘要" min-width="260">
@@ -2770,24 +2817,24 @@ onMounted(() => {
           <div class="section-header section-header--stack">
             <div>
               <h3 style="margin: 0">当前窗口提示</h3>
-              <p class="section-copy">方便快速判断最近一次回填和最近一次快照是否正常落库。</p>
+              <p class="section-copy">方便快速判断最近一次同步和最近一次快照是否正常落库。</p>
             </div>
           </div>
           <div class="jobs-guide-list">
             <div class="jobs-guide-card">
-              <div class="jobs-guide-card__title">最近回填</div>
+              <div class="jobs-guide-card__title">最近同步</div>
               <p class="jobs-guide-card__desc">
                 {{
                   marketBackfillRuns.length
-                    ? `${formatMarketBackfillRunTypeLabel(marketBackfillRuns[0].run_type)} · ${formatMarketBackfillStatusLabel(marketBackfillRuns[0].status)}`
-                    : "暂无回填总单"
+                    ? `${formatSyncJobTypeLabel(marketBackfillRuns[0])} · ${formatMarketBackfillStatusLabel(marketBackfillRuns[0].status)}`
+                    : "暂无同步任务"
                 }}
               </p>
             </div>
             <div class="jobs-guide-card">
               <div class="jobs-guide-card__title">最近快照</div>
               <p class="jobs-guide-card__desc">
-                {{ marketBackfillSnapshots.length ? buildUniverseSnapshotDigest(marketBackfillSnapshots[0]) : "暂无 Universe 快照" }}
+                {{ marketBackfillSnapshots.length ? buildUniverseSnapshotDigest(marketBackfillSnapshots[0]) : "暂无同步快照" }}
               </p>
             </div>
           </div>
@@ -3301,11 +3348,11 @@ onMounted(() => {
       @closed="handleMarketBackfillDetailClosed"
     >
       <template #header>
-        <div class="drawer-title">市场回填详情</div>
+        <div class="drawer-title">同步任务详情</div>
       </template>
       <template v-if="currentMarketBackfillRun">
         <div class="run-detail-title-row">
-          <h4>总单概览</h4>
+          <h4>任务概览</h4>
           <div class="inline-actions inline-actions--left">
             <el-tag :type="marketBackfillStatusTagType(currentMarketBackfillRun.status)">
               {{ formatMarketBackfillStatusLabel(currentMarketBackfillRun.status) }}
@@ -3336,13 +3383,13 @@ onMounted(() => {
         </div>
 
         <el-descriptions :column="2" border size="small" v-loading="marketBackfillRunDetailLoading">
-          <el-descriptions-item label="总单ID">{{ currentMarketBackfillRun.id || "-" }}</el-descriptions-item>
+          <el-descriptions-item label="任务ID">{{ currentMarketBackfillRun.id || "-" }}</el-descriptions-item>
           <el-descriptions-item label="调度运行ID">
             {{ currentMarketBackfillRun.scheduler_run_id || "-" }}
           </el-descriptions-item>
-          <el-descriptions-item label="运行类型">
+          <el-descriptions-item label="任务类型">
             <div class="stack-inline">
-              <span>{{ formatMarketBackfillRunTypeLabel(currentMarketBackfillRun.run_type) }}</span>
+              <span>{{ formatSyncJobTypeLabel(currentMarketBackfillRun) }}</span>
               <el-tag v-if="isLongHistoryBackfillRun(currentMarketBackfillRun)" size="small" type="warning">
                 股票长历史
               </el-tag>
@@ -3357,7 +3404,7 @@ onMounted(() => {
           <el-descriptions-item label="当前阶段">
             {{ formatMarketBackfillStageLabel(currentMarketBackfillRun.current_stage) }}
           </el-descriptions-item>
-          <el-descriptions-item label="Universe 快照">
+          <el-descriptions-item label="同步快照">
             {{ currentMarketBackfillRun.universe_snapshot_id || "-" }}
           </el-descriptions-item>
           <el-descriptions-item label="批量大小">
@@ -3415,7 +3462,7 @@ onMounted(() => {
 
         <div class="run-detail-block">
           <div class="run-detail-title-row">
-            <h4>回填摘要</h4>
+            <h4>同步摘要</h4>
           </div>
           <pre class="run-detail-pre">{{ formatMarketBackfillSummary(currentMarketBackfillRun.summary) }}</pre>
         </div>

@@ -12,24 +12,13 @@ function readView() {
   return fs.readFileSync(filePath, "utf8");
 }
 
-test("SystemJobsView reads unified audit event summary for scheduler operations", () => {
+test("SystemJobsView reads operation logs for auto retry config changes", () => {
   const text = readView();
-  assert.match(text, /getAuditEventSummary/);
-  assert.match(text, /listAuditEvents/);
-  assert.match(text, /useRoute/);
-  assert.match(text, /const route = useRoute\(\);/);
-  assert.match(text, /useRouter/);
-  assert.match(text, /function applyRunRouteFocus\(/);
-  assert.match(text, /watch\(\s*\(\) => route\.query\.run_id/);
-  assert.match(text, /watch\(\s*\(\) => route\.query\.job_name/);
-  assert.match(text, /query: \{ run_id: currentRun\.value\.id \}/);
-  assert.match(text, /function openJobAuditInbox\(\)/);
-  assert.match(text, /router\.push\("\/workflow-messages"\)/);
-  assert.match(text, /const jobAuditSummary = ref\(null\);/);
-  assert.match(text, /const jobAuditItems = ref\(\[\]\);/);
-  assert.match(text, /async function fetchJobAuditEvents/);
-  assert.match(text, /任务事件摘要/);
-  assert.match(text, /查看消息中心/);
-  assert.match(text, /近期任务事件/);
-  assert.match(text, /SCHEDULER_JOB/);
+  assert.match(text, /listOperationLogs/);
+  assert.match(text, /async function fetchAutoRetryChangeLogs/);
+  assert.match(text, /module: "SYSTEM"/);
+  assert.match(text, /action: "UPSERT_CONFIG"/);
+  assert.match(text, /SYSTEM_CONFIG/);
+  assert.match(text, /scheduler\.auto_retry/);
+  assert.match(text, /autoRetryChangeLogs = ref\(\[\]\)/);
 });

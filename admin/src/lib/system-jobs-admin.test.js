@@ -6,8 +6,11 @@ import * as systemJobsAdmin from "./system-jobs-admin.js";
 const {
   buildMarketBackfillGuideCards,
   buildMarketBackfillOverviewCards,
+  buildSyncJobPayloadFromTemplate,
+  buildSyncJobTemplateOptions,
   buildSchedulerDefinitionOptions,
   buildSchedulerDefinitionCreateOptions,
+  formatSyncJobTypeLabel,
   validateSchedulerDefinitionJobName
 } = systemJobsAdmin;
 
@@ -250,7 +253,7 @@ test("buildSystemJobsTabOptions returns the recommended four-tab task center lay
     {
       key: "market-data",
       label: "市场数据",
-      description: "发起回填、查看批次和 Universe 快照"
+      description: "发起同步任务、查看批次和同步快照"
     },
     {
       key: "config",
@@ -278,7 +281,7 @@ test("buildSystemJobsTabOptions returns the recommended four-tab task center lay
     {
       key: "market-data",
       label: "市场数据",
-      description: "发起回填、查看批次和 Universe 快照"
+      description: "发起同步任务、查看批次和同步快照"
     },
     {
       key: "config",
@@ -307,10 +310,10 @@ test("buildMarketBackfillOverviewCards summarizes market backfill workspace in C
     [
       {
         key: "total_runs",
-        title: "回填任务数",
+        title: "同步任务数",
         value: "4",
         tone: "primary",
-        helper: "先看总量，再判断今天有没有集中补数"
+        helper: "先看总量，再判断今天是否有集中同步"
       },
       {
         key: "running_runs",
@@ -321,49 +324,60 @@ test("buildMarketBackfillOverviewCards summarizes market backfill workspace in C
       },
       {
         key: "failed_runs",
-        title: "失败/部分完成",
+        title: "失败/部分成功",
         value: "2",
         tone: "danger",
-        helper: "失败批次可重试，不需要从头跑"
+        helper: "失败批次可重试，不需要重新发起整单"
       },
       {
         key: "snapshots",
-        title: "Universe 快照",
+        title: "同步快照",
         value: "2",
         tone: "info",
-        helper: "先生成证券全集，再按阶段补数"
+        helper: "先确认快照范围，再决定发起哪类同步任务"
       }
     ]
   );
 });
 
-test("buildMarketBackfillGuideCards returns Chinese operator guidance", () => {
+test("buildMarketBackfillGuideCards returns Chinese operator guidance under sync task language", () => {
   assert.deepEqual(buildMarketBackfillGuideCards({ canEditSystemJobs: true }), [
     {
       key: "workflow",
       title: "建议处理顺序",
       items: [
-        "先生成证券全集，再按阶段补数",
-        "先看回填总单状态，再展开批次明细定位问题",
-        "失败批次可重试，不需要从头跑"
+        "先选择同步任务模板，再按需要微调参数",
+        "先看同步任务状态，再展开批次明细定位问题",
+        "失败批次可重试，不需要重新发起整单"
       ]
     },
     {
       key: "scope",
       title: "本轮真实支持范围",
       items: [
-        "股票支持行情、daily_basic、moneyflow 和 truth",
-        "指数、ETF、LOF、可转债当前先支持 universe、master、quotes 和 truth",
-        "增强因子不支持的资产会明确标记为跳过，不记成失败"
+        "股票支持全量同步与每日增量同步，默认包含行情、增强因子和 Truth",
+        "期货支持全量同步与每日增量同步，默认聚焦行情与 Truth 链路",
+        "当前阶段不支持的子能力会明确标记为跳过，不记成失败"
       ]
     },
     {
       key: "permission",
       title: "当前账号可操作",
       items: [
-        "可以新建回填任务和重试失败批次",
-        "可以查看 Universe 快照、总单和批次明细"
+        "可以新建同步任务和重试失败批次",
+        "可以查看同步快照、任务总单和批次明细"
       ]
     }
   ]);
+});
+
+test("sync task helper layer exposes new stock and futures task templates", () => {
+  assert.equal(typeof buildSyncJobTemplateOptions, "function");
+  assert.equal(typeof buildSyncJobPayloadFromTemplate, "function");
+  assert.equal(typeof formatSyncJobTypeLabel, "function");
+
+  assert.deepEqual(
+    buildSyncJobTemplateOptions().map((item) => item.key),
+    ["STOCK_FULL", "STOCK_INCREMENTAL", "FUTURES_FULL", "FUTURES_INCREMENTAL"]
+  );
 });

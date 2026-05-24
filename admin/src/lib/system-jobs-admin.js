@@ -279,7 +279,7 @@ export function buildSystemJobsTabOptions({ canEditSystemJobs = false } = {}) {
     {
       key: "market-data",
       label: "市场数据",
-      description: "发起回填、查看批次和 Universe 快照"
+      description: "发起同步任务、查看批次和同步快照"
     },
     {
       key: "config",
@@ -305,6 +305,133 @@ export function buildSystemJobsTabOptions({ canEditSystemJobs = false } = {}) {
   return tabs;
 }
 
+const STOCK_SYNC_ASSET_SCOPE = ["STOCK", "INDEX", "ETF", "LOF", "CBOND"];
+const STOCK_FULL_SYNC_STAGES = ["UNIVERSE", "MASTER", "QUOTES", "DAILY_BASIC", "MONEYFLOW", "TRUTH", "COVERAGE_SUMMARY"];
+const STOCK_INCREMENTAL_SYNC_STAGES = ["QUOTES", "DAILY_BASIC", "MONEYFLOW", "TRUTH", "COVERAGE_SUMMARY"];
+const FUTURES_FULL_SYNC_STAGES = ["UNIVERSE", "MASTER", "QUOTES", "TRUTH", "COVERAGE_SUMMARY"];
+const FUTURES_INCREMENTAL_SYNC_STAGES = ["QUOTES", "TRUTH", "COVERAGE_SUMMARY"];
+
+function normalizeAssetScope(values = []) {
+  return Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
+        .map((item) => String(item || "").trim().toUpperCase())
+        .filter(Boolean)
+    )
+  );
+}
+
+function isStockSyncScope(assetScope = []) {
+  const scope = normalizeAssetScope(assetScope);
+  return scope.length > 0 && scope.every((item) => STOCK_SYNC_ASSET_SCOPE.includes(item));
+}
+
+function isFuturesSyncScope(assetScope = []) {
+  const scope = normalizeAssetScope(assetScope);
+  return scope.length > 0 && scope.every((item) => item === "FUTURES");
+}
+
+export function buildSyncJobTemplateOptions() {
+  return [
+    {
+      key: "STOCK_FULL",
+      label: "股票全量同步",
+      description: "刷新股票主数据、行情、增强因子和 Truth"
+    },
+    {
+      key: "STOCK_INCREMENTAL",
+      label: "股票每日增量同步",
+      description: "补当天或最近交易日行情、增强因子和 Truth"
+    },
+    {
+      key: "FUTURES_FULL",
+      label: "期货全量同步",
+      description: "刷新期货主数据、行情和 Truth"
+    },
+    {
+      key: "FUTURES_INCREMENTAL",
+      label: "期货每日增量同步",
+      description: "补当天或最近交易日期货行情和 Truth"
+    }
+  ];
+}
+
+export function buildSyncJobPayloadFromTemplate(templateKey, overrides = {}) {
+  const normalized = String(templateKey || "").trim().toUpperCase();
+  const baseByTemplate = {
+    STOCK_FULL: {
+      run_type: "FULL",
+      asset_scope: [...STOCK_SYNC_ASSET_SCOPE],
+      stages: [...STOCK_FULL_SYNC_STAGES],
+      force_refresh_universe: true,
+      rebuild_truth_after_sync: true
+    },
+    STOCK_INCREMENTAL: {
+      run_type: "INCREMENTAL",
+      asset_scope: [...STOCK_SYNC_ASSET_SCOPE],
+      stages: [...STOCK_INCREMENTAL_SYNC_STAGES],
+      force_refresh_universe: false,
+      rebuild_truth_after_sync: true
+    },
+    FUTURES_FULL: {
+      run_type: "FULL",
+      asset_scope: ["FUTURES"],
+      stages: [...FUTURES_FULL_SYNC_STAGES],
+      force_refresh_universe: true,
+      rebuild_truth_after_sync: true
+    },
+    FUTURES_INCREMENTAL: {
+      run_type: "INCREMENTAL",
+      asset_scope: ["FUTURES"],
+      stages: [...FUTURES_INCREMENTAL_SYNC_STAGES],
+      force_refresh_universe: false,
+      rebuild_truth_after_sync: true
+    }
+  };
+
+  const base = baseByTemplate[normalized];
+  if (!base) {
+    return {};
+  }
+
+  return {
+    ...base,
+    ...overrides
+  };
+}
+
+export function deriveSyncJobTemplateFromBackfillRun(run = {}) {
+  const runType = normalizeStatus(run?.run_type);
+  const assetScope = normalizeAssetScope(run?.asset_scope);
+
+  if (runType === "FULL" && isStockSyncScope(assetScope)) {
+    return "STOCK_FULL";
+  }
+  if (runType === "INCREMENTAL" && isStockSyncScope(assetScope)) {
+    return "STOCK_INCREMENTAL";
+  }
+  if (runType === "FULL" && isFuturesSyncScope(assetScope)) {
+    return "FUTURES_FULL";
+  }
+  if (runType === "INCREMENTAL" && isFuturesSyncScope(assetScope)) {
+    return "FUTURES_INCREMENTAL";
+  }
+  return "";
+}
+
+export function formatSyncJobTypeLabel(run = {}) {
+  const templateKey = deriveSyncJobTemplateFromBackfillRun(run);
+  const option = buildSyncJobTemplateOptions().find((item) => item.key === templateKey);
+  if (option) {
+    return option.label;
+  }
+  const runType = normalizeStatus(run?.run_type);
+  if (runType === "REBUILD_ONLY") {
+    return "仅重建";
+  }
+  return "自定义同步任务";
+}
+
 export function buildMarketBackfillOverviewCards({ runs = [], snapshots = [] } = {}) {
   const normalizedRuns = Array.isArray(runs) ? runs : [];
   const runningCount = normalizedRuns.filter((item) => normalizeStatus(item?.status) === "RUNNING").length;
@@ -316,10 +443,10 @@ export function buildMarketBackfillOverviewCards({ runs = [], snapshots = [] } =
   return [
     {
       key: "total_runs",
-      title: "回填任务数",
+      title: "同步任务数",
       value: stringifyCount(normalizedRuns.length),
       tone: "primary",
-      helper: "先看总量，再判断今天有没有集中补数"
+      helper: "先看总量，再判断今天是否有集中同步"
     },
     {
       key: "running_runs",
@@ -330,17 +457,17 @@ export function buildMarketBackfillOverviewCards({ runs = [], snapshots = [] } =
     },
     {
       key: "failed_runs",
-      title: "失败/部分完成",
+      title: "失败/部分成功",
       value: stringifyCount(failedCount),
       tone: "danger",
-      helper: "失败批次可重试，不需要从头跑"
+      helper: "失败批次可重试，不需要重新发起整单"
     },
     {
       key: "snapshots",
-      title: "Universe 快照",
+      title: "同步快照",
       value: stringifyCount(Array.isArray(snapshots) ? snapshots.length : 0),
       tone: "info",
-      helper: "先生成证券全集，再按阶段补数"
+      helper: "先确认快照范围，再决定发起哪类同步任务"
     }
   ];
 }
@@ -351,15 +478,15 @@ export function buildMarketBackfillGuideCards({ canEditSystemJobs = false } = {}
         key: "permission",
         title: "当前账号可操作",
         items: [
-          "可以新建回填任务和重试失败批次",
-          "可以查看 Universe 快照、总单和批次明细"
+          "可以新建同步任务和重试失败批次",
+          "可以查看同步快照、任务总单和批次明细"
         ]
       }
     : {
         key: "permission",
         title: "当前账号权限",
         items: [
-          "当前账号仅支持查看回填状态、快照和批次明细",
+          "当前账号仅支持查看同步状态、快照和批次明细",
           "如需发起任务或重试失败批次，请申请 system_job.edit 权限"
         ]
       };
@@ -369,18 +496,18 @@ export function buildMarketBackfillGuideCards({ canEditSystemJobs = false } = {}
       key: "workflow",
       title: "建议处理顺序",
       items: [
-        "先生成证券全集，再按阶段补数",
-        "先看回填总单状态，再展开批次明细定位问题",
-        "失败批次可重试，不需要从头跑"
+        "先选择同步任务模板，再按需要微调参数",
+        "先看同步任务状态，再展开批次明细定位问题",
+        "失败批次可重试，不需要重新发起整单"
       ]
     },
     {
       key: "scope",
       title: "本轮真实支持范围",
       items: [
-        "股票支持行情、daily_basic、moneyflow 和 truth",
-        "指数、ETF、LOF、可转债当前先支持 universe、master、quotes 和 truth",
-        "增强因子不支持的资产会明确标记为跳过，不记成失败"
+        "股票支持全量同步与每日增量同步，默认包含行情、增强因子和 Truth",
+        "期货支持全量同步与每日增量同步，默认聚焦行情与 Truth 链路",
+        "当前阶段不支持的子能力会明确标记为跳过，不记成失败"
       ]
     },
     permissionCard

@@ -70,6 +70,7 @@ export function useMarketSyncConsole(options = {}, injectedDeps = {}) {
   const deps = { ...defaultDeps, ...injectedDeps };
   const feedback = options.feedback || { clear: noop, setMessage: noop, setError: noop };
   const canEditMarket = options.canEditMarket !== false;
+  const router = options.router || null;
   const items = options.items;
   const healthMap = options.healthMap;
   const defaultStockSourceKey = options.defaultStockSourceKey;
@@ -147,6 +148,12 @@ export function useMarketSyncConsole(options = {}, injectedDeps = {}) {
     }
     feedback.setError("当前账号没有行情维护权限，无法执行 truth 派生重建");
     return false;
+  }
+
+  function navigateToSystemJobs() {
+    if (router && typeof router.push === "function") {
+      router.push({ name: "system-jobs", query: { tab: "market-data" } });
+    }
   }
 
   async function executeStockSync({ refreshMaster }) {
@@ -467,13 +474,11 @@ export function useMarketSyncConsole(options = {}, injectedDeps = {}) {
       scopeKey: "symbols",
       emptyScopeLabel: "全市场",
       placeholder: "股票代码，逗号或换行分隔；留空按当前主数据全市场同步",
-      hint: "“全量同步”会先刷新股票代码表，再同步行情、日度指标和资金流向；“每日增量同步”用于补当天或最近交易日行情；“仅行情”保留给指定股票或自定义窗口。",
+      hint: "股票同步任务已迁移到任务中心。请从任务中心发起“股票全量同步”或“股票每日增量同步”，这里仅保留同步入口说明。",
       minDays: 20,
       maxDays: 365,
       actions: [
-        { key: "full", label: "全量同步", type: "primary", run: handleSyncStockFullSync },
-        { key: "incremental", label: "每日增量同步", type: "success", run: handleSyncStockIncrementalSync },
-        { key: "quotes", label: "仅行情", type: "default", run: handleSyncStockQuotes }
+        { key: "goto-sync-center", label: "去任务中心", type: "primary", run: navigateToSystemJobs }
       ]
     },
     {
@@ -488,12 +493,11 @@ export function useMarketSyncConsole(options = {}, injectedDeps = {}) {
       scopeKey: "contracts",
       emptyScopeLabel: "全合约池",
       placeholder: "合约代码，逗号或换行分隔；留空先刷新期货代码表，再按全合约同步",
-      hint: "建议优先点“全量同步”：先刷新期货代码表，再按代码表同步行情；“仅行情”会直接基于指定合约或当前默认合约池拉取。",
+      hint: "期货同步任务已迁移到任务中心。请从任务中心发起“期货全量同步”或“期货每日增量同步”，这里仅保留同步入口说明。",
       minDays: 20,
       maxDays: 365,
       actions: [
-        { key: "full", label: "全量同步", type: "primary", run: handleSyncFuturesFullSync },
-        { key: "quotes", label: "仅行情", type: "default", run: handleSyncFuturesQuotes }
+        { key: "goto-sync-center", label: "去任务中心", type: "primary", run: navigateToSystemJobs }
       ]
     },
     {

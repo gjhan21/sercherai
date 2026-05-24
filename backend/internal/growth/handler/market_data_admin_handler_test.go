@@ -521,6 +521,40 @@ func TestCreateMarketDataBackfillRunRejectsUnsupportedLongHistorySource(t *testi
 	}
 }
 
+func TestCreateMarketDataBackfillRunAcceptsFuturesAssetScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handlers := newStockSelectionTestHandlers()
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/admin/market-data/backfill",
+		strings.NewReader(`{"run_type":"INCREMENTAL","asset_scope":["FUTURES"],"source_key":"TUSHARE","batch_size":200,"stages":["QUOTES","TRUTH","COVERAGE_SUMMARY"]}`),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handlers.MarketData.CreateMarketDataBackfillRun(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if code, ok := payload["code"].(float64); !ok || code != 0 {
+		t.Fatalf("expected success code, got %#v", payload["code"])
+	}
+	data, ok := payload["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected data payload, got %#v", payload["data"])
+	}
+	if _, ok := data["run_id"].(string); !ok {
+		t.Fatalf("expected run_id in response, got %#v", data["run_id"])
+	}
+}
+
 func TestGetMarketCoverageSummary(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handlers := newStockSelectionTestHandlers()

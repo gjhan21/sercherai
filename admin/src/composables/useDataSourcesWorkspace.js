@@ -53,6 +53,7 @@ export function useDataSourcesWorkspace() {
   const sync = useMarketSyncConsole({
     feedback,
     canEditMarket,
+    router,
     items: registry.items,
     healthMap: health.healthMap,
     defaultStockSourceKey: registry.defaultStockSourceKey,
