@@ -236,7 +236,7 @@ function goToStrategies(stock) {
   router.push({
     path: "/recommendations/strategies",
     query: target
-      ? { symbol: target, name: stock?.name || chartStock.value?.name || "", from: "recommendations" }
+      ? { reco_id: stock?.id || "", symbol: target, name: stock?.name || chartStock.value?.name || "", from: "recommendations" }
       : { from: "recommendations" }
   });
 }

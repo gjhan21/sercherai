@@ -1,6 +1,6 @@
 <template>
   <div class="detail-page" v-if="strategy">
-    <button class="back-btn glass" @click="$router.push('/strategies')">← 返回策略列表</button>
+    <button class="back-btn glass" @click="$router.push('/futures/strategies')">← 返回策略列表</button>
 
     <!-- Strategy Header -->
     <section class="section fade-in-up">
@@ -97,7 +97,7 @@ const forecastLabEntryTo = computed(() => {
       targetLabel,
       source: "STRATEGY",
       sourceId: current.id || route.params.id,
-      sourcePath: current.id ? `/futures/strategy/${current.id}` : "/recommendations/strategies",
+      sourcePath: current.id ? `/futures/strategy/${current.id}` : "/futures/strategies",
       from: "strategies",
       strategyId: current.id || route.params.id
     })

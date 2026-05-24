@@ -7,12 +7,13 @@ const routes = [
   // Module 1: Recommendations
   { path: "/recommendations", name: "daily-recs", component: () => import("../views/recommendations/DailyRecs.vue"), meta: { title: "每日推荐", section: "recs", icon: "star", sub: "daily" } },
   { path: "/recommendations/history", name: "rec-history", component: () => import("../views/recommendations/HistoryPerf.vue"), meta: { title: "历史表现", section: "recs", sub: "history" } },
-  { path: "/recommendations/strategies", name: "strategies", component: () => import("../views/recommendations/Strategies.vue"), meta: { title: "交易策略", section: "recs", sub: "strategies" } },
+  { path: "/recommendations/strategies", name: "strategies", component: () => import("../views/recommendations/StockStrategyBridge.vue"), meta: { title: "执行策略", section: "recs", sub: "strategies" } },
   { path: "/recommendations/backtest", name: "backtest", component: () => import("../views/recommendations/BacktestView.vue"), meta: { title: "回测结果", section: "recs", sub: "backtest" } },
 
   // Futures arbitrage
   { path: "/futures/arbitrage", name: "futures-arbitrage", component: () => import("../views/futures/FuturesArbitrage.vue"), meta: { title: "期货套利", section: "recs", icon: "trade" } },
   { path: "/futures/arbitrage/:id", name: "futures-arb-detail", component: () => import("../views/futures/FuturesArbitrageDetail.vue"), meta: { title: "套利详情", section: "recs" } },
+  { path: "/futures/strategies", name: "futures-strategies", component: () => import("../views/futures/FuturesStrategies.vue"), meta: { title: "期货策略", section: "recs", icon: "trade", sub: "futures-strategies" } },
   { path: "/futures/strategy/:id", name: "futures-strategy-detail", component: () => import("../views/futures/FuturesStrategyDetail.vue"), meta: { title: "策略详情", section: "recs" } },
 
   // Module 2: Analysis

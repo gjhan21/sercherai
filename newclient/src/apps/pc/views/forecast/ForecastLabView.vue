@@ -551,8 +551,9 @@ function toggleScope() {
 function goToPreviousStep() {
   if (flowSource.value === "strategies") {
     router.push({
-      path: "/recommendations/strategies",
+      path: route.query.target_type === "FUTURES" ? "/futures/strategies" : "/recommendations/strategies",
       query: {
+        ...(route.query.target_id ? { reco_id: route.query.target_id } : {}),
         ...(route.query.symbol ? { symbol: route.query.symbol } : {}),
         ...(route.query.name ? { name: route.query.name } : {}),
         from: "forecast-lab"
