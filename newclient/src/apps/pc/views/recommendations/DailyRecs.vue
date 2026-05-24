@@ -29,11 +29,16 @@
         </div>
         <div class="recs-summary-stats">
           <div class="recs-stat"><span class="recs-stat-value" style="color:var(--accent-gold)">{{ avgScore }}</span><span class="recs-stat-label">平均评分</span></div>
-          <div class="recs-stat"><span class="recs-stat-value" style="color:var(--positive)">{{ avgReturn }}%</span><span class="recs-stat-label">平均涨幅</span></div>
+          <div class="recs-stat"><span class="recs-stat-value">{{ riskLevelSummary }}</span><span class="recs-stat-label">主风险等级</span></div>
           <div class="recs-stat"><span class="recs-stat-value">{{ dailyRecs.length }}</span><span class="recs-stat-label">推荐数量</span></div>
         </div>
       </div>
-      <div class="picks-grid">
+      <div v-if="showLoginGate" class="daily-recs-empty glass">
+        <div class="daily-recs-empty-title">登录后查看今日 AI 精选</div>
+        <p class="daily-recs-empty-copy">系统会基于当日有效推荐集合展示真实的 AI 精选标的、风险等级、建议仓位与止盈止损。</p>
+        <button class="flow-btn" @click="$router.push('/login')">去登录</button>
+      </div>
+      <div v-else-if="dailyRecs.length" class="picks-grid">
         <article v-for="stock in dailyRecs" :key="stock.symbol" class="pick-card glass" :class="{ active: chartSymbol === stock.symbol }" @click="showDetail(stock)">
           <div class="pick-rank" :class="'rank-' + stock.rank">{{ stock.rank }}</div>
           <div class="pick-info">
@@ -41,9 +46,9 @@
               <span class="pick-symbol">{{ stock.symbol?.split('.')[0] }}</span>
               <span class="pick-name">{{ stock.name }}</span>
             </div>
-            <div class="pick-price-row">
-              <span class="pick-price">{{ stock.price }}</span>
-              <span class="pick-change" :class="stock.change >= 0 ? 'up' : 'down'">{{ stock.change >= 0 ? '+' : '' }}{{ stock.change }}%</span>
+            <div class="pick-meta-row">
+              <span class="pick-meta">风险等级：{{ stock.riskLevel || '待评估' }}</span>
+              <span class="pick-meta">建议仓位：{{ stock.positionSize || '待确认' }}</span>
             </div>
           </div>
           <div class="pick-score-ring">
@@ -56,17 +61,25 @@
           <p class="pick-reason"><span class="reason-label">AI 理由：</span>{{ stock.aiReason }}</p>
           <div class="pick-score-badges">
             <span class="pick-badge" :class="stock.score >= 85 ? 'badge-high' : stock.score >= 75 ? 'badge-mid' : 'badge-low'">AI {{ stock.score }}</span>
-            <span v-if="stock.risk" class="pick-badge risk-badge">{{ stock.risk }}</span>
+            <span v-if="stock.riskLevel" class="pick-badge risk-badge">{{ stock.riskLevel }}</span>
+          </div>
+          <div class="pick-plan-grid">
+            <div><span class="plan-label">止盈</span><span class="plan-value plan-positive">{{ stock.takeProfit || '待确认' }}</span></div>
+            <div><span class="plan-label">止损</span><span class="plan-value plan-negative">{{ stock.stopLoss || '待确认' }}</span></div>
           </div>
           <div class="pick-footer">
             <button class="pick-detail-btn" @click.stop="$router.push('/identify?q=' + stock.symbol)">分析 →</button>
-            <span class="pick-strategy">策略: {{ stock.strategy.positionSize }}</span>
+            <span class="pick-strategy">策略: {{ stock.positionSize || '待确认' }}</span>
           </div>
           <div class="pick-journey">
             <button class="journey-btn" @click.stop="goToStrategies(stock)">查看对应策略</button>
             <button class="journey-btn ghost" @click.stop="goToForecastLab(stock)">进入深度推演</button>
           </div>
         </article>
+      </div>
+      <div v-else class="daily-recs-empty glass">
+        <div class="daily-recs-empty-title">今日暂无可发布推荐</div>
+        <p class="daily-recs-empty-copy">当前交易日还没有可展示的 AI 精选推荐，稍后再来查看。</p>
       </div>
     </section>
 
@@ -87,8 +100,8 @@
         <div class="chart-header">
           <div>
             <span class="chart-stock-name">{{ chartStock?.name }}</span>
-            <span class="chart-stock-price">{{ chartStock?.price }}</span>
-            <span class="chart-stock-change" :class="(chartStock?.change || 0) >= 0 ? 'up' : 'down'">{{ (chartStock?.change || 0) >= 0 ? '+' : '' }}{{ chartStock?.change }}%</span>
+            <span class="chart-stock-price">{{ chartStock?.score ? `AI 评分 ${chartStock.score}` : '--' }}</span>
+            <span class="chart-stock-change">{{ chartStock?.riskLevel || '待评估' }}</span>
           </div>
           <div class="chart-status">{{ klineLoading ? '加载中...' : (klineData.length + ' 天') }}</div>
         </div>
@@ -130,10 +143,10 @@
             <span class="strat-mini-name">{{ stock.name }}</span>
           </div>
           <div class="strat-mini-grid">
-            <div><span class="strat-label">入场</span><span class="strat-val">{{ stock.strategy.entry }}</span></div>
-            <div><span class="strat-label">止损</span><span class="strat-val" style="color:var(--negative)">{{ stock.strategy.stopLoss }}</span></div>
-            <div><span class="strat-label">目标</span><span class="strat-val" style="color:var(--positive)">{{ stock.strategy.takeProfit }}</span></div>
-            <div><span class="strat-label">仓位</span><span class="strat-val">{{ stock.strategy.positionSize }}</span></div>
+            <div><span class="strat-label">风险等级</span><span class="strat-val">{{ stock.riskLevel || '待评估' }}</span></div>
+            <div><span class="strat-label">止损</span><span class="strat-val" style="color:var(--negative)">{{ stock.stopLoss || '待确认' }}</span></div>
+            <div><span class="strat-label">止盈</span><span class="strat-val" style="color:var(--positive)">{{ stock.takeProfit || '待确认' }}</span></div>
+            <div><span class="strat-label">仓位</span><span class="strat-val">{{ stock.positionSize || '待确认' }}</span></div>
           </div>
         </div>
       </div>
@@ -145,7 +158,6 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { STOCK_MASTER } from "@/mock/stocks.js";
-import { DAILY_RECS as MOCK_RECS } from "@/mock/recommendations.js";
 import { listStockRecommendations, getStockKline, getStockPatternMatch } from "@/api/market.js"
 import KlineChart from "@/apps/pc/components/KlineChart.vue"
 import { buildForecastContextQuery } from "@/shared/lib/forecast-context.js";
@@ -156,7 +168,7 @@ const router = useRouter();
 const route = useRoute();
 const chartSymbol = ref(route.query.symbol || '300750.SZ');
 const hoverBar = ref(null);
-const dailyRecs = ref(MOCK_RECS);
+const dailyRecs = ref([]);
 const apiLoaded = ref(false);
 const klineData = ref([]);
 const klineLoading = ref(false);
@@ -164,29 +176,40 @@ const chartWidth = ref(800);
 const prediction = ref(null);
 const predictLoading = ref(false);
 const matches = ref([]);
+const todayTradeDate = computed(() => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+});
+const showLoginGate = computed(() => !isLoggedIn.value);
 
 const todayDate = computed(() => {
   const d = new Date();
   return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
 });
 
-const avgScore = computed(() => (dailyRecs.value.reduce((s, i) => s + i.score, 0) / dailyRecs.value.length).toFixed(0));
-const avgReturn = computed(() => (dailyRecs.value.reduce((s, i) => s + i.change, 0) / dailyRecs.value.length).toFixed(2));
+const avgScore = computed(() => {
+  if (!dailyRecs.value.length) return "--";
+  return (dailyRecs.value.reduce((s, i) => s + i.score, 0) / dailyRecs.value.length).toFixed(0);
+});
+const riskLevelSummary = computed(() => dailyRecs.value[0]?.riskLevel || "--");
 
-const selectedStock = ref(dailyRecs.value[0]);
+const selectedStock = ref(null);
 const chartStock = computed(() => {
   const s = dailyRecs.value.find(r => r.symbol === chartSymbol.value);
   if (s) return s;
   // Fallback: show symbol even if not in recommendations
   const sym = chartSymbol.value;
-  if (sym) return { symbol: sym, name: route.query.name || sym.replace('.SZ','').replace('.SH',''), price: '--', change: 0 };
-  return dailyRecs.value[0];
+  if (sym) return { symbol: sym, name: route.query.name || sym.replace('.SZ','').replace('.SH',''), score: null, riskLevel: "" };
+  return dailyRecs.value[0] || null;
 });
 
 const chartLabels = ['05/05','05/07','05/09','05/12','05/14'];
 
 const chartData = computed(() => {
-  const base = parseFloat(chartStock.value?.price || 198);
+  const base = 198;
   return [
     { open: base - 2, close: base + 3, high: base + 5, low: base - 4, annotation: null },
     { open: base + 3, close: base + 1, high: base + 4, low: base - 1, annotation: { text: 'AI 监测到资金流入', color: 'var(--accent-gold)' } },
@@ -248,18 +271,28 @@ function goToForecastLab(stock) {
 async function loadDailyRecs() {
   if (!isLoggedIn.value) return;
   try {
-    const result = await listStockRecommendations({ page: 1, page_size: 6 });
+    const result = await listStockRecommendations({ trade_date: todayTradeDate.value, page: 1, page_size: 6 });
     if (result?.items?.length) {
       dailyRecs.value = result.items.map((item, i) => ({
-        id: item.id, symbol: item.symbol, name: item.name, rank: i + 1,
-        price: String(item.score || Math.random() * 100).slice(0, 6),
-        change: parseFloat((Math.random() * 6 - 1).toFixed(2)),
+        id: item.id,
+        symbol: item.symbol,
+        name: item.name,
+        rank: i + 1,
         score: item.score || 80,
         aiReason: item.reason_summary || 'AI 模型筛选',
-        strategy: { entry: '待确认', stopLoss: '待确认', takeProfit: '待确认', positionSize: item.position_range || '10%' },
+        riskLevel: item.risk_level || '',
+        positionSize: item.position_range || '待确认',
+        takeProfit: item.take_profit || '',
+        stopLoss: item.stop_loss || '',
+        strategy: {
+          stopLoss: item.stop_loss || '待确认',
+          takeProfit: item.take_profit || '待确认',
+          positionSize: item.position_range || '待确认'
+        },
         tags: ['AI精选']
       }));
       apiLoaded.value = true;
+      selectedStock.value = dailyRecs.value[0] || null;
       if (dailyRecs.value.length) loadKline(dailyRecs.value[0].symbol);
     }
   } catch { /* use mock */ }

@@ -327,6 +327,8 @@ type StockRecommendation struct {
 	ValidTo          string  `json:"valid_to"`
 	Status           string  `json:"status"`
 	ReasonSummary    string  `json:"reason_summary"`
+	TakeProfit       string  `json:"take_profit,omitempty"`
+	StopLoss         string  `json:"stop_loss,omitempty"`
 	SourceType       string  `json:"source_type,omitempty"`
 	StrategyVersion  string  `json:"strategy_version,omitempty"`
 	Reviewer         string  `json:"reviewer,omitempty"`
@@ -1359,4 +1361,3 @@ type StockTopListDaily struct {
 	NetAmount float64 `json:"net_amount"`
 	Reason    string  `json:"reason"`
 }
-

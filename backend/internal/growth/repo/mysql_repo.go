@@ -3994,22 +3994,37 @@ func compactErrorMessages(messages []string, limit int) []string {
 
 func (r *MySQLGrowthRepo) ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
 	offset := (page - 1) * pageSize
+	if tradeDate == "" {
+		var latestTradeDate sql.NullString
+		if err := r.db.QueryRow(`
+SELECT DATE_FORMAT(MAX(valid_from), '%Y-%m-%d')
+FROM stock_recommendations
+WHERE status IN ('PUBLISHED', 'ACTIVE', 'TRACKING')`).Scan(&latestTradeDate); err != nil {
+			return nil, 0, err
+		}
+		if latestTradeDate.Valid {
+			tradeDate = strings.TrimSpace(latestTradeDate.String)
+		}
+	}
 	args := []interface{}{}
-	filter := " WHERE status IN ('PUBLISHED', 'ACTIVE', 'TRACKING')"
+	filter := " WHERE r.status IN ('PUBLISHED', 'ACTIVE', 'TRACKING')"
 	if tradeDate != "" {
-		filter += " AND DATE(valid_from) = ?"
+		filter += " AND DATE(r.valid_from) = ?"
 		args = append(args, tradeDate)
 	}
 
 	var total int
-	if err := r.db.QueryRow("SELECT COUNT(*) FROM stock_recommendations"+filter, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM stock_recommendations r"+filter, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	query := `
-SELECT id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary
-FROM stock_recommendations` + filter + `
-ORDER BY valid_from DESC
+SELECT r.id, r.symbol, r.name, r.score, r.risk_level, COALESCE(r.position_range, ''), r.valid_from, r.valid_to, r.status, COALESCE(r.reason_summary, ''),
+       COALESCE(r.source_type, ''), COALESCE(r.strategy_version, ''), COALESCE(r.performance_label, ''),
+       COALESCE(d.take_profit, ''), COALESCE(d.stop_loss, '')
+FROM stock_recommendations r
+LEFT JOIN stock_reco_details d ON d.reco_id = r.id` + filter + `
+ORDER BY r.score DESC, r.created_at DESC
 LIMIT ? OFFSET ?`
 	args = append(args, pageSize, offset)
 	rows, err := r.db.Query(query, args...)
@@ -4021,16 +4036,25 @@ LIMIT ? OFFSET ?`
 	items := make([]model.StockRecommendation, 0)
 	for rows.Next() {
 		var item model.StockRecommendation
-		var positionRange, reasonSummary sql.NullString
 		var validFrom, validTo time.Time
-		if err := rows.Scan(&item.ID, &item.Symbol, &item.Name, &item.Score, &item.RiskLevel, &positionRange, &validFrom, &validTo, &item.Status, &reasonSummary); err != nil {
+		if err := rows.Scan(
+			&item.ID,
+			&item.Symbol,
+			&item.Name,
+			&item.Score,
+			&item.RiskLevel,
+			&item.PositionRange,
+			&validFrom,
+			&validTo,
+			&item.Status,
+			&item.ReasonSummary,
+			&item.SourceType,
+			&item.StrategyVersion,
+			&item.PerformanceLabel,
+			&item.TakeProfit,
+			&item.StopLoss,
+		); err != nil {
 			return nil, 0, err
-		}
-		if positionRange.Valid {
-			item.PositionRange = positionRange.String
-		}
-		if reasonSummary.Valid {
-			item.ReasonSummary = reasonSummary.String
 		}
 		item.ValidFrom = validFrom.Format(time.RFC3339)
 		item.ValidTo = validTo.Format(time.RFC3339)
