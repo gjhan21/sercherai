@@ -124,6 +124,57 @@ func summarizeStrategyForecastL3LearningRecords(items []model.StrategyForecastL3
 	return results
 }
 
+func buildStrategyForecastL3RunReview(item model.StrategyForecastL3LearningRecord) model.StrategyForecastL3RunReview {
+	review := model.StrategyForecastL3RunReview{
+		RunID:             strings.TrimSpace(item.RunID),
+		TargetType:        normalizeStrategyForecastL3TargetType(item.TargetType),
+		TargetKey:         strings.TrimSpace(item.TargetKey),
+		ScenarioHit:       item.ScenarioHit,
+		TriggerHit:        item.TriggerHit,
+		InvalidationEarly: item.InvalidationEarly,
+		BiasLabel:         strings.TrimSpace(item.BiasLabel),
+		RoleEffectiveness: cloneForecastL3RoleEffectiveness(item.RoleEffectiveness),
+		ReviewedAt:        strings.TrimSpace(item.CreatedAt),
+	}
+
+	switch {
+	case item.InvalidationEarly:
+		review.ReviewGrade = "D"
+		review.ReviewScore = 35
+		review.ReviewVerdict = "风险边界过早触发，本次深推演需要明显降权看待。"
+		review.ReviewNotes = append(review.ReviewNotes, "失效条件在主情景充分展开前就被触发。")
+	case item.ScenarioHit && item.TriggerHit:
+		review.ReviewGrade = "A"
+		review.ReviewScore = 85
+		review.ReviewVerdict = "主情景与触发条件均得到验证，这次深推演具有较高参考价值。"
+		review.ReviewNotes = append(review.ReviewNotes, "主情景得到验证，且关键触发条件落地。")
+	case item.ScenarioHit:
+		review.ReviewGrade = "B"
+		review.ReviewScore = 70
+		review.ReviewVerdict = "方向判断基本成立，但确认信号不够完整，仍需控制节奏。"
+		review.ReviewNotes = append(review.ReviewNotes, "主情景命中，但触发条件确认不充分。")
+	default:
+		review.ReviewGrade = "C"
+		review.ReviewScore = 55
+		review.ReviewVerdict = "主情景未充分走出，但风险边界尚未提前失效，结论需要继续观察。"
+		review.ReviewNotes = append(review.ReviewNotes, "主情景未明显兑现，仍需跟踪后续验证。")
+	}
+
+	if note := strings.TrimSpace(item.Summary); note != "" {
+		review.ReviewNotes = append(review.ReviewNotes, note)
+	}
+	switch review.BiasLabel {
+	case "UNDERCONFIRMED":
+		review.ReviewNotes = append(review.ReviewNotes, "历史复盘提示：当时更像提前预判，确认度偏弱。")
+	case "RISK_FIRST":
+		review.ReviewNotes = append(review.ReviewNotes, "历史复盘提示：风险信号先于收益兑现，需要优先守住边界。")
+	case "UNCALIBRATED":
+		review.ReviewNotes = append(review.ReviewNotes, "历史复盘提示：当前样本仍偏少，建议结合更多历史推演观察。")
+	}
+
+	return review
+}
+
 func safeForecastL3Ratio(numerator int, denominator int) float64 {
 	if denominator <= 0 {
 		return 0
@@ -238,6 +289,62 @@ ORDER BY created_at DESC`, args...)
 	return items, nil
 }
 
+func (r *MySQLGrowthRepo) loadStrategyForecastL3LearningRecordsForRun(runID string) ([]model.StrategyForecastL3LearningRecord, error) {
+	rows, err := r.db.Query(`
+SELECT
+	id,
+	run_id,
+	target_type,
+	target_key,
+	scenario_hit,
+	trigger_hit,
+	invalidation_early,
+	COALESCE(bias_label, ''),
+	COALESCE(CAST(role_effectiveness_json AS CHAR), ''),
+	COALESCE(summary_text, ''),
+	created_at,
+	updated_at
+FROM strategy_forecast_l3_learning_records
+WHERE run_id = ?
+ORDER BY created_at DESC, id DESC`, strings.TrimSpace(runID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.StrategyForecastL3LearningRecord, 0)
+	for rows.Next() {
+		var item model.StrategyForecastL3LearningRecord
+		var roleEffectivenessJSON sql.NullString
+		var createdAt time.Time
+		var updatedAt time.Time
+		if err := rows.Scan(
+			&item.ID,
+			&item.RunID,
+			&item.TargetType,
+			&item.TargetKey,
+			&item.ScenarioHit,
+			&item.TriggerHit,
+			&item.InvalidationEarly,
+			&item.BiasLabel,
+			&roleEffectivenessJSON,
+			&item.Summary,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		item.RoleEffectiveness = parseStrategyForecastL3RoleEffectiveness(roleEffectivenessJSON.String)
+		item.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+		item.UpdatedAt = updatedAt.UTC().Format(time.RFC3339)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func parseStrategyForecastL3RoleEffectiveness(raw string) map[string]float64 {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -252,4 +359,15 @@ func parseStrategyForecastL3RoleEffectiveness(raw string) map[string]float64 {
 
 func buildForecastL3LearningSummaryMessage(item model.StrategyForecastL3LearningRecord) string {
 	return fmt.Sprintf("scenario_hit=%t trigger_hit=%t invalidation_early=%t", item.ScenarioHit, item.TriggerHit, item.InvalidationEarly)
+}
+
+func cloneForecastL3RoleEffectiveness(source map[string]float64) map[string]float64 {
+	if len(source) == 0 {
+		return nil
+	}
+	cloned := make(map[string]float64, len(source))
+	for key, value := range source {
+		cloned[key] = value
+	}
+	return cloned
 }

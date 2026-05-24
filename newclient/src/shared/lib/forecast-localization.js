@@ -37,6 +37,11 @@ const exactTextMap = new Map([
   ["Track whether this signal remains aligned with the thesis.", "持续跟踪该信号是否仍与核心逻辑保持一致。"],
   ["Compare post-publish performance with current setup.", "将发布后的表现与当前推演设定持续对照。"],
   ["Evaluation feedback", "复盘反馈"],
+  ["Review score", "复盘评分"],
+  ["review score", "复盘评分"],
+  ["history comparison loaded", "历史对比数据已加载"],
+  ["history review loaded", "历史复盘数据已加载"],
+  ["history runs loaded", "历史运行数据已加载"],
   ["Risk boundary: ", "风险边界："],
   ["target context loaded", "标的上下文已加载"],
   ["research pack assembled", "研究资料包已组装完成"],
@@ -205,6 +210,34 @@ export function localizeForecastValidationStatus(value) {
     COMPLETED: "模型复核已完成",
     DEGRADED: "模型复核降级完成",
     UNAVAILABLE: "模型复核暂不可用"
+  };
+  return mapping[key] || localizeForecastText(value) || "-";
+}
+
+export function localizeForecastHistoryChangeLabel(value) {
+  const key = toText(value).toUpperCase();
+  const mapping = {
+    ADDED: "新增",
+    REMOVED: "移除",
+    CHANGED: "变化",
+    UPDATED: "变化",
+    STABLE: "稳定",
+    "基本不变": "基本不变",
+    "新增": "新增",
+    "弱化": "弱化",
+    "变化": "变化",
+    "未提供": "未提供"
+  };
+  return mapping[key] || localizeForecastText(value) || "变化";
+}
+
+export function localizeForecastReviewGrade(value) {
+  const key = toText(value).toUpperCase();
+  const mapping = {
+    A: "A级",
+    B: "B级",
+    C: "C级",
+    D: "D级"
   };
   return mapping[key] || localizeForecastText(value) || "-";
 }

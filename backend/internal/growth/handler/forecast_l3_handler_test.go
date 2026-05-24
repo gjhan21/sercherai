@@ -79,6 +79,157 @@ func TestCreateForecastL3RunRejectsMissingStrictContextForUserRequest(t *testing
 	}
 }
 
+func TestListForecastL3HistoryReturnsSucceededTimeline(t *testing.T) {
+	growthRepo := repo.NewInMemoryGrowthRepo()
+	seedForecastHistoryHandlerRuns(t, growthRepo, "600519.SH", model.StrategyForecastL3TargetTypeStock)
+	growthService := service.NewGrowthService(growthRepo)
+	growthHandler := NewUserGrowthHandler(growthService, config.Config{})
+
+	router := gin.New()
+	attachUserID(router, "user_001")
+	router.GET("/api/v1/forecast/targets/history", growthHandler.ListForecastL3History)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/forecast/targets/history?target_type=STOCK&target_key=600519.SH", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Code int `json:"code"`
+		Data struct {
+			Items []model.StrategyForecastL3HistoryItem `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload.Code != 0 || len(payload.Data.Items) < 2 {
+		t.Fatalf("expected successful history timeline, got %+v", payload.Data)
+	}
+}
+
+func TestGetForecastL3HistoryCompareDefaultsToLatestVsPrevious(t *testing.T) {
+	growthRepo := repo.NewInMemoryGrowthRepo()
+	seedForecastHistoryHandlerRuns(t, growthRepo, "AU2408", model.StrategyForecastL3TargetTypeFutures)
+	growthService := service.NewGrowthService(growthRepo)
+	growthHandler := NewUserGrowthHandler(growthService, config.Config{})
+
+	router := gin.New()
+	attachUserID(router, "user_001")
+	router.GET("/api/v1/forecast/targets/history/compare", growthHandler.GetForecastL3HistoryCompare)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/forecast/targets/history/compare?target_type=FUTURES&target_key=AU2408", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Code int `json:"code"`
+		Data model.StrategyForecastL3HistoryCompare `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload.Code != 0 || payload.Data.LeftRun == nil || payload.Data.RightRun == nil {
+		t.Fatalf("expected default latest vs previous compare, got %+v", payload.Data)
+	}
+}
+
+func TestGetForecastL3RunReviewReturnsExplainableScore(t *testing.T) {
+	growthRepo := repo.NewInMemoryGrowthRepo()
+	seedForecastHistoryHandlerRuns(t, growthRepo, "RB2609", model.StrategyForecastL3TargetTypeFutures)
+	items, err := growthRepo.ListStrategyForecastL3HistoryForTarget("user_001", model.StrategyForecastL3TargetTypeFutures, "RB2609", 1, 10)
+	if err != nil || len(items) == 0 {
+		t.Fatalf("seed history items error = %v items=%d", err, len(items))
+	}
+	growthService := service.NewGrowthService(growthRepo)
+	growthHandler := NewUserGrowthHandler(growthService, config.Config{})
+
+	router := gin.New()
+	attachUserID(router, "user_001")
+	router.GET("/api/v1/forecast/runs/:id/review", growthHandler.GetForecastL3RunReview)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/forecast/runs/"+items[0].RunID+"/review", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Code int                             `json:"code"`
+		Data model.StrategyForecastL3RunReview `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload.Code != 0 || payload.Data.ReviewGrade == "" || payload.Data.ReviewScore == 0 {
+		t.Fatalf("expected explainable review score, got %+v", payload.Data)
+	}
+}
+
+func TestListForecastL3HistoryRejectsOtherUsersTargetHistory(t *testing.T) {
+	growthRepo := repo.NewInMemoryGrowthRepo()
+	seedForecastHistoryHandlerRuns(t, growthRepo, "600519.SH", model.StrategyForecastL3TargetTypeStock)
+	growthService := service.NewGrowthService(growthRepo)
+	growthHandler := NewUserGrowthHandler(growthService, config.Config{})
+
+	router := gin.New()
+	attachUserID(router, "another_user")
+	router.GET("/api/v1/forecast/targets/history", growthHandler.ListForecastL3History)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/forecast/targets/history?target_type=STOCK&target_key=600519.SH", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Code int `json:"code"`
+		Data struct {
+			Items []model.StrategyForecastL3HistoryItem `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(payload.Data.Items) != 0 {
+		t.Fatalf("expected no visible history for another user, got %+v", payload.Data.Items)
+	}
+}
+
+func TestGetForecastL3RunReviewRejectsOtherUsersRun(t *testing.T) {
+	growthRepo := repo.NewInMemoryGrowthRepo()
+	seedForecastHistoryHandlerRuns(t, growthRepo, "RB2609", model.StrategyForecastL3TargetTypeFutures)
+	items, err := growthRepo.ListStrategyForecastL3HistoryForTarget("user_001", model.StrategyForecastL3TargetTypeFutures, "RB2609", 1, 10)
+	if err != nil || len(items) == 0 {
+		t.Fatalf("seed history items error = %v items=%d", err, len(items))
+	}
+	growthService := service.NewGrowthService(growthRepo)
+	growthHandler := NewUserGrowthHandler(growthService, config.Config{})
+
+	router := gin.New()
+	attachUserID(router, "another_user")
+	router.GET("/api/v1/forecast/runs/:id/review", growthHandler.GetForecastL3RunReview)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/forecast/runs/"+items[0].RunID+"/review", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAdminListForecastL3RunsOK(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	growthRepo := repo.NewInMemoryGrowthRepo()
@@ -177,5 +328,36 @@ func repoRunInput(targetType string, targetKey string, userID string) model.Stra
 		Source:         "ADMIN_CONSOLE",
 		SourceID:       "seed-admin",
 		SourcePath:     "/admin/forecast-lab",
+	}
+}
+
+func seedForecastHistoryHandlerRuns(t *testing.T, growthRepo *repo.InMemoryGrowthRepo, targetKey string, targetType string) {
+	t.Helper()
+
+	for index, scenario := range []string{"base", "bull", "bear"} {
+		run, err := growthRepo.CreateStrategyForecastL3Run(model.StrategyForecastL3RunCreateInput{
+			TargetType:    targetType,
+			TargetID:      targetKey,
+			TargetKey:     targetKey,
+			TargetLabel:   targetKey,
+			Source:        "RECOMMENDATION",
+			SourceID:      "seed-history",
+			SourcePath:    "/recommendations",
+			TriggerType:   model.StrategyForecastL3TriggerTypeUserRequest,
+			RequestUserID: "user_001",
+			PriorityScore: 0.6 + float64(index)*0.1,
+			Reason:        "seed history handler",
+		})
+		if err != nil {
+			t.Fatalf("CreateStrategyForecastL3Run() error = %v", err)
+		}
+		growthRepo.ExecuteQueuedStrategyForecastL3Runs(1, "system")
+		detail, err := growthRepo.GetStrategyForecastL3RunDetail(run.ID)
+		if err != nil {
+			t.Fatalf("GetStrategyForecastL3RunDetail() error = %v", err)
+		}
+		growthRepo.RunStrategyForecastL3QualityBackfill(20, "system")
+		detail.Run.Summary.PrimaryScenario = scenario
+		_ = detail
 	}
 }

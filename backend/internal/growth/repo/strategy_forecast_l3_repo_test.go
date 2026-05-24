@@ -104,6 +104,76 @@ func TestCreateStrategyForecastL3RunRejectsUserRequestWithoutTargetID(t *testing
 	}
 }
 
+func TestListStrategyForecastL3HistoryForTargetReturnsOnlySucceededRuns(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+	seedForecastL3HistoryRunsForTarget(t, repo, "600519.SH", model.StrategyForecastL3TargetTypeStock)
+
+	items, err := repo.ListStrategyForecastL3HistoryForTarget("user_001", model.StrategyForecastL3TargetTypeStock, "600519.SH", 1, 20)
+	if err != nil {
+		t.Fatalf("ListStrategyForecastL3HistoryForTarget() error = %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatalf("expected successful history items")
+	}
+	for _, item := range items {
+		if item.Status != model.StrategyForecastL3StatusSucceeded {
+			t.Fatalf("expected succeeded status in history item, got %+v", item)
+		}
+		if item.Review == nil || item.Review.ReviewGrade == "" {
+			t.Fatalf("expected review grade in history item, got %+v", item)
+		}
+	}
+}
+
+func TestBuildStrategyForecastL3HistoryCompareDefaultsToLatestVsPrevious(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+	seedForecastL3HistoryRunsForTarget(t, repo, "AU2408", model.StrategyForecastL3TargetTypeFutures)
+
+	compare, err := repo.GetStrategyForecastL3HistoryCompare("user_001", model.StrategyForecastL3TargetTypeFutures, "AU2408", "", "")
+	if err != nil {
+		t.Fatalf("GetStrategyForecastL3HistoryCompare() error = %v", err)
+	}
+	if compare.LeftRun == nil || compare.RightRun == nil {
+		t.Fatalf("expected latest vs previous pair, got %+v", compare)
+	}
+	if len(compare.VerdictShift) == 0 {
+		t.Fatalf("expected verdict shift summary, got %+v", compare)
+	}
+	if len(compare.EvidenceDiffs) == 0 {
+		t.Fatalf("expected role effectiveness evidence diffs, got %+v", compare)
+	}
+	if compare.EvidenceDiffs[0].Dimension == "STATE" || compare.EvidenceDiffs[0].Dimension == "SCENARIO" {
+		t.Fatalf("expected evidence diff dimensions, got %+v", compare.EvidenceDiffs)
+	}
+}
+
+func TestListStrategyForecastL3HistoryForTargetFiltersByRequestUserID(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+	seedForecastL3HistoryRunsForTarget(t, repo, "RB2609", model.StrategyForecastL3TargetTypeFutures)
+
+	items, err := repo.ListStrategyForecastL3HistoryForTarget("another_user", model.StrategyForecastL3TargetTypeFutures, "RB2609", 1, 20)
+	if err != nil {
+		t.Fatalf("ListStrategyForecastL3HistoryForTarget() error = %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected no history for another user, got %+v", items)
+	}
+}
+
+func TestGetStrategyForecastL3RunReviewRejectsOtherUsersRun(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+	seedForecastL3HistoryRunsForTarget(t, repo, "CU2407", model.StrategyForecastL3TargetTypeFutures)
+
+	items, err := repo.ListStrategyForecastL3HistoryForTarget("user_001", model.StrategyForecastL3TargetTypeFutures, "CU2407", 1, 20)
+	if err != nil || len(items) == 0 {
+		t.Fatalf("expected seeded history items, err=%v len=%d", err, len(items))
+	}
+
+	if _, err := repo.GetStrategyForecastL3RunReview(items[0].RunID, "another_user"); err == nil {
+		t.Fatalf("expected review access to be denied for another user")
+	}
+}
+
 func TestListStrategyForecastL3RunsBuildsSummaryAndReportRef(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -521,4 +591,110 @@ func TestInMemoryStrategyForecastL3RunLifecycle(t *testing.T) {
 	if detail.Run.ID != run.ID {
 		t.Fatalf("expected detail to carry run id, got %+v", detail)
 	}
+}
+
+func seedForecastL3HistoryRunsForTarget(t *testing.T, repo *InMemoryGrowthRepo, targetKey string, targetType string) {
+	t.Helper()
+
+	for index, scenario := range []string{"base", "bull", "bear"} {
+		run, err := repo.CreateStrategyForecastL3Run(model.StrategyForecastL3RunCreateInput{
+			TargetType:    targetType,
+			TargetID:      targetKey,
+			TargetKey:     targetKey,
+			TargetLabel:   targetKey,
+			Source:        "RECOMMENDATION",
+			SourceID:      "seed-history",
+			SourcePath:    "/recommendations",
+			TriggerType:   model.StrategyForecastL3TriggerTypeUserRequest,
+			RequestUserID: "user_001",
+			PriorityScore: 0.6 + float64(index)*0.05,
+			Reason:        "seed history",
+		})
+		if err != nil {
+			t.Fatalf("CreateStrategyForecastL3Run() error = %v", err)
+		}
+		repo.mu.Lock()
+		stored := repo.forecastL3Runs[run.ID]
+		stored.Status = model.StrategyForecastL3StatusSucceeded
+		stored.FinishedAt = time.Date(2026, 5, 24, 10+index, 0, 0, 0, time.UTC).Format(time.RFC3339)
+		stored.CreatedAt = time.Date(2026, 5, 24, 9+index, 0, 0, 0, time.UTC).Format(time.RFC3339)
+		stored.UpdatedAt = stored.FinishedAt
+		stored.Summary.ExecutiveSummary = "历史结论"
+		stored.Summary.PrimaryScenario = scenario
+		stored.Summary.ActionGuidance = "观察确认"
+		stored.Summary.ReportAvailable = true
+		repo.forecastL3Runs[run.ID] = stored
+		repo.forecastL3Reports[run.ID] = model.StrategyForecastL3Report{
+			ID:               "report_" + run.ID,
+			RunID:            run.ID,
+			Version:          1,
+			HeadlineVerdict:  "结论 " + scenario,
+			ExecutiveSummary: "历史结论",
+			PrimaryScenario:  scenario,
+			StateAssessment: &model.StrategyForecastL3StateAssessment{
+				CurrentState: "等待确认",
+			},
+			DimensionEvidence: []model.StrategyForecastL3DimensionEvidence{
+				{
+					Dimension:  "TECHNICAL",
+					Stance:     "WATCH",
+					Summary:    "技术面观察",
+					Confidence: 0.62 + float64(index)*0.05,
+				},
+			},
+			Summary: model.StrategyForecastL3Summary{
+				RunID:            run.ID,
+				Status:           model.StrategyForecastL3StatusSucceeded,
+				TargetType:       targetType,
+				TargetKey:        targetKey,
+				TargetLabel:      targetKey,
+				ExecutiveSummary: "历史结论",
+				PrimaryScenario:  scenario,
+				ActionGuidance:   "观察确认",
+				ReportAvailable:  true,
+			},
+			CreatedAt: stored.CreatedAt,
+			UpdatedAt: stored.UpdatedAt,
+		}
+		repo.forecastL3Learning[run.ID] = []model.StrategyForecastL3LearningRecord{
+			{
+				ID:                "learn_" + run.ID,
+				RunID:             run.ID,
+				TargetType:        targetType,
+				TargetKey:         targetKey,
+				ScenarioHit:       index != 2,
+				TriggerHit:        index == 0,
+				InvalidationEarly: index == 2,
+				BiasLabel:         []string{"UNDERCONFIRMED", "UNCALIBRATED", "RISK_FIRST"}[index],
+				RoleEffectiveness: map[string]float64{"TECHNICAL": 0.7},
+				Summary:           "历史复盘摘要",
+				CreatedAt:         stored.FinishedAt,
+				UpdatedAt:         stored.FinishedAt,
+			},
+		}
+		repo.mu.Unlock()
+	}
+
+	failedRun, err := repo.CreateStrategyForecastL3Run(model.StrategyForecastL3RunCreateInput{
+		TargetType:    targetType,
+		TargetID:      targetKey,
+		TargetKey:     targetKey,
+		TargetLabel:   targetKey,
+		Source:        "RECOMMENDATION",
+		SourceID:      "seed-history-failed",
+		SourcePath:    "/recommendations",
+		TriggerType:   model.StrategyForecastL3TriggerTypeUserRequest,
+		RequestUserID: "user_001",
+		PriorityScore: 0.4,
+		Reason:        "seed failed history",
+	})
+	if err != nil {
+		t.Fatalf("CreateStrategyForecastL3Run() error = %v", err)
+	}
+	repo.mu.Lock()
+	failedStored := repo.forecastL3Runs[failedRun.ID]
+	failedStored.Status = model.StrategyForecastL3StatusFailed
+	failedStored.UpdatedAt = time.Date(2026, 5, 24, 14, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	repo.forecastL3Runs[failedRun.ID] = failedStored
+	repo.mu.Unlock()
 }

@@ -87,3 +87,59 @@ func (h *UserGrowthHandler) GetForecastL3RunDetail(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, dto.OK(detail))
 }
+
+func (h *UserGrowthHandler) ListForecastL3History(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	page, pageSize := parsePage(c)
+	items, err := h.service.ListStrategyForecastL3HistoryForTarget(
+		userID,
+		c.Query("target_type"),
+		c.Query("target_key"),
+		page,
+		pageSize,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize}))
+}
+
+func (h *UserGrowthHandler) GetForecastL3HistoryCompare(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	compare, err := h.service.GetStrategyForecastL3HistoryCompare(
+		userID,
+		c.Query("target_type"),
+		c.Query("target_key"),
+		c.Query("left_run_id"),
+		c.Query("right_run_id"),
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(compare))
+}
+
+func (h *UserGrowthHandler) GetForecastL3RunReview(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	review, err := h.service.GetStrategyForecastL3RunReview(c.Param("id"), userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "forecast review not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(review))
+}

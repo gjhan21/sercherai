@@ -20,3 +20,15 @@ export function listForecastRuns(params) {
 export function getForecastRunDetail(id) {
   return http.get(`/forecast/runs/${encodeURIComponent(id)}`);
 }
+
+export function getForecastRunHistory(params) {
+  return http.get("/forecast/targets/history", { params: buildParams(params) });
+}
+
+export function getForecastRunCompare(params) {
+  return http.get("/forecast/targets/history/compare", { params: buildParams(params) });
+}
+
+export function getForecastRunReview(id) {
+  return http.get(`/forecast/runs/${encodeURIComponent(id)}/review`);
+}

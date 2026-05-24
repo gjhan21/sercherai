@@ -103,6 +103,43 @@
     <template v-else-if="detailState === 'succeeded' || detailState === 'idle'">
       <section class="forecast-card">
         <div class="forecast-head">
+          <strong>同标的历史</strong>
+          <span class="forecast-meta">{{ historySummary.title }}</span>
+        </div>
+        <p class="forecast-summary">
+          <template v-if="historyViewModel.hasHistory">
+            {{ historySummary.conclusionChange.summary }}
+          </template>
+          <template v-else>
+            {{ historySummary.emptyMessage }}
+          </template>
+        </p>
+        <div class="forecast-grid">
+          <article>
+            <span>最新一次 vs 上一次</span>
+            <strong>{{ historyViewModel.hasHistory ? "已生成默认对比" : "等待更多成功 run" }}</strong>
+          </article>
+          <article>
+            <span>结论变化</span>
+            <strong>{{ historyViewModel.hasHistory ? historySummary.conclusionChange.summary : historySummary.emptyMessage }}</strong>
+          </article>
+          <article>
+            <span>证据变化</span>
+            <strong>{{ historyViewModel.hasHistory ? historySummary.evidenceChange.summary : "当前仅能查看单次结果" }}</strong>
+          </article>
+          <article>
+            <span>完整复盘评分</span>
+            <strong>{{ latestReviewText }}</strong>
+          </article>
+          <article>
+            <span>查看全部成功 run</span>
+            <strong>{{ historyViewModel.successRunCount }} 条成功历史</strong>
+          </article>
+        </div>
+      </section>
+
+      <section class="forecast-card">
+        <div class="forecast-head">
           <strong>当前状态</strong>
           <span class="forecast-status" :class="`tone-${statusTone}`">{{ statusLabel }}</span>
         </div>
@@ -350,13 +387,17 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { getMembershipQuota } from "@/api/membership.js";
+import { getForecastRunCompare, getForecastRunHistory, getForecastRunReview } from "@/api/forecast.js";
 import { useForecastRunDetail } from "@/shared/composables/useForecastRunDetail.js";
 import {
   localizeForecastChecklistStatus,
   localizeForecastContextQuality,
   localizeForecastConfidence,
+  localizeForecastDimension,
+  localizeForecastHistoryChangeLabel,
   localizeForecastEngine,
   localizeForecastProbability,
+  localizeForecastReviewGrade,
   localizeForecastScenarioName,
   localizeForecastSource,
   localizeForecastStatusText,
@@ -364,6 +405,7 @@ import {
   localizeForecastText,
   localizeForecastValidationStatus
 } from "@/shared/lib/forecast-localization.js";
+import { buildForecastHistoryViewModel } from "@/shared/lib/forecast-history-view-model.js";
 import { buildForecastEvidenceSections } from "@/shared/lib/forecast-report-view-model.js";
 import { buildDeepForecastSummary } from "@/shared/lib/forecast-summary.js";
 
@@ -371,6 +413,9 @@ const route = useRoute();
 const router = useRouter();
 const runId = computed(() => String(route.params.id || ""));
 const isVipUser = ref(false);
+const historyRuns = ref([]);
+const historyCompare = ref(null);
+const runReview = ref(null);
 
 const {
   loading,
@@ -537,6 +582,34 @@ const heroSubtitle = computed(() => {
 const failureNarrative = computed(() => {
   return localizeForecastText(errorMessage.value || run.value?.failure_reason) || "当前这次深推演没有顺利完成，建议回到深度推演工作台重新发起，或回来源页继续观察。";
 });
+const historyViewModel = computed(() =>
+  buildForecastHistoryViewModel({
+    targetKey: run.value?.target_key,
+    targetLabel: run.value?.target_label,
+    runs: historyRuns.value
+  })
+);
+const historySummary = computed(() => {
+  const base = historyViewModel.value.compareSummary || { title: "最新一次 vs 上一次", emptyMessage: "当前仅有 1 次成功深推演，暂不能形成历史对比" };
+  if (!historyViewModel.value.hasHistory) return base;
+  const evidenceSummaryFromCompare = Array.isArray(historyCompare.value?.evidence_diffs) && historyCompare.value.evidence_diffs.length
+    ? historyCompare.value.evidence_diffs
+        .map((item) => `${localizeForecastDimension(item.dimension)}${localizeForecastHistoryChangeLabel(item.change_label)}`)
+        .join("；")
+    : base.evidenceChange?.summary;
+  return {
+    ...base,
+    evidenceChange: {
+      ...(base.evidenceChange || {}),
+      summary: evidenceSummaryFromCompare || "证据维度整体没有出现明显变化。"
+    }
+  };
+});
+const latestReviewText = computed(() => {
+  const review = runReview.value;
+  if (!review) return "等待复盘评分";
+  return `${localizeForecastReviewGrade(review.review_grade)} / ${review.review_score}`;
+});
 
 async function loadVipState() {
   try {
@@ -545,6 +618,25 @@ async function loadVipState() {
   } catch {
     isVipUser.value = false;
   }
+}
+
+async function loadHistoryContext() {
+  const targetType = String(run.value?.target_type || "").trim();
+  const targetKey = String(run.value?.target_key || "").trim();
+  if (!targetType || !targetKey) {
+    historyRuns.value = [];
+    historyCompare.value = null;
+    runReview.value = null;
+    return;
+  }
+  const tasks = await Promise.allSettled([
+    getForecastRunHistory({ target_type: targetType, target_key: targetKey, page: 1, page_size: 12 }),
+    getForecastRunCompare({ target_type: targetType, target_key: targetKey }),
+    getForecastRunReview(runId.value)
+  ]);
+  historyRuns.value = tasks[0].status === "fulfilled" ? tasks[0].value?.items || [] : [];
+  historyCompare.value = tasks[1].status === "fulfilled" ? tasks[1].value : null;
+  runReview.value = tasks[2].status === "fulfilled" ? tasks[2].value : null;
 }
 
 function formatDateTime(value) {
@@ -579,9 +671,9 @@ function goToLab() {
   router.push("/forecast-lab");
 }
 
-onMounted(() => {
-  loadDetail();
-  loadVipState();
+onMounted(async () => {
+  await loadDetail();
+  await Promise.all([loadVipState(), loadHistoryContext()]);
 });
 </script>
 

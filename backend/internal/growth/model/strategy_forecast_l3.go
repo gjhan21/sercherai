@@ -216,6 +216,58 @@ type StrategyForecastL3QualitySummary struct {
 	LastLearningRecordedAt string             `json:"last_learning_recorded_at,omitempty"`
 }
 
+type StrategyForecastL3RunReview struct {
+	RunID             string             `json:"run_id"`
+	TargetType        string             `json:"target_type"`
+	TargetKey         string             `json:"target_key"`
+	ReviewScore       int                `json:"review_score"`
+	ReviewGrade       string             `json:"review_grade"`
+	ReviewVerdict     string             `json:"review_verdict"`
+	ScenarioHit       bool               `json:"scenario_hit"`
+	TriggerHit        bool               `json:"trigger_hit"`
+	InvalidationEarly bool               `json:"invalidation_early"`
+	BiasLabel         string             `json:"bias_label,omitempty"`
+	RoleEffectiveness map[string]float64 `json:"role_effectiveness,omitempty"`
+	ReviewNotes       []string           `json:"review_notes,omitempty"`
+	ReviewedAt        string             `json:"reviewed_at,omitempty"`
+}
+
+type StrategyForecastL3HistoryItem struct {
+	RunID             string                      `json:"run_id"`
+	TargetType        string                      `json:"target_type"`
+	TargetKey         string                      `json:"target_key"`
+	TargetLabel       string                      `json:"target_label,omitempty"`
+	Status            string                      `json:"status,omitempty"`
+	CreatedAt         string                      `json:"created_at,omitempty"`
+	FinishedAt        string                      `json:"finished_at,omitempty"`
+	HeadlineVerdict   string                      `json:"headline_verdict,omitempty"`
+	PrimaryScenario   string                      `json:"primary_scenario,omitempty"`
+	CurrentState      string                      `json:"current_state,omitempty"`
+	Review            *StrategyForecastL3RunReview `json:"review,omitempty"`
+	ValidationStatus  string                      `json:"validation_status,omitempty"`
+	ContextQuality    string                      `json:"context_quality,omitempty"`
+}
+
+type StrategyForecastL3EvidenceDiff struct {
+	Dimension    string `json:"dimension"`
+	ChangeLabel  string `json:"change_label,omitempty"`
+	Previous     string `json:"previous,omitempty"`
+	Current      string `json:"current,omitempty"`
+	PreviousNote string `json:"previous_note,omitempty"`
+	CurrentNote  string `json:"current_note,omitempty"`
+}
+
+type StrategyForecastL3HistoryCompare struct {
+	TargetType     string                           `json:"target_type"`
+	TargetKey      string                           `json:"target_key"`
+	LeftRun        *StrategyForecastL3HistoryItem   `json:"left_run,omitempty"`
+	RightRun       *StrategyForecastL3HistoryItem   `json:"right_run,omitempty"`
+	VerdictShift   []string                         `json:"verdict_shift,omitempty"`
+	EvidenceDiffs  []StrategyForecastL3EvidenceDiff `json:"evidence_diffs,omitempty"`
+	ReviewSummary  []string                         `json:"review_summary,omitempty"`
+	TimelineLength int                              `json:"timeline_length,omitempty"`
+}
+
 type StrategyForecastL3Summary struct {
 	RunID            string  `json:"run_id"`
 	Status           string  `json:"status"`

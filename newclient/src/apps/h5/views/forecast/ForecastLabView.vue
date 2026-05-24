@@ -63,6 +63,31 @@
 
     <div class="h5-forecast-card">
       <div class="h5-forecast-head">
+        <strong>历史研究概览</strong>
+        <span>查看同标的历史对比</span>
+      </div>
+      <p>{{ historyOverviewNarrative }}</p>
+      <div class="h5-focus-metrics">
+        <div>
+          <span>成功 run 数量</span>
+          <strong>{{ historyViewModel.successRunCount }} 条</strong>
+        </div>
+        <div>
+          <span>最近复盘评分趋势</span>
+          <strong>{{ historyTrendLabel }}</strong>
+        </div>
+        <div>
+          <span>查看同标的历史对比</span>
+          <strong>{{ historyEntryLabel }}</strong>
+        </div>
+      </div>
+      <div class="h5-forecast-actions compact">
+        <button class="h5-ghost-btn" type="button" @click="goToFocusedHistory">查看同标的历史对比</button>
+      </div>
+    </div>
+
+    <div class="h5-forecast-card">
+      <div class="h5-forecast-head">
         <strong>研究聚焦</strong>
       </div>
       <p>{{ researchFocusNarrative }}</p>
@@ -152,10 +177,11 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { createForecastRun, listForecastRuns } from "@/api/forecast.js";
+import { createForecastRun, getForecastRunCompare, getForecastRunHistory, getForecastRunReview, listForecastRuns } from "@/api/forecast.js";
 import { listFuturesArbitrage, listStockRecommendations } from "@/api/market.js";
 import { useClientAuth } from "@/shared/auth/client-auth";
 import { canLaunchForecastContext, resolveForecastContextFromRoute } from "@/shared/lib/forecast-context.js";
+import { buildForecastHistoryViewModel, getLatestSuccessfulForecastRun } from "@/shared/lib/forecast-history-view-model.js";
 import { localizeForecastValidationStatus } from "@/shared/lib/forecast-localization.js";
 import { buildDeepForecastSummary } from "@/shared/lib/forecast-summary.js";
 
@@ -169,6 +195,7 @@ const errorMessage = ref("");
 const stockItems = ref([]);
 const futuresItems = ref([]);
 const runs = ref([]);
+const historyRuns = ref([]);
 
 const routeContext = computed(() => resolveForecastContextFromRoute(route));
 const queryRunId = computed(() => String(route.query.run_id || "").trim());
@@ -272,10 +299,33 @@ const focusCardMeta = computed(() => {
 });
 const focusedSummary = computed(() => focusedRecentEntries.value[0]?.summary || null);
 const focusedRun = computed(() => focusedRuns.value[0] || null);
+const historyViewModel = computed(() =>
+  buildForecastHistoryViewModel({
+    targetKey: focusedTargetKey.value,
+    targetLabel: focusedTargetName.value,
+    runs: historyRuns.value
+  })
+);
 const focusedResearchStatus = computed(() => {
   if (focusedSummary.value?.statusLabel) return focusedSummary.value.statusLabel;
   if (focusedRun.value?.status) return statusLabel(focusedRun.value.status);
   return "待补充";
+});
+const historyOverviewNarrative = computed(() => {
+  if (!hasFocusedTarget.value) return "带着具体标的进入后，这里会展示同标的成功 run 历史、默认最新 vs 上一次对比，以及完整复盘评分趋势。";
+  if (!historyViewModel.value.successRunCount) return `${focusedTargetDisplayName.value} 还没有成功完成的深推演历史。`;
+  if (!historyViewModel.value.hasHistory) return "当前仅有 1 次成功深推演，暂不能形成历史对比";
+  return historyViewModel.value.compareSummary?.conclusionChange?.summary || "已经生成最新一次 vs 上一次的历史对比。";
+});
+const historyTrendLabel = computed(() => {
+  const scores = historyViewModel.value.reviewScores.map((item) => item.score).filter((item) => Number.isFinite(item));
+  if (scores.length < 2) return "当前仅有 1 次成功深推演，暂不能形成历史对比";
+  return scores[scores.length - 1] >= scores[0] ? "最近复盘评分趋势改善" : "最近复盘评分趋势走弱";
+});
+const historyEntryLabel = computed(() => {
+  if (!historyViewModel.value.successRunCount) return "暂无历史";
+  if (!historyViewModel.value.hasHistory) return "当前仅有 1 次成功深推演，暂不能形成历史对比";
+  return "已可查看最新一次 vs 上一次";
 });
 const focusedReportAvailability = computed(() => {
   if (focusedSummary.value?.reportAvailable === true) return "已生成";
@@ -426,6 +476,31 @@ async function loadLab() {
     errorMessage.value = "暂时无法同步深推演入口，请稍后重试。";
   }
 
+  if (hasFocusedTarget.value && !authRequired.value) {
+    try {
+      const history = await getForecastRunHistory({
+        target_type: focusedTargetType.value || route.query.target_type || "STOCK",
+        target_key: focusedTargetKey.value || route.query.symbol || route.query.name || "",
+        page: 1,
+        page_size: 12
+      });
+      historyRuns.value = Array.isArray(history?.items) ? history.items : [];
+      if (historyViewModel.value.hasHistory) {
+        await Promise.allSettled([
+          getForecastRunCompare({
+            target_type: focusedTargetType.value || route.query.target_type || "STOCK",
+            target_key: focusedTargetKey.value || route.query.symbol || route.query.name || ""
+          }),
+          focusedRuns.value[0]?.id || focusedRuns.value[0]?.run_id ? getForecastRunReview(focusedRuns.value[0]?.id || focusedRuns.value[0]?.run_id) : Promise.resolve(null)
+        ]);
+      }
+    } catch {
+      historyRuns.value = [];
+    }
+  } else {
+    historyRuns.value = [];
+  }
+
   loading.value = false;
 }
 
@@ -484,6 +559,17 @@ function handlePrimaryAction() {
     return;
   }
   loadLab();
+}
+
+function goToFocusedHistory() {
+  const latestSuccessfulRun = getLatestSuccessfulForecastRun(historyRuns.value);
+  if (latestSuccessfulRun?.id || latestSuccessfulRun?.run_id) {
+    router.push(`/forecast/${encodeURIComponent(latestSuccessfulRun.id || latestSuccessfulRun.run_id)}`);
+    return;
+  }
+  if (queryRunId.value) {
+    router.push(`/forecast/${encodeURIComponent(queryRunId.value)}`);
+  }
 }
 
 onMounted(loadLab);

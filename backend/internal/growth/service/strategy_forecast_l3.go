@@ -26,6 +26,18 @@ func (s *growthService) GetStrategyForecastL3RunDetailForUser(runID string, user
 	return s.repo.GetStrategyForecastL3RunDetailForUser(runID, userID)
 }
 
+func (s *growthService) ListStrategyForecastL3HistoryForTarget(requestUserID string, targetType string, targetKey string, page int, pageSize int) ([]model.StrategyForecastL3HistoryItem, error) {
+	return s.repo.ListStrategyForecastL3HistoryForTarget(requestUserID, targetType, targetKey, page, pageSize)
+}
+
+func (s *growthService) GetStrategyForecastL3HistoryCompare(requestUserID string, targetType string, targetKey string, leftRunID string, rightRunID string) (model.StrategyForecastL3HistoryCompare, error) {
+	return s.repo.GetStrategyForecastL3HistoryCompare(requestUserID, targetType, targetKey, leftRunID, rightRunID)
+}
+
+func (s *growthService) GetStrategyForecastL3RunReview(runID string, requestUserID string) (model.StrategyForecastL3RunReview, error) {
+	return s.repo.GetStrategyForecastL3RunReview(runID, requestUserID)
+}
+
 func (s *growthService) RetryStrategyForecastL3Run(runID string, operatorUserID string, reason string) (model.StrategyForecastL3Run, error) {
 	return s.repo.RetryStrategyForecastL3Run(runID, operatorUserID, reason)
 }

@@ -96,6 +96,9 @@ func registerUserRoutes(v1 *gin.RouterGroup, userGrowthHandler *handler.UserGrow
 		forecast.POST("/runs", userGrowthHandler.CreateForecastL3Run)
 		forecast.GET("/runs", userGrowthHandler.ListForecastL3Runs)
 		forecast.GET("/runs/:id", userGrowthHandler.GetForecastL3RunDetail)
+		forecast.GET("/runs/:id/review", userGrowthHandler.GetForecastL3RunReview)
+		forecast.GET("/targets/history", userGrowthHandler.ListForecastL3History)
+		forecast.GET("/targets/history/compare", userGrowthHandler.GetForecastL3HistoryCompare)
 	}
 
 	news := v1.Group("/news")

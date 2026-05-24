@@ -11,6 +11,12 @@ const filePath = path.join(__dirname, "forecast", "ForecastDetailView.vue");
 test("h5 forecast detail view renders report and log surfaces", () => {
   const text = fs.readFileSync(filePath, "utf8");
   assert.match(text, /深度推演报告/);
+  assert.match(text, /同标的历史/);
+  assert.match(text, /最新一次 vs 上一次/);
+  assert.match(text, /结论变化/);
+  assert.match(text, /证据变化/);
+  assert.match(text, /完整复盘评分/);
+  assert.match(text, /查看全部成功 run/);
   assert.match(text, /当前状态/);
   assert.match(text, /核心判断/);
   assert.match(text, /主情景/);
@@ -24,6 +30,9 @@ test("h5 forecast detail view renders report and log surfaces", () => {
   assert.match(text, /失效信号/);
   assert.match(text, /角色分歧/);
   assert.match(text, /useForecastRunDetail/);
+  assert.match(text, /getForecastRunHistory|getForecastRunCompare|getForecastRunReview/);
+  assert.match(text, /buildForecastHistoryViewModel/);
+  assert.match(text, /localizeForecastDimension/);
   assert.match(text, /getMembershipQuota/);
   assert.match(text, /buildForecastEvidenceSections/);
   assert.match(text, /已进入推演队列|正在生成深推演报告|本次深推演未完成|不存在或已失效/);

@@ -239,6 +239,130 @@ func (r *MySQLGrowthRepo) GetStrategyForecastL3RunDetailForUser(runID string, us
 	return r.applyStrategyForecastL3UserReadPolicy(detail, userID)
 }
 
+func (r *MySQLGrowthRepo) ListStrategyForecastL3HistoryForTarget(requestUserID string, targetType string, targetKey string, page int, pageSize int) ([]model.StrategyForecastL3HistoryItem, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	normalizedType := normalizeStrategyForecastL3TargetType(targetType)
+	trimmedKey := strings.TrimSpace(targetKey)
+	if normalizedType == "" || trimmedKey == "" {
+		return []model.StrategyForecastL3HistoryItem{}, nil
+	}
+
+	whereClause := ` WHERE target_type = ? AND target_key = ? AND status = ?`
+	args := []interface{}{normalizedType, trimmedKey, model.StrategyForecastL3StatusSucceeded}
+	if userID := strings.TrimSpace(requestUserID); userID != "" {
+		whereClause += ` AND request_user_id = ?`
+		args = append(args, userID)
+	}
+	queryArgs := append([]interface{}{}, args...)
+	offset := (page - 1) * pageSize
+	queryArgs = append(queryArgs, pageSize, offset)
+	rows, err := r.db.Query(`
+SELECT
+	id,
+	target_type,
+	COALESCE(target_id, ''),
+	target_key,
+	COALESCE(target_label, ''),
+	trigger_type,
+	COALESCE(request_user_id, ''),
+	COALESCE(operator_user_id, ''),
+	engine_key,
+	status,
+	priority_score,
+	COALESCE(reason, ''),
+	COALESCE(failure_reason, ''),
+	COALESCE(CAST(context_meta_json AS CHAR), ''),
+	COALESCE(CAST(summary_json AS CHAR), ''),
+	COALESCE(CAST(report_ref_json AS CHAR), ''),
+	queued_at,
+	started_at,
+	finished_at,
+	cancelled_at,
+	created_at,
+	updated_at
+FROM strategy_forecast_l3_runs`+whereClause+`
+ORDER BY finished_at DESC, created_at DESC, id DESC
+LIMIT ? OFFSET ?`, queryArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.StrategyForecastL3HistoryItem, 0)
+	for rows.Next() {
+		run, err := scanStrategyForecastL3Run(rows)
+		if err != nil {
+			return nil, err
+		}
+		item := model.StrategyForecastL3HistoryItem{
+			RunID:            run.ID,
+			TargetType:       run.TargetType,
+			TargetKey:        run.TargetKey,
+			TargetLabel:      run.TargetLabel,
+			Status:           run.Status,
+			CreatedAt:        run.CreatedAt,
+			FinishedAt:       run.FinishedAt,
+			ValidationStatus: run.ValidationStatus,
+			ContextQuality:   run.ContextQuality,
+		}
+		report, err := r.getLatestStrategyForecastL3Report(run.ID)
+		if err == nil {
+			item.HeadlineVerdict = report.HeadlineVerdict
+			item.PrimaryScenario = firstNonEmpty(report.PrimaryScenario, run.Summary.PrimaryScenario)
+			if report.StateAssessment != nil {
+				item.CurrentState = report.StateAssessment.CurrentState
+			}
+		}
+		if item.HeadlineVerdict == "" {
+			item.HeadlineVerdict = firstNonEmpty(run.Summary.ExecutiveSummary, run.Summary.ActionGuidance)
+		}
+		if item.PrimaryScenario == "" {
+			item.PrimaryScenario = run.Summary.PrimaryScenario
+		}
+		if review, err := r.GetStrategyForecastL3RunReview(run.ID, requestUserID); err == nil {
+			item.Review = &review
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (r *MySQLGrowthRepo) GetStrategyForecastL3HistoryCompare(requestUserID string, targetType string, targetKey string, leftRunID string, rightRunID string) (model.StrategyForecastL3HistoryCompare, error) {
+	items, err := r.ListStrategyForecastL3HistoryForTarget(requestUserID, targetType, targetKey, 1, 50)
+	if err != nil {
+		return model.StrategyForecastL3HistoryCompare{}, err
+	}
+	return buildStrategyForecastL3HistoryCompare(normalizeStrategyForecastL3TargetType(targetType), strings.TrimSpace(targetKey), items, leftRunID, rightRunID)
+}
+
+func (r *MySQLGrowthRepo) GetStrategyForecastL3RunReview(runID string, requestUserID string) (model.StrategyForecastL3RunReview, error) {
+	detail, err := r.GetStrategyForecastL3RunDetail(runID)
+	if err != nil {
+		return model.StrategyForecastL3RunReview{}, err
+	}
+	if userID := strings.TrimSpace(requestUserID); userID != "" {
+		if strings.TrimSpace(detail.Run.RequestUserID) != "" && detail.Run.RequestUserID != userID {
+			return model.StrategyForecastL3RunReview{}, sql.ErrNoRows
+		}
+	}
+	records, err := r.loadStrategyForecastL3LearningRecordsForRun(runID)
+	if err != nil {
+		return model.StrategyForecastL3RunReview{}, err
+	}
+	if len(records) == 0 {
+		return model.StrategyForecastL3RunReview{}, sql.ErrNoRows
+	}
+	return buildStrategyForecastL3RunReview(records[0]), nil
+}
+
 func (r *MySQLGrowthRepo) RetryStrategyForecastL3Run(runID string, operatorUserID string, reason string) (model.StrategyForecastL3Run, error) {
 	run, err := r.GetStrategyForecastL3Run(runID)
 	if err != nil {
@@ -508,6 +632,61 @@ func (r *InMemoryGrowthRepo) GetStrategyForecastL3RunDetail(runID string) (model
 
 func (r *InMemoryGrowthRepo) GetStrategyForecastL3RunDetailForUser(runID string, userID string) (model.StrategyForecastL3RunDetail, error) {
 	return r.GetStrategyForecastL3RunDetail(runID)
+}
+
+func (r *InMemoryGrowthRepo) ListStrategyForecastL3HistoryForTarget(requestUserID string, targetType string, targetKey string, page int, pageSize int) ([]model.StrategyForecastL3HistoryItem, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	items := buildStrategyForecastL3HistoryItemsFromInMemory(r, requestUserID, targetType, targetKey)
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	start := (page - 1) * pageSize
+	if start >= len(items) {
+		return []model.StrategyForecastL3HistoryItem{}, nil
+	}
+	end := start + pageSize
+	if end > len(items) {
+		end = len(items)
+	}
+	cloned := make([]model.StrategyForecastL3HistoryItem, end-start)
+	for index, item := range items[start:end] {
+		cloned[index] = cloneStrategyForecastL3HistoryItem(item)
+	}
+	return cloned, nil
+}
+
+func (r *InMemoryGrowthRepo) GetStrategyForecastL3HistoryCompare(requestUserID string, targetType string, targetKey string, leftRunID string, rightRunID string) (model.StrategyForecastL3HistoryCompare, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	items := buildStrategyForecastL3HistoryItemsFromInMemory(r, requestUserID, targetType, targetKey)
+	return buildStrategyForecastL3HistoryCompare(normalizeStrategyForecastL3TargetType(targetType), strings.TrimSpace(targetKey), items, leftRunID, rightRunID)
+}
+
+func (r *InMemoryGrowthRepo) GetStrategyForecastL3RunReview(runID string, requestUserID string) (model.StrategyForecastL3RunReview, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	runID = strings.TrimSpace(runID)
+	run, ok := r.forecastL3Runs[runID]
+	if !ok {
+		return model.StrategyForecastL3RunReview{}, sql.ErrNoRows
+	}
+	if userID := strings.TrimSpace(requestUserID); userID != "" {
+		if strings.TrimSpace(run.RequestUserID) != "" && run.RequestUserID != userID {
+			return model.StrategyForecastL3RunReview{}, sql.ErrNoRows
+		}
+	}
+	records := r.forecastL3Learning[runID]
+	if len(records) == 0 {
+		return model.StrategyForecastL3RunReview{}, sql.ErrNoRows
+	}
+	return buildStrategyForecastL3RunReview(records[0]), nil
 }
 
 func (r *InMemoryGrowthRepo) RetryStrategyForecastL3Run(runID string, operatorUserID string, reason string) (model.StrategyForecastL3Run, error) {
@@ -1438,6 +1617,250 @@ func strategyForecastL3RunMatches(item model.StrategyForecastL3Run, requestUserI
 		return false
 	}
 	return true
+}
+
+func buildStrategyForecastL3HistoryItemsFromInMemory(r *InMemoryGrowthRepo, requestUserID string, targetType string, targetKey string) []model.StrategyForecastL3HistoryItem {
+	normalizedType := normalizeStrategyForecastL3TargetType(targetType)
+	trimmedKey := strings.TrimSpace(targetKey)
+	trimmedUserID := strings.TrimSpace(requestUserID)
+	items := make([]model.StrategyForecastL3HistoryItem, 0)
+	for _, run := range r.forecastL3Runs {
+		if run.Status != model.StrategyForecastL3StatusSucceeded {
+			continue
+		}
+		if trimmedUserID != "" && strings.TrimSpace(run.RequestUserID) != "" && run.RequestUserID != trimmedUserID {
+			continue
+		}
+		if normalizedType != "" && run.TargetType != normalizedType {
+			continue
+		}
+		if trimmedKey != "" && run.TargetKey != trimmedKey {
+			continue
+		}
+		item := model.StrategyForecastL3HistoryItem{
+			RunID:            run.ID,
+			TargetType:       run.TargetType,
+			TargetKey:        run.TargetKey,
+			TargetLabel:      run.TargetLabel,
+			Status:           run.Status,
+			CreatedAt:        run.CreatedAt,
+			FinishedAt:       run.FinishedAt,
+			ValidationStatus: run.ValidationStatus,
+			ContextQuality:   run.ContextQuality,
+		}
+		if report, ok := r.forecastL3Reports[run.ID]; ok {
+			item.HeadlineVerdict = report.HeadlineVerdict
+			item.PrimaryScenario = firstNonEmpty(report.PrimaryScenario, run.Summary.PrimaryScenario)
+			if report.StateAssessment != nil {
+				item.CurrentState = report.StateAssessment.CurrentState
+			}
+		}
+		if item.HeadlineVerdict == "" {
+			item.HeadlineVerdict = firstNonEmpty(run.Summary.ExecutiveSummary, run.Summary.ActionGuidance)
+		}
+		if item.PrimaryScenario == "" {
+			item.PrimaryScenario = run.Summary.PrimaryScenario
+		}
+		if records := r.forecastL3Learning[run.ID]; len(records) > 0 {
+			review := buildStrategyForecastL3RunReview(records[0])
+			item.Review = &review
+		}
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		leftTime := firstNonEmpty(items[i].FinishedAt, items[i].CreatedAt)
+		rightTime := firstNonEmpty(items[j].FinishedAt, items[j].CreatedAt)
+		if leftTime == rightTime {
+			return items[i].RunID > items[j].RunID
+		}
+		return leftTime > rightTime
+	})
+	return items
+}
+
+func buildStrategyForecastL3HistoryCompare(targetType string, targetKey string, items []model.StrategyForecastL3HistoryItem, leftRunID string, rightRunID string) (model.StrategyForecastL3HistoryCompare, error) {
+	compare := model.StrategyForecastL3HistoryCompare{
+		TargetType:     targetType,
+		TargetKey:      strings.TrimSpace(targetKey),
+		TimelineLength: len(items),
+	}
+	if len(items) == 0 {
+		return compare, nil
+	}
+	left := resolveStrategyForecastL3HistoryItem(items, leftRunID, 0)
+	right := resolveStrategyForecastL3HistoryItem(items, rightRunID, 1)
+	if left == nil || right == nil {
+		return compare, nil
+	}
+	leftClone := cloneStrategyForecastL3HistoryItem(*left)
+	rightClone := cloneStrategyForecastL3HistoryItem(*right)
+	compare.LeftRun = &leftClone
+	compare.RightRun = &rightClone
+	compare.VerdictShift = buildStrategyForecastL3VerdictShift(leftClone, rightClone)
+	compare.EvidenceDiffs = buildStrategyForecastL3EvidenceDiffs(leftClone, rightClone)
+	compare.ReviewSummary = buildStrategyForecastL3ReviewSummary(leftClone, rightClone)
+	return compare, nil
+}
+
+func resolveStrategyForecastL3HistoryItem(items []model.StrategyForecastL3HistoryItem, runID string, fallbackIndex int) *model.StrategyForecastL3HistoryItem {
+	trimmed := strings.TrimSpace(runID)
+	if trimmed != "" {
+		for index := range items {
+			if items[index].RunID == trimmed {
+				return &items[index]
+			}
+		}
+	}
+	if fallbackIndex < 0 || fallbackIndex >= len(items) {
+		return nil
+	}
+	return &items[fallbackIndex]
+}
+
+func buildStrategyForecastL3VerdictShift(left model.StrategyForecastL3HistoryItem, right model.StrategyForecastL3HistoryItem) []string {
+	shifts := make([]string, 0, 3)
+	if left.HeadlineVerdict != right.HeadlineVerdict {
+		shifts = append(shifts, fmt.Sprintf("核心判断由“%s”切换到“%s”。", fallbackForecastText(right.HeadlineVerdict), fallbackForecastText(left.HeadlineVerdict)))
+	}
+	if left.PrimaryScenario != right.PrimaryScenario {
+		shifts = append(shifts, fmt.Sprintf("主情景由“%s”变为“%s”。", fallbackForecastText(right.PrimaryScenario), fallbackForecastText(left.PrimaryScenario)))
+	}
+	if len(shifts) == 0 {
+		shifts = append(shifts, "最新一次与上一次的结论整体保持一致。")
+	}
+	return shifts
+}
+
+func buildStrategyForecastL3EvidenceDiffs(left model.StrategyForecastL3HistoryItem, right model.StrategyForecastL3HistoryItem) []model.StrategyForecastL3EvidenceDiff {
+	leftReview := left.Review
+	rightReview := right.Review
+	if leftReview == nil && rightReview == nil {
+		return nil
+	}
+	diffs := make([]model.StrategyForecastL3EvidenceDiff, 0)
+	keys := map[string]struct{}{}
+	if leftReview != nil {
+		for key := range leftReview.RoleEffectiveness {
+			keys[key] = struct{}{}
+		}
+	}
+	if rightReview != nil {
+		for key := range rightReview.RoleEffectiveness {
+			keys[key] = struct{}{}
+		}
+	}
+	sortedKeys := make([]string, 0, len(keys))
+	for key := range keys {
+		sortedKeys = append(sortedKeys, key)
+	}
+	sort.Strings(sortedKeys)
+	for _, key := range sortedKeys {
+		leftValue, leftOK := 0.0, false
+		rightValue, rightOK := 0.0, false
+		if leftReview != nil {
+			leftValue, leftOK = leftReview.RoleEffectiveness[key]
+		}
+		if rightReview != nil {
+			rightValue, rightOK = rightReview.RoleEffectiveness[key]
+		}
+		if !leftOK && !rightOK {
+			continue
+		}
+		diffs = append(diffs, model.StrategyForecastL3EvidenceDiff{
+			Dimension:    key,
+			ChangeLabel:  buildStrategyForecastL3NumericChangeLabel(leftValue, rightValue, leftOK, rightOK),
+			Previous:     formatStrategyForecastL3Effectiveness(rightValue, rightOK),
+			Current:      formatStrategyForecastL3Effectiveness(leftValue, leftOK),
+			PreviousNote: buildStrategyForecastL3EffectivenessNote(rightValue, rightOK),
+			CurrentNote:  buildStrategyForecastL3EffectivenessNote(leftValue, leftOK),
+		})
+	}
+	return diffs
+}
+
+func buildStrategyForecastL3ReviewSummary(left model.StrategyForecastL3HistoryItem, right model.StrategyForecastL3HistoryItem) []string {
+	if left.Review == nil || right.Review == nil {
+		return nil
+	}
+	delta := left.Review.ReviewScore - right.Review.ReviewScore
+	switch {
+	case delta > 0:
+		return []string{fmt.Sprintf("完整复盘评分由 %d 提升到 %d。", right.Review.ReviewScore, left.Review.ReviewScore)}
+	case delta < 0:
+		return []string{fmt.Sprintf("完整复盘评分由 %d 回落到 %d。", right.Review.ReviewScore, left.Review.ReviewScore)}
+	default:
+		return []string{fmt.Sprintf("完整复盘评分维持在 %d。", left.Review.ReviewScore)}
+	}
+}
+
+func buildStrategyForecastL3ChangeLabel(current string, previous string) string {
+	current = strings.TrimSpace(current)
+	previous = strings.TrimSpace(previous)
+	switch {
+	case current == "" && previous == "":
+		return "未提供"
+	case current == previous:
+		return "基本不变"
+	case previous == "":
+		return "新增"
+	case current == "":
+		return "弱化"
+	default:
+		return "变化"
+	}
+}
+
+func buildStrategyForecastL3NumericChangeLabel(current float64, previous float64, currentOK bool, previousOK bool) string {
+	switch {
+	case !currentOK && !previousOK:
+		return "未提供"
+	case currentOK && previousOK && current == previous:
+		return "基本不变"
+	case !previousOK && currentOK:
+		return "新增"
+	case previousOK && !currentOK:
+		return "弱化"
+	default:
+		return "变化"
+	}
+}
+
+func formatStrategyForecastL3Effectiveness(value float64, ok bool) string {
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("%.2f", value)
+}
+
+func buildStrategyForecastL3EffectivenessNote(value float64, ok bool) string {
+	if !ok {
+		return "未提供历史有效性样本"
+	}
+	switch {
+	case value >= 0.8:
+		return "该维度在历史复盘中有效性较强"
+	case value >= 0.6:
+		return "该维度在历史复盘中有效性中等"
+	default:
+		return "该维度在历史复盘中有效性偏弱"
+	}
+}
+
+func cloneStrategyForecastL3HistoryItem(item model.StrategyForecastL3HistoryItem) model.StrategyForecastL3HistoryItem {
+	if item.Review != nil {
+		review := *item.Review
+		review.ReviewNotes = append([]string(nil), review.ReviewNotes...)
+		review.RoleEffectiveness = cloneForecastL3RoleEffectiveness(review.RoleEffectiveness)
+		item.Review = &review
+	}
+	return item
+}
+
+func fallbackForecastText(value string) string {
+	if trimmed := strings.TrimSpace(value); trimmed != "" {
+		return trimmed
+	}
+	return "未给出"
 }
 
 func coalesceTrimmed(primary string, fallback string) string {
