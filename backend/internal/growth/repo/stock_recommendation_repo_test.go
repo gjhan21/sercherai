@@ -8,6 +8,7 @@ import (
 )
 
 const stockRecommendationLatestTradeDateQueryPattern = `(?s)SELECT DATE_FORMAT\(MAX\(valid_from\), '%Y-%m-%d'\)\s+FROM stock_recommendations\s+WHERE status IN \('PUBLISHED', 'ACTIVE', 'TRACKING'\)`
+const stockRecommendationLatestTradeDateBeforeQueryPattern = `(?s)SELECT DATE_FORMAT\(MAX\(valid_from\), '%Y-%m-%d'\)\s+FROM stock_recommendations\s+WHERE status IN \('PUBLISHED', 'ACTIVE', 'TRACKING'\)\s+AND DATE\(valid_from\) <= \?`
 const stockRecommendationCountQueryPattern = `(?s)SELECT COUNT\(\*\)\s+FROM stock_recommendations`
 const stockRecommendationListQueryPattern = `(?s)SELECT r\.id,\s*r\.symbol,\s*r\.name,\s*r\.score,\s*r\.risk_level,\s*COALESCE\(r\.position_range, ''\),\s*r\.valid_from,\s*r\.valid_to,\s*r\.status,\s*COALESCE\(r\.reason_summary, ''\),\s*COALESCE\(r\.source_type, ''\),\s*COALESCE\(r\.strategy_version, ''\),\s*COALESCE\(r\.performance_label, ''\),\s*COALESCE\(d\.take_profit, ''\),\s*COALESCE\(d\.stop_loss, ''\)\s+FROM stock_recommendations r\s+LEFT JOIN stock_reco_details d ON d\.reco_id = r\.id`
 
@@ -19,6 +20,9 @@ func TestListStockRecommendationsFiltersByTradeDateAndSortsByScore(t *testing.T)
 	defer db.Close()
 
 	repo := &MySQLGrowthRepo{db: db}
+	mock.ExpectQuery(stockRecommendationLatestTradeDateBeforeQueryPattern).
+		WithArgs("2026-05-24").
+		WillReturnRows(sqlmock.NewRows([]string{"trade_date"}).AddRow("2026-05-24"))
 	mock.ExpectQuery(stockRecommendationCountQueryPattern).
 		WithArgs("2026-05-24").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
@@ -115,6 +119,42 @@ func TestListStockRecommendationsFallsBackToLatestTradeDate(t *testing.T) {
 	}
 	if items[0].ValidFrom[:10] != "2026-05-23" {
 		t.Fatalf("expected fallback latest trade date to be applied, got %+v", items[0])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestListStockRecommendationsFallsBackToLatestAvailableTradeDateOnExplicitTradeDate(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+	mock.ExpectQuery(stockRecommendationLatestTradeDateBeforeQueryPattern).
+		WithArgs("2026-05-24").
+		WillReturnRows(sqlmock.NewRows([]string{"trade_date"}).AddRow("2026-05-22"))
+	mock.ExpectQuery(stockRecommendationCountQueryPattern).
+		WithArgs("2026-05-22").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(stockRecommendationListQueryPattern).
+		WithArgs("2026-05-22", 6, 0).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "symbol", "name", "score", "risk_level", "position_range", "valid_from", "valid_to", "status", "reason_summary", "source_type", "strategy_version", "performance_label", "take_profit", "stop_loss",
+		}).
+			AddRow("sr_018", "002371.SZ", "北方华创", 91.2, "MEDIUM", "8%-12%", time.Date(2026, 5, 22, 9, 0, 0, 0, time.Local), time.Date(2026, 5, 23, 15, 0, 0, 0, time.Local), "PUBLISHED", "设备景气延续", "SYSTEM", "daily-v1", "ESTIMATED", "上涨10%-15%分批止盈", "回撤5%止损"))
+
+	items, total, err := repo.ListStockRecommendations("u_demo_001", "2026-05-24", 1, 6)
+	if err != nil {
+		t.Fatalf("ListStockRecommendations() error = %v", err)
+	}
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("expected single fallback row, got total=%d len=%d", total, len(items))
+	}
+	if items[0].ValidFrom[:10] != "2026-05-22" {
+		t.Fatalf("expected explicit trade date to fall back to 2026-05-22, got %+v", items[0])
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)

@@ -3994,17 +3994,25 @@ func compactErrorMessages(messages []string, limit int) []string {
 
 func (r *MySQLGrowthRepo) ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
 	offset := (page - 1) * pageSize
+	var latestTradeDate sql.NullString
 	if tradeDate == "" {
-		var latestTradeDate sql.NullString
 		if err := r.db.QueryRow(`
 SELECT DATE_FORMAT(MAX(valid_from), '%Y-%m-%d')
 FROM stock_recommendations
 WHERE status IN ('PUBLISHED', 'ACTIVE', 'TRACKING')`).Scan(&latestTradeDate); err != nil {
 			return nil, 0, err
 		}
-		if latestTradeDate.Valid {
-			tradeDate = strings.TrimSpace(latestTradeDate.String)
+	} else {
+		if err := r.db.QueryRow(`
+SELECT DATE_FORMAT(MAX(valid_from), '%Y-%m-%d')
+FROM stock_recommendations
+WHERE status IN ('PUBLISHED', 'ACTIVE', 'TRACKING')
+  AND DATE(valid_from) <= ?`, tradeDate).Scan(&latestTradeDate); err != nil {
+			return nil, 0, err
 		}
+	}
+	if latestTradeDate.Valid {
+		tradeDate = strings.TrimSpace(latestTradeDate.String)
 	}
 	args := []interface{}{}
 	filter := " WHERE r.status IN ('PUBLISHED', 'ACTIVE', 'TRACKING')"
