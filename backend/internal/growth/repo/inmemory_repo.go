@@ -401,6 +401,72 @@ func (r *InMemoryGrowthRepo) ListStockRecommendations(userID string, tradeDate s
 	return items, len(items), nil
 }
 
+func (r *InMemoryGrowthRepo) ListStockRecommendationHistory(userID string, outcome string, tradeDateFrom string, tradeDateTo string, page int, pageSize int) ([]model.StockRecommendationHistoryItem, model.StockRecommendationHistorySummary, int, error) {
+	items := []model.StockRecommendationHistoryItem{
+		{
+			ID:               "sr_hist_001",
+			Symbol:           "600519.SH",
+			Name:             "贵州茅台",
+			ValidFrom:        "2026-02-25T09:00:00+08:00",
+			ValidTo:          "2026-03-01T15:00:00+08:00",
+			Score:            91.2,
+			RiskLevel:        "MEDIUM",
+			PositionRange:    "10%-15%",
+			SourceType:       "SYSTEM",
+			StrategyVersion:  "daily-v1",
+			TakeProfit:       "上涨8%-12%分批止盈",
+			StopLoss:         "跌破关键支撑位止损",
+			PerformanceLabel: "OUTPERFORM",
+			EntryPrice:       100.0,
+			LatestPrice:      112.0,
+			ReturnPct:        12.0,
+			MaxDrawdownPct:   -3.5,
+			Status:           "HIT_TAKE_PROFIT",
+			Outcome:          "success",
+			IsClosed:         true,
+		},
+		{
+			ID:               "sr_hist_002",
+			Symbol:           "300750.SZ",
+			Name:             "宁德时代",
+			ValidFrom:        "2026-02-20T09:00:00+08:00",
+			ValidTo:          "2026-02-28T15:00:00+08:00",
+			Score:            78.6,
+			RiskLevel:        "HIGH",
+			PositionRange:    "5%-8%",
+			SourceType:       "SYSTEM",
+			StrategyVersion:  "daily-v1",
+			TakeProfit:       "上涨6%-10%分批止盈",
+			StopLoss:         "回撤4%止损",
+			PerformanceLabel: "UNDERPERFORM",
+			EntryPrice:       200.0,
+			LatestPrice:      188.0,
+			ReturnPct:        -6.0,
+			MaxDrawdownPct:   -9.5,
+			Status:           "HIT_STOP_LOSS",
+			Outcome:          "fail",
+			IsClosed:         true,
+		},
+	}
+
+	filtered := make([]model.StockRecommendationHistoryItem, 0, len(items))
+	for _, item := range items {
+		if outcome == "" || strings.EqualFold(item.Outcome, outcome) {
+			filtered = append(filtered, item)
+		}
+	}
+	summary := model.StockRecommendationHistorySummary{
+		TotalCount:     len(filtered),
+		SuccessCount:   1,
+		FailCount:      1,
+		WinRate:        50,
+		AvgReturnPct:   3,
+		MaxReturnPct:   12,
+		MaxDrawdownPct: -9.5,
+	}
+	return filtered, summary, len(filtered), nil
+}
+
 func (r *InMemoryGrowthRepo) GetStockRecommendationDetail(userID string, recoID string) (model.StockRecommendationDetail, error) {
 	return model.StockRecommendationDetail{
 		RecoID: recoID, TechScore: 88, FundScore: 92, SentimentScore: 85, MoneyFlowScore: 90,

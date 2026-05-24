@@ -4063,6 +4063,316 @@ LIMIT ? OFFSET ?`
 	return items, total, nil
 }
 
+func (r *MySQLGrowthRepo) ListStockRecommendationHistory(userID string, outcome string, tradeDateFrom string, tradeDateTo string, page int, pageSize int) ([]model.StockRecommendationHistoryItem, model.StockRecommendationHistorySummary, int, error) {
+	offset := (page - 1) * pageSize
+	args := []interface{}{}
+	filter := " WHERE r.status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT', 'HIT_STOP_LOSS', 'INVALIDATED', 'REVIEWED')"
+	if tradeDateFrom != "" {
+		filter += " AND DATE(r.valid_from) >= ?"
+		args = append(args, tradeDateFrom)
+	}
+	if tradeDateTo != "" {
+		filter += " AND DATE(r.valid_from) <= ?"
+		args = append(args, tradeDateTo)
+	}
+
+	var total int
+	if err := r.db.QueryRow("SELECT COUNT(*) FROM stock_recommendations r"+filter, args...).Scan(&total); err != nil {
+		return nil, model.StockRecommendationHistorySummary{}, 0, err
+	}
+
+	query := `
+SELECT r.id, r.symbol, r.name, r.score, r.risk_level, COALESCE(r.position_range, ''), r.valid_from, r.valid_to, r.status,
+       COALESCE(r.source_type, ''), COALESCE(r.strategy_version, ''), COALESCE(r.performance_label, ''),
+       COALESCE(d.take_profit, ''), COALESCE(d.stop_loss, '')
+FROM stock_recommendations r
+LEFT JOIN stock_reco_details d ON d.reco_id = r.id` + filter + `
+ORDER BY r.valid_from DESC, r.created_at DESC
+LIMIT ? OFFSET ?`
+	queryArgs := append(append([]interface{}{}, args...), pageSize, offset)
+	rows, err := r.db.Query(query, queryArgs...)
+	if err != nil {
+		return nil, model.StockRecommendationHistorySummary{}, 0, err
+	}
+	defer rows.Close()
+
+	type historyBaseRow struct {
+		item      model.StockRecommendationHistoryItem
+		validFrom time.Time
+		validTo   time.Time
+	}
+
+	baseRows := make([]historyBaseRow, 0)
+	symbolSet := make(map[string]struct{})
+	var earliestStart time.Time
+	var latestEnd time.Time
+	for rows.Next() {
+		var row historyBaseRow
+		if err := rows.Scan(
+			&row.item.ID,
+			&row.item.Symbol,
+			&row.item.Name,
+			&row.item.Score,
+			&row.item.RiskLevel,
+			&row.item.PositionRange,
+			&row.validFrom,
+			&row.validTo,
+			&row.item.Status,
+			&row.item.SourceType,
+			&row.item.StrategyVersion,
+			&row.item.PerformanceLabel,
+			&row.item.TakeProfit,
+			&row.item.StopLoss,
+		); err != nil {
+			return nil, model.StockRecommendationHistorySummary{}, 0, err
+		}
+		row.item.ValidFrom = row.validFrom.Format(time.RFC3339)
+		row.item.ValidTo = row.validTo.Format(time.RFC3339)
+		row.item.IsClosed = stockRecommendationHistoryIsClosed(row.item.Status)
+		baseRows = append(baseRows, row)
+		symbolSet[row.item.Symbol] = struct{}{}
+		if earliestStart.IsZero() || row.validFrom.Before(earliestStart) {
+			earliestStart = row.validFrom
+		}
+		if latestEnd.IsZero() || row.validTo.After(latestEnd) {
+			latestEnd = row.validTo
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, model.StockRecommendationHistorySummary{}, 0, err
+	}
+	if len(baseRows) == 0 {
+		return []model.StockRecommendationHistoryItem{}, model.StockRecommendationHistorySummary{}, total, nil
+	}
+
+	if tradeDateFrom != "" {
+		if parsed, err := time.Parse("2006-01-02", tradeDateFrom); err == nil && (earliestStart.IsZero() || parsed.Before(earliestStart)) {
+			earliestStart = parsed
+		}
+	}
+	if tradeDateTo != "" {
+		if parsed, err := time.Parse("2006-01-02", tradeDateTo); err == nil && (latestEnd.IsZero() || parsed.After(latestEnd)) {
+			latestEnd = parsed
+		}
+	}
+
+	symbols := make([]string, 0, len(symbolSet))
+	for symbol := range symbolSet {
+		symbols = append(symbols, symbol)
+	}
+	sort.Strings(symbols)
+
+	quotesBySymbol, err := r.listStockRecommendationHistoryQuotes(symbols, earliestStart, latestEnd)
+	if err != nil {
+		return nil, model.StockRecommendationHistorySummary{}, 0, err
+	}
+
+	allItems := make([]model.StockRecommendationHistoryItem, 0, len(baseRows))
+	for _, row := range baseRows {
+		item := row.item
+		quotes := quotesBySymbol[item.Symbol]
+		entryQuote := findStockRecommendationHistoryEntryQuote(quotes, row.validFrom)
+		latestQuote := findStockRecommendationHistoryLatestQuote(quotes, row.validTo, item.IsClosed)
+		if entryQuote != nil {
+			item.EntryPrice = entryQuote.ClosePrice
+		}
+		if latestQuote != nil {
+			item.LatestPrice = latestQuote.ClosePrice
+		}
+		item.ReturnPct = calculateStockRecommendationHistoryReturnPct(item.EntryPrice, item.LatestPrice)
+		item.MaxDrawdownPct = calculateStockRecommendationHistoryMaxDrawdownPct(quotes, row.validFrom, latestQuote)
+		item.Outcome = mapStockRecommendationHistoryOutcome(item.Status, item.PerformanceLabel)
+		allItems = append(allItems, item)
+	}
+
+	filteredItems := make([]model.StockRecommendationHistoryItem, 0, len(allItems))
+	for _, item := range allItems {
+		if outcome == "" || strings.EqualFold(item.Outcome, outcome) {
+			filteredItems = append(filteredItems, item)
+		}
+	}
+
+	summary := buildStockRecommendationHistorySummary(filteredItems)
+	return filteredItems, summary, total, nil
+}
+
+type stockRecommendationHistoryQuote struct {
+	TradeDate  time.Time
+	ClosePrice float64
+}
+
+func (r *MySQLGrowthRepo) listStockRecommendationHistoryQuotes(symbols []string, start time.Time, end time.Time) (map[string][]stockRecommendationHistoryQuote, error) {
+	result := make(map[string][]stockRecommendationHistoryQuote, len(symbols))
+	if len(symbols) == 0 || start.IsZero() || end.IsZero() {
+		return result, nil
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(symbols)), ",")
+	query := fmt.Sprintf(`
+SELECT symbol, trade_date, close_price
+FROM stock_market_quotes
+WHERE symbol IN (%s) AND trade_date >= ? AND trade_date <= ?
+ORDER BY symbol ASC, trade_date ASC`, placeholders)
+	args := make([]interface{}, 0, len(symbols)+2)
+	for _, symbol := range symbols {
+		args = append(args, symbol)
+	}
+	args = append(args, start.Format("2006-01-02"), end.Format("2006-01-02"))
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var symbol string
+		var tradeDate time.Time
+		var closePrice float64
+		if err := rows.Scan(&symbol, &tradeDate, &closePrice); err != nil {
+			return nil, err
+		}
+		result[symbol] = append(result[symbol], stockRecommendationHistoryQuote{
+			TradeDate:  tradeDate,
+			ClosePrice: closePrice,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func findStockRecommendationHistoryEntryQuote(quotes []stockRecommendationHistoryQuote, validFrom time.Time) *stockRecommendationHistoryQuote {
+	if len(quotes) == 0 {
+		return nil
+	}
+	startDate := dateOnlyTime(validFrom)
+	for index := range quotes {
+		if !quotes[index].TradeDate.Before(startDate) {
+			return &quotes[index]
+		}
+	}
+	return &quotes[0]
+}
+
+func findStockRecommendationHistoryLatestQuote(quotes []stockRecommendationHistoryQuote, validTo time.Time, isClosed bool) *stockRecommendationHistoryQuote {
+	if len(quotes) == 0 {
+		return nil
+	}
+	if !isClosed {
+		return &quotes[len(quotes)-1]
+	}
+	endDate := dateOnlyTime(validTo)
+	for index := len(quotes) - 1; index >= 0; index-- {
+		if !quotes[index].TradeDate.After(endDate) {
+			return &quotes[index]
+		}
+	}
+	return &quotes[len(quotes)-1]
+}
+
+func calculateStockRecommendationHistoryReturnPct(entryPrice float64, latestPrice float64) float64 {
+	if entryPrice <= 0 || latestPrice <= 0 {
+		return 0
+	}
+	return roundTo(((latestPrice-entryPrice)/entryPrice)*100, 2)
+}
+
+func calculateStockRecommendationHistoryMaxDrawdownPct(quotes []stockRecommendationHistoryQuote, validFrom time.Time, latestQuote *stockRecommendationHistoryQuote) float64 {
+	if len(quotes) == 0 || latestQuote == nil {
+		return 0
+	}
+	startDate := dateOnlyTime(validFrom)
+	endDate := dateOnlyTime(latestQuote.TradeDate)
+	peak := 0.0
+	maxDrawdown := 0.0
+	for _, quote := range quotes {
+		if quote.TradeDate.Before(startDate) || quote.TradeDate.After(endDate) {
+			continue
+		}
+		if quote.ClosePrice > peak {
+			peak = quote.ClosePrice
+		}
+		if peak <= 0 {
+			continue
+		}
+		drawdown := ((quote.ClosePrice - peak) / peak) * 100
+		if drawdown < maxDrawdown {
+			maxDrawdown = drawdown
+		}
+	}
+	return roundTo(maxDrawdown, 2)
+}
+
+func mapStockRecommendationHistoryOutcome(status string, performanceLabel string) string {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "HIT_TAKE_PROFIT":
+		return "success"
+	case "HIT_STOP_LOSS", "INVALIDATED":
+		return "fail"
+	case "ACTIVE", "TRACKING", "PUBLISHED":
+		return "ongoing"
+	case "REVIEWED":
+		label := strings.ToUpper(strings.TrimSpace(performanceLabel))
+		switch label {
+		case "OUTPERFORM", "HIT", "GOOD", "SUCCESS":
+			return "success"
+		case "UNDERPERFORM", "MISS", "BAD", "FAIL":
+			return "fail"
+		default:
+			return "neutral"
+		}
+	default:
+		return "neutral"
+	}
+}
+
+func buildStockRecommendationHistorySummary(items []model.StockRecommendationHistoryItem) model.StockRecommendationHistorySummary {
+	summary := model.StockRecommendationHistorySummary{
+		TotalCount: len(items),
+	}
+	returnSum := 0.0
+	for _, item := range items {
+		switch item.Outcome {
+		case "success":
+			summary.SuccessCount++
+		case "fail":
+			summary.FailCount++
+		case "ongoing":
+			summary.OngoingCount++
+		default:
+			summary.NeutralCount++
+		}
+		returnSum += item.ReturnPct
+		if item.ReturnPct > summary.MaxReturnPct {
+			summary.MaxReturnPct = item.ReturnPct
+		}
+		if item.MaxDrawdownPct < summary.MaxDrawdownPct {
+			summary.MaxDrawdownPct = item.MaxDrawdownPct
+		}
+	}
+	closedCount := summary.SuccessCount + summary.FailCount + summary.NeutralCount
+	if closedCount > 0 {
+		summary.WinRate = roundTo((float64(summary.SuccessCount)/float64(closedCount))*100, 2)
+	}
+	if summary.TotalCount > 0 {
+		summary.AvgReturnPct = roundTo(returnSum/float64(summary.TotalCount), 2)
+	}
+	return summary
+}
+
+func stockRecommendationHistoryIsClosed(status string) bool {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "HIT_TAKE_PROFIT", "HIT_STOP_LOSS", "INVALIDATED", "REVIEWED":
+		return true
+	default:
+		return false
+	}
+}
+
+func dateOnlyTime(value time.Time) time.Time {
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, value.Location())
+}
+
 func (r *MySQLGrowthRepo) GetStockRecommendationDetail(userID string, recoID string) (model.StockRecommendationDetail, error) {
 	var item model.StockRecommendationDetail
 	var takeProfit, stopLoss, riskNote sql.NullString

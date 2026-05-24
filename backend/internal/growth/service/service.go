@@ -40,6 +40,7 @@ type GrowthService interface {
 	DeleteCommunityReaction(input model.CommunityReactionInput) error
 	CreateCommunityReport(input model.CommunityReportCreateInput) (model.CommunityReport, error)
 	ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error)
+	ListStockRecommendationHistory(userID string, outcome string, tradeDateFrom string, tradeDateTo string, page int, pageSize int) ([]model.StockRecommendationHistoryItem, model.StockRecommendationHistorySummary, int, error)
 	GetStockRecommendationDetail(userID string, recoID string) (model.StockRecommendationDetail, error)
 	GetStockRecommendationPerformance(userID string, recoID string) ([]model.RecommendationPerformancePoint, error)
 	GetStockRecommendationInsight(userID string, recoID string) (model.StockRecommendationInsight, error)
@@ -430,6 +431,10 @@ func (s *growthService) ListNewsAttachments(userID string, articleID string) ([]
 
 func (s *growthService) ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error) {
 	return s.repo.ListStockRecommendations(userID, tradeDate, page, pageSize)
+}
+
+func (s *growthService) ListStockRecommendationHistory(userID string, outcome string, tradeDateFrom string, tradeDateTo string, page int, pageSize int) ([]model.StockRecommendationHistoryItem, model.StockRecommendationHistorySummary, int, error) {
+	return s.repo.ListStockRecommendationHistory(userID, outcome, tradeDateFrom, tradeDateTo, page, pageSize)
 }
 
 func (s *growthService) GetStockRecommendationDetail(userID string, recoID string) (model.StockRecommendationDetail, error) {

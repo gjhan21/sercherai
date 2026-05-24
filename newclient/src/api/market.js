@@ -13,6 +13,10 @@ export function listStockRecommendations(params) {
   return http.get("/stocks/recommendations", { params: buildParams(params) });
 }
 
+export function listStockRecommendationHistory(params) {
+  return http.get("/stocks/recommendations/history", { params: buildParams(params) });
+}
+
 export function getStockRecommendationDetail(id) {
   return http.get(`/stocks/recommendations/${encodeURIComponent(id)}`);
 }

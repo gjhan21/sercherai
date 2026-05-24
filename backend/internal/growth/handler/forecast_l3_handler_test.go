@@ -79,6 +79,56 @@ func TestCreateForecastL3RunRejectsMissingStrictContextForUserRequest(t *testing
 	}
 }
 
+func TestListStockRecommendationHistoryRequiresAuth(t *testing.T) {
+	growthHandler := newUserGrowthHandlerForTest(t)
+	router := gin.New()
+	router.GET("/api/v1/stocks/recommendations/history", growthHandler.ListStockRecommendationHistory)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/stocks/recommendations/history", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestListStockRecommendationHistoryReturnsItemsAndSummary(t *testing.T) {
+	growthHandler := newUserGrowthHandlerForTest(t)
+	router := gin.New()
+	attachUserID(router, "user_001")
+	router.GET("/api/v1/stocks/recommendations/history", growthHandler.ListStockRecommendationHistory)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/stocks/recommendations/history?page=1&page_size=20", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Code int `json:"code"`
+		Data struct {
+			Items   []model.StockRecommendationHistoryItem    `json:"items"`
+			Summary model.StockRecommendationHistorySummary   `json:"summary"`
+			Total   int                                       `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload.Code != 0 {
+		t.Fatalf("expected code 0, got %d", payload.Code)
+	}
+	if payload.Data.Total == 0 || len(payload.Data.Items) == 0 {
+		t.Fatalf("expected non-empty history payload, got %+v", payload.Data)
+	}
+	if payload.Data.Summary.TotalCount == 0 {
+		t.Fatalf("expected summary payload, got %+v", payload.Data.Summary)
+	}
+}
+
 func TestListForecastL3HistoryReturnsSucceededTimeline(t *testing.T) {
 	growthRepo := repo.NewInMemoryGrowthRepo()
 	seedForecastHistoryHandlerRuns(t, growthRepo, "600519.SH", model.StrategyForecastL3TargetTypeStock)

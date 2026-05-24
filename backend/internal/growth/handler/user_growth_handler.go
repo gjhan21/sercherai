@@ -1005,6 +1005,27 @@ func (h *UserGrowthHandler) ListStockRecommendations(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
+func (h *UserGrowthHandler) ListStockRecommendationHistory(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	_, ok = h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	page, pageSize := parsePage(c)
+	outcome := strings.TrimSpace(c.Query("outcome"))
+	tradeDateFrom := strings.TrimSpace(c.Query("trade_date_from"))
+	tradeDateTo := strings.TrimSpace(c.Query("trade_date_to"))
+	items, summary, total, err := h.service.ListStockRecommendationHistory(userID, outcome, tradeDateFrom, tradeDateTo, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "summary": summary, "page": page, "page_size": pageSize, "total": total}))
+}
+
 func (h *UserGrowthHandler) GetStockRecommendationDetail(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {

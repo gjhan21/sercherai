@@ -84,6 +84,7 @@ func registerUserRoutes(v1 *gin.RouterGroup, userGrowthHandler *handler.UserGrow
 	stocks.Use(middleware.AuthRequired(cfg.JWTSecret), middleware.RoleRequired("USER", "ADMIN"))
 	{
 		stocks.GET("/recommendations", userGrowthHandler.ListStockRecommendations)
+		stocks.GET("/recommendations/history", userGrowthHandler.ListStockRecommendationHistory)
 		stocks.GET("/recommendations/:id", userGrowthHandler.GetStockRecommendationDetail)
 		stocks.GET("/recommendations/:id/performance", userGrowthHandler.GetStockRecommendationPerformance)
 		stocks.GET("/recommendations/:id/insight", userGrowthHandler.GetStockRecommendationInsight)

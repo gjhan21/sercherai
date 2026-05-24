@@ -408,6 +408,41 @@ type StockRecommendationInsight struct {
 	GeneratedAt      string                                `json:"generated_at"`
 }
 
+type StockRecommendationHistoryItem struct {
+	ID               string  `json:"id"`
+	Symbol           string  `json:"symbol"`
+	Name             string  `json:"name"`
+	ValidFrom        string  `json:"valid_from"`
+	ValidTo          string  `json:"valid_to"`
+	Score            float64 `json:"score"`
+	RiskLevel        string  `json:"risk_level"`
+	PositionRange    string  `json:"position_range"`
+	SourceType       string  `json:"source_type,omitempty"`
+	StrategyVersion  string  `json:"strategy_version,omitempty"`
+	TakeProfit       string  `json:"take_profit,omitempty"`
+	StopLoss         string  `json:"stop_loss,omitempty"`
+	PerformanceLabel string  `json:"performance_label,omitempty"`
+	EntryPrice       float64 `json:"entry_price"`
+	LatestPrice      float64 `json:"latest_price"`
+	ReturnPct        float64 `json:"return_pct"`
+	MaxDrawdownPct   float64 `json:"max_drawdown_pct"`
+	Status           string  `json:"status"`
+	Outcome          string  `json:"outcome"`
+	IsClosed         bool    `json:"is_closed"`
+}
+
+type StockRecommendationHistorySummary struct {
+	TotalCount       int     `json:"total_count"`
+	SuccessCount     int     `json:"success_count"`
+	FailCount        int     `json:"fail_count"`
+	NeutralCount     int     `json:"neutral_count"`
+	OngoingCount     int     `json:"ongoing_count"`
+	WinRate          float64 `json:"win_rate"`
+	AvgReturnPct     float64 `json:"avg_return_pct"`
+	MaxReturnPct     float64 `json:"max_return_pct"`
+	MaxDrawdownPct   float64 `json:"max_drawdown_pct"`
+}
+
 type StockMarketQuote struct {
 	ID             string  `json:"id"`
 	Symbol         string  `json:"symbol"`

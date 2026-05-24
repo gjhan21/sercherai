@@ -41,6 +41,7 @@ type GrowthRepo interface {
 	CreateCommunityReport(input model.CommunityReportCreateInput) (model.CommunityReport, error)
 	CreateCommunityNotification(input model.CommunityNotificationInput) error
 	ListStockRecommendations(userID string, tradeDate string, page int, pageSize int) ([]model.StockRecommendation, int, error)
+	ListStockRecommendationHistory(userID string, outcome string, tradeDateFrom string, tradeDateTo string, page int, pageSize int) ([]model.StockRecommendationHistoryItem, model.StockRecommendationHistorySummary, int, error)
 	GetStockRecommendationDetail(userID string, recoID string) (model.StockRecommendationDetail, error)
 	GetStockRecommendationPerformance(userID string, recoID string) ([]model.RecommendationPerformancePoint, error)
 	GetStockRecommendationInsight(userID string, recoID string) (model.StockRecommendationInsight, error)
