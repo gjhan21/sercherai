@@ -47,3 +47,12 @@ test("SystemJobsView exposes stock sync shortcuts in manual trigger tab", () => 
   assert.match(text, /buildSyncJobPayloadFromTemplate\(templateKey/);
   assert.match(text, /createMarketDataBackfillRun\(payload\)/);
 });
+
+test("SystemJobsView supports stock sync task codes in manual trigger selector", () => {
+  const text = readView();
+  assert.match(text, /stock_full_sync/);
+  assert.match(text, /stock_daily_incremental_sync/);
+  assert.match(text, /getStockSyncTemplateForJobName/);
+  assert.match(text, /const stockSyncTemplate = getStockSyncTemplateForJobName\(jobName\)/);
+  assert.match(text, /handleQuickStockSync\(stockSyncTemplate,\s*\{\s*showTriggerLoading:\s*true\s*\}\)/s);
+});
