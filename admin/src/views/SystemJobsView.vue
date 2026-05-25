@@ -30,7 +30,6 @@ import {
   buildMarketBackfillOverviewCards,
   buildSyncJobPayloadFromTemplate,
   buildSyncJobTemplateOptions,
-  buildSystemJobsActionCards,
   buildSystemJobsGuideCards,
   buildSystemJobsOverviewCards,
   buildSystemJobsTabOptions,
@@ -463,23 +462,11 @@ const overviewCards = computed(() =>
     definitionTotal: definitionTotal.value
   })
 );
-const guideCards = computed(() => buildSystemJobsGuideCards({ canEditSystemJobs }));
-const actionCards = computed(() =>
-  buildSystemJobsActionCards({
-    canEditSystemJobs,
-    failedRunCount: failedRunCount.value
-  })
-);
 const systemJobTabs = computed(() => buildSystemJobsTabOptions({ canEditSystemJobs }));
-const marketBackfillOverviewCards = computed(() =>
-  buildMarketBackfillOverviewCards({
-    runs: marketBackfillRuns.value,
-    snapshots: marketBackfillSnapshots.value
-  })
-);
-const marketBackfillGuideCards = computed(() =>
-  buildMarketBackfillGuideCards({ canEditSystemJobs })
-);
+void failedRunCount;
+void buildSystemJobsGuideCards;
+void buildMarketBackfillGuideCards;
+void buildMarketBackfillOverviewCards;
 
 const marketBackfillLongHistoryHint = computed(() => {
   const payload = buildMarketBackfillPayload();
@@ -2220,7 +2207,7 @@ onMounted(() => {
           <div class="page-eyebrow">调度工作台</div>
           <h1 class="page-title">系统任务中心</h1>
           <p class="jobs-hero__desc">
-            这里统一管理任务总览、自动重试、手动触发、任务定义和运行记录。先看异常，再做处理，操作路径会更顺。
+            这里统一查看任务健康度、同步任务和运行记录。先看异常，再决定要处理哪条任务链路。
           </p>
         </div>
         <div class="jobs-hero__top-actions">
@@ -2229,26 +2216,6 @@ onMounted(() => {
           </el-tag>
           <el-tag type="warning" effect="plain">已配置 {{ definitionTotal }} 个任务定义</el-tag>
           <el-button :loading="defsLoading || runsLoading || metricsLoading" @click="refreshAll">刷新全部</el-button>
-        </div>
-      </div>
-
-      <div class="jobs-action-grid">
-        <div
-          v-for="item in actionCards"
-          :key="item.key"
-          class="jobs-action-card"
-          :class="`is-${item.tone}`"
-        >
-          <div class="jobs-action-card__title">{{ item.title }}</div>
-          <div class="jobs-action-card__desc">{{ item.description }}</div>
-          <el-button
-            size="small"
-            :type="actionButtonType(item.tone)"
-            :plain="item.tone !== 'primary'"
-            @click="handleActionCard(item.key)"
-          >
-            {{ item.actionText }}
-          </el-button>
         </div>
       </div>
     </div>
@@ -2281,10 +2248,10 @@ onMounted(() => {
         <div class="jobs-tab-summary__title">
           {{ systemJobTabs.find((item) => item.key === activeTab)?.label || "总览" }}
         </div>
-        <div class="jobs-tab-summary__desc">
-          {{ systemJobTabs.find((item) => item.key === activeTab)?.description || "看今日运行、失败原因和使用说明" }}
-        </div>
+      <div class="jobs-tab-summary__desc">
+          {{ systemJobTabs.find((item) => item.key === activeTab)?.description || "先看今天整体健康度和共性失败原因" }}
       </div>
+    </div>
     </div>
 
     <div v-show="activeTab === 'overview'" class="jobs-main-grid">
@@ -2292,7 +2259,7 @@ onMounted(() => {
         <div class="section-header section-header--stack">
           <div>
             <h3 style="margin: 0">运行总览</h3>
-            <p class="section-copy">先看核心卡片，再往下看任务维度统计和失败原因，能更快判断今天该处理哪里。</p>
+            <p class="section-copy">先看核心卡片和共性失败原因，快速判断今天是否需要处理异常任务。</p>
           </div>
           <div class="inline-actions inline-actions--left">
             <el-input
@@ -2316,56 +2283,6 @@ onMounted(() => {
             <div class="jobs-overview-card__value">{{ item.value }}</div>
             <div class="jobs-overview-card__helper">{{ item.helper }}</div>
           </div>
-          <div class="jobs-overview-card is-info">
-            <div class="jobs-overview-card__title">今日成功</div>
-            <div class="jobs-overview-card__value">{{ metrics.today_success || 0 }}</div>
-            <div class="jobs-overview-card__helper">结合失败数一起看，便于判断成功面是否稳定</div>
-          </div>
-          <div class="jobs-overview-card is-gold">
-            <div class="jobs-overview-card__title">平均重试次数</div>
-            <div class="jobs-overview-card__value">{{ Number(metrics.avg_retry_count || 0).toFixed(2) }}</div>
-            <div class="jobs-overview-card__helper">重试次数持续升高时，建议复核任务配置或外部依赖</div>
-          </div>
-        </div>
-
-        <div class="jobs-table-block">
-          <div class="toolbar jobs-table-toolbar">
-            <el-text type="primary">按任务维度的重试恢复统计</el-text>
-            <span class="muted">用来判断问题集中在哪些任务，不要只盯总失败数。</span>
-          </div>
-          <el-table
-            :data="metrics.job_retry_stats || []"
-            border
-            stripe
-            size="small"
-            empty-text="暂无按任务统计"
-            v-loading="metricsLoading"
-          >
-            <el-table-column label="任务" min-width="220">
-              <template #default="{ row }">
-                {{ formatJobName(row.job_name) }} ({{ row.job_name || "-" }})
-              </template>
-            </el-table-column>
-            <el-table-column prop="today_total" label="今日总运行" min-width="100" />
-            <el-table-column prop="today_failed" label="今日失败" min-width="90" />
-            <el-table-column prop="retry_total" label="重试数" min-width="80" />
-            <el-table-column label="重试成功率" min-width="120">
-              <template #default="{ row }">
-                {{ formatPercent(row.retry_hit_rate) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="auto_retry_total" label="自动重试触发" min-width="120" />
-            <el-table-column label="恢复成功/触发" min-width="130">
-              <template #default="{ row }">
-                {{ row.recovery_success || 0 }}/{{ row.recovery_total || 0 }}
-              </template>
-            </el-table-column>
-            <el-table-column label="恢复成功率" min-width="110">
-              <template #default="{ row }">
-                {{ formatPercent(row.recovery_hit_rate) }}
-              </template>
-            </el-table-column>
-          </el-table>
         </div>
 
         <div class="jobs-table-block">
@@ -2392,65 +2309,6 @@ onMounted(() => {
           </el-table>
         </div>
 
-        <div class="jobs-table-block">
-          <div class="toolbar jobs-table-toolbar">
-            <el-text type="primary">按任务失败原因</el-text>
-            <el-select
-              v-model="failureReasonJobFilter"
-              clearable
-              placeholder="按任务过滤失败原因"
-              style="width: 260px"
-            >
-              <el-option
-                v-for="name in failureReasonJobOptions"
-                :key="name"
-                :label="`${formatJobName(name)} (${name})`"
-                :value="name"
-              />
-            </el-select>
-            <span class="muted">适合定位某个任务的重复性故障。</span>
-          </div>
-          <el-table
-            :data="filteredJobFailureReasons"
-            border
-            stripe
-            size="small"
-            empty-text="暂无按任务失败原因"
-            v-loading="metricsLoading"
-          >
-            <el-table-column label="任务" min-width="220">
-              <template #default="{ row }">
-                {{ formatJobName(row.job_name) }} ({{ row.job_name || "-" }})
-              </template>
-            </el-table-column>
-            <el-table-column prop="reason" label="原因分类" min-width="280" />
-            <el-table-column prop="count" label="次数" min-width="90" />
-            <el-table-column prop="last_occurred_at" label="最近发生时间" min-width="190">
-              <template #default="{ row }">
-                {{ row.last_occurred_at || "-" }}
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-      </div>
-
-      <div class="jobs-side-column">
-        <div class="card jobs-panel-card jobs-guide-panel">
-          <div class="section-header section-header--stack">
-            <div>
-              <h3 style="margin: 0">使用说明</h3>
-              <p class="section-copy">把常用处理顺序和权限边界放在右边，避免每次都去翻说明。</p>
-            </div>
-          </div>
-          <div class="jobs-guide-list">
-            <div v-for="card in guideCards" :key="card.key" class="jobs-guide-card">
-              <div class="jobs-guide-card__title">{{ card.title }}</div>
-              <ul class="jobs-guide-card__list">
-                <li v-for="item in card.items" :key="item">{{ item }}</li>
-              </ul>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -2461,7 +2319,7 @@ onMounted(() => {
             <div>
               <h3 style="margin: 0">市场同步任务中心</h3>
               <p class="section-copy">
-                先看最近同步任务和同步快照，再决定是发起股票/期货全量同步，还是只重试失败批次。
+                先发起股票或期货同步任务，再通过任务列表和最近同步快照追踪结果。
               </p>
             </div>
             <div class="inline-actions inline-actions--left">
@@ -2472,22 +2330,6 @@ onMounted(() => {
                 刷新任务中心
               </el-button>
               <el-button v-if="canEditSystemJobs" @click="resetMarketBackfillForm">重置新建表单</el-button>
-            </div>
-          </div>
-
-          <div
-            class="jobs-overview-grid"
-            v-loading="marketBackfillRunsLoading || marketBackfillSnapshotsLoading"
-          >
-            <div
-              v-for="item in marketBackfillOverviewCards"
-              :key="item.key"
-              class="jobs-overview-card"
-              :class="`is-${item.tone}`"
-            >
-              <div class="jobs-overview-card__title">{{ item.title }}</div>
-              <div class="jobs-overview-card__value">{{ item.value }}</div>
-              <div class="jobs-overview-card__helper">{{ item.helper }}</div>
             </div>
           </div>
         </div>
@@ -2615,7 +2457,7 @@ onMounted(() => {
               发起同步
             </el-button>
             <el-text type="info">
-              当前默认会创建同步任务并直接执行，执行结果会同步回写任务运行记录。
+              当前会创建同步任务并直接执行，结果会同步回写任务记录和批次明细。
             </el-text>
           </div>
         </div>
@@ -2793,411 +2635,6 @@ onMounted(() => {
             <el-table-column prop="created_at" label="创建时间" min-width="180" />
           </el-table>
         </div>
-      </div>
-
-      <div class="jobs-side-column">
-        <div class="card jobs-panel-card jobs-guide-panel">
-          <div class="section-header section-header--stack">
-            <div>
-              <h3 style="margin: 0">使用说明</h3>
-              <p class="section-copy">把市场数据的处理顺序、支持范围和权限边界固定放在右边。</p>
-            </div>
-          </div>
-          <div class="jobs-guide-list">
-            <div v-for="card in marketBackfillGuideCards" :key="card.key" class="jobs-guide-card">
-              <div class="jobs-guide-card__title">{{ card.title }}</div>
-              <ul class="jobs-guide-card__list">
-                <li v-for="item in card.items" :key="item">{{ item }}</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <div class="card jobs-panel-card">
-          <div class="section-header section-header--stack">
-            <div>
-              <h3 style="margin: 0">当前窗口提示</h3>
-              <p class="section-copy">方便快速判断最近一次同步和最近一次快照是否正常落库。</p>
-            </div>
-          </div>
-          <div class="jobs-guide-list">
-            <div class="jobs-guide-card">
-              <div class="jobs-guide-card__title">最近同步</div>
-              <p class="jobs-guide-card__desc">
-                {{
-                  marketBackfillRuns.length
-                    ? `${formatSyncJobTypeLabel(marketBackfillRuns[0])} · ${formatMarketBackfillStatusLabel(marketBackfillRuns[0].status)}`
-                    : "暂无同步任务"
-                }}
-              </p>
-            </div>
-            <div class="jobs-guide-card">
-              <div class="jobs-guide-card__title">最近快照</div>
-              <p class="jobs-guide-card__desc">
-                {{ marketBackfillSnapshots.length ? buildUniverseSnapshotDigest(marketBackfillSnapshots[0]) : "暂无同步快照" }}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div v-show="activeTab === 'config' || activeTab === 'trigger'" class="jobs-workbench-grid">
-    <div v-show="activeTab === 'config'" class="card jobs-panel-card" style="margin-bottom: 12px">
-      <div class="section-header">
-        <div>
-          <h3 style="margin: 0">自动重试配置</h3>
-          <p class="section-copy">先看当前生效状态，再决定要不要调整次数、退避和任务范围。</p>
-        </div>
-        <div class="inline-actions inline-actions--left">
-          <el-button :loading="autoRetryLoading" @click="fetchAutoRetryConfigs">刷新配置</el-button>
-          <el-button v-if="canEditSystemJobs" @click="resetAutoRetryForm">重置编辑</el-button>
-          <el-button
-            v-if="canEditSystemJobs"
-            type="primary"
-            :loading="savingAutoRetry"
-            @click="saveAutoRetryConfig"
-          >
-            保存配置
-          </el-button>
-        </div>
-      </div>
-      <div class="grid grid-4" v-loading="autoRetryLoading || savingAutoRetry">
-        <div class="metric-item">
-          <div class="metric-label">自动重试状态</div>
-          <div class="metric-value metric-value--small">
-            <el-tag :type="autoRetrySummary.enabled ? 'success' : 'info'">
-              {{ autoRetrySummary.enabled ? "已开启" : "已关闭" }}
-            </el-tag>
-          </div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">最大重试次数</div>
-          <div class="metric-value">{{ autoRetrySummary.maxRetries || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">退避秒数</div>
-          <div class="metric-value">{{ autoRetrySummary.backoffSeconds || 0 }}</div>
-        </div>
-        <div class="metric-item">
-          <div class="metric-label">允许任务</div>
-          <div class="metric-value metric-value--small">
-            {{ formatAutoRetryJobs(autoRetrySummary.jobs) }}
-          </div>
-        </div>
-      </div>
-      <el-form label-width="140px" style="margin-top: 10px">
-        <div class="dialog-grid">
-          <el-form-item label="启用自动重试">
-            <el-switch v-model="autoRetryForm.enabled" :disabled="!canEditSystemJobs" />
-          </el-form-item>
-          <el-form-item label="最大重试次数(0-5)">
-            <el-input-number
-              v-model="autoRetryForm.max_retries"
-              :min="0"
-              :max="5"
-              :step="1"
-              controls-position="right"
-              :disabled="!canEditSystemJobs"
-            />
-          </el-form-item>
-          <el-form-item label="退避秒数(0-60)">
-            <el-input-number
-              v-model="autoRetryForm.backoff_seconds"
-              :min="0"
-              :max="60"
-              :step="1"
-              controls-position="right"
-              :disabled="!canEditSystemJobs"
-            />
-          </el-form-item>
-          <el-form-item label="允许自动重试任务">
-            <el-select
-              v-model="autoRetryForm.jobs"
-              multiple
-              filterable
-              allow-create
-              default-first-option
-              clearable
-              collapse-tags
-              collapse-tags-tooltip
-              :disabled="!canEditSystemJobs"
-              placeholder="不选表示不过滤任务"
-            >
-              <el-option
-                v-for="item in autoRetryJobOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
-        </div>
-      </el-form>
-      <el-alert
-        title="自动重试只对首次执行失败的任务生效；任务列表留空表示不限制任务名。"
-        type="info"
-        :closable="false"
-        show-icon
-        style="margin-top: 8px"
-      />
-      <el-table
-        :data="autoRetryConfigRows"
-        border
-        stripe
-        size="small"
-        empty-text="暂无自动重试配置项"
-        style="margin-top: 10px"
-        v-loading="autoRetryLoading"
-      >
-        <el-table-column label="配置项" min-width="260">
-          <template #default="{ row }">
-            {{ formatConfigKeyLabel(row.config_key) }}
-            <div class="muted">{{ row.config_key || "-" }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="config_value" label="配置值" min-width="160" />
-        <el-table-column prop="description" label="说明" min-width="220" />
-        <el-table-column prop="updated_by" label="更新人" min-width="120" />
-        <el-table-column prop="updated_at" label="更新时间" min-width="180" />
-      </el-table>
-
-      <div class="toolbar" style="margin-top: 10px; margin-bottom: 6px">
-        <el-text type="primary">自动重试配置变更记录</el-text>
-        <el-button size="small" :loading="autoRetryLogLoading" @click="fetchAutoRetryChangeLogs">刷新记录</el-button>
-      </div>
-      <el-table
-        :data="autoRetryChangeLogs"
-        border
-        stripe
-        size="small"
-        empty-text="暂无变更记录"
-        v-loading="autoRetryLogLoading"
-      >
-        <el-table-column label="配置项" min-width="260">
-          <template #default="{ row }">
-            {{ formatConfigKeyLabel(row.target_id) }}
-            <div class="muted">{{ row.target_id || "-" }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column label="变更后值" min-width="220">
-          <template #default="{ row }">
-            <span class="run-preview">{{ formatConfigDisplayValue(row.target_id, row.after_value) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="reason" label="备注" min-width="180">
-          <template #default="{ row }">
-            {{ row.reason || "-" }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="operator_user_id" label="操作人" min-width="120" />
-        <el-table-column prop="created_at" label="变更时间" min-width="180" />
-      </el-table>
-    </div>
-
-    <div v-if="canEditSystemJobs" v-show="activeTab === 'trigger'" class="card jobs-panel-card" style="margin-bottom: 12px">
-      <div class="section-header">
-        <div>
-          <h3 style="margin: 0">手动触发任务</h3>
-          <p class="section-copy">用于临时补跑、联调验证或主动触发一次指定任务，不影响已有任务定义。</p>
-        </div>
-      </div>
-      <div class="toolbar" style="margin-bottom: 8px">
-        <el-text type="info">快捷选择：</el-text>
-        <el-button
-          v-for="item in quickJobOptions"
-          :key="item.value"
-          size="small"
-          @click="applyQuickTriggerJob(item.value)"
-        >
-          {{ item.label }}
-        </el-button>
-      </div>
-      <el-form label-width="125px">
-        <div class="dialog-grid">
-          <el-form-item label="任务编码" required>
-            <el-select
-              v-model="triggerForm.job_name"
-              filterable
-              allow-create
-              default-first-option
-              clearable
-              placeholder="请选择或输入任务编码"
-            >
-              <el-option
-                v-for="item in triggerJobOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="触发来源" required>
-            <el-select v-model="triggerForm.trigger_source">
-              <el-option label="手动触发" value="MANUAL" />
-              <el-option label="系统触发" value="SYSTEM" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="模拟结果">
-            <el-select v-model="triggerForm.simulate_status" clearable placeholder="可选（仅模拟模式）">
-              <el-option v-for="item in simulateStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="运行摘要">
-            <el-input v-model="triggerForm.result_summary" placeholder="例如：处理 120 条数据" />
-          </el-form-item>
-          <el-form-item label="错误信息">
-            <el-input v-model="triggerForm.error_message" placeholder="可填写模拟失败信息" />
-          </el-form-item>
-          <el-form-item label="资讯同步类型">
-            <el-select
-              v-model="triggerForm.sync_types"
-              multiple
-              clearable
-              collapse-tags
-              collapse-tags-tooltip
-              placeholder="Tushare任务可选"
-            >
-              <el-option
-                v-for="item in newsSyncTypeOptions"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="资讯来源">
-            <el-input
-              v-model="triggerForm.news_sources_text"
-              placeholder="来源筛选，逗号分隔，如 cls,财联社"
-            />
-          </el-form-item>
-          <el-form-item label="股票代码">
-            <el-input
-              v-model="triggerForm.symbols_text"
-              placeholder="股票代码筛选，逗号分隔，如 600519.SH,000001.SZ"
-            />
-          </el-form-item>
-          <el-form-item label="批量大小">
-            <el-input-number
-              v-model="triggerForm.batch_size"
-              :min="1"
-              :max="1000"
-              :step="10"
-              controls-position="right"
-              placeholder="可选"
-            />
-          </el-form-item>
-        </div>
-      </el-form>
-      <div class="toolbar" style="margin-bottom: 8px">
-        <el-button type="primary" :loading="triggeringJob" @click="submitTrigger">触发任务</el-button>
-      </div>
-      <el-alert
-        title="“模拟结果”仅在后端开启 ALLOW_JOB_SIMULATION=true 时生效"
-        type="info"
-        :closable="false"
-        show-icon
-      />
-    </div>
-    </div>
-
-    <div v-show="activeTab === 'config'" class="card jobs-panel-card" style="margin-bottom: 12px">
-      <div class="section-header">
-        <div>
-          <h3 style="margin: 0">任务定义</h3>
-          <p class="section-copy">维护任务编码、调度表达式、所属模块和启停状态。这里是任务中心的“配置台账”。</p>
-        </div>
-        <el-button v-if="canEditSystemJobs" type="primary" @click="openCreateDefinition">新增任务定义</el-button>
-      </div>
-
-      <div class="toolbar">
-        <el-select v-model="definitionFilters.status" clearable placeholder="全部状态" style="width: 150px">
-          <el-option v-for="item in definitionStatusOptions" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
-        <el-select v-model="definitionFilters.module" clearable placeholder="全部模块" style="width: 150px">
-          <el-option v-for="item in moduleOptions" :key="item.value" :label="item.label" :value="item.value" />
-        </el-select>
-        <el-button type="primary" plain @click="applyDefinitionFilters">查询</el-button>
-        <el-button @click="resetDefinitionFilters">重置</el-button>
-      </div>
-
-      <el-table :data="definitions" border stripe v-loading="defsLoading" empty-text="暂无任务定义">
-        <el-table-column prop="id" label="任务ID" min-width="140" />
-        <el-table-column label="任务编码" min-width="220">
-          <template #default="{ row }">
-            {{ formatJobName(row.job_name) }}
-            <div class="muted">{{ row.job_name || "-" }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="display_name" label="任务名称" min-width="180" />
-        <el-table-column label="所属模块" min-width="100">
-          <template #default="{ row }">
-            {{ formatModule(row.module) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="cron_expr" label="调度表达式" min-width="180" />
-        <el-table-column label="状态" min-width="150">
-          <template #default="{ row }">
-            <el-switch
-              v-if="canEditSystemJobs"
-              :model-value="(definitionStatusMap[row.id] || row.status) === 'ACTIVE'"
-              inline-prompt
-              active-text="启用"
-              inactive-text="停用"
-              :loading="Boolean(definitionStatusSavingMap[row.id])"
-              @change="(active) => onDefinitionStatusSwitch(row, active)"
-            />
-            <el-tag v-else :type="statusTagType(row.status)">
-              {{ formatDefinitionStatus(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="最近运行时间" min-width="180">
-          <template #default="{ row }">
-            {{ row.last_run_at || "-" }}
-          </template>
-        </el-table-column>
-        <el-table-column label="更新人" min-width="130">
-          <template #default="{ row }">
-            {{ row.updated_by || "-" }}
-          </template>
-        </el-table-column>
-        <el-table-column label="更新时间" min-width="180">
-          <template #default="{ row }">
-            {{ row.updated_at || "-" }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" align="right" min-width="190">
-          <template #default="{ row }">
-            <div class="inline-actions">
-              <template v-if="canEditSystemJobs">
-                <el-button size="small" @click="openEditDefinition(row)">编辑</el-button>
-                <el-button
-                  size="small"
-                  type="danger"
-                  plain
-                  :loading="Boolean(definitionDeletingMap[row.id])"
-                  @click="removeDefinition(row)"
-                >
-                  删除
-                </el-button>
-              </template>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="pagination">
-        <el-text type="info">第 {{ definitionPage }} 页，共 {{ definitionTotal }} 条</el-text>
-        <el-pagination
-          background
-          layout="prev, pager, next"
-          :current-page="definitionPage"
-          :page-size="definitionPageSize"
-          :total="definitionTotal"
-          @current-change="handleDefinitionPageChange"
-        />
       </div>
     </div>
 
@@ -3977,25 +3414,6 @@ onMounted(() => {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-}
-
-.jobs-action-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.jobs-action-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 156px;
-  padding: 16px;
-  border-radius: 16px;
-  border: 1px solid #dbe5f3;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
 }
 
 .jobs-action-card.is-primary {
