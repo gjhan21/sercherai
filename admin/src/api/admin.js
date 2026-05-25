@@ -277,7 +277,7 @@ export function getMarketCoverageSummary() {
 }
 
 export function createMarketDataBackfillRun(payload) {
-  return http.post("/admin/market-data/backfill", payload);
+  return http.post("/admin/market-data/backfill", payload, SYNC_REQUEST_CONFIG);
 }
 
 export function listMarketDataBackfillRuns(params) {

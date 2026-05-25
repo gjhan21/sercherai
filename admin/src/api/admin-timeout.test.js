@@ -6,6 +6,7 @@ const source = fs.readFileSync(new URL("./admin.js", import.meta.url), "utf8");
 
 test("long-running data sync api helpers use dedicated timeout config", () => {
   assert.match(source, /const SYNC_REQUEST_CONFIG = \{\s*timeout:\s*\d+/);
+  assert.match(source, /createMarketDataBackfillRun\(payload\)\s*\{\s*return http\.post\("\/admin\/market-data\/backfill", payload, SYNC_REQUEST_CONFIG\);/s);
   assert.match(source, /syncMarketDataMaster\(payload\)\s*\{\s*return http\.post\("\/admin\/market-data\/master\/sync", payload, SYNC_REQUEST_CONFIG\);/s);
   assert.match(source, /syncMarketDataQuotes\(payload\)\s*\{\s*return http\.post\("\/admin\/market-data\/quotes\/sync", payload, SYNC_REQUEST_CONFIG\);/s);
   assert.match(source, /syncMarketDataDailyBasic\(payload\)\s*\{\s*return http\.post\("\/admin\/market-data\/daily-basic\/sync", payload, SYNC_REQUEST_CONFIG\);/s);
