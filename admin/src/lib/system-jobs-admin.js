@@ -211,30 +211,98 @@ export function buildSystemJobsGuideCards({ canEditSystemJobs = false } = {}) {
 }
 
 export function buildSystemJobsActionCards({ canEditSystemJobs = false, failedRunCount = 0 } = {}) {
-  void canEditSystemJobs;
-  void failedRunCount;
-  return [];
+  const hasFailedRuns = Number(failedRunCount) > 0;
+  const firstCard = hasFailedRuns
+    ? {
+        key: "view-failed-runs",
+        title: "先处理失败任务",
+        description: `当前页有 ${stringifyCount(failedRunCount)} 条失败运行，建议先过滤查看并决定是否重跑`,
+        actionText: "查看失败任务",
+        tone: "danger"
+      }
+    : {
+        key: "view-failed-runs",
+        title: "查看失败任务",
+        description: "当前页没有失败运行，可以切换筛选继续核对历史记录",
+        actionText: "筛选失败记录",
+        tone: "info"
+      };
+
+  const cards = [
+    firstCard,
+    {
+      key: "refresh-all",
+      title: "刷新任务面板",
+      description: "同步最新指标、配置、任务定义和运行记录",
+      actionText: "刷新全部",
+      tone: "primary"
+    }
+  ];
+
+  if (canEditSystemJobs) {
+    cards.push(
+      {
+        key: "open-create-definition",
+        title: "新增任务定义",
+        description: "适合补充新的定时任务或补齐空缺定义",
+        actionText: "新增定义",
+        tone: "info"
+      },
+      {
+        key: "scroll-trigger",
+        title: "手动触发任务",
+        description: "需要临时补跑、联调或验证时，从这里快速进入",
+        actionText: "去触发区",
+        tone: "gold"
+      }
+    );
+    return cards;
+  }
+
+  cards.push({
+    key: "scroll-definitions",
+    title: "查看任务定义",
+    description: "快速跳到任务定义列表，核对状态、表达式和最近执行情况",
+    actionText: "去任务定义",
+    tone: "gold"
+  });
+  return cards;
 }
 
 export function buildSystemJobsTabOptions({ canEditSystemJobs = false } = {}) {
-  void canEditSystemJobs;
-  return [
+  const tabs = [
     {
       key: "overview",
       label: "总览",
-      description: "先看今天整体健康度和共性失败原因"
+      description: "看今日运行、失败原因和使用说明"
     },
     {
       key: "market-data",
-      label: "同步任务",
-      description: "发起股票期货同步、查看任务和同步快照"
+      label: "市场数据",
+      description: "发起同步任务、查看批次和同步快照"
     },
     {
-      key: "runs",
-      label: "运行记录",
-      description: "查看详情、筛选失败和执行重跑"
+      key: "config",
+      label: "任务配置",
+      description: "管理自动重试和任务定义"
     }
   ];
+
+  if (canEditSystemJobs) {
+    tabs.push({
+      key: "trigger",
+      label: "手动触发",
+      description: "临时补跑、联调和手动触发任务"
+    });
+  }
+
+  tabs.push({
+    key: "runs",
+    label: "运行记录",
+    description: "查看详情、筛选失败和执行重跑"
+  });
+
+  return tabs;
 }
 
 const STOCK_SYNC_ASSET_SCOPE = ["STOCK", "INDEX", "ETF", "LOF", "CBOND"];
