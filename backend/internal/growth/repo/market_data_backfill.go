@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"sercherai/backend/internal/growth/model"
+	"sercherai/backend/internal/platform/utils"
 )
 
 var allowedMarketBackfillAssetTypes = []string{"STOCK", "FUTURES", "INDEX", "ETF", "LOF", "CBOND"}
@@ -878,6 +879,36 @@ INSERT INTO market_backfill_runs (
 	return executed, nil
 }
 
+func (r *MySQLGrowthRepo) AdminCancelMarketDataBackfillRun(runID string, operator string, reason string) (model.MarketBackfillRun, error) {
+	run, err := r.AdminGetMarketDataBackfillRun(runID)
+	if err != nil {
+		return model.MarketBackfillRun{}, err
+	}
+	switch normalizeMarketBackfillRunStatus(run.Status) {
+	case "PENDING", "RUNNING":
+	default:
+		return model.MarketBackfillRun{}, newMarketBackfillBadRequestError("当前状态不支持取消")
+	}
+	now := time.Now()
+	message := "任务已取消"
+	if trimmed := strings.TrimSpace(reason); trimmed != "" {
+		message = fmt.Sprintf("任务已取消：%s", trimmed)
+	}
+	if _, err := r.db.Exec(`
+UPDATE market_backfill_runs
+SET status = ?, error_message = ?, updated_at = ?, finished_at = ?
+WHERE id = ?`,
+		"CANCELLED",
+		message,
+		now,
+		now,
+		run.ID,
+	); err != nil {
+		return model.MarketBackfillRun{}, err
+	}
+	return r.AdminGetMarketDataBackfillRun(run.ID)
+}
+
 func (r *MySQLGrowthRepo) AdminListMarketUniverseSnapshots(page int, pageSize int) ([]model.MarketUniverseSnapshot, int, error) {
 	if page <= 0 {
 		page = 1
@@ -1217,6 +1248,28 @@ func (r *InMemoryGrowthRepo) AdminRetryMarketDataBackfillRun(runID string, input
 		return model.MarketBackfillRun{}, execErr
 	}
 	return executed, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminCancelMarketDataBackfillRun(runID string, operator string, reason string) (model.MarketBackfillRun, error) {
+	run, ok := r.marketBackfillRuns[strings.TrimSpace(runID)]
+	if !ok {
+		return model.MarketBackfillRun{}, utils.ErrNotFound
+	}
+	switch normalizeMarketBackfillRunStatus(run.Status) {
+	case "PENDING", "RUNNING":
+	default:
+		return model.MarketBackfillRun{}, newMarketBackfillBadRequestError("当前状态不支持取消")
+	}
+	nowText := time.Now().Format(time.RFC3339)
+	run.Status = "CANCELLED"
+	run.ErrorMessage = "任务已取消"
+	if trimmed := strings.TrimSpace(reason); trimmed != "" {
+		run.ErrorMessage = fmt.Sprintf("任务已取消：%s", trimmed)
+	}
+	run.UpdatedAt = nowText
+	run.FinishedAt = nowText
+	r.marketBackfillRuns[run.ID] = run
+	return run, nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListMarketUniverseSnapshots(page int, pageSize int) ([]model.MarketUniverseSnapshot, int, error) {

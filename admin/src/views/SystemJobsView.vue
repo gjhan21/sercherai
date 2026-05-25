@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { ElMessageBox } from "element-plus";
 import { useRoute } from "vue-router";
 import {
+  cancelMarketDataBackfillRun,
   createMarketDataBackfillRun,
   createSchedulerJobDefinition,
   deleteSchedulerJobDefinition,
@@ -208,6 +209,7 @@ const marketBackfillDetailPageSize = ref(20);
 const marketBackfillDetailTotal = ref(0);
 const marketBackfillDetails = ref([]);
 const marketBackfillRetryingMap = ref({});
+const marketBackfillCancellingMap = ref({});
 
 const MARKET_BACKFILL_DEFAULT_STAGES = [
   "UNIVERSE",
@@ -1389,6 +1391,58 @@ async function handleRetryMarketBackfillRun(item) {
     errorMessage.value = normalizeErrorMessage(error, "重试同步任务失败");
   } finally {
     marketBackfillRetryingMap.value[runID] = false;
+  }
+}
+
+async function handleCancelMarketBackfillRun(item) {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
+  const runID = String(item?.id || "").trim();
+  if (!runID) {
+    errorMessage.value = "同步任务 ID 为空，无法取消";
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      "取消后会停止未开始的阶段和批次，已完成的数据会保留，后续仍可继续重试该任务，是否继续？",
+      "确认取消同步任务",
+      {
+        type: "warning",
+        confirmButtonText: "确认取消",
+        cancelButtonText: "取消"
+      }
+    );
+  } catch (error) {
+    if (error === "cancel" || error === "close") {
+      message.value = "已取消本次操作";
+      return;
+    }
+    errorMessage.value = normalizeErrorMessage(error, "同步任务取消确认失败");
+    return;
+  }
+
+  marketBackfillCancellingMap.value[runID] = true;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    const result = await cancelMarketDataBackfillRun(runID, { reason: "manual cancel" });
+    message.value = `已取消同步任务：${result.run_id || "-"}，状态=${formatMarketBackfillStatusLabel(result.status)}`;
+    await Promise.all([
+      fetchMarketBackfillWorkspace({ preserveFeedback: true }),
+      fetchMetrics(),
+      fetchRuns()
+    ]);
+    if (String(currentMarketBackfillRun.value?.id || "").trim() === runID) {
+      await Promise.all([
+        fetchCurrentMarketBackfillRun(runID, { preserveFeedback: true }),
+        fetchMarketBackfillRunDetails({ preserveFeedback: true })
+      ]);
+    }
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "取消同步任务失败");
+  } finally {
+    marketBackfillCancellingMap.value[runID] = false;
   }
 }
 
@@ -2723,6 +2777,16 @@ onMounted(() => {
                 <div class="inline-actions">
                   <el-button size="small" @click="handleOpenMarketBackfillRun(row)">查看详情</el-button>
                   <el-button
+                    v-if="canEditSystemJobs && (row.status === 'PENDING' || row.status === 'RUNNING')"
+                    size="small"
+                    type="warning"
+                    plain
+                    :loading="Boolean(marketBackfillCancellingMap[row.id])"
+                    @click="handleCancelMarketBackfillRun(row)"
+                  >
+                    取消任务
+                  </el-button>
+                  <el-button
                     v-if="canEditSystemJobs && canRetryMarketBackfillRun(row)"
                     size="small"
                     type="danger"
@@ -3378,6 +3442,19 @@ onMounted(() => {
               @click="handleRetryMarketBackfillRun(currentMarketBackfillRun)"
             >
               重试失败批次
+            </el-button>
+            <el-button
+              v-if="
+                canEditSystemJobs &&
+                (currentMarketBackfillRun.status === 'PENDING' || currentMarketBackfillRun.status === 'RUNNING')
+              "
+              size="small"
+              type="warning"
+              plain
+              :loading="Boolean(marketBackfillCancellingMap[currentMarketBackfillRun.id])"
+              @click="handleCancelMarketBackfillRun(currentMarketBackfillRun)"
+            >
+              取消任务
             </el-button>
           </div>
         </div>

@@ -300,6 +300,10 @@ export function retryMarketDataBackfillRun(id, payload) {
   return http.post(`/admin/market-data/backfill-runs/${encodeURIComponent(id)}/retry`, payload);
 }
 
+export function cancelMarketDataBackfillRun(id, payload) {
+  return http.post(`/admin/market-data/backfill-runs/${encodeURIComponent(id)}/cancel`, payload);
+}
+
 export function listMarketUniverseSnapshots(params) {
   return http.get("/admin/market-data/universe-snapshots", {
     params: buildParams(params)

@@ -11,6 +11,17 @@ import (
 	"sercherai/backend/internal/growth/model"
 )
 
+type marketBackfillCancelledError struct {
+	message string
+}
+
+func (e *marketBackfillCancelledError) Error() string {
+	if strings.TrimSpace(e.message) == "" {
+		return "任务已取消"
+	}
+	return e.message
+}
+
 const (
 	marketDataKindInstrumentMaster         = "INSTRUMENT_MASTER"
 	marketDataKindDailyBasic               = "DAILY_BASIC"
@@ -535,35 +546,79 @@ func (r *MySQLGrowthRepo) executeMarketDataBackfillRun(runID string) (model.Mark
 
 	nowText := time.Now().Format(time.RFC3339)
 
+	if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+		return r.cancelMarketBackfillRun(run, progress, run.CurrentStage, err)
+	}
+
 	masterDetails, err := r.runMarketMasterStage(run, byAsset, assetScope, nowText)
 	if err != nil {
+		var cancelledErr *marketBackfillCancelledError
+		if errors.As(err, &cancelledErr) {
+			return r.cancelMarketBackfillRun(run, progress, "MASTER", err)
+		}
 		return r.failMarketBackfillRun(run, progress, "MASTER", err)
 	}
 	progress = updateMarketBackfillProgressFromDetails(progress, "MASTER", masterDetails)
 
+	if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+		return r.cancelMarketBackfillRun(run, progress, "MASTER", err)
+	}
+
 	quotesDetails, quoteTruthCounts, quoteTouchedByAsset, err := r.runMarketQuotesStage(run, byAsset, assetScope, windowDays, nowText)
 	if err != nil {
+		var cancelledErr *marketBackfillCancelledError
+		if errors.As(err, &cancelledErr) {
+			return r.cancelMarketBackfillRun(run, progress, "QUOTES", err)
+		}
 		return r.failMarketBackfillRun(run, progress, "QUOTES", err)
 	}
 	progress = updateMarketBackfillProgressFromDetails(progress, "QUOTES", quotesDetails)
 
+	if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+		return r.cancelMarketBackfillRun(run, progress, "QUOTES", err)
+	}
+
 	dailyBasicDetails, err := r.runMarketDailyBasicStage(run, byAsset, assetScope, windowDays, nowText)
 	if err != nil {
+		var cancelledErr *marketBackfillCancelledError
+		if errors.As(err, &cancelledErr) {
+			return r.cancelMarketBackfillRun(run, progress, "DAILY_BASIC", err)
+		}
 		return r.failMarketBackfillRun(run, progress, "DAILY_BASIC", err)
 	}
 	progress = updateMarketBackfillProgressFromDetails(progress, "DAILY_BASIC", dailyBasicDetails)
 
+	if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+		return r.cancelMarketBackfillRun(run, progress, "DAILY_BASIC", err)
+	}
+
 	moneyflowDetails, err := r.runMarketMoneyflowStage(run, byAsset, assetScope, windowDays, nowText)
 	if err != nil {
+		var cancelledErr *marketBackfillCancelledError
+		if errors.As(err, &cancelledErr) {
+			return r.cancelMarketBackfillRun(run, progress, "MONEYFLOW", err)
+		}
 		return r.failMarketBackfillRun(run, progress, "MONEYFLOW", err)
 	}
 	progress = updateMarketBackfillProgressFromDetails(progress, "MONEYFLOW", moneyflowDetails)
 
+	if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+		return r.cancelMarketBackfillRun(run, progress, "MONEYFLOW", err)
+	}
+
 	truthDetails, err := r.runMarketTruthStage(run, byAsset, assetScope, quoteTruthCounts, quoteTouchedByAsset, nowText)
 	if err != nil {
+		var cancelledErr *marketBackfillCancelledError
+		if errors.As(err, &cancelledErr) {
+			return r.cancelMarketBackfillRun(run, progress, "TRUTH", err)
+		}
 		return r.failMarketBackfillRun(run, progress, "TRUTH", err)
 	}
 	progress = updateMarketBackfillProgressFromDetails(progress, "TRUTH", truthDetails)
+
+	if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+		return r.cancelMarketBackfillRun(run, progress, "TRUTH", err)
+	}
 
 	coverageDetail, err := r.finalizeMarketCoverageSummaryStage(run, nowText)
 	if err != nil {
@@ -680,6 +735,9 @@ ORDER BY asset_type ASC, instrument_key ASC`, run.UniverseSnapshotID)
 func (r *MySQLGrowthRepo) runMarketMasterStage(run model.MarketBackfillRun, byAsset map[string][]model.MarketUniverseSnapshotItem, assetScope []string, nowText string) ([]model.MarketBackfillRunDetail, error) {
 	details := make([]model.MarketBackfillRunDetail, 0, len(assetScope))
 	for _, assetType := range assetScope {
+		if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+			return nil, err
+		}
 		items := byAsset[assetType]
 		instrumentKeys := universeItemsToInstrumentKeys(items)
 		if err := r.upsertMarketInstruments(assetType, instrumentKeys); err != nil {
@@ -717,6 +775,9 @@ func (r *MySQLGrowthRepo) runMarketQuotesStage(run model.MarketBackfillRun, byAs
 	truthCounts := make(map[string]int, len(assetScope))
 	touchedByAsset := make(map[string]map[string]marketTouchedBarKey, len(assetScope))
 	for _, assetType := range assetScope {
+		if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+			return nil, nil, nil, err
+		}
 		items := byAsset[assetType]
 		instrumentKeys := universeItemsToInstrumentKeys(items)
 		normalizedSource := strings.ToUpper(strings.TrimSpace(run.SourceKey))
@@ -770,10 +831,19 @@ func (r *MySQLGrowthRepo) runMarketLongHistoryQuotesStage(run model.MarketBackfi
 	touchedByAsset := make(map[string]map[string]marketTouchedBarKey, len(assetScope))
 	chunks := splitMarketBackfillDateChunks(longHistory.DateRange, longHistory.ChunkDays)
 	for _, assetType := range assetScope {
+		if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+			return nil, nil, nil, err
+		}
 		assetItems := byAsset[assetType]
 		batches := splitMarketBackfillItemsByBatchSize(assetItems, run.BatchSize)
 		for _, chunk := range chunks {
+			if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+				return nil, nil, nil, err
+			}
 			for batchIndex, batchItems := range batches {
+				if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+					return nil, nil, nil, err
+				}
 				instrumentKeys := universeItemsToInstrumentKeys(batchItems)
 				syncResult, touched, err := r.syncStockMarketDailyBarsByDateRange(run.SourceKey, instrumentKeys, chunk.FromText, chunk.ToText, marketStockDateRangeSyncOptions{
 					EnsureMasterSync: false,
@@ -837,6 +907,9 @@ func (r *MySQLGrowthRepo) runMarketEnhancementStage(run model.MarketBackfillRun,
 	}
 	longHistory := resolveMarketBackfillLongHistoryOptionsFromRun(run)
 	for _, assetType := range assetScope {
+		if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+			return nil, err
+		}
 		items := byAsset[assetType]
 		if longHistory.Enabled && assetType == "STOCK" {
 			detail := newBackfillStageDetail(run, dataKind, assetType, normalizedSource, items, 0, 0, 0, "SKIPPED", nowText, fmt.Sprintf("股票长历史模式暂不支持 %s 回补，已自动跳过", strings.ToLower(dataKind)))
@@ -906,6 +979,9 @@ func (r *MySQLGrowthRepo) runMarketTruthStage(run model.MarketBackfillRun, byAss
 	}
 	if shouldSkipTruthRebuildForLongHistory(run) {
 		for _, assetType := range assetScope {
+			if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+				return nil, err
+			}
 			items := byAsset[assetType]
 			detail := newBackfillStageDetail(run, "TRUTH", assetType, normalizedSource, items, 0, 0, 0, "SKIPPED", nowText, "已按请求跳过 Truth 重建")
 			if err := r.insertMarketBackfillRunDetail(detail); err != nil {
@@ -916,6 +992,9 @@ func (r *MySQLGrowthRepo) runMarketTruthStage(run model.MarketBackfillRun, byAss
 		return details, nil
 	}
 	for _, assetType := range assetScope {
+		if err := r.ensureMarketBackfillRunNotCancelled(run.ID); err != nil {
+			return nil, err
+		}
 		items := byAsset[assetType]
 		truthCount := quoteTruthCounts[assetType]
 		if touched := quoteTouchedByAsset[assetType]; len(touched) > 0 {
@@ -965,6 +1044,33 @@ func (r *MySQLGrowthRepo) failMarketBackfillRun(run model.MarketBackfillRun, pro
 		return model.MarketBackfillRun{}, err
 	}
 	return model.MarketBackfillRun{}, cause
+}
+
+func (r *MySQLGrowthRepo) cancelMarketBackfillRun(run model.MarketBackfillRun, progress []model.MarketBackfillStageProgress, stage string, cause error) (model.MarketBackfillRun, error) {
+	nowText := time.Now().Format(time.RFC3339)
+	progress = updateMarketBackfillStageProgress(progress, stage, "CANCELLED", 0, 0, 0, 0)
+	run.Status = "CANCELLED"
+	run.CurrentStage = stage
+	run.StageProgress = progress
+	run.ErrorMessage = cause.Error()
+	run.UpdatedAt = nowText
+	run.FinishedAt = nowText
+	if err := r.updateMarketBackfillRunExecutionState(run); err != nil {
+		return model.MarketBackfillRun{}, err
+	}
+	return run, cause
+}
+
+func (r *MySQLGrowthRepo) ensureMarketBackfillRunNotCancelled(runID string) error {
+	var status string
+	err := r.db.QueryRow(`SELECT status FROM market_backfill_runs WHERE id = ?`, strings.TrimSpace(runID)).Scan(&status)
+	if err != nil {
+		return err
+	}
+	if normalizeMarketBackfillRunStatus(status) == "CANCELLED" {
+		return &marketBackfillCancelledError{message: "任务已取消"}
+	}
+	return nil
 }
 
 func (r *MySQLGrowthRepo) updateMarketBackfillRunExecutionState(run model.MarketBackfillRun) error {
@@ -1320,8 +1426,22 @@ func (r *InMemoryGrowthRepo) executeMarketDataBackfillRun(runID string) (model.M
 	details := append([]model.MarketBackfillRunDetail(nil), r.marketBackfillRunDetails[run.ID]...)
 	progress := run.StageProgress
 
+	if normalizeMarketBackfillRunStatus(run.Status) == "CANCELLED" {
+		run.CurrentStage = run.CurrentStage
+		run.FinishedAt = nowText
+		run.UpdatedAt = nowText
+		r.marketBackfillRuns[run.ID] = run
+		return run, &marketBackfillCancelledError{message: "任务已取消"}
+	}
+
 	masterDetails := make([]model.MarketBackfillRunDetail, 0, len(assetScope))
 	for _, assetType := range assetScope {
+		if normalizeMarketBackfillRunStatus(run.Status) == "CANCELLED" {
+			run.FinishedAt = nowText
+			run.UpdatedAt = nowText
+			r.marketBackfillRuns[run.ID] = run
+			return run, &marketBackfillCancelledError{message: "任务已取消"}
+		}
 		items := byAsset[assetType]
 		masterDetails = append(masterDetails, newBackfillStageDetail(run, "MASTER", assetType, run.SourceKey, items, len(items), len(items), 0, "SUCCESS", nowText, "master synchronized"))
 	}
@@ -1330,12 +1450,24 @@ func (r *InMemoryGrowthRepo) executeMarketDataBackfillRun(runID string) (model.M
 
 	quotesDetails := make([]model.MarketBackfillRunDetail, 0, len(assetScope))
 	for _, assetType := range assetScope {
+		if normalizeMarketBackfillRunStatus(run.Status) == "CANCELLED" {
+			run.FinishedAt = nowText
+			run.UpdatedAt = nowText
+			r.marketBackfillRuns[run.ID] = run
+			return run, &marketBackfillCancelledError{message: "任务已取消"}
+		}
 		items := byAsset[assetType]
 		if longHistory.Enabled && assetType == "STOCK" {
 			chunks := splitMarketBackfillDateChunks(longHistory.DateRange, longHistory.ChunkDays)
 			batches := splitMarketBackfillItemsByBatchSize(items, run.BatchSize)
 			for _, chunk := range chunks {
 				for batchIndex, batchItems := range batches {
+					if normalizeMarketBackfillRunStatus(run.Status) == "CANCELLED" {
+						run.FinishedAt = nowText
+						run.UpdatedAt = nowText
+						r.marketBackfillRuns[run.ID] = run
+						return run, &marketBackfillCancelledError{message: "任务已取消"}
+					}
 					quotesCount := len(batchItems) * (int(chunk.ToTime.Sub(chunk.FromTime).Hours()/24) + 1)
 					quotesDetails = append(quotesDetails, newLongHistoryQuoteBackfillDetail(run, assetType, run.SourceKey, batchItems, chunk, batchIndex+1, quotesCount, quotesCount, "SUCCESS", nowText, "quotes synchronized"))
 				}

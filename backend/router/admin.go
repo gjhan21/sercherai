@@ -106,6 +106,7 @@ func registerAdminRoutes(v1 *gin.RouterGroup, adminHandlers *handler.AdminHandle
 		adminMarketData.GET("/backfill-runs/:id", middleware.PermissionRequired(db, "market.view"), adminHandlers.MarketData.GetMarketDataBackfillRun)
 		adminMarketData.GET("/backfill-runs/:id/details", middleware.PermissionRequired(db, "market.view"), adminHandlers.MarketData.ListMarketDataBackfillRunDetails)
 		adminMarketData.POST("/backfill-runs/:id/retry", middleware.PermissionRequired(db, "market.edit"), adminHandlers.MarketData.RetryMarketDataBackfillRun)
+		adminMarketData.POST("/backfill-runs/:id/cancel", middleware.PermissionRequired(db, "market.edit"), adminHandlers.MarketData.CancelMarketDataBackfillRun)
 		adminMarketData.GET("/universe-snapshots", middleware.PermissionRequired(db, "market.view"), adminHandlers.MarketData.ListMarketUniverseSnapshots)
 		adminMarketData.GET("/universe-snapshots/:id", middleware.PermissionRequired(db, "market.view"), adminHandlers.MarketData.GetMarketUniverseSnapshot)
 		adminMarketData.GET("/coverage-summary", middleware.PermissionRequired(db, "market.view"), adminHandlers.MarketData.GetMarketCoverageSummary)

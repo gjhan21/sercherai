@@ -55,6 +55,10 @@ type MarketDataBackfillRetryRequest struct {
 	BatchKeys []string `json:"batch_keys"`
 }
 
+type MarketDataBackfillCancelRequest struct {
+	Reason string `json:"reason"`
+}
+
 type MarketDataSyncRequest struct {
 	SourceKey          string   `json:"source_key"`
 	AssetScope         []string `json:"asset_scope"`

@@ -22,3 +22,11 @@ test("SystemJobsView reads operation logs for auto retry config changes", () => 
   assert.match(text, /scheduler\.auto_retry/);
   assert.match(text, /autoRetryChangeLogs = ref\(\[\]\)/);
 });
+
+test("SystemJobsView wires market sync cancel action for pending and running runs", () => {
+  const text = readView();
+  assert.match(text, /cancelMarketDataBackfillRun/);
+  assert.match(text, /async function handleCancelMarketBackfillRun/);
+  assert.match(text, /row\.status === ['"]PENDING['"] \|\| row\.status === ['"]RUNNING['"]/);
+  assert.match(text, /取消任务/);
+});

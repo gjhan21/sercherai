@@ -648,6 +648,71 @@ func TestRetryMarketDataBackfillRun(t *testing.T) {
 	}
 }
 
+func TestCancelMarketDataBackfillRun(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handlers := newStockSelectionTestHandlers()
+	runID := "mbr_demo_001"
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "id", Value: runID}}
+	ctx.Set("user_id", "admin_001")
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/admin/market-data/backfill-runs/"+runID+"/cancel",
+		strings.NewReader(`{"reason":"manual cancel"}`),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handlers.MarketData.CancelMarketDataBackfillRun(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Code int `json:"code"`
+		Data struct {
+			RunID  string `json:"run_id"`
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Code != 0 {
+		t.Fatalf("expected success payload, got %+v", payload)
+	}
+	if payload.Data.RunID != runID {
+		t.Fatalf("expected run id %s, got %+v", runID, payload.Data)
+	}
+	if payload.Data.Status != "CANCELLED" {
+		t.Fatalf("expected cancelled status, got %+v", payload.Data)
+	}
+}
+
+func TestCancelMarketDataBackfillRunRejectsCompletedRun(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handlers := newStockSelectionTestHandlers()
+	runID, _ := createMarketBackfillRunForTest(t, handlers)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "id", Value: runID}}
+	ctx.Set("user_id", "admin_001")
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/admin/market-data/backfill-runs/"+runID+"/cancel",
+		strings.NewReader(`{"reason":"manual cancel"}`),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	handlers.MarketData.CancelMarketDataBackfillRun(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestGetMarketUniverseSnapshot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handlers := newStockSelectionTestHandlers()

@@ -281,6 +281,7 @@ type GrowthRepo interface {
 	AdminGetMarketDataBackfillRun(id string) (model.MarketBackfillRun, error)
 	AdminListMarketDataBackfillRunDetails(runID string, stage string, assetType string, status string, page int, pageSize int) ([]model.MarketBackfillRunDetail, int, error)
 	AdminRetryMarketDataBackfillRun(runID string, input model.MarketBackfillRetryInput, operator string) (model.MarketBackfillRun, error)
+	AdminCancelMarketDataBackfillRun(runID string, operator string, reason string) (model.MarketBackfillRun, error)
 	AdminListMarketUniverseSnapshots(page int, pageSize int) ([]model.MarketUniverseSnapshot, int, error)
 	AdminGetMarketUniverseSnapshot(id string) (model.MarketUniverseSnapshot, []model.MarketUniverseSnapshotItem, error)
 	AdminGetMarketCoverageSummary() (model.MarketCoverageSummary, error)

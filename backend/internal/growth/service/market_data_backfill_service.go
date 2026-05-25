@@ -38,6 +38,10 @@ func (s *growthService) AdminRetryMarketDataBackfillRun(runID string, input mode
 	return s.repo.AdminRetryMarketDataBackfillRun(runID, input, operator)
 }
 
+func (s *growthService) AdminCancelMarketDataBackfillRun(runID string, operator string, reason string) (model.MarketBackfillRun, error) {
+	return s.repo.AdminCancelMarketDataBackfillRun(runID, operator, reason)
+}
+
 func (s *growthService) AdminListMarketUniverseSnapshots(page int, pageSize int) ([]model.MarketUniverseSnapshot, int, error) {
 	return s.repo.AdminListMarketUniverseSnapshots(page, pageSize)
 }

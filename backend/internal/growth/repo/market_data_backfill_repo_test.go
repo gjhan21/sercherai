@@ -482,6 +482,67 @@ func TestAdminRetryMarketDataBackfillRunExecutesImmediately(t *testing.T) {
 	}
 }
 
+func TestAdminCancelMarketDataBackfillRunMarksRunCancelled(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+
+	run, err := repo.AdminCreateMarketDataBackfillRun(model.MarketBackfillCreateInput{
+		RunType:    "FULL",
+		AssetScope: []string{"STOCK"},
+		SourceKey:  "MOCK",
+		BatchSize:  200,
+	}, "tester")
+	if err != nil {
+		t.Fatalf("AdminCreateMarketDataBackfillRun returned error: %v", err)
+	}
+
+	run.Status = "RUNNING"
+	repo.marketBackfillRuns[run.ID] = run
+
+	cancelled, err := repo.AdminCancelMarketDataBackfillRun(run.ID, "tester", "manual cancel")
+	if err != nil {
+		t.Fatalf("AdminCancelMarketDataBackfillRun returned error: %v", err)
+	}
+	if cancelled.Status != "CANCELLED" {
+		t.Fatalf("expected cancelled status, got %+v", cancelled)
+	}
+	if cancelled.FinishedAt == "" {
+		t.Fatalf("expected finished_at after cancellation, got %+v", cancelled)
+	}
+}
+
+func TestAdminCancelMarketDataBackfillRunRejectsCompletedStatus(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+
+	run, err := repo.AdminCreateMarketDataBackfillRun(model.MarketBackfillCreateInput{
+		RunType:    "FULL",
+		AssetScope: []string{"STOCK"},
+		SourceKey:  "MOCK",
+		BatchSize:  200,
+	}, "tester")
+	if err != nil {
+		t.Fatalf("AdminCreateMarketDataBackfillRun returned error: %v", err)
+	}
+
+	if _, err := repo.AdminCancelMarketDataBackfillRun(run.ID, "tester", "manual cancel"); err == nil {
+		t.Fatal("expected completed run cancellation to fail")
+	}
+}
+
+func TestExecuteMarketDataBackfillRunStopsWhenCancelled(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+	run := repo.marketBackfillRuns["mbr_demo_001"]
+	run.Status = "CANCELLED"
+	repo.marketBackfillRuns[run.ID] = run
+
+	cancelled, err := repo.executeMarketDataBackfillRun(run.ID)
+	if err == nil {
+		t.Fatalf("expected cancelled execution error, got nil")
+	}
+	if cancelled.Status != "CANCELLED" {
+		t.Fatalf("expected cancelled run, got %+v", cancelled)
+	}
+}
+
 func TestMySQLExecuteMarketDataBackfillRunCompletesMockPipeline(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

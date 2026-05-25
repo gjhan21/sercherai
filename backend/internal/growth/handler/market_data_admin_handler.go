@@ -374,6 +374,37 @@ func (h *AdminMarketDataHandler) RetryMarketDataBackfillRun(c *gin.Context) {
 	}))
 }
 
+func (h *AdminMarketDataHandler) CancelMarketDataBackfillRun(c *gin.Context) {
+	var req dto.MarketDataBackfillCancelRequest
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	operatorVal, _ := c.Get("user_id")
+	operator, _ := operatorVal.(string)
+	item, err := h.service.AdminCancelMarketDataBackfillRun(c.Param("id"), operator, strings.TrimSpace(req.Reason))
+	if err != nil {
+		var badRequest interface{ BadRequest() bool }
+		if errors.As(err, &badRequest) && badRequest.BadRequest() {
+			c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+			return
+		}
+		if errors.Is(err, utils.ErrNotFound) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "market backfill run not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MARKET_DATA", "CANCEL_BACKFILL_RUN", "MARKET_BACKFILL_RUN", item.ID, "", item.Status, strings.TrimSpace(req.Reason))
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"run_id":               item.ID,
+		"scheduler_run_id":     item.SchedulerRunID,
+		"universe_snapshot_id": item.UniverseSnapshotID,
+		"status":               item.Status,
+	}))
+}
+
 func (h *AdminMarketDataHandler) ListMarketUniverseSnapshots(c *gin.Context) {
 	page, pageSize := utils.ParsePage(c)
 	items, total, err := h.service.AdminListMarketUniverseSnapshots(page, pageSize)
