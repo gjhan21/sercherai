@@ -6,6 +6,7 @@ import StockSelectionModuleShell from "../../components/StockSelectionModuleShel
 import {
   compareStockSelectionRuns,
   createStockSelectionRun,
+  getStockSelectionOverview,
   getStockSelectionRun,
   getStrategyGraphSnapshot,
   queryStrategyGraphSubgraph,
@@ -44,6 +45,7 @@ const pageSize = ref(20);
 const total = ref(0);
 const runs = ref([]);
 const profiles = ref([]);
+const overview = ref(null);
 const detailVisible = ref(false);
 const selectedRun = ref(null);
 const selectedCompareRunIDs = ref([]);
@@ -106,6 +108,23 @@ function getRunGraphWriteStatus(run) {
 
 function getRunGraphSummary(run) {
   return String(getRunContext(run)?.graph_summary || "").trim();
+}
+
+function isRunPendingPublish(run) {
+  return (
+    String(run?.status || "").toUpperCase() === "SUCCEEDED" &&
+    String(run?.review_status || "").toUpperCase() === "PENDING"
+  );
+}
+
+function goToReviewPublish(run = selectedRun.value) {
+  if (!run?.run_id) {
+    return;
+  }
+  router.push({
+    name: "stock-selection-candidates",
+    query: { run_id: run.run_id }
+  });
 }
 
 function getRunRelatedEntities(run) {
@@ -267,6 +286,14 @@ async function fetchProfiles() {
   profiles.value = Array.isArray(data?.items) ? data.items : [];
 }
 
+async function fetchOverview() {
+  try {
+    overview.value = await getStockSelectionOverview();
+  } catch (error) {
+    overview.value = null;
+  }
+}
+
 async function fetchRuns() {
   loading.value = true;
   errorMessage.value = "";
@@ -322,10 +349,29 @@ function handleSelectionChange(rows) {
 }
 
 async function handleQuickRun() {
+  const defaultProfile = overview.value?.default_profile || null;
+  const profileID = String(defaultProfile?.id || "").trim();
+  if (!profileID) {
+    ElMessage.error("当前没有可用的默认配置方案，请先到策略设计中设置默认配置");
+    return;
+  }
+  const tradeDate =
+    String(overview.value?.latest_trade_date || "").trim() ||
+    new Date().toISOString().slice(0, 10);
+  if (!String(overview.value?.latest_trade_date || "").trim()) {
+    ElMessage.warning("未读取到最新交易日，已使用当前日期运行");
+  }
   creating.value = true;
   try {
-    const run = await createStockSelectionRun({});
-    ElMessage.success(`已完成运行 ${run.run_id}`);
+    const run = await createStockSelectionRun({
+      trade_date: tradeDate,
+      profile_id: profileID
+    });
+    if (isRunPendingPublish(run)) {
+      ElMessage.success(`已完成运行 ${run.run_id}，请继续审核发布`);
+    } else {
+      ElMessage.success(`已完成运行 ${run.run_id}`);
+    }
     await fetchRuns();
     router.replace({
       name: "stock-selection-runs",
@@ -349,7 +395,7 @@ watch(
 );
 
 onMounted(async () => {
-  await Promise.all([fetchProfiles(), fetchRuns()]);
+  await Promise.all([fetchOverview(), fetchProfiles(), fetchRuns()]);
   if (route.query.run_id) {
     await openRunDetail(String(route.query.run_id));
   }
@@ -450,6 +496,19 @@ onMounted(async () => {
           <template #default="{ row }">{{ formatDateTime(row.latest_publish_at) }}</template>
         </el-table-column>
         <el-table-column prop="job_id" label="作业编号" min-width="170" />
+        <el-table-column label="下一步" min-width="150" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="isRunPendingPublish(row)"
+              type="primary"
+              link
+              @click.stop="goToReviewPublish(row)"
+            >
+              去审核发布
+            </el-button>
+            <span v-else class="mini-text">-</span>
+          </template>
+        </el-table-column>
       </el-table>
 
       <div class="toolbar" style="justify-content: flex-end; margin-top: 12px">
@@ -531,11 +590,27 @@ onMounted(async () => {
             </el-descriptions-item>
           </el-descriptions>
 
+          <el-alert
+            v-if="isRunPendingPublish(selectedRun)"
+            title="运行已完成，尚未发布到今日 AI 精选"
+            description="请进入候选与审核发布页完成审核，通过后用户端今日 AI 精选才会展示这批推荐。"
+            type="warning"
+            show-icon
+            style="margin-top: 12px"
+          />
+
           <div class="toolbar" style="margin-top: 12px; justify-content: flex-end; flex-wrap: wrap">
+            <el-button
+              v-if="isRunPendingPublish(selectedRun)"
+              type="primary"
+              @click="goToReviewPublish(selectedRun)"
+            >
+              去审核发布
+            </el-button>
             <el-button
               type="primary"
               plain
-              @click="router.push({ name: 'stock-selection-candidates', query: { run_id: selectedRun.run_id } })"
+              @click="goToReviewPublish(selectedRun)"
             >
               打开候选与审核发布
             </el-button>

@@ -4,6 +4,10 @@ const SYNC_REQUEST_CONFIG = {
   timeout: 1800000
 };
 
+const STOCK_SELECTION_RUN_REQUEST_CONFIG = {
+  timeout: 180000
+};
+
 function buildParams(raw) {
   const params = {};
   Object.entries(raw || {}).forEach(([key, value]) => {
@@ -462,7 +466,7 @@ export function listFuturesSelectionRuns(params) {
 }
 
 export function createStockSelectionRun(payload) {
-  return http.post("/admin/stock-selection/runs", payload, { timeout: 60000 });
+  return http.post("/admin/stock-selection/runs", payload, STOCK_SELECTION_RUN_REQUEST_CONFIG);
 }
 
 export function createFuturesSelectionRun(payload) {

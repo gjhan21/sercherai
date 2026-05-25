@@ -28,3 +28,11 @@ test("daily strategy generation api helpers use dedicated timeout config", () =>
     /generateDailyFuturesStrategies\(tradeDate = ""\)\s*\{\s*return http\.post\("\/admin\/futures\/strategies\/generate-daily", null, \{\s*params:\s*buildParams\(\{\s*trade_date:\s*tradeDate\s*\}\),\s*\.\.\.SYNC_REQUEST_CONFIG\s*\}\s*\);\s*\}/s
   );
 });
+
+test("stock selection run api allows strategy engine to finish", () => {
+  assert.match(source, /const STOCK_SELECTION_RUN_REQUEST_CONFIG = \{\s*timeout:\s*180000/s);
+  assert.match(
+    source,
+    /createStockSelectionRun\(payload\)\s*\{\s*return http\.post\("\/admin\/stock-selection\/runs", payload, STOCK_SELECTION_RUN_REQUEST_CONFIG\);/s
+  );
+});

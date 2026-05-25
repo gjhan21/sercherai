@@ -38,3 +38,22 @@ test("StockSelectionRunsView surfaces evaluation backfill state from run context
   assert.match(text, /评估回填状态/);
   assert.match(text, /formatStockSelectionEvaluationStatus/);
 });
+
+test("StockSelectionRunsView runs with overview trade date and default profile", () => {
+  const text = readView();
+  assert.match(text, /getStockSelectionOverview/);
+  assert.match(text, /overview = ref/);
+  assert.match(text, /latest_trade_date/);
+  assert.match(text, /default_profile/);
+  assert.doesNotMatch(text, /createStockSelectionRun\(\{\}\)/);
+  assert.match(text, /trade_date:\s*tradeDate/);
+  assert.match(text, /profile_id:\s*profileID/);
+});
+
+test("StockSelectionRunsView guides succeeded pending runs to review publish", () => {
+  const text = readView();
+  assert.match(text, /isRunPendingPublish/);
+  assert.match(text, /运行已完成，尚未发布到今日 AI 精选/);
+  assert.match(text, /去审核发布/);
+  assert.match(text, /stock-selection-candidates/);
+});
