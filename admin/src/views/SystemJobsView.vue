@@ -1491,7 +1491,7 @@ function handleMarketBackfillDetailPageChange(nextPage) {
 
 function canRetryMarketBackfillRun(item) {
   const status = String(item?.status || "").trim().toUpperCase();
-  return status === "FAILED" || status === "PARTIAL_SUCCESS";
+  return status === "FAILED" || status === "PARTIAL_SUCCESS" || status === "CANCELLED";
 }
 
 function formatMarketBackfillSummary(summary) {

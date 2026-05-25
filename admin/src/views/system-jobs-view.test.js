@@ -30,3 +30,9 @@ test("SystemJobsView wires market sync cancel action for pending and running run
   assert.match(text, /row\.status === ['"]PENDING['"] \|\| row\.status === ['"]RUNNING['"]/);
   assert.match(text, /取消任务/);
 });
+
+test("SystemJobsView keeps cancelled sync tasks retryable", () => {
+  const text = readView();
+  assert.match(text, /function canRetryMarketBackfillRun/);
+  assert.match(text, /status === ["']CANCELLED["']/);
+});
