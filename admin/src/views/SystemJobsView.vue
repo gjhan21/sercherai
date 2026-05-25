@@ -305,8 +305,6 @@ const simulateStatusOptions = [
   { label: "模拟失败", value: "FAILED" }
 ];
 const quickJobOptions = [
-  { label: "股票全量同步", value: "stock_full_sync" },
-  { label: "当日股票数据同步", value: "stock_daily_incremental_sync" },
   { label: "量化流水线", value: "daily_stock_quant_pipeline" },
   { label: "每日股票推荐", value: "daily_stock_recommendation" },
   { label: "每日期货策略", value: "daily_futures_strategy" },
@@ -317,13 +315,11 @@ const quickJobOptions = [
 const quickStockSyncOptions = [
   {
     label: "股票全量同步",
-    jobName: "stock_full_sync",
     template: "STOCK_FULL",
     description: "刷新股票、指数、ETF、LOF、可转债主数据、行情、增强因子和 Truth"
   },
   {
     label: "当日股票数据同步",
-    jobName: "stock_daily_incremental_sync",
     template: "STOCK_INCREMENTAL",
     todayOnly: true,
     description: "同步当天股票行情、Daily Basic、Moneyflow 和 Truth"
@@ -360,8 +356,6 @@ const scheduleWeekDayValueSet = new Set(scheduleWeekDayOptions.map((item) => ite
 const jobLabelMap = {
   daily_stock_quant_pipeline: "每日股票量化流水线",
   daily_stock_recommendation: "每日股票推荐",
-  stock_full_sync: "股票全量同步",
-  stock_daily_incremental_sync: "当日股票数据同步",
   daily_futures_strategy: "每日期货策略",
   futures_strategy_generate: "期货策略生成",
   futures_strategy_evaluate: "期货策略评估",
@@ -1727,11 +1721,6 @@ async function submitTrigger() {
     return;
   }
   const jobName = triggerForm.job_name.trim();
-  const stockSyncTemplate = getStockSyncTemplateForJobName(jobName);
-  if (stockSyncTemplate) {
-    await handleQuickStockSync(stockSyncTemplate, { showTriggerLoading: true });
-    return;
-  }
   const newsSources = parseTextList(triggerForm.news_sources_text);
   const symbols = parseTextList(triggerForm.symbols_text).map((item) => item.toUpperCase());
   const syncTypes = Array.from(
@@ -2203,17 +2192,10 @@ function getLocalDateString(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-function getStockSyncTemplateForJobName(jobName) {
-  const normalized = String(jobName || "").trim();
-  const option = quickStockSyncOptions.find((item) => item.jobName === normalized);
-  return option?.template || "";
-}
-
-async function handleQuickStockSync(templateKey, options = {}) {
+async function handleQuickStockSync(templateKey) {
   if (!ensureCanEditSystemJobs()) {
     return;
   }
-  const { showTriggerLoading = false } = options;
   const option = quickStockSyncOptions.find((item) => item.template === templateKey);
   if (!option) {
     errorMessage.value = "未知的股票同步快捷操作";
@@ -2235,9 +2217,6 @@ async function handleQuickStockSync(templateKey, options = {}) {
     return;
   }
   quickStockSyncingMap.value[templateKey] = true;
-  if (showTriggerLoading) {
-    triggeringJob.value = true;
-  }
   errorMessage.value = "";
   message.value = "";
   try {
@@ -2257,9 +2236,6 @@ async function handleQuickStockSync(templateKey, options = {}) {
     errorMessage.value = normalizeErrorMessage(error, `${option.label}创建失败`);
   } finally {
     quickStockSyncingMap.value[templateKey] = false;
-    if (showTriggerLoading) {
-      triggeringJob.value = false;
-    }
   }
 }
 
