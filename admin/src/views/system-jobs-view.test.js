@@ -36,3 +36,14 @@ test("SystemJobsView keeps cancelled sync tasks retryable", () => {
   assert.match(text, /function canRetryMarketBackfillRun/);
   assert.match(text, /status === ["']CANCELLED["']/);
 });
+
+test("SystemJobsView exposes stock sync shortcuts in manual trigger tab", () => {
+  const text = readView();
+  assert.match(text, /股票全量同步/);
+  assert.match(text, /当日股票数据同步/);
+  assert.match(text, /template: ["']STOCK_FULL["']/);
+  assert.match(text, /template: ["']STOCK_INCREMENTAL["']/);
+  assert.match(text, /@click=["']handleQuickStockSync\(item\.template\)["']/);
+  assert.match(text, /buildSyncJobPayloadFromTemplate\(templateKey/);
+  assert.match(text, /createMarketDataBackfillRun\(payload\)/);
+});

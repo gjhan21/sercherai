@@ -66,6 +66,7 @@ const autoRetryLogLoading = ref(false);
 const savingAutoRetry = ref(false);
 const submittingDefinition = ref(false);
 const triggeringJob = ref(false);
+const quickStockSyncingMap = ref({});
 const copyingRunText = ref(false);
 const batchRetryingFailed = ref(false);
 const batchRetryConcurrency = ref(3);
@@ -310,6 +311,19 @@ const quickJobOptions = [
   { label: "期货策略生成(别名)", value: "futures_strategy_generate" },
   { label: "期货策略评估", value: "futures_strategy_evaluate" },
   { label: "Tushare资讯增量", value: "tushare_news_incremental" }
+];
+const quickStockSyncOptions = [
+  {
+    label: "股票全量同步",
+    template: "STOCK_FULL",
+    description: "刷新股票、指数、ETF、LOF、可转债主数据、行情、增强因子和 Truth"
+  },
+  {
+    label: "当日股票数据同步",
+    template: "STOCK_INCREMENTAL",
+    todayOnly: true,
+    description: "同步当天股票行情、Daily Basic、Moneyflow 和 Truth"
+  }
 ];
 const newsSyncTypeOptions = [
   { label: "新闻快讯", value: "NEWS_BRIEF" },
@@ -2170,6 +2184,60 @@ function applyQuickTriggerJob(jobName) {
   message.value = `已选择任务：${triggerForm.job_name}`;
 }
 
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+async function handleQuickStockSync(templateKey) {
+  if (!ensureCanEditSystemJobs()) {
+    return;
+  }
+  const option = quickStockSyncOptions.find((item) => item.template === templateKey);
+  if (!option) {
+    errorMessage.value = "未知的股票同步快捷操作";
+    return;
+  }
+  const today = getLocalDateString();
+  const overrides = {
+    source_key: "TUSHARE",
+    batch_size: 200
+  };
+  if (option.todayOnly) {
+    overrides.trade_date_from = today;
+    overrides.trade_date_to = today;
+  }
+  const payload = buildSyncJobPayloadFromTemplate(templateKey, overrides);
+  const validationMessage = validateMarketBackfillLongHistoryInput(payload);
+  if (validationMessage) {
+    errorMessage.value = validationMessage;
+    return;
+  }
+  quickStockSyncingMap.value[templateKey] = true;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    const result = await createMarketDataBackfillRun(payload);
+    message.value = `已创建${option.label}任务：${result.run_id || "-"}，状态=${formatMarketBackfillStatusLabel(result.status)}`;
+    activeTab.value = "market-data";
+    marketBackfillRunPage.value = 1;
+    await Promise.all([
+      fetchMarketBackfillWorkspace({ preserveFeedback: true }),
+      fetchMetrics(),
+      fetchRuns()
+    ]);
+    if (result?.run_id) {
+      await handleOpenMarketBackfillRun({ id: result.run_id });
+    }
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, `${option.label}创建失败`);
+  } finally {
+    quickStockSyncingMap.value[templateKey] = false;
+  }
+}
+
 function parseRunSummary(rawSummary) {
   const text = String(rawSummary || "").trim();
   const result = {};
@@ -3076,6 +3144,21 @@ onMounted(() => {
         >
           {{ item.label }}
         </el-button>
+      </div>
+      <div class="toolbar" style="margin-bottom: 8px">
+        <el-text type="info">快捷同步：</el-text>
+        <el-button
+          v-for="item in quickStockSyncOptions"
+          :key="item.template"
+          size="small"
+          type="primary"
+          plain
+          :loading="Boolean(quickStockSyncingMap[item.template])"
+          @click="handleQuickStockSync(item.template)"
+        >
+          {{ item.label }}
+        </el-button>
+        <el-text type="info" size="small">会创建正式同步任务，可在同步任务列表查看、取消和重试。</el-text>
       </div>
       <el-form label-width="125px">
         <div class="dialog-grid">
