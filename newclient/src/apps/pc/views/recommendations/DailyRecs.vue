@@ -231,12 +231,17 @@ function showDetail(stock) {
   chartSymbol.value = stock.symbol;
 }
 
+function getRecommendationTargetId(stock) {
+  return String(stock?.id || stock?.recommendation_id || stock?.reco_id || "").trim();
+}
+
 function goToStrategies(stock) {
   const target = stock?.symbol || chartSymbol.value || "";
+  const targetId = getRecommendationTargetId(stock);
   router.push({
     path: "/recommendations/strategies",
     query: target
-      ? { reco_id: stock?.id || "", symbol: target, name: stock?.name || chartStock.value?.name || "", from: "recommendations" }
+      ? { reco_id: targetId, symbol: target, name: stock?.name || chartStock.value?.name || "", from: "recommendations" }
       : { from: "recommendations" }
   });
 }
@@ -244,17 +249,18 @@ function goToStrategies(stock) {
 function goToForecastLab(stock) {
   const target = stock?.symbol || chartSymbol.value || "";
   const targetLabel = stock?.name || chartStock.value?.name || "";
+  const targetId = getRecommendationTargetId(stock);
   router.push({
     path: "/forecast-lab",
     query: buildForecastContextQuery(
       target
         ? {
             targetType: "STOCK",
-            targetId: stock?.id || "",
+            targetId: targetId,
             targetKey: target,
             targetLabel,
             source: "RECOMMENDATION",
-            sourceId: stock?.id || "",
+            sourceId: targetId,
             sourcePath: "/recommendations",
             from: "recommendations"
           }
@@ -274,7 +280,9 @@ async function loadDailyRecs() {
     const result = await listStockRecommendations({ trade_date: todayTradeDate.value, page: 1, page_size: 6 });
     if (result?.items?.length) {
       dailyRecs.value = result.items.map((item, i) => ({
-        id: item.id,
+        id: item.id || item.recommendation_id || item.reco_id || "",
+        recommendation_id: item.recommendation_id || item.id || "",
+        reco_id: item.reco_id || item.id || "",
         symbol: item.symbol,
         name: item.name,
         rank: i + 1,

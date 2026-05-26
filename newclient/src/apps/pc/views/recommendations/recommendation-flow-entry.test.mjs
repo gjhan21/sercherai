@@ -18,9 +18,11 @@ test("daily recommendations exposes workflow CTA toward strategies and forecast 
   assert.match(text, /查看对应策略/);
   assert.match(text, /进入深度推演/);
   assert.match(text, /buildForecastContextQuery/);
-  assert.match(text, /targetId:\s*stock\?\.id/);
-  assert.match(text, /reco_id:\s*stock\?\.id/);
+  assert.match(text, /getRecommendationTargetId/);
+  assert.match(text, /targetId:\s*targetId/);
+  assert.match(text, /reco_id:\s*targetId/);
   assert.match(text, /source:\s*"RECOMMENDATION"/);
+  assert.match(text, /sourceId:\s*targetId/);
   assert.match(text, /sourcePath:\s*"\/recommendations"/);
 });
 
