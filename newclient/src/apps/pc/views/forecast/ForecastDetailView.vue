@@ -312,7 +312,7 @@
         <div class="forecast-grid">
           <article v-for="item in alternativeScenarios" :key="`${item.name}-${item.thesis}`">
             <span>{{ item.name }}</span>
-            <strong>{{ item.probability }}</strong>
+            <strong v-if="item.probability">{{ item.probability }}</strong>
             <p class="forecast-summary">{{ item.thesis }}</p>
             <small class="forecast-meta">动作建议：{{ item.action }}</small>
           </article>
@@ -533,7 +533,7 @@ const primaryActionGuidance = computed(() => {
 const alternativeScenarios = computed(() =>
   (Array.isArray(report.value?.alternative_scenarios) ? report.value.alternative_scenarios : []).map((item) => ({
     name: localizeForecastScenarioName(item?.name),
-    probability: localizeForecastProbability(item?.probability),
+    probability: item?.probability > 0 ? localizeForecastProbability(item.probability) : "",
     thesis: localizeForecastText(item?.thesis) || "当前未补更多情景说明。",
     action: localizeForecastText(item?.action) || "延续主情景观察。"
   }))

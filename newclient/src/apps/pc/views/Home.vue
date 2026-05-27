@@ -32,22 +32,6 @@
       </div>
     </section>
 
-    <!-- Market Indices -->
-    <section class="section fade-in-up fade-in-up-delay-1">
-      <div class="section-header">
-        <div><h2 class="section-title">市场概览</h2><p class="section-subtitle">实时指数行情</p></div>
-        <div class="section-actions"><button class="btn-ghost" @click="refreshIndices">刷新</button></div>
-      </div>
-      <div class="indices-grid">
-        <div v-for="idx in indices" :key="idx.name" class="index-card glass">
-          <div class="index-top"><span class="index-name">{{ idx.name }}</span><span class="tag" :class="idx.change >= 0 ? 'tag-green' : 'tag-red'">{{ idx.change >= 0 ? '+' : '' }}{{ idx.change }}%</span></div>
-          <span class="index-price">{{ idx.price }}</span>
-          <div class="sparkline"><div v-for="(bar, i) in idx.sparkline" :key="i" class="sparkline-bar" :class="bar >= 0 ? 'up' : 'down'" :style="{ height: Math.abs(bar) * 2 + 4 + 'px' }"></div></div>
-          <p class="index-ai-note">AI: {{ idx.aiNote }}</p>
-        </div>
-      </div>
-    </section>
-
     <!-- Quick Links to Modules -->
     <div class="quick-modules fade-in-up fade-in-up-delay-2">
       <button class="quick-module glass card-hover" @click="$router.push('/recommendations')">
@@ -173,13 +157,6 @@ const lastUpdate = computed(() => {
   return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
 });
 
-const indices = ref([
-  { name: '上证指数', price: '3,286.54', change: 1.28, sparkline: [3,5,-1,2,6,-2,4,7,3,5,1,4], aiNote: '量能温和放大，短期偏多' },
-  { name: '深证成指', price: '10,842.63', change: 1.86, sparkline: [4,6,2,7,3,5,8,4,6,2,7,9], aiNote: '科技股带动，资金持续流入' },
-  { name: '创业板指', price: '2,168.74', change: 2.35, sparkline: [6,3,7,5,8,4,9,6,7,5,8,10], aiNote: '成长风格占优，关注量能' },
-  { name: '科创50', price: '956.82', change: -0.42, sparkline: [-2,-4,-1,3,-3,-5,-2,1,-3,-4,-2,0], aiNote: '短期承压，等待企稳信号' }
-]);
-
 const topPicks = ref([
   { rank: 1, symbol: '300750.SZ', name: '宁德时代', price: '198.62', change: 3.45, score: 92, reason: 'AI 检测到主力资金持续流入，技术形态突破', tags: ['VIP', '资金流入'] },
   { rank: 2, symbol: '600941.SH', name: '中国移动', price: '106.80', change: 1.82, score: 88, reason: '高股息防御属性，AI 模型评分持续走高', tags: ['高股息', '稳健'] },
@@ -206,14 +183,6 @@ const alerts = [
 
 const reports = NEWS_ARTICLES.filter(a => a.isFeatured).slice(0, 3);
 const hotPosts = [...POSTS].sort((a, b) => b.likes - a.likes).slice(0, 4);
-
-function refreshIndices() {
-  indices.value.forEach(idx => {
-    const num = parseFloat(idx.price.replace(/,/g, ''));
-    idx.price = (num + (Math.random() - 0.45) * 10).toFixed(2);
-    idx.change = parseFloat((Math.random() * 4 - 1).toFixed(2));
-  });
-}
 
 async function loadHomeData() {
   if (!isLoggedIn.value) return;
@@ -271,13 +240,6 @@ onMounted(loadHomeData);
 .qm-icon { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; }
 .qm-title { font-size: 15px; font-weight: 700; }
 .qm-desc { font-size: 12px; color: var(--text-secondary); }
-
-.indices-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; }
-.index-card { padding: 14px; border-radius: var(--radius-md); }
-.index-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.index-name { font-size: 12px; color: var(--text-secondary); }
-.index-price { font-size: 20px; font-weight: 700; display: block; margin-bottom: 6px; }
-.index-ai-note { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
 
 .picks-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
 .pick-card { padding: 14px; border-radius: var(--radius-md); cursor: pointer; position: relative; }
@@ -338,6 +300,6 @@ onMounted(loadHomeData);
 .vip-cta-content p { font-size: 13px; color: var(--text-secondary); }
 
 @media (max-width:1100px) { .picks-grid { grid-template-columns: repeat(2,1fr); } .quick-modules { grid-template-columns: repeat(2,1fr); } }
-@media (max-width:900px) { .indices-grid { grid-template-columns: repeat(2,1fr); } .home-grid-2col { grid-template-columns: 1fr; } .hero-stats { grid-template-columns: repeat(2,1fr); } }
-@media (max-width:600px) { .indices-grid, .picks-grid { grid-template-columns: 1fr; } .hero-stats { grid-template-columns: 1fr 1fr; } }
+@media (max-width:900px) { .home-grid-2col { grid-template-columns: 1fr; } .hero-stats { grid-template-columns: repeat(2,1fr); } }
+@media (max-width:600px) { .picks-grid { grid-template-columns: 1fr; } .hero-stats { grid-template-columns: 1fr 1fr; } }
 </style>

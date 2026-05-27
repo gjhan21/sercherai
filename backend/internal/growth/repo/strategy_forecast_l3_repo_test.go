@@ -84,6 +84,46 @@ func TestCreateStrategyForecastL3RunPersistsQueuedRecord(t *testing.T) {
 	}
 }
 
+func TestPersistMySQLStrategyForecastL3ExecutionRefreshesReportIdentityOnRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	repo := &MySQLGrowthRepo{db: db}
+	mock.ExpectExec(`(?s)INSERT INTO strategy_forecast_l3_reports.*ON DUPLICATE KEY UPDATE\s+id = VALUES\(id\),\s+created_at = VALUES\(created_at\),`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`(?s)UPDATE strategy_forecast_l3_runs`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	result := strategyForecastL3ExecutionResult{
+		Run: model.StrategyForecastL3Run{
+			ID:        "l3run_retry",
+			EngineKey: model.StrategyForecastL3EngineLocalSynthesis,
+			Status:    model.StrategyForecastL3StatusSucceeded,
+			ReportRef: &model.StrategyForecastL3ReportRef{
+				RunID:    "l3run_retry",
+				ReportID: "l3report_new",
+			},
+		},
+		Report: &model.StrategyForecastL3Report{
+			ID:        "l3report_new",
+			RunID:     "l3run_retry",
+			Version:   1,
+			CreatedAt: time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
+			UpdatedAt: time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
+		},
+	}
+
+	if err := repo.persistMySQLStrategyForecastL3Execution(result, "system"); err != nil {
+		t.Fatalf("persistMySQLStrategyForecastL3Execution() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
 func TestCreateStrategyForecastL3RunRejectsUserRequestWithoutTargetID(t *testing.T) {
 	repo := NewInMemoryGrowthRepo()
 

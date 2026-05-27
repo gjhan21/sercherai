@@ -44,6 +44,36 @@ func TestBuildStrategyForecastL3ResearchPackIncludesStockDomainEvidence(t *testi
 	}
 }
 
+func TestBuildStrategyForecastL3ResearchPackPrefersEvidenceOverInternalHandoffReason(t *testing.T) {
+	repo := NewInMemoryGrowthRepo()
+	run, err := repo.CreateStrategyForecastL3Run(model.StrategyForecastL3RunCreateInput{
+		TargetType:    model.StrategyForecastL3TargetTypeStock,
+		TargetID:      "sr_001",
+		TargetKey:     "600519.SH",
+		TargetLabel:   "贵州茅台",
+		TriggerType:   model.StrategyForecastL3TriggerTypeUserRequest,
+		RequestUserID: "user_001",
+		Source:        "RECOMMENDATION",
+		SourcePath:    "/recommendations/sr_001",
+		Reason:        "from strategies focused handoff",
+	})
+	if err != nil {
+		t.Fatalf("CreateStrategyForecastL3Run() error = %v", err)
+	}
+
+	pack, err := buildStrategyForecastL3ResearchPack(repo, run)
+	if err != nil {
+		t.Fatalf("buildStrategyForecastL3ResearchPack() error = %v", err)
+	}
+
+	if strings.Contains(strings.ToLower(pack.CoreThesis), "focused handoff") {
+		t.Fatalf("expected internal handoff reason to be excluded from core thesis, got %q", pack.CoreThesis)
+	}
+	if !strings.Contains(pack.CoreThesis, "基本面") {
+		t.Fatalf("expected evidence-backed thesis, got %q", pack.CoreThesis)
+	}
+}
+
 func TestBuildStrategyForecastL3ResearchPackIncludesFuturesDomainEvidence(t *testing.T) {
 	repo := NewInMemoryGrowthRepo()
 	run, err := repo.CreateStrategyForecastL3Run(model.StrategyForecastL3RunCreateInput{
@@ -100,6 +130,71 @@ func TestBuildStrategyForecastL3ResearchPackSkipsMisleadingZeroEvidenceWhenMetaM
 	joined := strings.Join(append(append([]string{}, evidence.Technical.SupportingPoints...), evidence.Valuation.SupportingPoints...), " | ")
 	if strings.Contains(joined, "0.00") {
 		t.Fatalf("expected no fabricated zero-valued evidence, got %q", joined)
+	}
+}
+
+func TestBuildStrategyForecastL3StockEvidenceSkipsQuantOnlyFundamentalClaim(t *testing.T) {
+	insight := model.StockRecommendationInsight{
+		Recommendation: model.StockRecommendation{
+			Name:          "测试股票",
+			ReasonSummary: "20日动量23.42%，量比4.56；主力净流入100.00，资金面偏强。",
+		},
+		Explanation: model.StrategyClientExplanation{
+			ConsensusSummary: "资金面偏强，趋势延续。",
+		},
+	}
+
+	evidence := buildStrategyForecastL3StockEvidence(insight)
+	if evidence.Fundamental.Summary != "" || len(evidence.Fundamental.SupportingPoints) != 0 {
+		t.Fatalf("expected technical/flow-only statement not to be labelled fundamental, got %+v", evidence.Fundamental)
+	}
+}
+
+func TestCompactStrategyForecastL3HighlightsRemovesDuplicatesAndBroadMarketNews(t *testing.T) {
+	got := compactStrategyForecastL3Highlights([]string{
+		"京东方A介绍：面板业务修复",
+		"京东方A介绍：面板业务修复与近期进展",
+		"45股特大单净流入超2亿元",
+		"今日这些个股异动 主力抛售电子、计算机板块",
+	})
+
+	if len(got) != 1 || got[0] != "京东方A介绍：面板业务修复" {
+		t.Fatalf("expected only concise symbol-specific highlight, got %+v", got)
+	}
+}
+
+func TestCompactStrategyForecastL3NarrativeClausesRemovesRepeatedRiskPoint(t *testing.T) {
+	got := compactStrategyForecastL3NarrativeClauses("风险级别 中风险；观察名单可作为下一轮事件驱动补位池。；按校准后置信度降低节奏执行；观察名单可作为下一轮事件驱动补位池。")
+	if strings.Count(got, "观察名单可作为下一轮事件驱动补位池") != 1 {
+		t.Fatalf("expected repeated risk clause to be removed, got %q", got)
+	}
+}
+
+func TestLocalSynthesisForecastL3AdapterDoesNotPresentQuantThesisAsIndustryEvidence(t *testing.T) {
+	roles := (localSynthesisForecastL3Adapter{}).RunDeepForecast(strategyForecastL3ResearchPack{
+		TargetType: model.StrategyForecastL3TargetTypeStock,
+		CoreThesis: "20日动量23.42%，量比4.56，资金面偏强。",
+	})
+
+	for _, role := range roles {
+		if role.Role != "INDUSTRY" {
+			continue
+		}
+		if role.Stance == "BULLISH" || strings.Contains(role.Summary, "动量") || strings.Contains(role.Summary, "资金面") {
+			t.Fatalf("expected industry role not to claim quantitative thesis as industry evidence, got %+v", role)
+		}
+		return
+	}
+	t.Fatal("expected industry role in local synthesis")
+}
+
+func TestParseStrategyForecastL3ValidationPayloadAcceptsFencedJSON(t *testing.T) {
+	got, err := parseStrategyForecastL3ValidationPayload("```json\n{\"verdict\":\"保持观察\",\"llm_summary\":\"证据仍需确认\"}\n```")
+	if err != nil {
+		t.Fatalf("parseStrategyForecastL3ValidationPayload() error = %v", err)
+	}
+	if got.Verdict != "保持观察" || got.LLMSummary != "证据仍需确认" {
+		t.Fatalf("expected fenced validation payload to parse, got %+v", got)
 	}
 }
 

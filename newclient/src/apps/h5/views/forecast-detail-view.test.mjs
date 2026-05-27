@@ -47,3 +47,8 @@ test("h5 forecast detail view stacks summary metrics vertically", () => {
   assert.match(text, /\.h5-summary-grid div \{\s*display: grid;/);
   assert.match(text, /\.h5-summary-grid strong \{\s*line-height: 1\.6;/);
 });
+
+test("h5 forecast detail view hides scenario probability when it is absent", () => {
+  const text = fs.readFileSync(filePath, "utf8");
+  assert.match(text, /v-if="item\.probability"/);
+});

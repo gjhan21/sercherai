@@ -962,6 +962,8 @@ INSERT INTO strategy_forecast_l3_reports (
 	summary_json, created_at, updated_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
+	id = VALUES(id),
+	created_at = VALUES(created_at),
 	headline_verdict = VALUES(headline_verdict),
 	executive_summary = VALUES(executive_summary),
 	primary_scenario = VALUES(primary_scenario),

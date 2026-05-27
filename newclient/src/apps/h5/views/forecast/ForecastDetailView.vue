@@ -260,7 +260,7 @@
         <div class="h5-log-list">
           <div v-for="item in alternativeScenarios" :key="`${item.name}-${item.thesis}`" class="h5-log-item">
             <strong>{{ item.name }}</strong>
-            <span>{{ item.probability }}</span>
+            <span v-if="item.probability">{{ item.probability }}</span>
             <p>{{ item.thesis }}</p>
             <small>动作建议：{{ item.action }}</small>
           </div>
@@ -482,7 +482,7 @@ const validationCounterText = computed(() => {
 const alternativeScenarios = computed(() =>
   (Array.isArray(report.value?.alternative_scenarios) ? report.value.alternative_scenarios : []).map((item) => ({
     name: localizeForecastScenarioName(item?.name),
-    probability: localizeForecastProbability(item?.probability),
+    probability: item?.probability > 0 ? localizeForecastProbability(item.probability) : "",
     thesis: localizeForecastText(item?.thesis) || "当前未补更多情景说明。",
     action: localizeForecastText(item?.action) || "延续主情景观察。"
   }))

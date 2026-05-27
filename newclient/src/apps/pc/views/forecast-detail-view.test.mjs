@@ -47,3 +47,8 @@ test("pc forecast detail view stacks long metric values vertically", () => {
   assert.match(text, /\.forecast-grid article \{\s*display: grid;/);
   assert.match(text, /\.forecast-grid strong \{\s*text-align: left;/);
 });
+
+test("pc forecast detail view hides scenario probability when it is absent", () => {
+  const text = fs.readFileSync(filePath, "utf8");
+  assert.match(text, /v-if="item\.probability"/);
+});

@@ -40,6 +40,17 @@ type strategyForecastL3ValidationResult struct {
 	LLMSummary          string
 }
 
+type strategyForecastL3ValidationPayload struct {
+	Verdict             string   `json:"verdict"`
+	ScenarioConsistency string   `json:"scenario_consistency"`
+	SupportingEvidence  []string `json:"supporting_evidence"`
+	CounterEvidence     []string `json:"counter_evidence"`
+	BlindSpots          []string `json:"blind_spots"`
+	RiskReview          []string `json:"risk_review"`
+	ActionReview        []string `json:"action_review"`
+	LLMSummary          string   `json:"llm_summary"`
+}
+
 type localSynthesisForecastL3Adapter struct{}
 
 func (a localSynthesisForecastL3Adapter) RunDeepForecast(pack strategyForecastL3ResearchPack) []strategyForecastL3RoleResult {
@@ -61,8 +72,15 @@ func (a localSynthesisForecastL3Adapter) RunDeepForecast(pack strategyForecastL3
 			{Role: "RISK", Stance: "CAUTION", Confidence: 0.75, Summary: firstNonEmpty(pack.RiskBoundary, "存在极端行情下的脆弱性，必须严设防守底线。"), Veto: pack.L2Vetoed},
 		}
 	}
+	industrySummary := strings.TrimSpace(pack.StockEvidence.Fundamental.Summary)
+	industryStance := "WATCH"
+	industryConfidence := 0.0
+	if industrySummary != "" {
+		industryStance = "CONSTRUCTIVE"
+		industryConfidence = 0.65
+	}
 	return []strategyForecastL3RoleResult{
-		{Role: "INDUSTRY", Stance: "BULLISH", Confidence: 0.85, Summary: firstNonEmpty(pack.CoreThesis, "行业景气度及竞争格局趋势良好，中长线逻辑依然成立。")},
+		{Role: "INDUSTRY", Stance: industryStance, Confidence: industryConfidence, Summary: firstNonEmpty(industrySummary, "当前上下文未提供可独立验证的基本面证据。")},
 		{Role: "FLOW", Stance: "CONSTRUCTIVE", Confidence: 0.72, Summary: firstNonEmpty(highlightsStr, "量价与北向/机构筹码维持偏强震荡，未见合力抛压。")},
 		{Role: "EVENT", Stance: "WATCH", Confidence: 0.68, Summary: firstNonEmpty(notesStr, "公司即将落地的催化节点存在一定博弈，需保持跟踪。")},
 		{Role: "MACRO", Stance: "NEUTRAL", Confidence: 0.65, Summary: firstNonEmpty(pack.EvaluationSummary, "系统大盘风险偏好适中，未对板块形成明显的溢价拖累。")},
@@ -208,18 +226,8 @@ func runStrategyForecastL3Validation(
 		return base
 	}
 
-	type llmValidationPayload struct {
-		Verdict             string   `json:"verdict"`
-		ScenarioConsistency string   `json:"scenario_consistency"`
-		SupportingEvidence  []string `json:"supporting_evidence"`
-		CounterEvidence     []string `json:"counter_evidence"`
-		BlindSpots          []string `json:"blind_spots"`
-		RiskReview          []string `json:"risk_review"`
-		ActionReview        []string `json:"action_review"`
-		LLMSummary          string   `json:"llm_summary"`
-	}
-	var parsed llmValidationPayload
-	if err := json.Unmarshal([]byte(strings.TrimSpace(content)), &parsed); err != nil {
+	parsed, err := parseStrategyForecastL3ValidationPayload(content)
+	if err != nil {
 		base.Status = model.StrategyForecastL3ValidationStatusDegraded
 		base.Verdict = "模型复核输出格式异常，已回退为结构化本地复核。"
 		base.LLMSummary = "模型复核返回不可解析内容，主报告仍可正常使用。"
@@ -237,6 +245,20 @@ func runStrategyForecastL3Validation(
 		ActionReview:        uniqueForecastL3Strings(firstNonEmptyStrings(parsed.ActionReview, base.ActionReview)),
 		LLMSummary:          firstNonEmpty(parsed.LLMSummary, base.LLMSummary),
 	}
+}
+
+func parseStrategyForecastL3ValidationPayload(content string) (strategyForecastL3ValidationPayload, error) {
+	normalized := strings.TrimSpace(content)
+	if strings.HasPrefix(normalized, "```") {
+		normalized = strings.TrimPrefix(normalized, "```json")
+		normalized = strings.TrimPrefix(normalized, "```JSON")
+		normalized = strings.TrimPrefix(normalized, "```")
+		normalized = strings.TrimSuffix(strings.TrimSpace(normalized), "```")
+		normalized = strings.TrimSpace(normalized)
+	}
+	var parsed strategyForecastL3ValidationPayload
+	err := json.Unmarshal([]byte(normalized), &parsed)
+	return parsed, err
 }
 
 func shouldAttemptForecastL3LLMValidation(run model.StrategyForecastL3Run) bool {
@@ -279,7 +301,7 @@ func buildStrategyForecastL3ResearchPack(
 		TargetType:  run.TargetType,
 		TargetKey:   run.TargetKey,
 		TargetLabel: firstNonEmpty(run.TargetLabel, run.TargetKey),
-		CoreThesis:  strings.TrimSpace(run.Reason),
+		CoreThesis:  strategyForecastL3ThesisSeed(run.Reason),
 	}
 
 	switch strings.ToUpper(strings.TrimSpace(run.TargetType)) {
@@ -347,27 +369,91 @@ func buildStrategyForecastL3ResearchPack(
 		}
 	}
 
-	pack.RelatedHighlights = uniqueForecastL3Strings(pack.RelatedHighlights)
+	pack.RelatedHighlights = compactStrategyForecastL3Highlights(pack.RelatedHighlights)
 	pack.HistoricalNotes = uniqueForecastL3Strings(pack.HistoricalNotes)
 	pack.ActionHints = uniqueForecastL3Strings(pack.ActionHints)
 	pack.Invalidations = uniqueForecastL3Strings(pack.Invalidations)
+	pack.RiskBoundary = compactStrategyForecastL3NarrativeClauses(pack.RiskBoundary)
 	if strings.TrimSpace(pack.CoreThesis) == "" && len(pack.RelatedHighlights) == 0 && len(pack.HistoricalNotes) == 0 {
 		return strategyForecastL3ResearchPack{}, fmt.Errorf("no usable forecast l3 context for %s", run.TargetKey)
 	}
 	return pack, nil
 }
 
+func strategyForecastL3ThesisSeed(reason string) string {
+	trimmed := strings.TrimSpace(reason)
+	normalized := strings.ToLower(trimmed)
+	if strings.HasPrefix(normalized, "from ") && strings.Contains(normalized, " focused handoff") {
+		return ""
+	}
+	return trimmed
+}
+
+func compactStrategyForecastL3Highlights(items []string) []string {
+	result := make([]string, 0, len(items))
+	for _, item := range uniqueForecastL3Strings(items) {
+		if isBroadStrategyForecastL3MarketNews(item) {
+			continue
+		}
+		duplicate := false
+		for _, kept := range result {
+			if strings.Contains(item, kept) || strings.Contains(kept, item) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func isBroadStrategyForecastL3MarketNews(text string) bool {
+	for _, marker := range []string{"股特大单净流入", "今日这些个股异动", "主力抛售电子、计算机板块"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func compactStrategyForecastL3NarrativeClauses(text string) string {
+	parts := strings.FieldsFunc(strings.TrimSpace(text), func(r rune) bool {
+		return r == ';' || r == '；'
+	})
+	result := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		key := strings.TrimRight(trimmed, "。.!！?？")
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return strings.Join(result, "；")
+}
+
 func buildStrategyForecastL3StockEvidence(insight model.StockRecommendationInsight) model.StrategyForecastL3StockEvidence {
 	quote, hasQuote := firstStockQuantScore(insight.Explanation)
+	fundamentalSummary := strategyForecastL3FundamentalNarrative(firstNonEmpty(insight.Recommendation.ReasonSummary, insight.Explanation.ConsensusSummary))
+	fundamentalReason := strategyForecastL3FundamentalNarrative(firstNonEmpty(insight.Explanation.ConfidenceReason, insight.Explanation.SeedSummary))
 	fundamentalPoints := uniqueForecastL3Strings(nonEmptyStrings(
-		firstNonEmpty(insight.Recommendation.ReasonSummary, insight.Explanation.ConsensusSummary),
-		firstNonEmpty(insight.Explanation.ConfidenceReason, insight.Explanation.SeedSummary),
-		stockPerformanceSummaryText(insight.PerformanceStats),
+		fundamentalSummary,
+		fundamentalReason,
 	))
-	fundamentalRisks := uniqueForecastL3Strings(nonEmptyStrings(
-		insight.Detail.RiskNote,
-		insight.Explanation.RiskBoundary,
-	))
+	var fundamentalRisks []string
+	if fundamentalSummary != "" || fundamentalReason != "" {
+		fundamentalRisks = uniqueForecastL3Strings(nonEmptyStrings(
+			insight.Detail.RiskNote,
+			insight.Explanation.RiskBoundary,
+		))
+	}
 
 	technicalPoints := make([]string, 0, 3)
 	if hasQuote && (quote.Momentum20 != 0 || quote.TrendStrength != 0) {
@@ -419,14 +505,14 @@ func buildStrategyForecastL3StockEvidence(insight model.StockRecommendationInsig
 	for _, item := range insight.RelatedNews {
 		eventPoints = append(eventPoints, firstNonEmpty(item.Title, item.Summary))
 	}
-	eventPoints = uniqueForecastL3Strings(eventPoints)
+	eventPoints = compactStrategyForecastL3Highlights(eventPoints)
 	eventRisks := uniqueForecastL3Strings(nonEmptyStrings(
 		eventRiskFromQuote(quote, hasQuote),
 	))
 
 	return model.StrategyForecastL3StockEvidence{
 		Fundamental: model.StrategyForecastL3EvidenceSlice{
-			Summary:          firstNonEmpty(insight.Recommendation.ReasonSummary, insight.Explanation.ConsensusSummary),
+			Summary:          fundamentalSummary,
 			SupportingPoints: fundamentalPoints,
 			RiskPoints:       fundamentalRisks,
 		},
@@ -451,6 +537,16 @@ func buildStrategyForecastL3StockEvidence(insight model.StockRecommendationInsig
 			RiskPoints:       eventRisks,
 		},
 	}
+}
+
+func strategyForecastL3FundamentalNarrative(text string) string {
+	trimmed := strings.TrimSpace(text)
+	for _, marker := range []string{"基本面", "业绩", "盈利", "营收", "利润", "估值", "现金流", "订单", "产能", "景气", "竞争格局"} {
+		if strings.Contains(trimmed, marker) {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func buildStrategyForecastL3FuturesEvidence(insight model.FuturesStrategyInsight) model.StrategyForecastL3FuturesEvidence {

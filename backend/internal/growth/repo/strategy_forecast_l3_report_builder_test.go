@@ -124,6 +124,73 @@ func TestBuildForecastL3ReportBuildsStockDimensionEvidenceFromDomainEvidence(t *
 	}
 }
 
+func TestBuildForecastL3ReportKeepsDegradedValidationOutOfHeadline(t *testing.T) {
+	report := buildStrategyForecastL3Report(
+		model.StrategyForecastL3Run{
+			ID:          "l3run_degraded_validation",
+			TargetType:  model.StrategyForecastL3TargetTypeStock,
+			TargetKey:   "000725.SZ",
+			TargetLabel: "京东方A",
+			EngineKey:   model.StrategyForecastL3EngineLocalSynthesis,
+		},
+		strategyForecastL3ResearchPack{
+			TargetType:  model.StrategyForecastL3TargetTypeStock,
+			TargetKey:   "000725.SZ",
+			TargetLabel: "京东方A",
+			CoreThesis:  "面板价格修复与资金回流仍需继续确认。",
+		},
+		nil,
+		strategyForecastL3ValidationResult{
+			Status:     model.StrategyForecastL3ValidationStatusDegraded,
+			Verdict:    "模型复核输出格式异常，已回退为结构化本地复核。",
+			LLMSummary: "模型复核返回不可解析内容，主报告仍可正常使用。",
+		},
+		time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC),
+	)
+
+	if strings.Contains(report.HeadlineVerdict, "格式异常") || strings.Contains(report.HeadlineVerdict, "模型复核") {
+		t.Fatalf("expected degraded validation to stay out of headline, got %q", report.HeadlineVerdict)
+	}
+	if !strings.Contains(report.HeadlineVerdict, "面板价格修复") {
+		t.Fatalf("expected headline to use core thesis, got %q", report.HeadlineVerdict)
+	}
+}
+
+func TestBuildForecastL3ReportDoesNotPublishSyntheticPrecision(t *testing.T) {
+	report := buildStrategyForecastL3Report(
+		model.StrategyForecastL3Run{
+			ID:          "l3run_local_synthesis",
+			TargetType:  model.StrategyForecastL3TargetTypeStock,
+			TargetKey:   "000725.SZ",
+			TargetLabel: "京东方A",
+			EngineKey:   model.StrategyForecastL3EngineLocalSynthesis,
+		},
+		strategyForecastL3ResearchPack{
+			TargetType:  model.StrategyForecastL3TargetTypeStock,
+			TargetKey:   "000725.SZ",
+			TargetLabel: "京东方A",
+			CoreThesis:  "等待更多结构化证据确认。",
+		},
+		[]strategyForecastL3RoleResult{
+			{Role: "FLOW", Stance: "WATCH", Confidence: 0.72, Summary: "资金方向仍待确认。"},
+		},
+		strategyForecastL3ValidationResult{Status: model.StrategyForecastL3ValidationStatusDegraded},
+		time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC),
+	)
+
+	if report.Summary.ConfidenceLabel != "" {
+		t.Fatalf("expected no computed confidence label for local synthesis, got %q", report.Summary.ConfidenceLabel)
+	}
+	for _, item := range report.AlternativeScenarios {
+		if item.Probability != 0 {
+			t.Fatalf("expected scenario probability to be omitted without model calculation, got %+v", report.AlternativeScenarios)
+		}
+	}
+	if strings.Contains(report.MarkdownBody, "发生概率") || strings.Contains(report.HTMLBody, "发生概率") {
+		t.Fatalf("expected generated bodies not to present synthetic probability, got %q", report.MarkdownBody)
+	}
+}
+
 func TestBuildForecastL3ValidationPromptIncludesDomainEvidence(t *testing.T) {
 	prompt := buildStrategyForecastL3ValidationPrompt(
 		model.StrategyForecastL3Run{

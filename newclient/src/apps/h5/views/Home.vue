@@ -15,16 +15,6 @@
     </section>
 
     <section class="h5-section">
-      <div class="h5-section-header"><h2 class="h5-section-title">主要指数</h2></div>
-      <div class="h5-indices">
-        <div v-for="idx in indices" :key="idx.name" class="h5-index-card">
-          <div class="h5-index-top"><span class="h5-index-name">{{ idx.name }}</span><span class="h5-index-change" :class="idx.change >= 0 ? 'up' : 'down'">{{ idx.change >= 0 ? '+' : '' }}{{ idx.change }}%</span></div>
-          <span class="h5-index-price">{{ idx.price }}</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="h5-section">
       <div class="h5-section-header"><h2 class="h5-section-title">快捷入口</h2></div>
       <div class="h5-shortcuts">
         <button class="h5-shortcut-card" @click="$router.push('/forecast-lab')">
@@ -93,12 +83,6 @@ const topPicks = ref([
   { rank: 5, symbol: "002594.SZ", name: "比亚迪", price: "268.45", change: 2.18, score: 80 }
 ]);
 
-const indices = ref([
-  { name: "上证指数", price: "3,286.54", change: 1.28 },
-  { name: "深证成指", price: "10,842.63", change: 1.86 },
-  { name: "创业板指", price: "2,168.74", change: 2.35 }
-]);
-
 const alerts = ref([
   { type: "warning", title: "宁德时代大单异动", desc: "盘中出现 5000 万级大单买入" },
   { type: "info", title: "半导体板块资金持续流入", desc: "连续 3 日主力资金净流入" },
@@ -157,14 +141,6 @@ onMounted(loadPicks);
 .h5-shortcut-copy { display: grid; gap: 3px; }
 .h5-shortcut-copy strong { font-size: 14px; font-weight: 700; }
 .h5-shortcut-copy span { font-size: 12px; color: var(--text-secondary); }
-.h5-indices { display: grid; gap: 8px; }
-.h5-index-card { padding: 12px; border-radius: var(--radius-sm); background: rgba(255,255,255,.02); border: 1px solid var(--border); }
-.h5-index-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-.h5-index-name { font-size: 13px; color: var(--text-secondary); }
-.h5-index-change { font-size: 13px; font-weight: 600; }
-.h5-index-change.up { color: var(--positive); }
-.h5-index-change.down { color: var(--negative); }
-.h5-index-price { font-size: 20px; font-weight: 700; }
 .h5-picks-scroll { display: grid; gap: 8px; }
 .h5-pick-card { display: grid; grid-template-columns: 28px 1fr auto auto; gap: 10px; align-items: center; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); cursor: pointer; }
 .h5-pick-card:active { background: rgba(255,255,255,.03); }

@@ -55,7 +55,7 @@ func buildStrategyForecastL3Report(
 	dimensionEvidence := buildStrategyForecastL3DimensionEvidence(run.TargetType, roles, pack)
 	scenarioAssessment := buildStrategyForecastL3ScenarioAssessmentFromPack(run, pack, primaryScenario, alternativeScenarios, triggerChecklist, invalidationSignals, actionGuidance)
 	validationReview := buildStrategyForecastL3ValidationReview(validation)
-	headlineVerdict := buildStrategyForecastL3HeadlineVerdict(targetLabel, primaryScenario, validationReview)
+	headlineVerdict := buildStrategyForecastL3HeadlineVerdict(targetLabel, primaryScenario, pack, validationReview)
 
 	report := model.StrategyForecastL3Report{
 		ID:                   reportID,
@@ -90,7 +90,7 @@ func buildStrategyForecastL3Report(
 		ExecutiveSummary: executiveSummary,
 		PrimaryScenario:  primaryScenario,
 		ActionGuidance:   firstString(actionGuidance),
-		ConfidenceLabel:  buildStrategyForecastL3ConfidenceLabel(roles),
+		ConfidenceLabel:  buildStrategyForecastL3ConfidenceLabel(run, validationReview, roles),
 		PriorityScore:    run.PriorityScore,
 		GeneratedAt:      now.UTC().Format(time.RFC3339),
 		ReportAvailable:  true,
@@ -100,13 +100,15 @@ func buildStrategyForecastL3Report(
 	return report
 }
 
-func buildStrategyForecastL3HeadlineVerdict(targetLabel string, primaryScenario string, validation *model.StrategyForecastL3ValidationReview) string {
+func buildStrategyForecastL3HeadlineVerdict(targetLabel string, primaryScenario string, pack strategyForecastL3ResearchPack, validation *model.StrategyForecastL3ValidationReview) string {
 	label := firstNonEmpty(targetLabel, "当前标的")
-	scenarioText := primaryScenario
-	if validation != nil && strings.TrimSpace(validation.Verdict) != "" {
+	if validation != nil && validation.Status == model.StrategyForecastL3ValidationStatusCompleted && strings.TrimSpace(validation.Verdict) != "" {
 		return fmt.Sprintf("%s：%s", label, strings.TrimSpace(validation.Verdict))
 	}
-	return fmt.Sprintf("%s 当前更偏向 %s 情景。", label, scenarioText)
+	if thesis := strings.TrimSpace(pack.CoreThesis); thesis != "" {
+		return fmt.Sprintf("%s：%s", label, thesis)
+	}
+	return fmt.Sprintf("%s 当前更偏向 %s 情景。", label, primaryScenario)
 }
 
 func buildStrategyForecastL3StateAssessment(
@@ -562,15 +564,15 @@ func buildStrategyForecastL3RoleDisagreements(roles []strategyForecastL3RoleResu
 func buildStrategyForecastL3AlternativeScenarios(targetType string, pack strategyForecastL3ResearchPack) []model.StrategyForecastL3Scenario {
 	if strings.EqualFold(targetType, model.StrategyForecastL3TargetTypeFutures) {
 		return []model.StrategyForecastL3Scenario{
-			{Name: "trend_continue", Probability: 0.34, Thesis: pack.CoreThesis, Action: "控制风险的前提下顺势跟踪。"},
-			{Name: "base", Probability: 0.46, Thesis: "等待价差、库存与资金流三条线进一步确认。", Action: "先观察，再确认。"},
-			{Name: "reversal", Probability: 0.20, Thesis: "主证据链一旦失效，价格可能快速反转。", Action: "快速降低仓位暴露。"},
+			{Name: "trend_continue", Thesis: pack.CoreThesis, Action: "控制风险的前提下顺势跟踪。"},
+			{Name: "base", Thesis: "等待价差、库存与资金流三条线进一步确认。", Action: "先观察，再确认。"},
+			{Name: "reversal", Thesis: "主证据链一旦失效，价格可能快速反转。", Action: "快速降低仓位暴露。"},
 		}
 	}
 	return []model.StrategyForecastL3Scenario{
-		{Name: "bull", Probability: 0.32, Thesis: pack.CoreThesis, Action: "仅在确认信号出现后再加仓。"},
-		{Name: "base", Probability: 0.48, Thesis: "核心逻辑仍需等待资金面与事件面的进一步确认。", Action: "先持有，并持续验证主逻辑。"},
-		{Name: "bear", Probability: 0.20, Thesis: "一旦风险边界被击穿，当前交易设定即告失效。", Action: "降低仓位，并重新评估交易设定。"},
+		{Name: "bull", Thesis: pack.CoreThesis, Action: "仅在确认信号出现后再加仓。"},
+		{Name: "base", Thesis: "核心逻辑仍需等待资金面与事件面的进一步确认。", Action: "先持有，并持续验证主逻辑。"},
+		{Name: "bear", Thesis: "一旦风险边界被击穿，当前交易设定即告失效。", Action: "降低仓位，并重新评估交易设定。"},
 	}
 }
 
@@ -585,7 +587,11 @@ func buildStrategyForecastL3InvalidationSignals(pack strategyForecastL3ResearchP
 	return signals
 }
 
-func buildStrategyForecastL3ConfidenceLabel(roles []strategyForecastL3RoleResult) string {
+func buildStrategyForecastL3ConfidenceLabel(run model.StrategyForecastL3Run, validation *model.StrategyForecastL3ValidationReview, roles []strategyForecastL3RoleResult) string {
+	if strings.EqualFold(firstNonEmpty(run.EngineKey, model.StrategyForecastL3EngineLocalSynthesis), model.StrategyForecastL3EngineLocalSynthesis) ||
+		validation == nil || validation.Status != model.StrategyForecastL3ValidationStatusCompleted {
+		return ""
+	}
 	if len(roles) == 0 {
 		return "LOW"
 	}
@@ -628,8 +634,11 @@ func buildStrategyForecastL3Markdown(
 	if len(report.AlternativeScenarios) > 0 {
 		lines = append(lines, "", "## 后续发展预测")
 		for _, alt := range report.AlternativeScenarios {
-			prob := fmt.Sprintf("%.0f%%", alt.Probability*100)
-			lines = append(lines, fmt.Sprintf("- **%s (发生概率: %s)**: %s", alt.Name, prob, alt.Thesis))
+			label := alt.Name
+			if alt.Probability > 0 {
+				label = fmt.Sprintf("%s (发生概率: %.0f%%)", label, alt.Probability*100)
+			}
+			lines = append(lines, fmt.Sprintf("- **%s**: %s", label, alt.Thesis))
 			lines = append(lines, fmt.Sprintf("  - *操作指引*: %s", alt.Action))
 		}
 	}
@@ -680,8 +689,11 @@ func buildStrategyForecastL3HTML(
 	if len(report.AlternativeScenarios) > 0 {
 		builder.WriteString("<h2>后续发展预测</h2><ul>")
 		for _, alt := range report.AlternativeScenarios {
-			prob := fmt.Sprintf("%.0f%%", alt.Probability*100)
-			builder.WriteString("<li><strong>" + htmlEscape(alt.Name) + " (发生概率: " + prob + ")</strong>: " + htmlEscape(alt.Thesis) + "<br/><em>操作指引:</em> " + htmlEscape(alt.Action) + "</li>")
+			label := alt.Name
+			if alt.Probability > 0 {
+				label = fmt.Sprintf("%s (发生概率: %.0f%%)", label, alt.Probability*100)
+			}
+			builder.WriteString("<li><strong>" + htmlEscape(label) + "</strong>: " + htmlEscape(alt.Thesis) + "<br/><em>操作指引:</em> " + htmlEscape(alt.Action) + "</li>")
 		}
 		builder.WriteString("</ul>")
 	}
