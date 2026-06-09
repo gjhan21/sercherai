@@ -3,12 +3,14 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/csv"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"strconv"
@@ -2453,4 +2455,110 @@ func newID(prefix string) string {
 func sha256Hex(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
+}
+
+func generateRandomCode() string {
+	n, _ := rand.Int(rand.Reader, big.NewInt(1000000))
+	return fmt.Sprintf("%06d", n.Int64())
+}
+
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required,email"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+
+	exists, err := h.emailExists(email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	if !exists {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "email not found", Data: struct{}{}})
+		return
+	}
+
+	code := generateRandomCode()
+	expiredAt := time.Now().Add(10 * time.Minute)
+	id := newID("prc")
+
+	_, err = h.db.Exec(
+		"INSERT INTO password_reset_codes (id, email, code, status, expired_at, created_at) VALUES (?, ?, ?, 'UNUSED', ?, ?)",
+		id, email, code, expiredAt, time.Now(),
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.APIResponse{
+		Code:    0,
+		Message: "success",
+		Data: gin.H{
+			"email": email,
+			"code":  code,
+		},
+	})
+}
+
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req struct {
+		Email       string `json:"email" binding:"required,email"`
+		Code        string `json:"code" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required,min=8"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	code := strings.TrimSpace(req.Code)
+
+	// Validate Code
+	var codeID string
+	var expiredAt time.Time
+	err := h.db.QueryRow(
+		"SELECT id, expired_at FROM password_reset_codes WHERE email = ? AND code = ? AND status = 'UNUSED' LIMIT 1",
+		email, code,
+	).Scan(&codeID, &expiredAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: "invalid verification code", Data: struct{}{}})
+		return
+	}
+
+	if time.Now().After(expiredAt) {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40003, Message: "verification code expired", Data: struct{}{}})
+		return
+	}
+
+	// Mark code as USED
+	_, err = h.db.Exec("UPDATE password_reset_codes SET status = 'USED' WHERE id = ?", codeID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	// Hash password
+	passwordHash, err := bcryptHash(req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	// Update password
+	_, err = h.db.Exec("UPDATE users SET password_hash = ?, updated_at = ? WHERE email = ?", passwordHash, time.Now(), email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	c.JSON(http.StatusOK, dto.APIResponse{
+		Code:    0,
+		Message: "密码重置成功",
+		Data:    struct{}{},
+	})
 }
