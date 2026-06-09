@@ -88,3 +88,11 @@ export function listFuturesReviews(params) {
 export function getFuturesStrategyDetail(id) {
   return http.get(`/futures/strategies/${encodeURIComponent(id)}`);
 }
+
+export function getStockSimulatedOverview() {
+  return http.get("/stocks/simulated/overview");
+}
+
+export function listStockSimulatedPositions(params) {
+  return http.get("/stocks/simulated/positions", { params: buildParams(params) });
+}

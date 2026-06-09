@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
@@ -1026,6 +1027,43 @@ func (h *UserGrowthHandler) ListStockRecommendationHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "summary": summary, "page": page, "page_size": pageSize, "total": total}))
 }
 
+func (h *UserGrowthHandler) GetStockSimulatedOverview(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	_, ok = h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	data, err := h.service.AdminGetStockSimulatedOverview()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(data))
+}
+
+func (h *UserGrowthHandler) ListStockSimulatedPositions(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	_, ok = h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	page, pageSize := parsePage(c)
+	status := c.Query("status")
+	symbol := c.Query("symbol")
+	items, total, err := h.service.AdminListStockSimulatedPositions(status, symbol, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
 func (h *UserGrowthHandler) GetStockRecommendationDetail(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
@@ -1615,7 +1653,8 @@ func (h *UserGrowthHandler) GetStockKline(c *gin.Context) {
 					if i >= 19 {
 						s := 0.0
 						for j := i - 19; j <= i; j++ { s += pts[j].Close }
-				}
+						pts[i].Ma20 = float64(int(s/20*100+0.5)) / 100
+					}
 			}
 			c.JSON(http.StatusOK, dto.OK(gin.H{"symbol": symbol, "days": len(pts), "points": pts}))
 			return
@@ -1807,15 +1846,21 @@ func (h *UserGrowthHandler) PatternMatch(c *gin.Context) {
 
 	var candidates []candidate
 	for _, cs := range candidateStocks {
-		r, e := db.Query("SELECT close_price FROM market_daily_bars WHERE asset_class='STOCK' AND instrument_key=? AND source_key='TUSHARE' ORDER BY trade_date ASC", cs)
+		r, e := db.Query("SELECT close_price, trade_date FROM market_daily_bars WHERE asset_class='STOCK' AND instrument_key=? AND source_key='TUSHARE' ORDER BY trade_date ASC", cs)
 		if e != nil {
 			continue
 		}
 		var sp []float64
+		var sd []string
 		for r.Next() {
 			var p float64
-			r.Scan(&p)
-			sp = append(sp, p)
+			var t time.Time
+			if err := r.Scan(&p, &t); err == nil {
+				sp = append(sp, p)
+				sd = append(sd, t.Format("2006-01-02"))
+			} else {
+				fmt.Printf("[DEBUG] cs=%s Scan error: %v\n", cs, err)
+			}
 		}
 		r.Close()
 		if len(sp) < lookback+1 {
@@ -1833,12 +1878,20 @@ func (h *UserGrowthHandler) PatternMatch(c *gin.Context) {
 				n2 += nv * nv
 			}
 			sim := dot / (sqrt(n1*n2) + 1e-10)
-			if sim > 0.85 && len(candidates) < 50 {
+			if sim > 0.85 {
 				next7 := make([]float64, 7)
 				for j := 0; j < 7 && i+lookback+j < len(sp); j++ {
 					next7[j] = (sp[i+lookback+j]/sp[i+lookback-1] - 1) * 100
 				}
-				candidates = append(candidates, candidate{stock: cs, date: "", similarity: sim, next: next7})
+				matchDate := ""
+				if i+lookback-1 < len(sd) {
+					matchDate = sd[i+lookback-1]
+				}
+				candidates = append(candidates, candidate{stock: cs, date: matchDate, similarity: sim, next: next7})
+				if len(candidates) > 100 {
+					sortCandidates(candidates)
+					candidates = candidates[:100]
+				}
 			}
 		}
 	}
@@ -1863,8 +1916,48 @@ func (h *UserGrowthHandler) PatternMatch(c *gin.Context) {
 		allNext7d = append(allNext7d, c.next)
 	}
 
-	// 5. Aggregate prediction (median + 25/75 percentiles)
-	pred := buildPrediction(allNext7d)
+	// 5. Fetch prediction from Python strategy-engine, fallback to local morph prediction if offline
+	strategyEngineURL := strings.TrimRight(h.cfg.StrategyEngineBaseURL, "/")
+	if strategyEngineURL == "" {
+		strategyEngineURL = "http://127.0.0.1:18081"
+	}
+
+	var pred *predictionOut
+	targetTradeDate := dates[len(dates)-1]
+	if len(targetTradeDate) > 10 {
+		targetTradeDate = targetTradeDate[:10]
+	}
+	reqURL := fmt.Sprintf("%s/internal/v1/predict/stock-7d?symbol=%s&trade_date=%s", strategyEngineURL, url.QueryEscape(symbol), url.QueryEscape(targetTradeDate))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err == nil {
+		resp, httpErr := http.DefaultClient.Do(httpReq)
+		if httpErr == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				var pyPred predictionOut
+				if decErr := json.NewDecoder(resp.Body).Decode(&pyPred); decErr == nil {
+					pred = &pyPred
+				} else {
+					fmt.Printf("[DEBUG] Failed to decode python prediction response: %v\n", decErr)
+				}
+			} else {
+				fmt.Printf("[DEBUG] Python prediction returned status: %d\n", resp.StatusCode)
+			}
+		} else {
+			fmt.Printf("[DEBUG] Failed to send request to python prediction engine: %v\n", httpErr)
+		}
+	} else {
+		fmt.Printf("[DEBUG] Failed to build request to python prediction engine: %v\n", err)
+	}
+
+	if pred == nil {
+		// fallback to local morphological aggregation
+		pred = buildPrediction(allNext7d)
+	}
 
 	c.JSON(http.StatusOK, dto.OK(gin.H{
 		"symbol":     symbol,

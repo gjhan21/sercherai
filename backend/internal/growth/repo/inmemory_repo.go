@@ -1332,6 +1332,51 @@ func (r *InMemoryGrowthRepo) AdminUpdateStockRecommendationAIReview(id string, a
 	return nil
 }
 
+func (r *InMemoryGrowthRepo) AdminListStockSimulatedPositions(status string, symbol string, page int, pageSize int) ([]model.StockSimulatedPosition, int, error) {
+	items := []model.StockSimulatedPosition{
+		{
+			ID:              "sp_demo_001",
+			RecoID:          "sr_001",
+			Symbol:          "600519.SH",
+			Name:            "贵州茅台",
+			Status:          "HOLDING",
+			OpenDate:        "2026-06-01",
+			OpenPrice:       1700.0,
+			CurrentPrice:    1785.0,
+			TakeProfitPrice: 1850.0,
+			StopLossPrice:   1620.0,
+			Quantity:        1000.0,
+			CostBasis:       1700000.0,
+			ReturnRate:      0.05,
+			MaxDrawdown:     0.0,
+			HoldDays:        8,
+			CreatedAt:       "2026-06-01T09:00:00Z",
+		},
+	}
+	return items, len(items), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetStockSimulatedOverview() (model.StockSimulatedOverview, error) {
+	return model.StockSimulatedOverview{
+		TotalTrades:    1,
+		ActiveHoldings: 1,
+		WinRate:        1.0,
+		AverageReturn:  0.05,
+		TotalReturn:    0.05,
+		AvgHoldDays:    8,
+		MaxProfitRate:  0.05,
+		MaxLossRate:    0.0,
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminAutoOpenSimulatedPositions(tradeDate string) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSettlementSimulatedPositions(tradeDate string) error {
+	return nil
+}
+
 func (r *InMemoryGrowthRepo) AddUserVirtualSandbox(userID string, recoID string, addPrice float64) error {
 	return nil
 }
@@ -1693,6 +1738,10 @@ func (r *InMemoryGrowthRepo) AdminSyncMarketNews(sourceKey string, symbols []str
 
 func (r *InMemoryGrowthRepo) BuildStrategyEngineStockSelectionContext(input model.StrategyEngineStockSelectionContextRequest) (model.StrategyEngineStockSelectionContextResponse, error) {
 	return model.StrategyEngineStockSelectionContextResponse{}, errors.New("strategy-engine stock context is unavailable in memory mode")
+}
+
+func (r *InMemoryGrowthRepo) BuildStrategyEngineStockHistoryContext(symbol string, selectedTradeDate time.Time, limit int) (model.StrategyEngineStockSelectionContextResponse, error) {
+	return model.StrategyEngineStockSelectionContextResponse{}, errors.New("strategy-engine stock history context is unavailable in memory mode")
 }
 
 func (r *InMemoryGrowthRepo) BuildStrategyEngineFuturesStrategyContext(input model.StrategyEngineFuturesStrategyContextRequest) (model.StrategyEngineFuturesStrategyContextResponse, error) {
@@ -2701,6 +2750,10 @@ func (r *InMemoryGrowthRepo) AdminCreateSchedulerJobRun(jobName string, triggerS
 
 func (r *InMemoryGrowthRepo) AdminRetrySchedulerJobRun(runID string, triggerSource string, status string, resultSummary string, errorMessage string, operatorID string) (string, error) {
 	return "jr_retry_001", nil
+}
+
+func (r *InMemoryGrowthRepo) AdminUpdateSchedulerJobRun(runID string, status string, resultSummary string, errorMessage string) error {
+	return nil
 }
 
 func (r *InMemoryGrowthRepo) AdminListSchedulerJobDefinitions(status string, module string, page int, pageSize int) ([]model.SchedulerJobDefinition, int, error) {

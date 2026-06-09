@@ -200,3 +200,61 @@ func TestListAndReviewStockEventClusters(t *testing.T) {
 		t.Fatalf("unexpected detail payload: %+v", detailPayload)
 	}
 }
+
+func TestSimulatedPositionsHandlers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handlers := newStockSelectionTestHandlers()
+
+	// 1. GetStockSimulatedOverview
+	overviewRec := httptest.NewRecorder()
+	overviewCtx, _ := gin.CreateTestContext(overviewRec)
+	overviewCtx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/stock-selection/simulated/overview", nil)
+	handlers.StockSelection.GetStockSimulatedOverview(overviewCtx)
+
+	if overviewRec.Code != http.StatusOK {
+		t.Fatalf("expected overview 200, got %d", overviewRec.Code)
+	}
+	var overviewRes struct {
+		Code int                          `json:"code"`
+		Data model.StockSimulatedOverview `json:"data"`
+	}
+	if err := json.Unmarshal(overviewRec.Body.Bytes(), &overviewRes); err != nil {
+		t.Fatalf("decode overview response: %v", err)
+	}
+	if overviewRes.Code != 0 || overviewRes.Data.TotalTrades != 1 {
+		t.Fatalf("unexpected overview response: %+v", overviewRes)
+	}
+
+	// 2. ListStockSimulatedPositions
+	listRec := httptest.NewRecorder()
+	listCtx, _ := gin.CreateTestContext(listRec)
+	listCtx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/stock-selection/simulated/positions", nil)
+	handlers.StockSelection.ListStockSimulatedPositions(listCtx)
+
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d", listRec.Code)
+	}
+	var listRes struct {
+		Code int `json:"code"`
+		Data struct {
+			Items []model.StockSimulatedPosition `json:"items"`
+			Total int                            `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listRes); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if listRes.Code != 0 || listRes.Data.Total != 1 || len(listRes.Data.Items) != 1 {
+		t.Fatalf("unexpected list response: %+v", listRes)
+	}
+
+	// 3. SettleSimulatedPositions
+	settleRec := httptest.NewRecorder()
+	settleCtx, _ := gin.CreateTestContext(settleRec)
+	settleCtx.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/stock-selection/simulated/settle?trade_date=2026-06-09", nil)
+	handlers.StockSelection.SettleSimulatedPositions(settleCtx)
+
+	if settleRec.Code != http.StatusOK {
+		t.Fatalf("expected settle 200, got %d", settleRec.Code)
+	}
+}

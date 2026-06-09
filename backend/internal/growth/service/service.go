@@ -1,6 +1,9 @@
 package service
 
 import (
+	"log"
+	"time"
+
 	"sercherai/backend/internal/growth/model"
 	"sercherai/backend/internal/growth/repo"
 )
@@ -118,6 +121,10 @@ type GrowthService interface {
 	AdminCreateStockRecommendation(item model.StockRecommendation) (string, error)
 	AdminUpdateStockRecommendationStatus(id string, status string) error
 	AdminUpdateStockRecommendationAIReview(id string, aiReviewContent string) error
+	AdminListStockSimulatedPositions(status string, symbol string, page int, pageSize int) ([]model.StockSimulatedPosition, int, error)
+	AdminGetStockSimulatedOverview() (model.StockSimulatedOverview, error)
+	AdminAutoOpenSimulatedPositions(tradeDate string) error
+	AdminSettlementSimulatedPositions(tradeDate string) error
 	AdminSyncStockInstrumentMaster(sourceKey string, symbols []string) (model.MarketSyncResult, error)
 	AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error)
 	AdminSyncStockQuotesDetailed(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
@@ -141,6 +148,7 @@ type GrowthService interface {
 	AdminGetMarketProviderGovernanceOverview(assetClass string, dataKind string, hours int) (model.MarketProviderGovernanceOverview, error)
 	AdminUpsertMarketProviderRoutingPolicy(policyKey string, item model.MarketProviderRoutingPolicy) (model.MarketProviderRoutingPolicy, error)
 	BuildStrategyEngineStockSelectionContext(input model.StrategyEngineStockSelectionContextRequest) (model.StrategyEngineStockSelectionContextResponse, error)
+	BuildStrategyEngineStockHistoryContext(symbol string, selectedTradeDate time.Time, limit int) (model.StrategyEngineStockSelectionContextResponse, error)
 	BuildStrategyEngineFuturesStrategyContext(input model.StrategyEngineFuturesStrategyContextRequest) (model.StrategyEngineFuturesStrategyContextResponse, error)
 	AdminSyncDocFastNewsIncremental(batchSize int) (string, error)
 	AdminSyncTushareNewsIncremental(batchSize int) (string, error)
@@ -291,6 +299,7 @@ type GrowthService interface {
 	AdminCreateNewsSyncRunDetails(runID string, details []model.NewsSyncRunDetail) error
 	AdminCreateSchedulerJobRun(jobName string, triggerSource string, status string, resultSummary string, errorMessage string, operatorID string) (string, error)
 	AdminRetrySchedulerJobRun(runID string, triggerSource string, status string, resultSummary string, errorMessage string, operatorID string) (string, error)
+	AdminUpdateSchedulerJobRun(runID string, status string, resultSummary string, errorMessage string) error
 	AdminListSchedulerJobDefinitions(status string, module string, page int, pageSize int) ([]model.SchedulerJobDefinition, int, error)
 	AdminCreateSchedulerJobDefinition(item model.SchedulerJobDefinition, operatorID string) (string, error)
 	AdminUpdateSchedulerJobDefinition(id string, item model.SchedulerJobDefinition, operatorID string) error
@@ -327,6 +336,10 @@ func (s *growthService) ClearBrowseHistory(userID string) error {
 
 func (s *growthService) BuildStrategyEngineStockSelectionContext(input model.StrategyEngineStockSelectionContextRequest) (model.StrategyEngineStockSelectionContextResponse, error) {
 	return s.repo.BuildStrategyEngineStockSelectionContext(input.Normalized())
+}
+
+func (s *growthService) BuildStrategyEngineStockHistoryContext(symbol string, selectedTradeDate time.Time, limit int) (model.StrategyEngineStockSelectionContextResponse, error) {
+	return s.repo.BuildStrategyEngineStockHistoryContext(symbol, selectedTradeDate, limit)
 }
 
 func (s *growthService) BuildStrategyEngineFuturesStrategyContext(input model.StrategyEngineFuturesStrategyContextRequest) (model.StrategyEngineFuturesStrategyContextResponse, error) {
@@ -662,6 +675,22 @@ func (s *growthService) AdminUpdateStockRecommendationAIReview(id string, aiRevi
 	return s.repo.AdminUpdateStockRecommendationAIReview(id, aiReviewContent)
 }
 
+func (s *growthService) AdminListStockSimulatedPositions(status string, symbol string, page int, pageSize int) ([]model.StockSimulatedPosition, int, error) {
+	return s.repo.AdminListStockSimulatedPositions(status, symbol, page, pageSize)
+}
+
+func (s *growthService) AdminGetStockSimulatedOverview() (model.StockSimulatedOverview, error) {
+	return s.repo.AdminGetStockSimulatedOverview()
+}
+
+func (s *growthService) AdminAutoOpenSimulatedPositions(tradeDate string) error {
+	return s.repo.AdminAutoOpenSimulatedPositions(tradeDate)
+}
+
+func (s *growthService) AdminSettlementSimulatedPositions(tradeDate string) error {
+	return s.repo.AdminSettlementSimulatedPositions(tradeDate)
+}
+
 func (s *growthService) AdminSyncStockInstrumentMaster(sourceKey string, symbols []string) (model.MarketSyncResult, error) {
 	return s.repo.AdminSyncStockInstrumentMaster(sourceKey, symbols)
 }
@@ -743,7 +772,14 @@ func (s *growthService) AdminGetQuantEvaluation(windowDays int, topN int) (model
 }
 
 func (s *growthService) AdminGenerateDailyStockRecommendations(tradeDate string) (model.AdminDailyStockRecommendationGenerationResult, error) {
-	return s.repo.AdminGenerateDailyStockRecommendations(tradeDate)
+	result, err := s.repo.AdminGenerateDailyStockRecommendations(tradeDate)
+	if err != nil {
+		return result, err
+	}
+	if posErr := s.repo.AdminAutoOpenSimulatedPositions(tradeDate); posErr != nil {
+		log.Printf("[simulated-positions] failed to auto open simulated positions for %s: %v", tradeDate, posErr)
+	}
+	return result, nil
 }
 
 func (s *growthService) AdminGetFuturesSelectionOverview() (model.AdminFuturesSelectionOverview, error) {
@@ -1001,6 +1037,10 @@ func (s *growthService) AdminCreateSchedulerJobRun(jobName string, triggerSource
 
 func (s *growthService) AdminRetrySchedulerJobRun(runID string, triggerSource string, status string, resultSummary string, errorMessage string, operatorID string) (string, error) {
 	return s.repo.AdminRetrySchedulerJobRun(runID, triggerSource, status, resultSummary, errorMessage, operatorID)
+}
+
+func (s *growthService) AdminUpdateSchedulerJobRun(runID string, status string, resultSummary string, errorMessage string) error {
+	return s.repo.AdminUpdateSchedulerJobRun(runID, status, resultSummary, errorMessage)
 }
 
 func (s *growthService) AdminListSchedulerJobDefinitions(status string, module string, page int, pageSize int) ([]model.SchedulerJobDefinition, int, error) {

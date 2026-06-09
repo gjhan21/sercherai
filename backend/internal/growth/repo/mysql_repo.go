@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"log"
 	"os"
 	"path"
 	"sort"
@@ -10315,6 +10316,57 @@ WHERE job_name = ?`, now, now, strings.TrimSpace(jobName))
 	return id, nil
 }
 
+func (r *MySQLGrowthRepo) AdminUpdateSchedulerJobRun(runID string, status string, resultSummary string, errorMessage string) error {
+	now := time.Now()
+	safeResultSummary := truncateByRunes(normalizeUTF8Text(resultSummary), 512)
+	safeErrorMessage := truncateByRunes(normalizeUTF8Text(errorMessage), 512)
+	upperStatus := strings.ToUpper(status)
+	var finishedAt interface{} = nil
+	if upperStatus != "RUNNING" {
+		finishedAt = now
+	}
+
+	var jobName string
+	var operatorID string
+	err := r.db.QueryRow("SELECT job_name, operator_id FROM scheduler_job_runs WHERE id = ?", runID).Scan(&jobName, &operatorID)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.db.Exec(`
+UPDATE scheduler_job_runs
+SET status = ?, finished_at = ?, result_summary = ?, error_message = ?
+WHERE id = ?`, upperStatus, finishedAt, safeResultSummary, safeErrorMessage, runID)
+	if err != nil {
+		return err
+	}
+
+	if upperStatus == "SUCCESS" {
+		_ = r.AdminCreateWorkflowMessage(
+			"",
+			runID,
+			"SYSTEM",
+			operatorID,
+			operatorID,
+			"JOB_COMPLETED",
+			"任务执行成功",
+			"任务 "+jobName+" 执行成功："+safeResultSummary,
+		)
+	} else if upperStatus == "FAILED" {
+		_ = r.AdminCreateWorkflowMessage(
+			"",
+			runID,
+			"SYSTEM",
+			operatorID,
+			operatorID,
+			"JOB_FAILED",
+			"任务执行失败",
+			"任务 "+jobName+" 执行失败："+safeErrorMessage,
+		)
+	}
+	return nil
+}
+
 func (r *MySQLGrowthRepo) AdminListSchedulerJobDefinitions(status string, module string, page int, pageSize int) ([]model.SchedulerJobDefinition, int, error) {
 	offset := (page - 1) * pageSize
 	args := []interface{}{}
@@ -14587,4 +14639,331 @@ func (r *MySQLGrowthRepo) GetUserVirtualSandbox(userID string) ([]model.UserVirt
 		return nil, err
 	}
 	return sandboxes, nil
+}
+
+func (r *MySQLGrowthRepo) AdminListStockSimulatedPositions(status string, symbol string, page int, pageSize int) ([]model.StockSimulatedPosition, int, error) {
+	offset := (page - 1) * pageSize
+	args := []interface{}{}
+	filter := " WHERE 1=1"
+	status = strings.TrimSpace(status)
+	symbol = strings.TrimSpace(symbol)
+	if status != "" {
+		filter += " AND status = ?"
+		args = append(args, status)
+	}
+	if symbol != "" {
+		filter += " AND symbol = ?"
+		args = append(args, symbol)
+	}
+	var total int
+	err := r.db.QueryRow("SELECT COUNT(*) FROM stock_simulated_positions" + filter, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+	query := `
+SELECT id, reco_id, symbol, name, status, open_date, open_price, current_price, 
+       COALESCE(close_date, ''), COALESCE(close_price, 0), COALESCE(take_profit_price, 0), COALESCE(stop_loss_price, 0),
+       quantity, cost_basis, COALESCE(close_value, 0), return_rate, max_drawdown, hold_days, COALESCE(close_reason, ''), created_at
+FROM stock_simulated_positions` + filter + `
+ORDER BY created_at DESC
+LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]model.StockSimulatedPosition, 0)
+	for rows.Next() {
+		var item model.StockSimulatedPosition
+		var closeDate, closeReason sql.NullString
+		var closePrice, takeProfitPrice, stopLossPrice, closeValue sql.NullFloat64
+		var openDate time.Time
+		var createdAt time.Time
+		err := rows.Scan(
+			&item.ID, &item.RecoID, &item.Symbol, &item.Name, &item.Status, &openDate, &item.OpenPrice, &item.CurrentPrice,
+			&closeDate, &closePrice, &takeProfitPrice, &stopLossPrice, &item.Quantity, &item.CostBasis, &closeValue,
+			&item.ReturnRate, &item.MaxDrawdown, &item.HoldDays, &closeReason, &createdAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		item.OpenDate = openDate.Format("2006-01-02")
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		if closeDate.Valid && closeDate.String != "" {
+			item.CloseDate = closeDate.String
+			if t, err := time.Parse("2006-01-02T15:04:05Z", closeDate.String); err == nil {
+				item.CloseDate = t.Format("2006-01-02")
+			} else if t, err := time.Parse("2006-01-02", closeDate.String); err == nil {
+				item.CloseDate = t.Format("2006-01-02")
+			}
+		}
+		if closePrice.Valid {
+			item.ClosePrice = closePrice.Float64
+		}
+		if takeProfitPrice.Valid {
+			item.TakeProfitPrice = takeProfitPrice.Float64
+		}
+		if stopLossPrice.Valid {
+			item.StopLossPrice = stopLossPrice.Float64
+		}
+		if closeValue.Valid {
+			item.CloseValue = closeValue.Float64
+		}
+		if closeReason.Valid {
+			item.CloseReason = closeReason.String
+		}
+		items = append(items, item)
+	}
+	return items, total, nil
+}
+
+func (r *MySQLGrowthRepo) AdminGetStockSimulatedOverview() (model.StockSimulatedOverview, error) {
+	var overview model.StockSimulatedOverview
+	err := r.db.QueryRow("SELECT COUNT(*) FROM stock_simulated_positions").Scan(&overview.TotalTrades)
+	if err != nil {
+		return overview, err
+	}
+	err = r.db.QueryRow("SELECT COUNT(*) FROM stock_simulated_positions WHERE status = 'HOLDING'").Scan(&overview.ActiveHoldings)
+	if err != nil {
+		return overview, err
+	}
+
+	var closedTrades int
+	err = r.db.QueryRow("SELECT COUNT(*) FROM stock_simulated_positions WHERE status = 'CLOSED'").Scan(&closedTrades)
+	if err != nil {
+		return overview, err
+	}
+
+	if closedTrades > 0 {
+		var winTrades int
+		err = r.db.QueryRow("SELECT COUNT(*) FROM stock_simulated_positions WHERE status = 'CLOSED' AND return_rate > 0").Scan(&winTrades)
+		if err != nil {
+			return overview, err
+		}
+		overview.WinRate = float64(winTrades) / float64(closedTrades)
+
+		var avgReturn, maxProfit, maxLoss, avgHoldDays sql.NullFloat64
+		err = r.db.QueryRow(`
+SELECT AVG(return_rate), MAX(return_rate), MIN(return_rate), AVG(hold_days) 
+FROM stock_simulated_positions 
+WHERE status = 'CLOSED'`).Scan(&avgReturn, &maxProfit, &maxLoss, &avgHoldDays)
+		if err != nil {
+			return overview, err
+		}
+		if avgReturn.Valid {
+			overview.AverageReturn = avgReturn.Float64
+		}
+		if maxProfit.Valid {
+			overview.MaxProfitRate = maxProfit.Float64
+		}
+		if maxLoss.Valid {
+			overview.MaxLossRate = maxLoss.Float64
+		}
+		if avgHoldDays.Valid {
+			overview.AvgHoldDays = avgHoldDays.Float64
+		}
+	}
+
+	var totalCost, totalCurrentValue sql.NullFloat64
+	err = r.db.QueryRow(`
+SELECT SUM(cost_basis), 
+       SUM(CASE WHEN status = 'CLOSED' THEN close_value ELSE current_price * quantity END)
+FROM stock_simulated_positions`).Scan(&totalCost, &totalCurrentValue)
+	if err != nil {
+		return overview, err
+	}
+	if totalCost.Valid && totalCost.Float64 > 0 && totalCurrentValue.Valid {
+		overview.TotalReturn = (totalCurrentValue.Float64 - totalCost.Float64) / totalCost.Float64
+	}
+
+	return overview, nil
+}
+
+func (r *MySQLGrowthRepo) AdminAutoOpenSimulatedPositions(tradeDate string) error {
+	if tradeDate == "" {
+		tradeDate = time.Now().Format("2006-01-02")
+	}
+	tDate, err := time.Parse("2006-01-02", tradeDate)
+	if err != nil {
+		return err
+	}
+
+	rows, err := r.db.Query(`
+SELECT id, symbol, name, take_profit, stop_loss
+FROM stock_recommendations
+WHERE valid_from <= ? AND valid_to >= ? 
+  AND id NOT IN (SELECT reco_id FROM stock_simulated_positions)`, tDate, tDate)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type pendingPosition struct {
+		recoID     string
+		symbol     string
+		name       string
+		takeProfit float64
+		stopLoss   float64
+	}
+	var pendings []pendingPosition
+	for rows.Next() {
+		var p pendingPosition
+		var tpStr, slStr string
+		if err := rows.Scan(&p.recoID, &p.symbol, &p.name, &tpStr, &slStr); err != nil {
+			return err
+		}
+		p.takeProfit, _ = strconv.ParseFloat(tpStr, 64)
+		p.stopLoss, _ = strconv.ParseFloat(slStr, 64)
+		pendings = append(pendings, p)
+	}
+
+	for _, p := range pendings {
+		var openPrice float64
+		err = r.db.QueryRow(`
+SELECT close_price 
+FROM market_daily_bar_truth 
+WHERE asset_class = 'STOCK' AND (instrument_key = ? OR instrument_key LIKE ?) AND trade_date = ? 
+LIMIT 1`, p.symbol, p.symbol+".%", tDate).Scan(&openPrice)
+		if err != nil {
+			errLatest := r.db.QueryRow(`
+SELECT close_price 
+FROM market_daily_bar_truth 
+WHERE asset_class = 'STOCK' AND (instrument_key = ? OR instrument_key LIKE ?) AND trade_date <= ? 
+ORDER BY trade_date DESC LIMIT 1`, p.symbol, p.symbol+".%", tDate).Scan(&openPrice)
+			if errLatest != nil {
+				openPrice = 100.0
+			}
+		}
+
+		quantity := 1000.0
+		costBasis := openPrice * quantity
+		posID := newID("sp")
+		_, err = r.db.Exec(`
+INSERT INTO stock_simulated_positions (id, reco_id, symbol, name, status, open_date, open_price, current_price, take_profit_price, stop_loss_price, quantity, cost_basis, return_rate, hold_days, created_at)
+VALUES (?, ?, ?, ?, 'HOLDING', ?, ?, ?, ?, ?, ?, ?, 0.0000, 0, ?)`,
+			posID, p.recoID, p.symbol, p.name, tDate, openPrice, openPrice, p.takeProfit, p.stopLoss, quantity, costBasis, time.Now())
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) AdminSettlementSimulatedPositions(tradeDate string) error {
+	if tradeDate == "" {
+		tradeDate = time.Now().Format("2006-01-02")
+	}
+	tDate, err := time.Parse("2006-01-02", tradeDate)
+	if err != nil {
+		return err
+	}
+
+	rows, err := r.db.Query(`
+SELECT p.id, p.reco_id, p.symbol, p.open_price, p.take_profit_price, p.stop_loss_price, p.quantity, p.hold_days, r.valid_to
+FROM stock_simulated_positions p
+JOIN stock_recommendations r ON p.reco_id = r.id
+WHERE p.status = 'HOLDING'`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type holdingPos struct {
+		id              string
+		recoID          string
+		symbol          string
+		openPrice       float64
+		takeProfitPrice float64
+		stopLossPrice   float64
+		quantity        float64
+		holdDays        int
+		validTo         time.Time
+	}
+	var holdings []holdingPos
+	for rows.Next() {
+		var h holdingPos
+		var validToStr string
+		if err := rows.Scan(&h.id, &h.recoID, &h.symbol, &h.openPrice, &h.takeProfitPrice, &h.stopLossPrice, &h.quantity, &h.holdDays, &validToStr); err != nil {
+			return err
+		}
+		if t, parseErr := time.Parse("2006-01-02 15:04:05", validToStr); parseErr == nil {
+			h.validTo = t
+		} else if t, parseErr := time.Parse("2006-01-02T15:04:05Z", validToStr); parseErr == nil {
+			h.validTo = t
+		} else if t, parseErr := time.Parse("2006-01-02", validToStr); parseErr == nil {
+			h.validTo = t
+		}
+		holdings = append(holdings, h)
+	}
+
+	for _, h := range holdings {
+		var openPrice, highPrice, lowPrice, closePrice float64
+		err = r.db.QueryRow(`
+SELECT open_price, high_price, low_price, close_price
+FROM market_daily_bar_truth
+WHERE asset_class = 'STOCK' AND (instrument_key = ? OR instrument_key LIKE ?) AND trade_date = ?
+LIMIT 1`, h.symbol, h.symbol+".%", tDate).Scan(&openPrice, &highPrice, &lowPrice, &closePrice)
+		if err != nil {
+			_, _ = r.db.Exec("UPDATE stock_simulated_positions SET hold_days = hold_days + 1 WHERE id = ?", h.id)
+			continue
+		}
+
+		newHoldDays := h.holdDays + 1
+		newReturnRate := (closePrice - h.openPrice) / h.openPrice
+
+		var maxPriceSeen float64
+		err = r.db.QueryRow(`
+SELECT MAX(close_price)
+FROM market_daily_bar_truth
+WHERE asset_class = 'STOCK' AND (instrument_key = ? OR instrument_key LIKE ?) AND trade_date >= (SELECT open_date FROM stock_simulated_positions WHERE id = ?) AND trade_date <= ?`,
+			h.symbol, h.symbol+".%", h.id, tDate).Scan(&maxPriceSeen)
+		if err != nil || maxPriceSeen <= 0 {
+			maxPriceSeen = closePrice
+		}
+		maxDrawdown := 0.0
+		if maxPriceSeen > 0 {
+			maxDrawdown = (maxPriceSeen - closePrice) / maxPriceSeen
+			if maxDrawdown < 0 {
+				maxDrawdown = 0
+			}
+		}
+
+		isClosed := false
+		closePriceVal := closePrice
+		closeReason := ""
+
+		if h.takeProfitPrice > 0 && highPrice >= h.takeProfitPrice {
+			isClosed = true
+			closePriceVal = h.takeProfitPrice
+			closeReason = "TAKE_PROFIT"
+		} else if h.stopLossPrice > 0 && lowPrice <= h.stopLossPrice {
+			isClosed = true
+			closePriceVal = h.stopLossPrice
+			closeReason = "STOP_LOSS"
+		} else if tDate.After(h.validTo) || tDate.Equal(h.validTo) {
+			isClosed = true
+			closePriceVal = closePrice
+			closeReason = "EXPIRED"
+		}
+
+		if isClosed {
+			finalReturn := (closePriceVal - h.openPrice) / h.openPrice
+			closeValue := closePriceVal * h.quantity
+			_, err = r.db.Exec(`
+UPDATE stock_simulated_positions
+SET status = 'CLOSED', current_price = ?, close_date = ?, close_price = ?, close_value = ?, return_rate = ?, max_drawdown = ?, hold_days = ?, close_reason = ?
+WHERE id = ?`, closePrice, tDate, closePriceVal, closeValue, finalReturn, maxDrawdown, newHoldDays, closeReason, h.id)
+		} else {
+			_, err = r.db.Exec(`
+UPDATE stock_simulated_positions
+SET current_price = ?, return_rate = ?, max_drawdown = ?, hold_days = ?
+WHERE id = ?`, closePrice, newReturnRate, maxDrawdown, newHoldDays, h.id)
+		}
+		if err != nil {
+			log.Printf("[simulated-positions] settlement update failed for %s: %v", h.id, err)
+		}
+	}
+	return nil
 }

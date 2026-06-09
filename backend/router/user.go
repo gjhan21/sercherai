@@ -89,6 +89,10 @@ func registerUserRoutes(v1 *gin.RouterGroup, userGrowthHandler *handler.UserGrow
 		stocks.GET("/recommendations/:id/performance", userGrowthHandler.GetStockRecommendationPerformance)
 		stocks.GET("/recommendations/:id/insight", userGrowthHandler.GetStockRecommendationInsight)
 		stocks.GET("/recommendations/:id/version-history", userGrowthHandler.GetStockRecommendationVersionHistory)
+
+		// Simulated positions tracking
+		stocks.GET("/simulated/overview", userGrowthHandler.GetStockSimulatedOverview)
+		stocks.GET("/simulated/positions", userGrowthHandler.ListStockSimulatedPositions)
 	}
 
 	forecast := v1.Group("/forecast")

@@ -181,6 +181,11 @@ func registerAdminRoutes(v1 *gin.RouterGroup, adminHandlers *handler.AdminHandle
 		adminStockSelection.GET("/events", middleware.PermissionRequired(db, "stock_selection.view"), adminHandlers.StockSelection.ListStockEventClusters)
 		adminStockSelection.GET("/events/:id", middleware.PermissionRequired(db, "stock_selection.view"), adminHandlers.StockSelection.GetStockEventCluster)
 		adminStockSelection.POST("/events/:id/review", middleware.PermissionRequired(db, "stock_selection.manage"), adminHandlers.StockSelection.ReviewStockEventCluster)
+
+		// Simulated positions tracking
+		adminStockSelection.GET("/simulated/overview", middleware.PermissionRequired(db, "stock_selection.view"), adminHandlers.StockSelection.GetStockSimulatedOverview)
+		adminStockSelection.GET("/simulated/positions", middleware.PermissionRequired(db, "stock_selection.view"), adminHandlers.StockSelection.ListStockSimulatedPositions)
+		adminStockSelection.POST("/simulated/settle", middleware.PermissionRequired(db, "stock_selection.manage"), adminHandlers.StockSelection.SettleSimulatedPositions)
 	}
 
 	adminFuturesSelection := v1.Group("/admin/futures-selection")

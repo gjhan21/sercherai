@@ -746,6 +746,40 @@ func (h *AdminStockSelectionHandler) GenerateDailyStockRecommendations(c *gin.Co
 	c.JSON(http.StatusOK, dto.OK(result))
 }
 
+func (h *AdminStockSelectionHandler) GetStockSimulatedOverview(c *gin.Context) {
+	data, err := h.service.AdminGetStockSimulatedOverview()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(data))
+}
+
+func (h *AdminStockSelectionHandler) ListStockSimulatedPositions(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
+	status := c.Query("status")
+	symbol := c.Query("symbol")
+	items, total, err := h.service.AdminListStockSimulatedPositions(status, symbol, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *AdminStockSelectionHandler) SettleSimulatedPositions(c *gin.Context) {
+	tradeDate := strings.TrimSpace(c.Query("trade_date"))
+	if tradeDate == "" {
+		tradeDate = time.Now().Format("2006-01-02")
+	}
+	if err := h.service.AdminSettlementSimulatedPositions(tradeDate); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "STOCK", "SETTLE_SIMULATED_POSITIONS", "STOCK_SIMULATED_POSITIONS", tradeDate, "", "SUCCESS", "")
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
 
 func stockSelectionProfileFromRequest(req adminStockSelectionProfileRequest, operator string) model.StockSelectionProfile {
 	return model.StockSelectionProfile{
