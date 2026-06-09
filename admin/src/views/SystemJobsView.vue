@@ -342,6 +342,17 @@ const scheduleModeOptions = [
   { label: "按分钟间隔", value: "INTERVAL_MINUTES" },
   { label: "自定义表达式", value: "CUSTOM" }
 ];
+const customCronOptions = [
+  { label: "每小时执行一次 (0 0 * * * *)", value: "0 0 * * * *" },
+  { label: "每 2 小时执行一次 (0 0 */2 * * *)", value: "0 0 */2 * * *" },
+  { label: "每 3 小时执行一次 (0 0 */3 * * *)", value: "0 0 */3 * * *" },
+  { label: "每 4 小时执行一次 (0 0 */4 * * *)", value: "0 0 */4 * * *" },
+  { label: "每 6 小时执行一次 (0 0 */6 * * *)", value: "0 0 */6 * * *" },
+  { label: "每天白天高频 (08:00 - 22:00 每 2 小时)", value: "0 0 8,10,12,14,16,18,20,22 * * *" },
+  { label: "每天早中晚 (09:00, 13:00, 20:00)", value: "0 0 9,13,20 * * *" },
+  { label: "每天早晚 (09:00, 21:00)", value: "0 0 9,21 * * *" },
+  { label: "工作日早晚 (周一至周五 09:00, 21:00)", value: "0 0 9,21 * * MON-FRI" }
+];
 const scheduleWeekDayOptions = [
   { label: "周一", value: "MON" },
   { label: "周二", value: "TUE" },
@@ -2631,9 +2642,9 @@ onMounted(() => {
                 <el-select v-model="marketBackfillForm.sync_template">
                   <el-option
                     v-for="item in syncJobTemplateOptions"
-                    :key="item.value"
+                    :key="item.key"
                     :label="`${item.label} · ${item.description}`"
-                    :value="item.value"
+                    :value="item.key"
                   />
                 </el-select>
               </el-form-item>
@@ -4070,10 +4081,24 @@ onMounted(() => {
             />
           </el-form-item>
           <el-form-item v-if="definitionSchedule.mode === 'CUSTOM'" label="调度表达式" required>
-            <el-input
+            <el-select
               v-model="definitionSchedule.custom_expr"
-              placeholder="请输入 Cron 表达式，例如 0 0 9 * * *"
-            />
+              filterable
+              allow-create
+              default-first-option
+              placeholder="请选择预设表达式或输入自定义 Cron 表达式"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="item in customCronOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+            <div class="help-text" style="color: #8c939d; font-size: 13px; margin-top: 4px;">
+              可直接选择下拉列表中的常用预设，或直接在此输入框中键入自定义 Cron 表达式（格式：秒 分 时 日 月 周）。
+            </div>
           </el-form-item>
           <el-form-item label="表达式预览">
             <el-input :model-value="definitionCronPreview" readonly placeholder="自动生成表达式" />
