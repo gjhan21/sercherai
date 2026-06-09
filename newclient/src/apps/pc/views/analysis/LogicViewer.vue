@@ -157,15 +157,15 @@ import { buildLogicChain } from "@/mock/analysis.js";
 const expandedStep = ref(0);
 const insight = ref(null);
 
-const factors = computed(() => insight.value?.ScoreFramework?.factors || []);
-const totalScore = computed(() => insight.value?.ScoreFramework?.total_score?.toFixed(1) || '--');
-const weightedScore = computed(() => insight.value?.ScoreFramework?.weighted_score?.toFixed(1) || '--');
-const scoreMethod = computed(() => insight.value?.ScoreFramework?.method || '');
-const agentOpinions = computed(() => insight.value?.Explanation?.agent_opinions || []);
-const scenarios = computed(() => insight.value?.Explanation?.scenario_snapshots || []);
-const calibration = computed(() => insight.value?.Explanation?.confidence_calibration || null);
-const riskFlags = computed(() => insight.value?.Explanation?.risk_flags || []);
-const invalidations = computed(() => insight.value?.Explanation?.invalidations || []);
+const factors = computed(() => insight.value?.score_framework?.factors || []);
+const totalScore = computed(() => insight.value?.score_framework?.total_score?.toFixed(1) || '--');
+const weightedScore = computed(() => insight.value?.score_framework?.weighted_score?.toFixed(1) || '--');
+const scoreMethod = computed(() => insight.value?.score_framework?.method || '');
+const agentOpinions = computed(() => insight.value?.explanation?.agent_opinions || []);
+const scenarios = computed(() => insight.value?.explanation?.scenario_snapshots || []);
+const calibration = computed(() => insight.value?.explanation?.confidence_calibration || null);
+const riskFlags = computed(() => insight.value?.explanation?.risk_flags || []);
+const invalidations = computed(() => insight.value?.explanation?.invalidations || []);
 const hasVeto = computed(() => agentOpinions.value.some(a => a.veto));
 const consensusAction = computed(() => {
   const supports = agentOpinions.value.filter(a => a.stance === 'SUPPORT' || a.stance === 'BULLISH').length;
@@ -215,8 +215,8 @@ async function loadInsight() {
   } catch { /* use mock */ }
   // mock fallback
   insight.value = {
-    ScoreFramework: { method: 'growth-v1', total_score: 82, weighted_score: 78, score_gap: 4, factors: [{ key:'tech', label:'技术因子', weight:.3, score:84, contribution:25.2 }, { key:'fund', label:'基本面因子', weight:.3, score:78, contribution:23.4 }, { key:'sentiment', label:'情绪因子', weight:.2, score:88, contribution:17.6 }, { key:'flow', label:'资金流因子', weight:.2, score:76, contribution:15.2 }] },
-    Explanation: {
+    score_framework: { method: 'growth-v1', total_score: 82, weighted_score: 78, score_gap: 4, factors: [{ key:'tech', label:'技术因子', weight:.3, score:84, contribution:25.2 }, { key:'fund', label:'基本面因子', weight:.3, score:78, contribution:23.4 }, { key:'sentiment', label:'情绪因子', weight:.2, score:88, contribution:17.6 }, { key:'flow', label:'资金流因子', weight:.2, score:76, contribution:15.2 }] },
+    explanation: {
       agent_opinions: [{ role:'FLOW', stance:'SUPPORT', confidence:.68, summary:'资金面中性偏积极', veto:false }, { role:'THEME', stance:'WATCH', confidence:.61, summary:'主题热度一般', veto:false }, { role:'RISK', stance:'WATCH', confidence:.73, summary:'风险可接受', veto:false }],
       scenario_snapshots: [{ scenario:'bull', thesis:'趋势延续', trigger:'量价共振', action_suggestion:'顺势跟踪', confidence:.72 }, { scenario:'base', thesis:'核心逻辑维持', trigger:'常规波动', action_suggestion:'按计划执行', confidence:.64 }, { scenario:'bear', thesis:'风险边界被触发', trigger:'消息扰动', action_suggestion:'收缩风险暴露', confidence:.38 }],
       risk_flags: ['市场整体波动风险', '行业政策变化风险'],

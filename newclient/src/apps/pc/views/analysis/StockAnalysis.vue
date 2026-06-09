@@ -93,7 +93,7 @@
             </div>
           </div>
         </div>
-        <div class="score-footer" v-if="insight?.ScoreFramework">
+        <div class="score-footer" v-if="insight?.score_framework">
           <span>总分: {{ totalScore }} | 加权分: {{ weightedScore }} | 分差: {{ scoreGap >= 0 ? '+' : '' }}{{ scoreGap?.toFixed(1) }}</span>
           <span class="score-method-label">算法: {{ scoreMethod }}</span>
         </div>
@@ -240,32 +240,32 @@ const hotStocks = [
 ];
 
 // Computed fields from insight
-const reco = computed(() => insight.value?.Recommendation || null);
+const reco = computed(() => insight.value?.recommendation || null);
 const factors = computed(() => {
-  const sf = insight.value?.ScoreFramework;
+  const sf = insight.value?.score_framework;
   if (sf?.factors?.length) return sf.factors;
   return [];
 });
 const totalScore = computed(() => {
-  const sf = insight.value?.ScoreFramework;
+  const sf = insight.value?.score_framework;
   return sf?.total_score ? sf.total_score.toFixed(1) : sf?.weighted_score?.toFixed(1) || '--';
 });
-const weightedScore = computed(() => insight.value?.ScoreFramework?.weighted_score?.toFixed(1) || '--');
-const scoreGap = computed(() => insight.value?.ScoreFramework?.score_gap || 0);
-const scoreMethod = computed(() => insight.value?.ScoreFramework?.method || 'multi-factor');
+const weightedScore = computed(() => insight.value?.score_framework?.weighted_score?.toFixed(1) || '--');
+const scoreGap = computed(() => insight.value?.score_framework?.score_gap || 0);
+const scoreMethod = computed(() => insight.value?.score_framework?.method || 'multi-factor');
 
-const agentOpinions = computed(() => insight.value?.Explanation?.agent_opinions || []);
-const scenarios = computed(() => insight.value?.Explanation?.scenario_snapshots || []);
-const calibration = computed(() => insight.value?.Explanation?.confidence_calibration || null);
-const riskFlags = computed(() => insight.value?.Explanation?.risk_flags || []);
-const invalidations = computed(() => insight.value?.Explanation?.invalidations || []);
+const agentOpinions = computed(() => insight.value?.explanation?.agent_opinions || []);
+const scenarios = computed(() => insight.value?.explanation?.scenario_snapshots || []);
+const calibration = computed(() => insight.value?.explanation?.confidence_calibration || null);
+const riskFlags = computed(() => insight.value?.explanation?.risk_flags || []);
+const invalidations = computed(() => insight.value?.explanation?.invalidations || []);
 const generatedAt = computed(() => {
-  if (insight.value?.GeneratedAt) return insight.value.GeneratedAt.replace('T', ' ').slice(0, 16);
+  if (insight.value?.generated_at) return insight.value.generated_at.replace('T', ' ').slice(0, 16);
   return new Date().toLocaleString("zh-CN", { hour12: false });
 });
 
 const reportSections = computed(() => {
-  const expl = insight.value?.Explanation;
+  const expl = insight.value?.explanation;
   if (!expl) return [];
   return [
     { title: '核心逻辑', content: expl.seed_summary || 'AI 多维度分析完成' },
@@ -274,7 +274,7 @@ const reportSections = computed(() => {
     { title: '风险提示', content: (expl.risk_flags || ['常规波动需控仓']).join('；') }
   ];
 });
-const forecastEntrySource = computed(() => insight.value?.Explanation || null);
+const forecastEntrySource = computed(() => insight.value?.explanation || null);
 const {
   summary: forecastEntrySummary,
   to: forecastEntryTo,

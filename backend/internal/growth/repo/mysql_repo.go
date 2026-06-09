@@ -4596,7 +4596,7 @@ func (r *MySQLGrowthRepo) GetStockRecommendationPerformance(userID string, recoI
 	err := r.db.QueryRow(`
 SELECT score, valid_from, valid_to
 FROM stock_recommendations
-WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT', 'HIT_STOP_LOSS', 'INVALIDATED', 'REVIEWED')`, recoID).Scan(&score, &validFrom, &validTo)
+WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT', 'HIT_STOP_LOSS', 'INVALIDATED', 'REVIEWED', 'REALTIME_CACHED')`, recoID).Scan(&score, &validFrom, &validTo)
 	if err != nil {
 		return nil, err
 	}
@@ -4701,7 +4701,7 @@ func (r *MySQLGrowthRepo) GetStockRecommendationVersionHistory(userID string, re
 	if err := r.db.QueryRow(`
 SELECT id, symbol, valid_from, reason_summary, strategy_version
 FROM stock_recommendations
-WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT', 'HIT_STOP_LOSS', 'INVALIDATED', 'REVIEWED')`,
+WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT', 'HIT_STOP_LOSS', 'INVALIDATED', 'REVIEWED', 'REALTIME_CACHED')`,
 		recoID,
 	).Scan(&item.ID, &item.Symbol, &validFrom, &reasonSummary, &strategyVersion); err != nil {
 		return nil, err
@@ -15959,25 +15959,26 @@ func (r *MySQLGrowthRepo) GenerateRealtimeStockInsight(userID string, symbol str
 	publishID := "pub_rt_" + recoID
 
 	_, err = tx.Exec(`
-		INSERT INTO strategy_job_runs (job_id, job_type, payload_snapshot, remote_created_at, trade_date, status, created_at)
-		VALUES (?, 'stock-selection', '{}', ?, ?, 'SUCCEEDED', ?)
-	`, jobID, now, now, now)
+		INSERT INTO strategy_job_runs (job_id, job_type, payload_snapshot, remote_created_at, trade_date, status, created_at, synced_at)
+		VALUES (?, 'stock-selection', '{}', ?, ?, 'SUCCEEDED', ?, ?)
+	`, jobID, now, now, now, now)
 	if err != nil {
 		return model.StockRecommendationInsight{}, err
 	}
 
 	_, err = tx.Exec(`
-		INSERT INTO strategy_job_artifacts (job_id, report_snapshot, created_at)
-		VALUES (?, ?, ?)
-	`, jobID, string(reportBytes), now)
+		INSERT INTO strategy_job_artifacts (job_id, report_snapshot, created_at, synced_at)
+		VALUES (?, ?, ?, ?)
+	`, jobID, string(reportBytes), now, now)
 	if err != nil {
 		return model.StockRecommendationInsight{}, err
 	}
 
+	replayID := "job_replay_" + publishID
 	_, err = tx.Exec(`
-		INSERT INTO strategy_job_replays (job_id, publish_id, publish_version, replay_snapshot, created_at)
-		VALUES (?, ?, 1, '{}', ?)
-	`, jobID, publishID, now)
+		INSERT INTO strategy_job_replays (id, job_id, publish_id, publish_version, replay_snapshot, created_at)
+		VALUES (?, ?, ?, 1, '{}', ?)
+	`, replayID, jobID, publishID, now)
 	if err != nil {
 		return model.StockRecommendationInsight{}, err
 	}
