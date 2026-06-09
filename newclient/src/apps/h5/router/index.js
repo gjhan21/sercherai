@@ -17,6 +17,7 @@ const routes = [
   { path: "/forecast/:id", name: "h5-forecast-detail", component: () => import("../views/forecast/ForecastDetailView.vue"), meta: {} },
   { path: "/login", name: "h5-login", component: () => import("../views/user/Login.vue"), meta: { layout: "blank" } },
   { path: "/register", name: "h5-register", component: () => import("../views/user/Register.vue"), meta: { layout: "blank" } },
+  { path: "/profile/forgot-password", name: "h5-forgot-password", component: () => import("../views/user/ForgotPassword.vue"), meta: { layout: "blank" } },
   { path: "/:pathMatch(.*)*", redirect: "/" }
 ];
 

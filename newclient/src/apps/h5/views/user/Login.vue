@@ -6,7 +6,12 @@
         <h1>智投AI</h1>
       </div>
       <div class="h5-auth-field"><input type="text" placeholder="手机号/邮箱" v-model="account" /></div>
-      <div class="h5-auth-field"><input type="password" placeholder="密码" v-model="password" @keyup.enter="handleLogin" /></div>
+      <div class="h5-auth-field">
+        <input type="password" placeholder="密码" v-model="password" @keyup.enter="handleLogin" />
+        <div class="forgot-link-container">
+          <button class="link-btn-sm" @click="$router.push('/profile/forgot-password')">忘记密码？</button>
+        </div>
+      </div>
       <p v-if="errorMsg" class="auth-error">{{ errorMsg }}</p>
       <button class="h5-auth-btn" :disabled="!account || !password || loading" @click="handleLogin">{{ loading ? '登录中...' : '登录' }}</button>
       <p class="h5-auth-link">没有账号？<button class="link" @click="$router.push('/register')">注册</button></p>
@@ -53,4 +58,7 @@ async function handleLogin() {
 .h5-auth-btn:disabled { opacity: .5; }
 .h5-auth-link { text-align: center; font-size: 13px; color: var(--text-secondary); }
 .link { color: var(--accent-gold); font-weight: 600; }
+.forgot-link-container { display: flex; justify-content: flex-end; margin-top: 6px; }
+.link-btn-sm { background: none; border: none; color: var(--accent-gold); font-size: 12px; cursor: pointer; padding: 0; }
+.link-btn-sm:active { opacity: 0.7; }
 </style>

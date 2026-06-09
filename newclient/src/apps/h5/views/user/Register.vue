@@ -6,10 +6,14 @@
         <h1>注册账号</h1>
       </div>
       <div class="h5-auth-field"><input type="text" placeholder="手机号" v-model="phone" /></div>
+      <div class="h5-auth-field">
+        <input type="email" placeholder="电子邮箱" v-model="email" />
+        <p class="field-hint">💡 邮箱为帐号找回，密码重置唯一凭证</p>
+      </div>
       <div class="h5-auth-field"><input type="password" placeholder="密码（至少6位）" v-model="password" /></div>
       <div class="h5-auth-field"><input type="password" placeholder="确认密码" v-model="confirmPwd" /></div>
       <p v-if="errorMsg" class="auth-error">{{ errorMsg }}</p>
-      <button class="h5-auth-btn" :disabled="!phone || !password || loading" @click="handleRegister">{{ loading ? '注册中...' : '注册' }}</button>
+      <button class="h5-auth-btn" :disabled="!phone || !email || !password || loading" @click="handleRegister">{{ loading ? '注册中...' : '注册' }}</button>
       <p class="h5-auth-link">已有账号？<button class="link" @click="$router.push('/login')">登录</button></p>
     </div>
   </div>
@@ -23,19 +27,20 @@ import { setClientAuthSession } from "@/shared/auth/client-auth";
 
 const router = useRouter();
 const phone = ref("");
+const email = ref("");
 const password = ref("");
 const confirmPwd = ref("");
 const loading = ref(false);
 const errorMsg = ref("");
 
 async function handleRegister() {
-  if (!phone.value || !password.value) { errorMsg.value = "请填写完整"; return; }
+  if (!phone.value || !email.value || !password.value) { errorMsg.value = "请填写完整"; return; }
   if (password.value !== confirmPwd.value) { errorMsg.value = "两次密码不一致"; return; }
   if (password.value.length < 6) { errorMsg.value = "密码至少6位"; return; }
   loading.value = true;
   errorMsg.value = "";
   try {
-    const result = await register({ phone: phone.value, password: password.value });
+    const result = await register({ phone: phone.value, email: email.value, password: password.value });
     setClientAuthSession(result);
     router.push("/");
   } catch (e) {
@@ -58,4 +63,5 @@ async function handleRegister() {
 .h5-auth-btn:disabled { opacity: .5; }
 .h5-auth-link { text-align: center; font-size: 13px; color: var(--text-secondary); }
 .link { color: var(--accent-gold); font-weight: 600; background: none; border: none; cursor: pointer; }
+.field-hint { font-size: 11px; color: var(--accent-gold); margin-top: 4px; opacity: 0.9; text-align: left; padding-left: 4px; }
 </style>
