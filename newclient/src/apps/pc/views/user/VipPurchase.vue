@@ -47,15 +47,18 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
+import { useRoute } from "vue-router"
 import { VIP_TIERS as MOCK_TIERS } from "@/mock/user.js"
 import { listMembershipProducts, createMembershipOrder } from "@/api/membership.js"
 import { useClientAuth } from "@/shared/auth/client-auth"
+import { trackExposure, trackUpgradeIntent, trackPaymentSuccess } from "@/shared/lib/experiment-tracker.js"
 
-
+const route = useRoute();
+const { isLoggedIn } = useClientAuth();
 
 const wizardStep = ref(1);
-const selectedTier = ref(null);
+const selectedTier = ref(route.query.tier || null);
 const done = ref(false);
 const loadingProducts = ref(false);
 const products = ref([]);
@@ -77,25 +80,48 @@ async function loadProducts() {
     const result = await listMembershipProducts({ status: 'ACTIVE' });
     if (result?.items?.length) {
       products.value = result.items.map((p, i) => ({
+        id: p.id,
         tier: (p.member_level || 't' + i).toLowerCase(), name: p.name,
         price: p.price, period: p.duration_days >= 360 ? '年' : p.duration_days >= 85 ? '季' : '月',
         benefits: p.description ? [p.description] : [p.name + '权益']
       }));
     }
-  } catch { /* use mock */ }
-  finally { loadingProducts.value = false; }
+  } catch (e) {
+    console.error("Failed to load products:", e);
+  } finally {
+    loadingProducts.value = false;
+  }
 }
 
 async function completePurchase() {
   if (selectedInfo.value && selectedInfo.value.price > 0) {
     try {
-      await createMembershipOrder({ product_id: selectedInfo.value.tier, pay_channel: 'ALIPAY' });
-    } catch { /* order may fail, still show success for demo */ }
+      await createMembershipOrder({ product_id: selectedInfo.value.id, pay_channel: 'ALIPAY' });
+      trackPaymentSuccess("vip_purchase", {
+        price: selectedInfo.value.price,
+        pay_channel: 'ALIPAY',
+        product_id: selectedInfo.value.id,
+        tier: selectedInfo.value.tier
+      });
+    } catch (e) {
+      console.error("Order creation failed:", e);
+    }
   }
   done.value = true;
 }
 
-onMounted(loadProducts);
+watch(wizardStep, (newStep) => {
+  if (newStep === 1) {
+    trackExposure("vip_purchase");
+  } else if (newStep === 2) {
+    trackUpgradeIntent("vip_purchase");
+  }
+});
+
+onMounted(() => {
+  loadProducts();
+  trackExposure("vip_purchase");
+});
 </script>
 
 <style scoped>

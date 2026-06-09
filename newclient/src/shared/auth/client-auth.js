@@ -20,5 +20,6 @@ export function setClientAuthSession(payload) {
 
 export function clearClientAuthSession() {
   clearClientSession();
+  localStorage.removeItem("sercherai_user_stage");
   session.value = null;
 }

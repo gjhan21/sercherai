@@ -18,7 +18,7 @@
           <ul class="tier-benefits">
             <li v-for="b in (tier.benefits || [])" :key="b">{{ b }}</li>
           </ul>
-          <button class="tier-btn" :class="{ popular: tier.popular }" @click="handleUpgrade(tier)">{{ loading ? '...' : tier.price === 0 ? '当前方案' : '升级方案' }}</button>
+          <button class="tier-btn" :class="{ popular: tier.popular || tier.tier === userLevel.toLowerCase() }" @click="handleUpgrade(tier)">{{ loading ? '...' : tier.tier === userLevel.toLowerCase() ? '当前方案' : '升级方案' }}</button>
         </div>
       </div>
     </section>
@@ -27,40 +27,88 @@
 
 <script setup>
 import { onMounted, ref } from "vue"
+import { useRouter } from "vue-router"
 import { VIP_TIERS as MOCK_TIERS } from "@/mock/user.js"
-import { listMembershipProducts } from "@/api/membership.js"
+import { listMembershipProducts, getMembershipQuota } from "@/api/membership.js"
 import { useClientAuth } from "@/shared/auth/client-auth"
+import { trackExposure, trackClick } from "@/shared/lib/experiment-tracker.js"
+
+const router = useRouter();
 const { isLoggedIn } = useClientAuth();
-
-
 
 const loading = ref(false);
 const tierList = ref(MOCK_TIERS);
+const userLevel = ref("FREE");
+
+const levelMap = {
+  'FREE': { icon: 'free', benefits: ['每日 5 次 AI 分析', '基础市场数据', '基础行情浏览'] },
+  'VIP1': { icon: 'silver', benefits: ['每日 50 次 AI 分析', '进阶技术指标', 'Level-2 行情', 'VIP 交流圈'] },
+  'VIP2': { icon: 'gold', benefits: ['无限次 AI 分析', 'VIP 专属策略', 'Level-2 行情', '实时盯盘提醒'] },
+  'VIP3': { icon: 'platinum', benefits: ['所有黄金权益', '私募级策略', '一对一投顾服务', '优先体验新功能'] },
+  'VIP4': { icon: 'diamond', benefits: ['所有铂金权益', '无限尊贵策略', '私人投顾顾问', '独立分析服务器'] }
+};
 
 async function loadProducts() {
   if (!isLoggedIn.value) return;
   loading.value = true;
   try {
+    // Load current user level
+    try {
+      const quota = await getMembershipQuota();
+      if (quota && quota.member_level) {
+        userLevel.value = quota.member_level.toUpperCase();
+      }
+    } catch (e) {
+      console.error("Failed to load user level:", e);
+    }
+
     const result = await listMembershipProducts({ status: 'ACTIVE' });
     if (result?.items?.length) {
-      const apiTiers = result.items.map((p, i) => ({
-        tier: (p.member_level || 'tier' + i).toLowerCase(),
-        name: p.name, price: p.price, period: p.duration_days >= 360 ? '年' : p.duration_days >= 85 ? '季' : '月',
-        popular: i === 1, icon: ['free','silver','gold','platinum'][i] || 'silver',
-        benefits: p.description ? [p.description, 'AI 智能分析', '深度数据'] : [p.name + '权益']
-      }));
-      apiTiers.unshift(MOCK_TIERS[0]);
+      // Sort result items by member level (VIP1 -> VIP2 -> VIP3)
+      const sortedItems = [...result.items].sort((a, b) => {
+        const lvA = (a.member_level || "").toUpperCase();
+        const lvB = (b.member_level || "").toUpperCase();
+        return lvA.localeCompare(lvB);
+      });
+
+      const apiTiers = sortedItems.map((p) => {
+        const lvl = (p.member_level || "").toUpperCase();
+        const cfg = levelMap[lvl] || { icon: 'silver', benefits: [p.description || (p.name + '权益')] };
+        return {
+          id: p.id,
+          tier: lvl.toLowerCase(),
+          name: p.name || lvl,
+          price: p.price,
+          period: p.duration_days >= 360 ? '年' : p.duration_days >= 85 ? '季' : '月',
+          popular: lvl === 'VIP2',
+          icon: cfg.icon,
+          benefits: p.description ? [p.description, ...cfg.benefits.slice(1)] : cfg.benefits
+        };
+      });
+      apiTiers.unshift(MOCK_TIERS[0]); // Keep free tier first
       tierList.value = apiTiers;
     }
-  } catch { /* use mock */ }
-  finally { loading.value = false; }
+  } catch (e) {
+    console.error("Failed to load products:", e);
+  } finally {
+    loading.value = false;
+  }
 }
 
 function handleUpgrade(tier) {
-  if (tier.price > 0) alert('升级 ' + tier.name + ': ¥' + tier.price + '/' + tier.period);
+  if (tier.tier === userLevel.value.toLowerCase()) {
+    return;
+  }
+  if (tier.price > 0) {
+    trackClick("membership", "upgrade_" + tier.tier);
+    router.push({ path: '/user/vip/purchase', query: { tier: tier.tier } });
+  }
 }
 
-onMounted(loadProducts);
+onMounted(() => {
+  loadProducts();
+  trackExposure("membership");
+});
 </script>
 
 <style scoped>
@@ -78,6 +126,7 @@ onMounted(loadProducts);
 .icon-silver { background: rgba(192,192,192,.15); color: #c0c0c0; }
 .icon-gold { background: var(--accent-gold-glow); color: var(--accent-gold); }
 .icon-platinum { background: rgba(139,92,246,.1); color: #8b5cf6; }
+.icon-diamond { background: rgba(244,63,94,.1); color: #f43f5e; }
 .tier-name { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
 .tier-price { margin-bottom: 16px; }
 .price-amount { font-size: 28px; font-weight: 800; }
