@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
-import { listSystemConfigs, testOSSQiniuConfig, testPaymentYolkPayConfig, upsertSystemConfig } from "../api/admin";
+import { listSystemConfigs, testOSSQiniuConfig, testPaymentYolkPayConfig, upsertSystemConfig, triggerSchedulerJob } from "../api/admin";
 import { buildForecastAdminConfigPayloads, parseForecastAdminConfigMap } from "../lib/forecast-admin";
 import { hasPermission } from "../lib/session";
 
@@ -65,9 +65,28 @@ const paymentForm = reactive({
 const llmLoading = ref(false);
 const llmSaving = ref(false);
 const llmForm = reactive({
+  engines: []
+});
+
+const llmDialogVisible = ref(false);
+const llmDialogTitle = ref("新增大模型引擎");
+const llmDialogForm = reactive({
+  id: "",
+  name: "",
+  base_url: "",
   api_key: "",
-  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  model_name: "qwen-plus"
+  model_name: ""
+});
+
+const newsSyncLoading = ref(false);
+const newsSyncSaving = ref(false);
+const newsSyncTesting = ref(false);
+const newsSyncForm = reactive({
+  enabled: true,
+  source_base_url: "",
+  api_token: "",
+  batch_size: 200,
+  author_id: "admin_001"
 });
 
 
@@ -299,9 +318,45 @@ function applyPaymentConfigMap(map) {
 }
 
 function applyLLMConfigMap(map) {
-  llmForm.api_key = map["llm.api_key"] || "";
-  llmForm.base_url = map["llm.base_url"] || "https://dashscope.aliyuncs.com/compatible-mode/v1";
-  llmForm.model_name = map["llm.model_name"] || "qwen-plus";
+  const enginesStr = map["llm.engines"] || "";
+  let engines = [];
+  if (enginesStr.trim()) {
+    try {
+      engines = JSON.parse(enginesStr);
+    } catch (e) {
+      console.error("Failed to parse llm.engines:", e);
+    }
+  }
+
+  // 兼容旧的单个配置：如果 engines 为空但有旧配置，我们需要生成一个默认模型并自动激活
+  const oldApiKey = map["llm.api_key"] || "";
+  const oldBaseUrl = map["llm.base_url"] || "";
+  const oldModelName = map["llm.model_name"] || "";
+
+  if (engines.length === 0 && (oldApiKey || oldBaseUrl || oldModelName)) {
+    engines.push({
+      id: "engine_" + Date.now(),
+      name: "默认大模型 (旧配置升级)",
+      base_url: oldBaseUrl || "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      api_key: oldApiKey,
+      model_name: oldModelName || "qwen-plus",
+      is_active: true
+    });
+  }
+
+  // 仍为空时加一个空白默认项
+  if (engines.length === 0) {
+    engines.push({
+      id: "engine_" + Date.now(),
+      name: "通义千问 (默认)",
+      base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      api_key: "",
+      model_name: "qwen-plus",
+      is_active: true
+    });
+  }
+
+  llmForm.engines = engines;
 }
 
 function defaultFuturesScoreWeightsPercent() {
@@ -502,6 +557,67 @@ async function fetchConfigList(options = {}) {
   }
 }
 
+async function fetchNewsSyncConfig() {
+  newsSyncLoading.value = true;
+  try {
+    const data = await listSystemConfigs({ keyword: "news.sync.doc_fast.", page: 1, page_size: 50 });
+    const map = toConfigMap(data?.items || []);
+    newsSyncForm.enabled = parseConfigBool(map["news.sync.doc_fast.enabled"], true);
+    newsSyncForm.source_base_url = map["news.sync.doc_fast.source_base_url"] || "";
+    newsSyncForm.api_token = map["news.sync.doc_fast.api_token"] || "";
+    newsSyncForm.batch_size = parseConfigInt(map["news.sync.doc_fast.batch_size"], 200, 1, 1000);
+    newsSyncForm.author_id = map["news.sync.doc_fast.author_id"] || "admin_001";
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "加载资讯同步配置失败");
+  } finally {
+    newsSyncLoading.value = false;
+  }
+}
+
+async function saveNewsSyncConfig() {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
+  newsSyncSaving.value = true;
+  clearMessages();
+  try {
+    const payloads = [
+      { config_key: "news.sync.doc_fast.enabled", config_value: boolToConfigValue(newsSyncForm.enabled), description: "doc_fast 新闻增量同步开关" },
+      { config_key: "news.sync.doc_fast.source_base_url", config_value: newsSyncForm.source_base_url.trim(), description: "doc_fast 新闻源基准URL (例如 http://127.0.0.1/index.php)" },
+      { config_key: "news.sync.doc_fast.api_token", config_value: newsSyncForm.api_token.trim(), description: "doc_fast 新闻同步API安全Token" },
+      { config_key: "news.sync.doc_fast.batch_size", config_value: String(newsSyncForm.batch_size), description: "doc_fast 新闻增量同步单批条数" },
+      { config_key: "news.sync.doc_fast.author_id", config_value: newsSyncForm.author_id.trim(), description: "doc_fast 同步文章作者ID" }
+    ];
+    await Promise.all(payloads.map((payload) => upsertSystemConfig(payload)));
+    await Promise.all([fetchNewsSyncConfig(), fetchConfigList({ keepMessage: true })]);
+    message.value = "资讯同步配置已保存";
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "保存资讯同步配置失败");
+  } finally {
+    newsSyncSaving.value = false;
+  }
+}
+
+async function triggerNewsSyncTest() {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
+  newsSyncTesting.value = true;
+  clearMessages();
+  try {
+    const res = await triggerSchedulerJob({
+      job_name: "doc_fast_news_incremental",
+      trigger_source: "MANUAL",
+      batch_size: newsSyncForm.batch_size
+    });
+    message.value = `同步触发成功！运行ID: ${res?.run_id || "未知"}，请稍后在“任务管理中心”查看详细进度。`;
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "手动触发同步测试失败");
+  } finally {
+    newsSyncTesting.value = false;
+  }
+}
+
 async function fetchLLMConfig() {
   llmLoading.value = true;
   try {
@@ -524,6 +640,7 @@ async function refreshAll() {
       fetchFuturesScoreConfig(),
       fetchForecastConfig(),
       fetchLLMConfig(),
+      fetchNewsSyncConfig(),
       fetchConfigList()
     ]);
     message.value = "配置中心数据已刷新";
@@ -676,11 +793,25 @@ async function saveLLMConfig() {
   llmSaving.value = true;
   clearMessages();
   try {
+    // 确保至少有一个 active 的引擎
+    let activeEngine = llmForm.engines.find(e => e.is_active);
+    if (!activeEngine && llmForm.engines.length > 0) {
+      llmForm.engines[0].is_active = true;
+      activeEngine = llmForm.engines[0];
+    }
+
     const payloads = [
-      { config_key: "llm.api_key", config_value: llmForm.api_key.trim(), description: "大模型 API Key" },
-      { config_key: "llm.base_url", config_value: llmForm.base_url.trim(), description: "大模型 Base URL (需兼容 OpenAI)" },
-      { config_key: "llm.model_name", config_value: llmForm.model_name.trim(), description: "大模型推理型号" }
+      { config_key: "llm.engines", config_value: JSON.stringify(llmForm.engines), description: "大模型引擎列表配置" }
     ];
+
+    if (activeEngine) {
+      payloads.push(
+        { config_key: "llm.api_key", config_value: activeEngine.api_key.trim(), description: "大模型 API Key" },
+        { config_key: "llm.base_url", config_value: activeEngine.base_url.trim(), description: "大模型 Base URL (需兼容 OpenAI)" },
+        { config_key: "llm.model_name", config_value: activeEngine.model_name.trim(), description: "大模型推理型号" }
+      );
+    }
+
     await Promise.all(payloads.map((payload) => upsertSystemConfig(payload)));
     await Promise.all([fetchLLMConfig(), fetchConfigList({ keepMessage: true })]);
     message.value = "大模型配置已保存";
@@ -689,6 +820,82 @@ async function saveLLMConfig() {
   } finally {
     llmSaving.value = false;
   }
+}
+
+function openAddLLMEngineDialog() {
+  llmDialogTitle.value = "新增大模型引擎";
+  llmDialogForm.id = "";
+  llmDialogForm.name = "";
+  llmDialogForm.base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+  llmDialogForm.api_key = "";
+  llmDialogForm.model_name = "";
+  llmDialogVisible.value = true;
+}
+
+function openEditLLMEngineDialog(row) {
+  llmDialogTitle.value = "编辑大模型引擎";
+  llmDialogForm.id = row.id;
+  llmDialogForm.name = row.name;
+  llmDialogForm.base_url = row.base_url;
+  llmDialogForm.api_key = row.api_key;
+  llmDialogForm.model_name = row.model_name;
+  llmDialogVisible.value = true;
+}
+
+function submitLLMEngineDialog() {
+  if (!llmDialogForm.name.trim()) {
+    alert("引擎名称不能为空");
+    return;
+  }
+  if (!llmDialogForm.base_url.trim()) {
+    alert("Base URL 不能为空");
+    return;
+  }
+  if (!llmDialogForm.model_name.trim()) {
+    alert("Model Name 不能为空");
+    return;
+  }
+
+  if (llmDialogForm.id) {
+    const target = llmForm.engines.find(e => e.id === llmDialogForm.id);
+    if (target) {
+      target.name = llmDialogForm.name.trim();
+      target.base_url = llmDialogForm.base_url.trim();
+      target.api_key = llmDialogForm.api_key.trim();
+      target.model_name = llmDialogForm.model_name.trim();
+    }
+  } else {
+    const isFirst = llmForm.engines.length === 0;
+    llmForm.engines.push({
+      id: "engine_" + Date.now(),
+      name: llmDialogForm.name.trim(),
+      base_url: llmDialogForm.base_url.trim(),
+      api_key: llmDialogForm.api_key.trim(),
+      model_name: llmDialogForm.model_name.trim(),
+      is_active: isFirst
+    });
+  }
+  llmDialogVisible.value = false;
+  saveLLMConfig();
+}
+
+function handleDeleteLLMEngine(row) {
+  const index = llmForm.engines.findIndex(e => e.id === row.id);
+  if (index !== -1) {
+    const wasActive = llmForm.engines[index].is_active;
+    llmForm.engines.splice(index, 1);
+    if (wasActive && llmForm.engines.length > 0) {
+      llmForm.engines[0].is_active = true;
+    }
+    saveLLMConfig();
+  }
+}
+
+function handleActivateLLMEngine(row) {
+  llmForm.engines.forEach(e => {
+    e.is_active = (e.id === row.id);
+  });
+  saveLLMConfig();
 }
 
 function resetFuturesScoreDefaults() {
@@ -878,31 +1085,155 @@ onMounted(refreshAll);
       <el-tab-pane label="大模型引擎 (LLM)" name="llm">
         <div class="card" v-loading="llmLoading">
           <div class="section-head">
-            <div class="section-title">大模型参数配置</div>
+            <div class="section-title">大模型引擎列表</div>
             <div class="toolbar" style="margin-bottom: 0">
               <el-button :loading="llmLoading" @click="fetchLLMConfig">刷新</el-button>
               <el-button
                 v-if="canEditSystemConfigs"
                 type="primary"
-                :loading="llmSaving"
-                @click="saveLLMConfig"
+                @click="openAddLLMEngineDialog"
               >
-                保存LLM配置
+                新增引擎
               </el-button>
             </div>
           </div>
-          <el-form label-width="140px" style="max-width: 600px; margin-top: 16px;">
-            <el-form-item label="Base URL">
-              <el-input v-model="llmForm.base_url" placeholder="如: https://dashscope.aliyuncs.com/compatible-mode/v1" />
-              <div class="form-tip">必须提供兼容 OpenAI 协议的 endpoint。</div>
-            </el-form-item>
-            <el-form-item label="API Key">
-              <el-input v-model="llmForm.api_key" type="password" show-password placeholder="请输入密钥" />
-            </el-form-item>
-            <el-form-item label="Model Name">
-              <el-input v-model="llmForm.model_name" placeholder="如: qwen-plus" />
-            </el-form-item>
-          </el-form>
+          
+          <el-table :data="llmForm.engines" style="width: 100%; margin-top: 16px;" border>
+            <el-table-column label="引擎名称" prop="name" width="180" />
+            <el-table-column label="Base URL" prop="base_url" min-width="200" />
+            <el-table-column label="Model Name" prop="model_name" width="150" />
+            <el-table-column label="API Key" width="120">
+              <template #default="scope">
+                <span>{{ scope.row.api_key ? '••••••••' : '未配置' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="120" align="center">
+              <template #default="scope">
+                <el-tag v-if="scope.row.is_active" type="success" effect="dark">启用中</el-tag>
+                <el-button
+                  v-else-if="canEditSystemConfigs"
+                  size="small"
+                  type="info"
+                  plain
+                  @click="handleActivateLLMEngine(scope.row)"
+                >
+                  设为激活
+                </el-button>
+                <el-tag v-else type="info">未启用</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="160" align="center" v-if="canEditSystemConfigs">
+              <template #default="scope">
+                <el-button size="small" type="primary" link @click="openEditLLMEngineDialog(scope.row)">
+                  编辑
+                </el-button>
+                <el-popconfirm
+                  title="确认删除该大模型配置吗？"
+                  confirm-button-text="确定"
+                  cancel-button-text="取消"
+                  @confirm="handleDeleteLLMEngine(scope.row)"
+                >
+                  <template #reference>
+                    <el-button size="small" type="danger" link>
+                      删除
+                    </el-button>
+                  </template>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="资讯同步配置 (DocFast)" name="news-sync">
+        <div class="card" v-loading="newsSyncLoading">
+          <div class="section-head">
+            <div class="section-title">DocFast 新闻资讯同步配置</div>
+            <div class="toolbar" style="margin-bottom: 0">
+              <el-button :loading="newsSyncLoading" @click="fetchNewsSyncConfig">刷新</el-button>
+            </div>
+          </div>
+
+          <div style="max-width: 680px; margin-top: 24px;">
+            <el-form label-width="180px" :model="newsSyncForm">
+              <el-form-item label="启用资讯同步">
+                <el-switch
+                  v-model="newsSyncForm.enabled"
+                  :disabled="!canEditSystemConfigs"
+                  active-text="启用"
+                  inactive-text="关闭"
+                />
+                <div class="help-text" style="color: #8c939d; font-size: 13px; margin-top: 4px;">
+                  开启后系统将允许调度任务及手动触发执行新闻抓取。
+                </div>
+              </el-form-item>
+
+              <el-form-item label="PHP 项目接口地址">
+                <el-input
+                  v-model="newsSyncForm.source_base_url"
+                  :disabled="!canEditSystemConfigs"
+                  placeholder="如 http://127.0.0.1 或 http://127.0.0.1/index.php"
+                />
+                <div class="help-text" style="color: #8c939d; font-size: 13px; margin-top: 4px;">
+                  指向本地或线上 ThinkPHP 项目根地址。如果您的本地 Web 服务器（如 Nginx/Apache）没有配置伪静态规则，请务必在地址末尾添加 <strong>/index.php</strong>（例如 <code>http://127.0.0.1/index.php</code>）。
+                </div>
+              </el-form-item>
+
+              <el-form-item label="API 安全访问密钥">
+                <el-input
+                  v-model="newsSyncForm.api_token"
+                  :disabled="!canEditSystemConfigs"
+                  type="password"
+                  show-password
+                  placeholder="对应 ThinkPHP 配置文件中的 secret_token"
+                />
+                <div class="help-text" style="color: #8c939d; font-size: 13px; margin-top: 4px;">
+                  用于对接访问的安全验证，与 ThinkPHP 中的 <code>application/extra/sync.php</code> 密钥保持一致。
+                </div>
+              </el-form-item>
+
+              <el-form-item label="每次同步数量限制">
+                <el-input-number
+                  v-model="newsSyncForm.batch_size"
+                  :disabled="!canEditSystemConfigs"
+                  :min="1"
+                  :max="1000"
+                />
+                <div class="help-text" style="color: #8c939d; font-size: 13px; margin-top: 4px;">
+                  每次主动拉取任务的最大资讯篇数，默认 200，支持增量拉取。
+                </div>
+              </el-form-item>
+
+              <el-form-item label="同步资讯默认作者ID">
+                <el-input
+                  v-model="newsSyncForm.author_id"
+                  :disabled="!canEditSystemConfigs"
+                  placeholder="默认作者ID，如 admin_001"
+                />
+              </el-form-item>
+
+              <el-form-item v-if="canEditSystemConfigs">
+                <el-button
+                  type="primary"
+                  :loading="newsSyncSaving"
+                  @click="saveNewsSyncConfig"
+                >
+                  保存配置
+                </el-button>
+                <el-button
+                  type="success"
+                  plain
+                  :loading="newsSyncTesting"
+                  @click="triggerNewsSyncTest"
+                >
+                  测试同步连接并拉取
+                </el-button>
+                <router-link to="/system/jobs" style="margin-left: 12px;">
+                  <el-button type="info" plain>前往任务中心配置调度周期</el-button>
+                </router-link>
+              </el-form-item>
+            </el-form>
+          </div>
         </div>
       </el-tab-pane>
 
@@ -1537,6 +1868,28 @@ onMounted(refreshAll);
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button v-if="canEditSystemConfigs" type="primary" :loading="listSubmitting" @click="submitDialog">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="llmDialogVisible" :title="llmDialogTitle" width="640px" destroy-on-close>
+      <el-form label-width="110px">
+        <el-form-item label="引擎名称" required>
+          <el-input v-model="llmDialogForm.name" placeholder="例如: DeepSeek-Chat" />
+        </el-form-item>
+        <el-form-item label="Base URL" required>
+          <el-input v-model="llmDialogForm.base_url" placeholder="如: https://api.deepseek.com/v1" />
+          <div class="form-tip" style="margin-top: 4px; font-size: 12px; color: #909399;">必须提供兼容 OpenAI 协议的 endpoint。</div>
+        </el-form-item>
+        <el-form-item label="API Key">
+          <el-input v-model="llmDialogForm.api_key" type="password" show-password placeholder="请输入密钥" />
+        </el-form-item>
+        <el-form-item label="Model Name" required>
+          <el-input v-model="llmDialogForm.model_name" placeholder="例如: deepseek-chat" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="llmDialogVisible = false">取消</el-button>
+        <el-button v-if="canEditSystemConfigs" type="primary" @click="submitLLMEngineDialog">确定</el-button>
       </template>
     </el-dialog>
   </div>
