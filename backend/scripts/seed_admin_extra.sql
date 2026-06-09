@@ -36,26 +36,32 @@ ON DUPLICATE KEY UPDATE
   paid_at = VALUES(paid_at),
   updated_at = VALUES(updated_at);
 
-INSERT INTO vip_quota_configs (id, member_level, doc_read_limit, news_subscribe_limit, reset_cycle, status, effective_at, updated_at)
+INSERT INTO vip_quota_configs (id, member_level, doc_read_limit, news_subscribe_limit, download_limit, forecast_limit, stock_reco_limit, reset_cycle, status, effective_at, updated_at)
 VALUES
-  ('vqc_vip3', 'VIP3', 1000, 600, 'MONTHLY', 'ACTIVE', NOW(), NOW()),
-  ('vqc_vip2_weekly', 'VIP2', 160, 80, 'WEEKLY', 'DISABLED', DATE_SUB(NOW(), INTERVAL 30 DAY), NOW())
+  ('vqc_vip3', 'VIP3', 1000, 600, 100, 50, 150, 'MONTHLY', 'ACTIVE', NOW(), NOW()),
+  ('vqc_vip2_weekly', 'VIP2', 160, 80, 50, 30, 80, 'WEEKLY', 'DISABLED', DATE_SUB(NOW(), INTERVAL 30 DAY), NOW())
 ON DUPLICATE KEY UPDATE
   doc_read_limit = VALUES(doc_read_limit),
   news_subscribe_limit = VALUES(news_subscribe_limit),
+  download_limit = VALUES(download_limit),
+  forecast_limit = VALUES(forecast_limit),
+  stock_reco_limit = VALUES(stock_reco_limit),
   reset_cycle = VALUES(reset_cycle),
   status = VALUES(status),
   updated_at = VALUES(updated_at);
 
-INSERT INTO user_quota_usages (id, user_id, member_level, period_key, doc_read_used, news_subscribe_used, updated_at)
+INSERT INTO user_quota_usages (id, user_id, member_level, period_key, doc_read_used, news_subscribe_used, download_used, forecast_used, stock_reco_used, updated_at)
 VALUES
-  ('uqu_demo_002', 'u_demo_002', 'FREE', DATE_FORMAT(NOW(), '%Y-%m'), 7, 3, NOW()),
-  ('uqu_demo_003', 'u_demo_003', 'VIP2', DATE_FORMAT(NOW(), '%Y-%m'), 66, 28, NOW()),
-  ('uqu_demo_004', 'u_demo_004', 'VIP2', DATE_FORMAT(NOW(), '%Y-%m'), 31, 14, NOW())
+  ('uqu_demo_002', 'u_demo_002', 'FREE', DATE_FORMAT(NOW(), '%Y-%m'), 7, 3, 0, 0, 0, NOW()),
+  ('uqu_demo_003', 'u_demo_003', 'VIP2', DATE_FORMAT(NOW(), '%Y-%m'), 66, 28, 0, 0, 0, NOW()),
+  ('uqu_demo_004', 'u_demo_004', 'VIP2', DATE_FORMAT(NOW(), '%Y-%m'), 31, 14, 0, 0, 0, NOW())
 ON DUPLICATE KEY UPDATE
   member_level = VALUES(member_level),
   doc_read_used = VALUES(doc_read_used),
   news_subscribe_used = VALUES(news_subscribe_used),
+  download_used = VALUES(download_used),
+  forecast_used = VALUES(forecast_used),
+  stock_reco_used = VALUES(stock_reco_used),
   updated_at = VALUES(updated_at);
 
 INSERT INTO news_categories (id, name, slug, sort, visibility, status, created_at, updated_at)

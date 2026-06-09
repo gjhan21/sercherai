@@ -14,21 +14,21 @@ INSERT INTO membership_orders (id, order_no, user_id, product_id, amount, pay_ch
 VALUES ('mo_demo_001', 'mo_demo_001', 'u_demo_001', 'mp_demo_001', 99.00, 'ALIPAY', 'PAID', NOW(), NOW(), NOW())
 ON DUPLICATE KEY UPDATE status = VALUES(status), paid_at = VALUES(paid_at), amount = VALUES(amount), updated_at = VALUES(updated_at);
 
-INSERT INTO vip_quota_configs (id, member_level, doc_read_limit, news_subscribe_limit, reset_cycle, status, effective_at, updated_at)
-VALUES ('vqc_vip1', 'VIP1', 200, 100, 'MONTHLY', 'ACTIVE', NOW(), NOW())
-ON DUPLICATE KEY UPDATE doc_read_limit = VALUES(doc_read_limit), news_subscribe_limit = VALUES(news_subscribe_limit), updated_at = VALUES(updated_at);
+INSERT INTO vip_quota_configs (id, member_level, doc_read_limit, news_subscribe_limit, download_limit, forecast_limit, stock_reco_limit, reset_cycle, status, effective_at, updated_at)
+VALUES ('vqc_vip1', 'VIP1', 200, 100, 20, 10, 30, 'MONTHLY', 'ACTIVE', NOW(), NOW())
+ON DUPLICATE KEY UPDATE doc_read_limit = VALUES(doc_read_limit), news_subscribe_limit = VALUES(news_subscribe_limit), download_limit = VALUES(download_limit), forecast_limit = VALUES(forecast_limit), stock_reco_limit = VALUES(stock_reco_limit), updated_at = VALUES(updated_at);
 
-INSERT INTO vip_quota_configs (id, member_level, doc_read_limit, news_subscribe_limit, reset_cycle, status, effective_at, updated_at)
-VALUES ('vqc_free', 'FREE', 20, 10, 'MONTHLY', 'ACTIVE', NOW(), NOW())
-ON DUPLICATE KEY UPDATE doc_read_limit = VALUES(doc_read_limit), news_subscribe_limit = VALUES(news_subscribe_limit), updated_at = VALUES(updated_at);
+INSERT INTO vip_quota_configs (id, member_level, doc_read_limit, news_subscribe_limit, download_limit, forecast_limit, stock_reco_limit, reset_cycle, status, effective_at, updated_at)
+VALUES ('vqc_free', 'FREE', 20, 10, 0, 0, 0, 'MONTHLY', 'ACTIVE', NOW(), NOW())
+ON DUPLICATE KEY UPDATE doc_read_limit = VALUES(doc_read_limit), news_subscribe_limit = VALUES(news_subscribe_limit), download_limit = VALUES(download_limit), forecast_limit = VALUES(forecast_limit), stock_reco_limit = VALUES(stock_reco_limit), updated_at = VALUES(updated_at);
 
-INSERT INTO vip_quota_configs (id, member_level, doc_read_limit, news_subscribe_limit, reset_cycle, status, effective_at, updated_at)
-VALUES ('vqc_vip2', 'VIP2', 500, 300, 'MONTHLY', 'ACTIVE', NOW(), NOW())
-ON DUPLICATE KEY UPDATE doc_read_limit = VALUES(doc_read_limit), news_subscribe_limit = VALUES(news_subscribe_limit), updated_at = VALUES(updated_at);
+INSERT INTO vip_quota_configs (id, member_level, doc_read_limit, news_subscribe_limit, download_limit, forecast_limit, stock_reco_limit, reset_cycle, status, effective_at, updated_at)
+VALUES ('vqc_vip2', 'VIP2', 500, 300, 50, 30, 80, 'MONTHLY', 'ACTIVE', NOW(), NOW())
+ON DUPLICATE KEY UPDATE doc_read_limit = VALUES(doc_read_limit), news_subscribe_limit = VALUES(news_subscribe_limit), download_limit = VALUES(download_limit), forecast_limit = VALUES(forecast_limit), stock_reco_limit = VALUES(stock_reco_limit), updated_at = VALUES(updated_at);
 
-INSERT INTO user_quota_usages (id, user_id, member_level, period_key, doc_read_used, news_subscribe_used, updated_at)
-VALUES ('uqu_demo_001', 'u_demo_001', 'VIP1', DATE_FORMAT(NOW(), '%Y-%m'), 13, 7, NOW())
-ON DUPLICATE KEY UPDATE doc_read_used = VALUES(doc_read_used), news_subscribe_used = VALUES(news_subscribe_used), updated_at = VALUES(updated_at);
+INSERT INTO user_quota_usages (id, user_id, member_level, period_key, doc_read_used, news_subscribe_used, download_used, forecast_used, stock_reco_used, updated_at)
+VALUES ('uqu_demo_001', 'u_demo_001', 'VIP1', DATE_FORMAT(NOW(), '%Y-%m'), 13, 7, 0, 0, 0, NOW())
+ON DUPLICATE KEY UPDATE doc_read_used = VALUES(doc_read_used), news_subscribe_used = VALUES(news_subscribe_used), download_used = VALUES(download_used), forecast_used = VALUES(forecast_used), stock_reco_used = VALUES(stock_reco_used), updated_at = VALUES(updated_at);
 
 INSERT INTO browse_histories (id, user_id, content_type, content_id, source_page, viewed_at)
 VALUES ('bh_demo_001', 'u_demo_001', 'NEWS', 'article_demo_001', '/news', NOW())
