@@ -27,3 +27,11 @@ export function getAuthProfile() {
 export function changePassword(payload) {
   return http.post("/auth/change-password", payload);
 }
+
+export function forgotPassword(email) {
+  return http.post("/auth/forgot-password", { email });
+}
+
+export function resetPassword(payload) {
+  return http.post("/auth/reset-password", payload);
+}
