@@ -28,7 +28,9 @@ func (h *AdminUserHandler) ListUsers(c *gin.Context) {
 	status := c.Query("status")
 	memberLevel := c.Query("member_level")
 	registrationSource := c.Query("registration_source")
-	items, total, err := h.service.AdminListUsers(status, memberLevel, registrationSource, page, pageSize)
+	phone := c.Query("phone")
+	email := c.Query("email")
+	items, total, err := h.service.AdminListUsers(status, memberLevel, registrationSource, phone, email, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
@@ -40,7 +42,9 @@ func (h *AdminUserHandler) UserSourceSummary(c *gin.Context) {
 	status := c.Query("status")
 	memberLevel := c.Query("member_level")
 	registrationSource := c.Query("registration_source")
-	item, err := h.service.AdminGetUserSourceSummary(status, memberLevel, registrationSource)
+	phone := c.Query("phone")
+	email := c.Query("email")
+	item, err := h.service.AdminGetUserSourceSummary(status, memberLevel, registrationSource, phone, email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
@@ -52,7 +56,9 @@ func (h *AdminUserHandler) ExportUsersCSV(c *gin.Context) {
 	status := c.Query("status")
 	memberLevel := c.Query("member_level")
 	registrationSource := c.Query("registration_source")
-	items, _, err := h.service.AdminListUsers(status, memberLevel, registrationSource, 1, 10000)
+	phone := c.Query("phone")
+	email := c.Query("email")
+	items, _, err := h.service.AdminListUsers(status, memberLevel, registrationSource, phone, email, 1, 10000)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
@@ -258,7 +264,7 @@ func (h *AdminUserHandler) CreateUserMessages(c *gin.Context) {
 
 	targetUserIDs := uniqueNonEmptyStrings(req.UserIDs)
 	if len(targetUserIDs) == 0 {
-		users, _, err := h.service.AdminListUsers("ACTIVE", "", "", 1, 10000)
+		users, _, err := h.service.AdminListUsers("ACTIVE", "", "", "", "", 1, 10000)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 			return
@@ -451,5 +457,60 @@ func (h *AdminUserHandler) UpdateUserSubscription(c *gin.Context) {
 		fmt.Sprintf("user_id=%s frequency=%s", userID, req.Frequency),
 	)
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AdminUserHandler) PreviewEmailTargets(c *gin.Context) {
+	ruleType := strings.TrimSpace(c.Query("rule_type"))
+	if ruleType == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "rule_type is required", Data: struct{}{}})
+		return
+	}
+
+	users, err := h.service.AdminPreviewEmailTargets(ruleType)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	previewLimit := 5
+	if len(users) < previewLimit {
+		previewLimit = len(users)
+	}
+
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"total_count": len(users),
+		"preview":     users[:previewLimit],
+	}))
+}
+
+func (h *AdminUserHandler) SendNotificationEmail(c *gin.Context) {
+	var req dto.AdminSendEmailRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	operator := currentAdminOperator(c)
+	sentCount, targetCount, err := h.service.AdminSendNotificationEmail(req.RuleType, req.SendChannel, req.Subject, req.Body, operator)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	h.writeOperationLog(
+		c,
+		"USER",
+		"SEND_EMAIL",
+		"USER_EMAIL",
+		"",
+		"",
+		req.RuleType,
+		fmt.Sprintf("channel=%s target=%d sent=%d", req.SendChannel, targetCount, sentCount),
+	)
+
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"sent_count":   sentCount,
+		"target_count": targetCount,
+	}))
 }
 

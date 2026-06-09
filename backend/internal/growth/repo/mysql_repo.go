@@ -39,6 +39,20 @@ type MySQLGrowthRepo struct {
 var repoIDSequence atomic.Uint64
 
 func NewMySQLGrowthRepo(db *sql.DB, redisClient *redis.Client, cfg config.Config) *MySQLGrowthRepo {
+	_, _ = db.Exec(`
+		CREATE TABLE IF NOT EXISTS user_email_logs (
+			id varchar(64) PRIMARY KEY,
+			user_id varchar(64) NOT NULL,
+			email varchar(128) NOT NULL,
+			subject varchar(256) NOT NULL,
+			body text NOT NULL,
+			rule_type varchar(64) NOT NULL,
+			status varchar(32) NOT NULL,
+			error_message text,
+			sent_at datetime NOT NULL
+		)
+	`)
+
 	return &MySQLGrowthRepo{
 		db:             db,
 		redis:          redisClient,
@@ -90,12 +104,25 @@ SELECT
 	bh.id,
 	bh.content_type,
 	bh.content_id,
-	COALESCE(NULLIF(na.title, ''), bh.content_id) AS title,
+	COALESCE(
+		na.title,
+		CASE WHEN bh.content_type = 'STOCK' THEN CONCAT(sr.name, ' (', sr.symbol, ')') END,
+		CASE WHEN bh.content_type = 'FORECAST' THEN CONCAT('深度推演: ', fr.target_label, ' (', fr.target_key, ')') END,
+		CASE WHEN bh.content_type = 'ATTACHMENT' THEN CONCAT('下载附件: ', att.file_name) END,
+		bh.content_id
+	) AS title,
 	bh.source_page,
-	bh.viewed_at
+	bh.viewed_at,
+	COALESCE(sr.symbol, fr.target_key, '') AS target_key
 FROM browse_histories bh
 LEFT JOIN news_articles na
 	ON bh.content_type = 'NEWS' AND na.id = bh.content_id
+LEFT JOIN stock_recommendations sr
+	ON bh.content_type = 'STOCK' AND sr.id = bh.content_id
+LEFT JOIN strategy_forecast_l3_runs fr
+	ON bh.content_type = 'FORECAST' AND fr.id = bh.content_id
+LEFT JOIN news_attachments att
+	ON bh.content_type = 'ATTACHMENT' AND att.id = bh.content_id
 WHERE bh.user_id = ?` + filter + `
 ORDER BY bh.viewed_at DESC
 LIMIT ? OFFSET ?`
@@ -110,7 +137,7 @@ LIMIT ? OFFSET ?`
 	for rows.Next() {
 		var item model.BrowseHistory
 		var viewedAt time.Time
-		if err := rows.Scan(&item.ID, &item.ContentType, &item.ContentID, &item.Title, &item.SourcePage, &viewedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.ContentType, &item.ContentID, &item.Title, &item.SourcePage, &viewedAt, &item.TargetKey); err != nil {
 			return nil, 0, err
 		}
 		item.ViewedAt = viewedAt.Format(time.RFC3339)
@@ -605,35 +632,38 @@ WHERE id = ? AND member_level LIKE 'VIP%'`, now, userID); err != nil {
 	now := time.Now()
 	periodKey := now.Format("2006-01")
 
-	var limitDoc, limitSub int
+	var limitDoc, limitSub, limitDownload, limitForecast, limitStockReco int
 	var resetCycle string
 	err := r.db.QueryRow(`
-SELECT doc_read_limit, news_subscribe_limit, reset_cycle
+SELECT doc_read_limit, news_subscribe_limit, download_limit, forecast_limit, stock_reco_limit, reset_cycle
 FROM vip_quota_configs
 WHERE member_level = ? AND status = 'ACTIVE'
 ORDER BY effective_at DESC
-LIMIT 1`, memberLevel).Scan(&limitDoc, &limitSub, &resetCycle)
+LIMIT 1`, memberLevel).Scan(&limitDoc, &limitSub, &limitDownload, &limitForecast, &limitStockReco, &resetCycle)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return model.MembershipQuota{}, err
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		limitDoc = 0
 		limitSub = 0
+		limitDownload = 0
+		limitForecast = 0
+		limitStockReco = 0
 		resetCycle = "MONTHLY"
 	}
 
-	var usedDoc, usedSub int
+	var usedDoc, usedSub, usedDownload, usedForecast, usedStockReco int
 	err = r.db.QueryRow(`
-SELECT doc_read_used, news_subscribe_used
+SELECT doc_read_used, news_subscribe_used, download_used, forecast_used, stock_reco_used
 FROM user_quota_usages
 WHERE user_id = ? AND period_key = ?`,
 		userID, periodKey,
-	).Scan(&usedDoc, &usedSub)
+	).Scan(&usedDoc, &usedSub, &usedDownload, &usedForecast, &usedStockReco)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return model.MembershipQuota{}, err
 	}
 	if errors.Is(err, sql.ErrNoRows) {
-		usedDoc, usedSub = 0, 0
+		usedDoc, usedSub, usedDownload, usedForecast, usedStockReco = 0, 0, 0, 0, 0
 	}
 
 	remainingDoc := limitDoc - usedDoc
@@ -643,6 +673,18 @@ WHERE user_id = ? AND period_key = ?`,
 	remainingSub := limitSub - usedSub
 	if remainingSub < 0 {
 		remainingSub = 0
+	}
+	remainingDownload := limitDownload - usedDownload
+	if remainingDownload < 0 {
+		remainingDownload = 0
+	}
+	remainingForecast := limitForecast - usedForecast
+	if remainingForecast < 0 {
+		remainingForecast = 0
+	}
+	remainingStockReco := limitStockReco - usedStockReco
+	if remainingStockReco < 0 {
+		remainingStockReco = 0
 	}
 
 	resetAt := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
@@ -661,6 +703,15 @@ WHERE user_id = ? AND period_key = ?`,
 		NewsSubscribeLimit:     limitSub,
 		NewsSubscribeUsed:      usedSub,
 		NewsSubscribeRemaining: remainingSub,
+		DownloadLimit:          limitDownload,
+		DownloadUsed:           usedDownload,
+		DownloadRemaining:      remainingDownload,
+		ForecastLimit:          limitForecast,
+		ForecastUsed:           usedForecast,
+		ForecastRemaining:      remainingForecast,
+		StockRecoLimit:         limitStockReco,
+		StockRecoUsed:          usedStockReco,
+		StockRecoRemaining:     remainingStockReco,
 		ResetCycle:             resetCycle,
 		ResetAt:                resetAt.Format(time.RFC3339),
 		VIPExpireAt:            formatNullTime(vipExpireAt),
@@ -690,7 +741,21 @@ WHERE a.id = ? AND n.status = 'PUBLISHED'`
 }
 
 func (r *MySQLGrowthRepo) LogAttachmentDownload(userID string, attachmentID string, articleID string) error {
-	_, err := r.db.Exec(`
+	allowed, err := r.CheckAndConsumeQuota(userID, "download", attachmentID)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return errors.New("quota exceeded")
+	}
+
+	_, _ = r.db.Exec(`
+INSERT INTO browse_histories (id, user_id, content_type, content_id, source_page, viewed_at)
+VALUES (?, ?, 'ATTACHMENT', ?, '/news', ?)`,
+		newID("bh"), userID, attachmentID, time.Now(),
+	)
+
+	_, err = r.db.Exec(`
 INSERT INTO attachment_download_logs (id, user_id, attachment_id, article_id, downloaded_at)
 VALUES (?, ?, ?, ?, ?)`,
 		newID("adl"), userID, attachmentID, articleID, time.Now(),
@@ -783,27 +848,22 @@ func (r *MySQLGrowthRepo) GetNewsArticleDetail(userID string, articleID string) 
 		return model.NewsArticle{}, err
 	}
 	query := `
-SELECT id, category_id, title, summary, content, cover_url, visibility, status, published_at, author_id
-FROM news_articles
-WHERE id = ? AND status = 'PUBLISHED'`
-	args := []interface{}{articleID}
-	if !isVIP {
-		query += " AND visibility = 'PUBLIC'"
-	}
+SELECT na.id, na.category_id, na.title, na.summary, na.content, na.cover_url, na.visibility, na.status, na.published_at, na.author_id,
+  (SELECT COUNT(*) FROM news_attachments att WHERE att.article_id = na.id) AS attachment_count
+FROM news_articles na
+WHERE na.id = ? AND na.status = 'PUBLISHED'`
+
 	var item model.NewsArticle
 	var summary, content, coverURL, authorID sql.NullString
 	var publishedAt sql.NullTime
-	err = r.db.QueryRow(query, args...).Scan(
-		&item.ID, &item.CategoryID, &item.Title, &summary, &content, &coverURL, &item.Visibility, &item.Status, &publishedAt, &authorID,
+	err = r.db.QueryRow(query, articleID).Scan(
+		&item.ID, &item.CategoryID, &item.Title, &summary, &content, &coverURL, &item.Visibility, &item.Status, &publishedAt, &authorID, &item.AttachmentCount,
 	)
 	if err != nil {
 		return model.NewsArticle{}, err
 	}
 	if summary.Valid {
 		item.Summary = summary.String
-	}
-	if content.Valid {
-		item.Content = content.String
 	}
 	if coverURL.Valid {
 		item.CoverURL = coverURL.String
@@ -814,11 +874,42 @@ WHERE id = ? AND status = 'PUBLISHED'`
 	if publishedAt.Valid {
 		item.PublishedAt = publishedAt.Time.Format(time.RFC3339)
 	}
-	_, _ = r.db.Exec(`
+
+	quotaType := "doc_read"
+	if item.Visibility == "VIP" {
+		quotaType = "news_subscribe"
+	}
+
+	if item.Visibility == "VIP" && !isVIP {
+		item.IsLocked = true
+		item.Content = "此资讯为 VIP 专享，请先升级为 VIP 会员查看完整内容及下载附件。"
+	} else {
+		allowed := true
+		if userID != "" {
+			var checkErr error
+			allowed, checkErr = r.CheckAndConsumeQuota(userID, quotaType, articleID)
+			if checkErr != nil {
+				return model.NewsArticle{}, checkErr
+			}
+		}
+		if !allowed {
+			item.IsLocked = true
+			item.Content = "您的阅读额度已用尽，请下月再试或调整配额。"
+		} else {
+			item.IsLocked = false
+			if content.Valid {
+				item.Content = content.String
+			}
+			if userID != "" {
+				_, _ = r.db.Exec(`
 INSERT INTO browse_histories (id, user_id, content_type, content_id, source_page, viewed_at)
 VALUES (?, ?, 'NEWS', ?, '/news', ?)`,
-		newID("bh"), userID, articleID, time.Now(),
-	)
+					newID("bh"), userID, articleID, time.Now(),
+				)
+			}
+		}
+	}
+
 	return item, nil
 }
 
@@ -1896,6 +1987,7 @@ type docFastSyncRuntimeConfig struct {
 	BatchSize     int
 	SourceBaseURL string
 	AuthorID      string
+	APIToken      string
 }
 
 type docFastSyncCategoryTarget struct {
@@ -1926,6 +2018,66 @@ type docFastAttachmentMeta struct {
 	FileName string
 	MimeType string
 	FileSize int64
+}
+
+type phpSyncAttachment struct {
+	URL      string `json:"url"`
+	Name     string `json:"name"`
+	FileName string `json:"filename"`
+	MimeType string `json:"mimetype"`
+	FileSize int64  `json:"filesize"`
+}
+
+type phpSyncArticle struct {
+	ID          int64               `json:"id"`
+	ChannelID   int64               `json:"channel_id"`
+	Title       string              `json:"title"`
+	Image       string              `json:"image"`
+	Description string              `json:"description"`
+	PublishUnix int64               `json:"publishtime"`
+	CreateUnix  int64               `json:"createtime"`
+	UpdateUnix  int64               `json:"updatetime"`
+	Content     string              `json:"content"`
+	DownloadURL string              `json:"downloadurl"`
+	Attachments []phpSyncAttachment `json:"attachments"`
+}
+
+type phpSyncResponse struct {
+	Code int              `json:"code"`
+	Msg  string           `json:"msg"`
+	Data []phpSyncArticle `json:"data"`
+}
+
+func fetchArticlesFromPHPCMS(baseURL, token string, updatedAt, sourceID int64, limit int) ([]phpSyncArticle, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	urlStr := fmt.Sprintf("%s/api/sync/articles?sync_token=%s&updated_at=%d&source_id=%d&limit=%d",
+		strings.TrimRight(baseURL, "/"),
+		url.QueryEscape(token),
+		updatedAt,
+		sourceID,
+		limit,
+	)
+
+	resp, err := client.Get(urlStr)
+	if err != nil {
+		return nil, fmt.Errorf("http request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("http status error: %s", resp.Status)
+	}
+
+	var apiResp phpSyncResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return nil, fmt.Errorf("failed to decode json response: %w", err)
+	}
+
+	if apiResp.Code != 1 {
+		return nil, fmt.Errorf("php api error (code %d): %s", apiResp.Code, apiResp.Msg)
+	}
+
+	return apiResp.Data, nil
 }
 
 const docFastSyncCheckpointKey = "doc_fast_news_incremental"
@@ -2014,6 +2166,36 @@ func (r *MySQLGrowthRepo) AdminSyncDocFastNewsIncremental(batchSize int) (string
 		return "", err
 	}
 
+	// 1. Initialize checkpoint row if it doesn't exist yet
+	if _, err := r.db.Exec(`
+INSERT INTO news_sync_checkpoints
+	(sync_key, cursor_updated_at, cursor_source_id, last_status, synced_articles, synced_attachments, updated_at, created_at)
+VALUES
+	(?, 0, 0, 'IDLE', 0, 0, NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+	sync_key = VALUES(sync_key)`, docFastSyncCheckpointKey); err != nil {
+		r.markDocFastSyncFailed(err.Error())
+		return "", err
+	}
+
+	cursorUpdatedAt := int64(0)
+	cursorSourceID := int64(0)
+	if err := r.db.QueryRow(`
+SELECT cursor_updated_at, cursor_source_id
+FROM news_sync_checkpoints
+WHERE sync_key = ?`, docFastSyncCheckpointKey).Scan(&cursorUpdatedAt, &cursorSourceID); err != nil {
+		r.markDocFastSyncFailed(err.Error())
+		return "", err
+	}
+
+	// 2. HTTP GET Request to PHP CMS Sync API (no DB lock held during network I/O)
+	sourceItems, err := fetchArticlesFromPHPCMS(runtime.SourceBaseURL, runtime.APIToken, cursorUpdatedAt, cursorSourceID, runtime.BatchSize)
+	if err != nil {
+		r.markDocFastSyncFailed(err.Error())
+		return "", err
+	}
+
+	// 3. Database Transaction to Upsert Sync Records
 	tx, err := r.db.Begin()
 	if err != nil {
 		return "", err
@@ -2025,34 +2207,12 @@ func (r *MySQLGrowthRepo) AdminSyncDocFastNewsIncremental(batchSize int) (string
 		}
 	}()
 
-	if _, err := tx.Exec(`
-INSERT INTO news_sync_checkpoints
-	(sync_key, cursor_updated_at, cursor_source_id, last_status, synced_articles, synced_attachments, updated_at, created_at)
-VALUES
-	(?, 0, 0, 'IDLE', 0, 0, NOW(), NOW())
-ON DUPLICATE KEY UPDATE
-	sync_key = VALUES(sync_key)`, docFastSyncCheckpointKey); err != nil {
-		rollbacked = true
-		_ = tx.Rollback()
-		r.markDocFastSyncFailed(err.Error())
-		return "", err
-	}
-
-	cursorUpdatedAt := int64(0)
-	cursorSourceID := int64(0)
+	// Query with FOR UPDATE to ensure safety against race conditions
 	if err := tx.QueryRow(`
 SELECT cursor_updated_at, cursor_source_id
 FROM news_sync_checkpoints
 WHERE sync_key = ?
 FOR UPDATE`, docFastSyncCheckpointKey).Scan(&cursorUpdatedAt, &cursorSourceID); err != nil {
-		rollbacked = true
-		_ = tx.Rollback()
-		r.markDocFastSyncFailed(err.Error())
-		return "", err
-	}
-
-	sourceItems, err := r.loadDocFastSourceArticlesForSync(tx, cursorUpdatedAt, cursorSourceID, runtime.BatchSize)
-	if err != nil {
 		rollbacked = true
 		_ = tx.Rollback()
 		r.markDocFastSyncFailed(err.Error())
@@ -2065,6 +2225,11 @@ FOR UPDATE`, docFastSyncCheckpointKey).Scan(&cursorUpdatedAt, &cursorSourceID); 
 	nextCursorSourceID := cursorSourceID
 
 	for _, item := range sourceItems {
+		// Skip if this article has already been synchronized in a concurrent/newer execution
+		if item.UpdateUnix < cursorUpdatedAt || (item.UpdateUnix == cursorUpdatedAt && item.ID <= cursorSourceID) {
+			continue
+		}
+
 		target, ok := categoryTargets[item.ChannelID]
 		if !ok || strings.TrimSpace(target.CategoryID) == "" {
 			continue
@@ -2130,20 +2295,16 @@ ON DUPLICATE KEY UPDATE
 		}
 		syncedArticles++
 
-		attachments := parseDocFastDownloadAttachments(item.DownloadURL)
-		for idx, att := range attachments {
+		// Process attachments using meta directly provided by the HTTP JSON payload
+		for idx, att := range item.Attachments {
 			normalizedURL := normalizeDocFastAssetURL(runtime.SourceBaseURL, att.URL)
 			if normalizedURL == "" {
 				continue
 			}
-			meta, metaErr := r.loadDocFastAttachmentMeta(tx, att.URL)
-			if metaErr != nil {
-				rollbacked = true
-				_ = tx.Rollback()
-				r.markDocFastSyncFailed(metaErr.Error())
-				return "", metaErr
+			fileName := normalizeUTF8Text(att.FileName)
+			if fileName == "" {
+				fileName = normalizeUTF8Text(att.Name)
 			}
-			fileName := normalizeUTF8Text(meta.FileName)
 			if fileName == "" {
 				fileName = inferDocFastAttachmentFileName(normalizedURL, title, idx+1)
 			}
@@ -2152,7 +2313,7 @@ ON DUPLICATE KEY UPDATE
 				fileName = fmt.Sprintf("attachment_%d", idx+1)
 			}
 
-			mimeType := truncateByRunes(normalizeUTF8Text(meta.MimeType), 128)
+			mimeType := truncateByRunes(normalizeUTF8Text(att.MimeType), 128)
 			attachmentID := fmt.Sprintf("nat_df_%d_%d", item.ID, idx+1)
 			_, err = tx.Exec(`
 INSERT INTO news_attachments
@@ -2168,7 +2329,7 @@ ON DUPLICATE KEY UPDATE
 				articleID,
 				fileName,
 				truncateByRunes(normalizedURL, 512),
-				meta.FileSize,
+				att.FileSize,
 				nullableString(mimeType),
 				updatedAt,
 			)
@@ -2241,6 +2402,7 @@ func (r *MySQLGrowthRepo) resolveDocFastSyncRuntimeConfig(batchSize int) docFast
 		BatchSize:     200,
 		SourceBaseURL: "https://img.cloudup518.top",
 		AuthorID:      "admin_001",
+		APIToken:      "doc_fast_sync_secret_token_2026",
 	}
 	items, _, err := r.AdminListSystemConfigs("news.sync.doc_fast.", 1, 200)
 	if err == nil {
@@ -2259,6 +2421,10 @@ func (r *MySQLGrowthRepo) resolveDocFastSyncRuntimeConfig(batchSize int) docFast
 			case "news.sync.doc_fast.author_id":
 				if value != "" {
 					cfg.AuthorID = value
+				}
+			case "news.sync.doc_fast.api_token":
+				if value != "" {
+					cfg.APIToken = value
 				}
 			}
 		}
@@ -4404,6 +4570,23 @@ WHERE d.reco_id = ? AND r.status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAK
 	if riskNote.Valid {
 		item.RiskNote = riskNote.String
 	}
+
+	if userID != "" {
+		allowed, err := r.CheckAndConsumeQuota(userID, "stock_reco", recoID)
+		if err != nil {
+			return model.StockRecommendationDetail{}, err
+		}
+		if !allowed {
+			return model.StockRecommendationDetail{}, errors.New("quota exceeded")
+		}
+
+		_, _ = r.db.Exec(`
+INSERT INTO browse_histories (id, user_id, content_type, content_id, source_page, viewed_at)
+VALUES (?, ?, 'STOCK', ?, '/recommendation', ?)`,
+			newID("bh"), userID, recoID, time.Now(),
+		)
+	}
+
 	return item, nil
 }
 
@@ -4451,7 +4634,7 @@ func (r *MySQLGrowthRepo) GetStockRecommendationInsight(userID string, recoID st
 	if err := r.db.QueryRow(`
 SELECT id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary
 FROM stock_recommendations
-WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT', 'HIT_STOP_LOSS', 'INVALIDATED', 'REVIEWED')`, recoID).Scan(
+WHERE id = ? AND status IN ('PUBLISHED', 'ACTIVE', 'TRACKING', 'HIT_TAKE_PROFIT', 'HIT_STOP_LOSS', 'INVALIDATED', 'REVIEWED', 'REALTIME_CACHED')`, recoID).Scan(
 		&item.ID, &item.Symbol, &item.Name, &item.Score, &item.RiskLevel, &positionRange, &validFrom, &validTo, &item.Status, &reasonSummary,
 	); err != nil {
 		return model.StockRecommendationInsight{}, err
@@ -7336,12 +7519,14 @@ VALUES (?, ?, ?, ?, ?, 'UNREAD', ?)`)
 	return sent, failures, nil
 }
 
-func (r *MySQLGrowthRepo) AdminListUsers(status string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error) {
+func (r *MySQLGrowthRepo) AdminListUsers(status string, memberLevel string, registrationSource string, phone string, email string, page int, pageSize int) ([]model.AdminUser, int, error) {
 	offset := (page - 1) * pageSize
 	args := []interface{}{}
 	status = strings.ToUpper(strings.TrimSpace(status))
 	memberLevel = strings.TrimSpace(memberLevel)
 	registrationSource = strings.ToUpper(strings.TrimSpace(registrationSource))
+	phone = strings.TrimSpace(phone)
+	email = strings.TrimSpace(email)
 	filter := " WHERE 1=1"
 	if status != "" {
 		filter += " AND u.status = ?"
@@ -7356,6 +7541,14 @@ func (r *MySQLGrowthRepo) AdminListUsers(status string, memberLevel string, regi
 	}
 	if registrationSource == "DIRECT" {
 		filter += " AND ir.id IS NULL"
+	}
+	if phone != "" {
+		filter += " AND u.phone LIKE ?"
+		args = append(args, "%"+phone+"%")
+	}
+	if email != "" {
+		filter += " AND u.email LIKE ?"
+		args = append(args, "%"+email+"%")
 	}
 	var total int
 	countQuery := "SELECT COUNT(*) FROM users u LEFT JOIN invite_records ir ON ir.invitee_user_id = u.id" + filter
@@ -7432,12 +7625,14 @@ LIMIT ? OFFSET ?`
 	return items, total, nil
 }
 
-func (r *MySQLGrowthRepo) AdminGetUserSourceSummary(status string, memberLevel string, registrationSource string) (model.AdminUserSourceSummary, error) {
+func (r *MySQLGrowthRepo) AdminGetUserSourceSummary(status string, memberLevel string, registrationSource string, phone string, email string) (model.AdminUserSourceSummary, error) {
 	result := model.AdminUserSourceSummary{}
 	args := []interface{}{}
 	status = strings.ToUpper(strings.TrimSpace(status))
 	memberLevel = strings.TrimSpace(memberLevel)
 	registrationSource = strings.ToUpper(strings.TrimSpace(registrationSource))
+	phone = strings.TrimSpace(phone)
+	email = strings.TrimSpace(email)
 
 	filter := " WHERE 1=1"
 	if status != "" {
@@ -7453,6 +7648,14 @@ func (r *MySQLGrowthRepo) AdminGetUserSourceSummary(status string, memberLevel s
 	}
 	if registrationSource == "DIRECT" {
 		filter += " AND ir.id IS NULL"
+	}
+	if phone != "" {
+		filter += " AND u.phone LIKE ?"
+		args = append(args, "%"+phone+"%")
+	}
+	if email != "" {
+		filter += " AND u.email LIKE ?"
+		args = append(args, "%"+email+"%")
 	}
 
 	query := `
@@ -7773,6 +7976,21 @@ func (r *MySQLGrowthRepo) AdminUpdateMembershipProductStatus(id string, status s
 		return err
 	}
 	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) AdminDeleteMembershipProduct(id string) error {
+	result, err := r.db.Exec("DELETE FROM membership_products WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
@@ -8427,7 +8645,7 @@ func (r *MySQLGrowthRepo) AdminListVIPQuotaConfigs(memberLevel string, status st
 		return nil, 0, err
 	}
 	query := `
-SELECT id, member_level, doc_read_limit, news_subscribe_limit, reset_cycle, status, effective_at, updated_at
+SELECT id, member_level, doc_read_limit, news_subscribe_limit, download_limit, forecast_limit, stock_reco_limit, reset_cycle, status, effective_at, updated_at
 FROM vip_quota_configs` + filter + `
 ORDER BY effective_at DESC
 LIMIT ? OFFSET ?`
@@ -8441,7 +8659,7 @@ LIMIT ? OFFSET ?`
 	for rows.Next() {
 		var item model.VIPQuotaConfig
 		var effectiveAt, updatedAt time.Time
-		if err := rows.Scan(&item.ID, &item.MemberLevel, &item.DocReadLimit, &item.NewsSubscribeLimit, &item.ResetCycle, &item.Status, &effectiveAt, &updatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.MemberLevel, &item.DocReadLimit, &item.NewsSubscribeLimit, &item.DownloadLimit, &item.ForecastLimit, &item.StockRecoLimit, &item.ResetCycle, &item.Status, &effectiveAt, &updatedAt); err != nil {
 			return nil, 0, err
 		}
 		item.EffectiveAt = effectiveAt.Format(time.RFC3339)
@@ -8458,9 +8676,9 @@ func (r *MySQLGrowthRepo) AdminCreateVIPQuotaConfig(item model.VIPQuotaConfig) (
 		return "", err
 	}
 	_, err = r.db.Exec(`
-INSERT INTO vip_quota_configs (id, member_level, doc_read_limit, news_subscribe_limit, reset_cycle, status, effective_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, item.MemberLevel, item.DocReadLimit, item.NewsSubscribeLimit, item.ResetCycle, item.Status, effectiveAt, time.Now(),
+INSERT INTO vip_quota_configs (id, member_level, doc_read_limit, news_subscribe_limit, download_limit, forecast_limit, stock_reco_limit, reset_cycle, status, effective_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, item.MemberLevel, item.DocReadLimit, item.NewsSubscribeLimit, item.DownloadLimit, item.ForecastLimit, item.StockRecoLimit, item.ResetCycle, item.Status, effectiveAt, time.Now(),
 	)
 	if err != nil {
 		return "", err
@@ -8475,10 +8693,25 @@ func (r *MySQLGrowthRepo) AdminUpdateVIPQuotaConfig(id string, item model.VIPQuo
 	}
 	result, err := r.db.Exec(`
 UPDATE vip_quota_configs
-SET doc_read_limit = ?, news_subscribe_limit = ?, reset_cycle = ?, status = ?, effective_at = ?, updated_at = ?
+SET doc_read_limit = ?, news_subscribe_limit = ?, download_limit = ?, forecast_limit = ?, stock_reco_limit = ?, reset_cycle = ?, status = ?, effective_at = ?, updated_at = ?
 WHERE id = ?`,
-		item.DocReadLimit, item.NewsSubscribeLimit, item.ResetCycle, item.Status, effectiveAt, time.Now(), id,
+		item.DocReadLimit, item.NewsSubscribeLimit, item.DownloadLimit, item.ForecastLimit, item.StockRecoLimit, item.ResetCycle, item.Status, effectiveAt, time.Now(), id,
 	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) AdminDeleteVIPQuotaConfig(id string) error {
+	result, err := r.db.Exec("DELETE FROM vip_quota_configs WHERE id = ?", id)
 	if err != nil {
 		return err
 	}
@@ -8512,8 +8745,13 @@ func (r *MySQLGrowthRepo) AdminListUserQuotaUsages(userID string, periodKey stri
 	}
 
 	query := `
-SELECT u.id, u.member_level, ?, COALESCE(vqc.doc_read_limit, 0), COALESCE(uqu.doc_read_used, 0),
-       COALESCE(vqc.news_subscribe_limit, 0), COALESCE(uqu.news_subscribe_used, 0), uqu.updated_at
+SELECT COALESCE(uqu.id, ''), u.id, u.member_level, ?, 
+       COALESCE(vqc.doc_read_limit, 0), COALESCE(uqu.doc_read_used, 0),
+       COALESCE(vqc.news_subscribe_limit, 0), COALESCE(uqu.news_subscribe_used, 0),
+       COALESCE(vqc.download_limit, 0), COALESCE(uqu.download_used, 0),
+       COALESCE(vqc.forecast_limit, 0), COALESCE(uqu.forecast_used, 0),
+       COALESCE(vqc.stock_reco_limit, 0), COALESCE(uqu.stock_reco_used, 0),
+       uqu.updated_at
 FROM users u
 LEFT JOIN user_quota_usages uqu ON uqu.user_id = u.id AND uqu.period_key = ?
 LEFT JOIN vip_quota_configs vqc ON vqc.id = (
@@ -8537,6 +8775,7 @@ LIMIT ? OFFSET ?`
 		var item model.UserQuotaUsage
 		var updatedAt sql.NullTime
 		if err := rows.Scan(
+			&item.ID,
 			&item.UserID,
 			&item.MemberLevel,
 			&item.PeriodKey,
@@ -8544,6 +8783,12 @@ LIMIT ? OFFSET ?`
 			&item.DocReadUsed,
 			&item.NewsSubscribeLimit,
 			&item.NewsSubscribeUsed,
+			&item.DownloadLimit,
+			&item.DownloadUsed,
+			&item.ForecastLimit,
+			&item.ForecastUsed,
+			&item.StockRecoLimit,
+			&item.StockRecoUsed,
 			&updatedAt,
 		); err != nil {
 			return nil, 0, err
@@ -8556,7 +8801,7 @@ LIMIT ? OFFSET ?`
 	return items, total, nil
 }
 
-func (r *MySQLGrowthRepo) AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int) error {
+func (r *MySQLGrowthRepo) AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int, downloadDelta int, forecastDelta int, stockRecoDelta int) error {
 	if strings.TrimSpace(periodKey) == "" {
 		return errors.New("period_key is required")
 	}
@@ -8573,8 +8818,8 @@ func (r *MySQLGrowthRepo) AdminAdjustUserQuota(userID string, periodKey string, 
 
 	now := time.Now()
 	_, err = tx.Exec(`
-INSERT INTO user_quota_usages (id, user_id, member_level, period_key, doc_read_used, news_subscribe_used, updated_at)
-VALUES (?, ?, ?, ?, 0, 0, ?)
+INSERT INTO user_quota_usages (id, user_id, member_level, period_key, doc_read_used, news_subscribe_used, download_used, forecast_used, stock_reco_used, updated_at)
+VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, ?)
 ON DUPLICATE KEY UPDATE member_level = VALUES(member_level), updated_at = VALUES(updated_at)`,
 		newID("uqu"), userID, memberLevel, periodKey, now,
 	)
@@ -8587,15 +8832,33 @@ ON DUPLICATE KEY UPDATE member_level = VALUES(member_level), updated_at = VALUES
 UPDATE user_quota_usages
 SET doc_read_used = GREATEST(0, doc_read_used + ?),
 	news_subscribe_used = GREATEST(0, news_subscribe_used + ?),
+	download_used = GREATEST(0, download_used + ?),
+	forecast_used = GREATEST(0, forecast_used + ?),
+	stock_reco_used = GREATEST(0, stock_reco_used + ?),
 	updated_at = ?
 WHERE user_id = ? AND period_key = ?`,
-		docReadDelta, newsSubscribeDelta, now, userID, periodKey,
+		docReadDelta, newsSubscribeDelta, downloadDelta, forecastDelta, stockRecoDelta, now, userID, periodKey,
 	)
 	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 	return tx.Commit()
+}
+
+func (r *MySQLGrowthRepo) AdminDeleteUserQuota(id string) error {
+	result, err := r.db.Exec("DELETE FROM user_quota_usages WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *MySQLGrowthRepo) AdminListDataSources(page int, pageSize int) ([]model.DataSource, int, error) {
@@ -11453,6 +11716,136 @@ WHERE id = ? AND member_level LIKE 'VIP%'`, now, userID); err != nil {
 	}
 	return resolveMembershipActivationState(memberLevel, vipExpireAt) == "ACTIVE", nil
 }
+
+func (r *MySQLGrowthRepo) CheckAndConsumeQuota(userID string, quotaType string, contentID string) (bool, error) {
+	var memberLevel string
+	var vipExpireAt sql.NullTime
+	if err := r.db.QueryRow("SELECT member_level, vip_expire_at FROM users WHERE id = ?", userID).Scan(&memberLevel, &vipExpireAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			memberLevel = "FREE"
+		} else {
+			return false, err
+		}
+	}
+	memberLevel = strings.ToUpper(strings.TrimSpace(memberLevel))
+
+	if strings.HasPrefix(memberLevel, "VIP") && vipExpireAt.Valid && !vipExpireAt.Time.After(time.Now()) {
+		now := time.Now()
+		if _, err := r.db.Exec(`
+UPDATE users
+SET member_level = 'FREE',
+    vip_started_at = NULL,
+    vip_expire_at = NULL,
+    vip_remind_3d_at = NULL,
+    vip_remind_1d_at = NULL,
+    updated_at = ?
+WHERE id = ? AND member_level LIKE 'VIP%'`, now, userID); err != nil {
+			return false, err
+		}
+		memberLevel = "FREE"
+	}
+
+	now := time.Now()
+	periodKey := now.Format("2006-01")
+	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+
+	if contentID != "" {
+		var count int
+		var checkErr error
+		if quotaType == "news_subscribe" || quotaType == "doc_read" {
+			checkErr = r.db.QueryRow("SELECT COUNT(*) FROM browse_histories WHERE user_id = ? AND content_type = 'NEWS' AND content_id = ? AND viewed_at >= ?", userID, contentID, periodStart).Scan(&count)
+		} else if quotaType == "download" {
+			checkErr = r.db.QueryRow("SELECT COUNT(*) FROM attachment_download_logs WHERE user_id = ? AND attachment_id = ? AND downloaded_at >= ?", userID, contentID, periodStart).Scan(&count)
+		} else if quotaType == "stock_reco" {
+			checkErr = r.db.QueryRow("SELECT COUNT(*) FROM browse_histories WHERE user_id = ? AND content_type = 'STOCK' AND content_id = ? AND viewed_at >= ?", userID, contentID, periodStart).Scan(&count)
+		}
+		if checkErr == nil && count > 0 {
+			return true, nil
+		}
+	}
+
+	var limit int
+	limitColumn := ""
+	switch quotaType {
+	case "doc_read":
+		limitColumn = "doc_read_limit"
+	case "news_subscribe":
+		limitColumn = "news_subscribe_limit"
+	case "download":
+		limitColumn = "download_limit"
+	case "forecast":
+		limitColumn = "forecast_limit"
+	case "stock_reco":
+		limitColumn = "stock_reco_limit"
+	default:
+		return false, fmt.Errorf("invalid quota type: %s", quotaType)
+	}
+
+	err := r.db.QueryRow(fmt.Sprintf(`
+SELECT %s
+FROM vip_quota_configs
+WHERE member_level = ? AND status = 'ACTIVE'
+ORDER BY effective_at DESC
+LIMIT 1`, limitColumn), memberLevel).Scan(&limit)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			limit = 0
+		} else {
+			return false, err
+		}
+	}
+
+	var used int
+	usedColumn := quotaType + "_used"
+	err = r.db.QueryRow(fmt.Sprintf(`
+SELECT %s
+FROM user_quota_usages
+WHERE user_id = ? AND period_key = ?`, usedColumn), userID, periodKey).Scan(&used)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			used = 0
+		} else {
+			return false, err
+		}
+	}
+
+	if limit > 0 && used >= limit {
+		return false, nil
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	_, err = tx.Exec(`
+INSERT INTO user_quota_usages (id, user_id, member_level, period_key, updated_at)
+VALUES (?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE member_level = VALUES(member_level), updated_at = VALUES(updated_at)`,
+		newID("uqu"), userID, memberLevel, periodKey, now,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	_, err = tx.Exec(fmt.Sprintf(`
+UPDATE user_quota_usages
+SET %s = GREATEST(0, %s + 1), updated_at = ?
+WHERE user_id = ? AND period_key = ?`, usedColumn, usedColumn), now, userID, periodKey)
+	if err != nil {
+		return false, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
 
 func newID(prefix string) string {
 	seq := repoIDSequence.Add(1)
@@ -14967,3 +15360,730 @@ WHERE id = ?`, closePrice, newReturnRate, maxDrawdown, newHoldDays, h.id)
 	}
 	return nil
 }
+
+func (r *MySQLGrowthRepo) AdminListFuturesSimulatedPositions(status string, contract string, page int, pageSize int) ([]model.FuturesSimulatedPosition, int, error) {
+	offset := (page - 1) * pageSize
+	filter := " WHERE 1=1"
+	var args []any
+
+	status = strings.TrimSpace(status)
+	if status != "" {
+		filter += " AND status = ?"
+		args = append(args, status)
+	}
+
+	contract = strings.TrimSpace(contract)
+	if contract != "" {
+		filter += " AND contract = ?"
+		args = append(args, contract)
+	}
+
+	var total int
+	err := r.db.QueryRow("SELECT COUNT(*) FROM futures_simulated_positions" + filter, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `SELECT id, strategy_id, contract, name, direction, status,
+	                 DATE_FORMAT(open_date, '%Y-%m-%d'), open_price, current_price,
+	                 COALESCE(DATE_FORMAT(close_date, '%Y-%m-%d'), ''), COALESCE(close_price, 0),
+	                 COALESCE(take_profit_price, 0), COALESCE(stop_loss_price, 0),
+	                 quantity, cost_basis, COALESCE(close_value, 0),
+	                 return_rate, max_drawdown, hold_days, COALESCE(close_reason, ''),
+	                 DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%sZ')
+	          FROM futures_simulated_positions` + filter + `
+	          ORDER BY open_date DESC, created_at DESC
+	          LIMIT ? OFFSET ?`
+	args = append(args, pageSize, offset)
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var positions []model.FuturesSimulatedPosition
+	for rows.Next() {
+		var p model.FuturesSimulatedPosition
+		err := rows.Scan(
+			&p.ID, &p.StrategyID, &p.Contract, &p.Name, &p.Direction, &p.Status,
+			&p.OpenDate, &p.OpenPrice, &p.CurrentPrice,
+			&p.CloseDate, &p.ClosePrice, &p.TakeProfitPrice, &p.StopLossPrice,
+			&p.Quantity, &p.CostBasis, &p.CloseValue,
+			&p.ReturnRate, &p.MaxDrawdown, &p.HoldDays, &p.CloseReason,
+			&p.CreatedAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		positions = append(positions, p)
+	}
+	return positions, total, nil
+}
+
+func (r *MySQLGrowthRepo) AdminGetFuturesSimulatedOverview() (model.FuturesSimulatedOverview, error) {
+	var overview model.FuturesSimulatedOverview
+
+	err := r.db.QueryRow("SELECT COUNT(*) FROM futures_simulated_positions").Scan(&overview.TotalTrades)
+	if err != nil {
+		return overview, err
+	}
+
+	err = r.db.QueryRow("SELECT COUNT(*) FROM futures_simulated_positions WHERE status = 'HOLDING'").Scan(&overview.ActiveHoldings)
+	if err != nil {
+		return overview, err
+	}
+
+	var closedTrades int
+	err = r.db.QueryRow("SELECT COUNT(*) FROM futures_simulated_positions WHERE status = 'CLOSED'").Scan(&closedTrades)
+	if err != nil {
+		return overview, err
+	}
+
+	if closedTrades > 0 {
+		var winTrades int
+		err = r.db.QueryRow("SELECT COUNT(*) FROM futures_simulated_positions WHERE status = 'CLOSED' AND return_rate > 0").Scan(&winTrades)
+		if err == nil {
+			overview.WinRate = float64(winTrades) / float64(closedTrades)
+		}
+
+		err = r.db.QueryRow("SELECT COALESCE(AVG(return_rate), 0) FROM futures_simulated_positions WHERE status = 'CLOSED'").Scan(&overview.AverageReturn)
+		if err != nil {
+			return overview, err
+		}
+
+		err = r.db.QueryRow("SELECT COALESCE(AVG(hold_days), 0) FROM futures_simulated_positions WHERE status = 'CLOSED'").Scan(&overview.AvgHoldDays)
+		if err != nil {
+			return overview, err
+		}
+
+		err = r.db.QueryRow("SELECT COALESCE(MAX(return_rate), 0) FROM futures_simulated_positions WHERE status = 'CLOSED'").Scan(&overview.MaxProfitRate)
+		if err != nil {
+			return overview, err
+		}
+
+		err = r.db.QueryRow("SELECT COALESCE(MIN(return_rate), 0) FROM futures_simulated_positions WHERE status = 'CLOSED'").Scan(&overview.MaxLossRate)
+		if err != nil {
+			return overview, err
+		}
+	}
+
+	var totalCost, totalCurrentValue float64
+	err = r.db.QueryRow(`
+		SELECT COALESCE(SUM(cost_basis), 0),
+		       COALESCE(SUM(CASE WHEN status = 'CLOSED' THEN close_value ELSE cost_basis * (1 + return_rate) END), 0)
+		FROM futures_simulated_positions`).Scan(&totalCost, &totalCurrentValue)
+	if err == nil && totalCost > 0 {
+		overview.TotalReturn = (totalCurrentValue - totalCost) / totalCost
+	}
+
+	return overview, nil
+}
+
+func parseRangeValue(rangeStr string) float64 {
+	rangeStr = strings.TrimSpace(rangeStr)
+	if rangeStr == "" {
+		return 0
+	}
+	if idx := strings.Index(rangeStr, "-"); idx != -1 {
+		rangeStr = strings.TrimSpace(rangeStr[:idx])
+	}
+	val, _ := strconv.ParseFloat(rangeStr, 64)
+	return val
+}
+
+func (r *MySQLGrowthRepo) AdminAutoOpenFuturesSimulatedPositions(tradeDate string) error {
+	if tradeDate == "" {
+		tradeDate = time.Now().Format("2006-01-02")
+	}
+	tDate, err := time.Parse("2006-01-02", tradeDate)
+	if err != nil {
+		return err
+	}
+
+	rows, err := r.db.Query(`
+		SELECT s.id, s.contract, s.name, s.direction, COALESCE(g.take_profit_range, ''), COALESCE(g.stop_loss_range, '')
+		FROM futures_strategies s
+		LEFT JOIN futures_guidances g ON s.contract = g.contract AND g.valid_to >= s.valid_from AND g.guidance_direction = s.direction
+		WHERE s.valid_from <= ? AND s.valid_to >= ? AND s.status = 'PUBLISHED'
+		  AND s.id NOT IN (SELECT strategy_id FROM futures_simulated_positions)`, tDate, tDate)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type pendingPosition struct {
+		strategyID string
+		contract   string
+		name       string
+		direction  string
+		takeProfit float64
+		stopLoss   float64
+	}
+	var pendings []pendingPosition
+	for rows.Next() {
+		var p pendingPosition
+		var tpStr, slStr string
+		if err := rows.Scan(&p.strategyID, &p.contract, &p.name, &p.direction, &tpStr, &slStr); err != nil {
+			return err
+		}
+		p.takeProfit = parseRangeValue(tpStr)
+		p.stopLoss = parseRangeValue(slStr)
+		pendings = append(pendings, p)
+	}
+
+	for _, p := range pendings {
+		var openPrice float64
+		err = r.db.QueryRow(`
+			SELECT close_price 
+			FROM market_daily_bar_truth 
+			WHERE asset_class = 'FUTURES' AND (instrument_key = ? OR instrument_key LIKE ?) AND trade_date = ? 
+			LIMIT 1`, p.contract, p.contract+".%", tDate).Scan(&openPrice)
+		if err != nil {
+			errLatest := r.db.QueryRow(`
+				SELECT close_price 
+				FROM market_daily_bar_truth 
+				WHERE asset_class = 'FUTURES' AND (instrument_key = ? OR instrument_key LIKE ?) AND trade_date <= ? 
+				ORDER BY trade_date DESC LIMIT 1`, p.contract, p.contract+".%", tDate).Scan(&openPrice)
+			if errLatest != nil {
+				openPrice = 100.0
+			}
+		}
+
+		quantity := 10.0
+		costBasis := openPrice * quantity
+		posID := newID("fp")
+		_, err = r.db.Exec(`
+			INSERT INTO futures_simulated_positions (id, strategy_id, contract, name, direction, status, open_date, open_price, current_price, take_profit_price, stop_loss_price, quantity, cost_basis, return_rate, hold_days, created_at)
+			VALUES (?, ?, ?, ?, ?, 'HOLDING', ?, ?, ?, ?, ?, ?, ?, 0.0000, 0, ?)`,
+			posID, p.strategyID, p.contract, p.name, p.direction, tDate, openPrice, openPrice, p.takeProfit, p.stopLoss, quantity, costBasis, time.Now())
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) AdminSettlementFuturesSimulatedPositions(tradeDate string) error {
+	if tradeDate == "" {
+		tradeDate = time.Now().Format("2006-01-02")
+	}
+	tDate, err := time.Parse("2006-01-02", tradeDate)
+	if err != nil {
+		return err
+	}
+
+	rows, err := r.db.Query(`
+		SELECT p.id, p.strategy_id, p.contract, p.direction, p.open_price, p.take_profit_price, p.stop_loss_price, p.quantity, p.cost_basis, p.hold_days, s.valid_to
+		FROM futures_simulated_positions p
+		JOIN futures_strategies s ON p.strategy_id = s.id
+		WHERE p.status = 'HOLDING'`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type holdingPos struct {
+		id              string
+		strategyID      string
+		contract        string
+		direction       string
+		openPrice       float64
+		takeProfitPrice float64
+		stopLossPrice   float64
+		quantity        float64
+		costBasis       float64
+		holdDays        int
+		validTo         time.Time
+	}
+	var holdings []holdingPos
+	for rows.Next() {
+		var h holdingPos
+		var validToStr string
+		if err := rows.Scan(&h.id, &h.strategyID, &h.contract, &h.direction, &h.openPrice, &h.takeProfitPrice, &h.stopLossPrice, &h.quantity, &h.costBasis, &h.holdDays, &validToStr); err != nil {
+			return err
+		}
+		if t, parseErr := time.Parse("2006-01-02 15:04:05", validToStr); parseErr == nil {
+			h.validTo = t
+		} else if t, parseErr := time.Parse("2006-01-02T15:04:05Z", validToStr); parseErr == nil {
+			h.validTo = t
+		} else if t, parseErr := time.Parse("2006-01-02", validToStr); parseErr == nil {
+			h.validTo = t
+		}
+		holdings = append(holdings, h)
+	}
+
+	for _, h := range holdings {
+		var openPrice, highPrice, lowPrice, closePrice float64
+		err = r.db.QueryRow(`
+			SELECT open_price, high_price, low_price, close_price
+			FROM market_daily_bar_truth
+			WHERE asset_class = 'FUTURES' AND (instrument_key = ? OR instrument_key LIKE ?) AND trade_date = ?
+			LIMIT 1`, h.contract, h.contract+".%", tDate).Scan(&openPrice, &highPrice, &lowPrice, &closePrice)
+		if err != nil {
+			_, _ = r.db.Exec("UPDATE futures_simulated_positions SET hold_days = hold_days + 1 WHERE id = ?", h.id)
+			continue
+		}
+
+		newHoldDays := h.holdDays + 1
+		var newReturnRate float64
+		var maxDrawdown float64
+
+		if strings.ToUpper(h.direction) == "SHORT" {
+			newReturnRate = (h.openPrice - closePrice) / h.openPrice
+
+			var minPriceSeen float64
+			err = r.db.QueryRow(`
+				SELECT MIN(close_price)
+				FROM market_daily_bar_truth
+				WHERE asset_class = 'FUTURES' AND (instrument_key = ? OR instrument_key LIKE ?) AND trade_date >= (SELECT open_date FROM futures_simulated_positions WHERE id = ?) AND trade_date <= ?`,
+				h.contract, h.contract+".%", h.id, tDate).Scan(&minPriceSeen)
+			if err != nil || minPriceSeen <= 0 {
+				minPriceSeen = closePrice
+			}
+			if minPriceSeen > 0 {
+				maxDrawdown = (closePrice - minPriceSeen) / h.openPrice
+				if maxDrawdown < 0 {
+					maxDrawdown = 0
+				}
+			}
+		} else {
+			newReturnRate = (closePrice - h.openPrice) / h.openPrice
+
+			var maxPriceSeen float64
+			err = r.db.QueryRow(`
+				SELECT MAX(close_price)
+				FROM market_daily_bar_truth
+				WHERE asset_class = 'FUTURES' AND (instrument_key = ? OR instrument_key LIKE ?) AND trade_date >= (SELECT open_date FROM futures_simulated_positions WHERE id = ?) AND trade_date <= ?`,
+				h.contract, h.contract+".%", h.id, tDate).Scan(&maxPriceSeen)
+			if err != nil || maxPriceSeen <= 0 {
+				maxPriceSeen = closePrice
+			}
+			if maxPriceSeen > 0 {
+				maxDrawdown = (maxPriceSeen - closePrice) / maxPriceSeen
+				if maxDrawdown < 0 {
+					maxDrawdown = 0
+				}
+			}
+		}
+
+		isClosed := false
+		closePriceVal := closePrice
+		closeReason := ""
+
+		if strings.ToUpper(h.direction) == "SHORT" {
+			if h.takeProfitPrice > 0 && lowPrice <= h.takeProfitPrice {
+				isClosed = true
+				closePriceVal = h.takeProfitPrice
+				closeReason = "TAKE_PROFIT"
+			} else if h.stopLossPrice > 0 && highPrice >= h.stopLossPrice {
+				isClosed = true
+				closePriceVal = h.stopLossPrice
+				closeReason = "STOP_LOSS"
+			} else if tDate.After(h.validTo) || tDate.Equal(h.validTo) {
+				isClosed = true
+				closePriceVal = closePrice
+				closeReason = "EXPIRED"
+			}
+		} else {
+			if h.takeProfitPrice > 0 && highPrice >= h.takeProfitPrice {
+				isClosed = true
+				closePriceVal = h.takeProfitPrice
+				closeReason = "TAKE_PROFIT"
+			} else if h.stopLossPrice > 0 && lowPrice <= h.stopLossPrice {
+				isClosed = true
+				closePriceVal = h.stopLossPrice
+				closeReason = "STOP_LOSS"
+			} else if tDate.After(h.validTo) || tDate.Equal(h.validTo) {
+				isClosed = true
+				closePriceVal = closePrice
+				closeReason = "EXPIRED"
+			}
+		}
+
+		if isClosed {
+			var finalReturn float64
+			var closeValue float64
+			if strings.ToUpper(h.direction) == "SHORT" {
+				finalReturn = (h.openPrice - closePriceVal) / h.openPrice
+				closeValue = h.costBasis * (1 + finalReturn)
+			} else {
+				finalReturn = (closePriceVal - h.openPrice) / h.openPrice
+				closeValue = closePriceVal * h.quantity
+			}
+
+			_, err = r.db.Exec(`
+				UPDATE futures_simulated_positions
+				SET status = 'CLOSED', current_price = ?, close_date = ?, close_price = ?, close_value = ?, return_rate = ?, max_drawdown = ?, hold_days = ?, close_reason = ?
+				WHERE id = ?`, closePrice, tDate, closePriceVal, closeValue, finalReturn, maxDrawdown, newHoldDays, closeReason, h.id)
+		} else {
+			_, err = r.db.Exec(`
+				UPDATE futures_simulated_positions
+				SET current_price = ?, return_rate = ?, max_drawdown = ?, hold_days = ?
+				WHERE id = ?`, closePrice, newReturnRate, maxDrawdown, newHoldDays, h.id)
+		}
+		if err != nil {
+			log.Printf("[simulated-positions] futures settlement update failed for %s: %v", h.id, err)
+		}
+	}
+	return nil
+}
+
+func (r *MySQLGrowthRepo) SavePatternMatches(matches []model.StockPatternMatch) error {
+	if len(matches) == 0 {
+		return nil
+	}
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO stock_pattern_matches (id, source_symbol, match_symbol, match_date, similarity, lookback, next_7d_returns)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE similarity = VALUES(similarity), match_date = VALUES(match_date), next_7d_returns = VALUES(next_7d_returns)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, m := range matches {
+		id := m.ID
+		if id == "" {
+			id = newID("spm")
+		}
+		next7dJSON, jsonErr := json.Marshal(m.Next7d)
+		if jsonErr != nil {
+			err = jsonErr
+			return err
+		}
+		_, err = stmt.Exec(id, m.SourceSymbol, m.MatchSymbol, m.MatchDate, m.Similarity, m.Lookback, string(next7dJSON))
+		if err != nil {
+			return err
+		}
+	}
+	err = tx.Commit()
+	return err
+}
+
+func (r *MySQLGrowthRepo) GetPatternMatches(sourceSymbol string, lookback int, limit int) ([]model.StockPatternMatch, error) {
+	rows, err := r.db.Query(`
+		SELECT id, source_symbol, match_symbol, match_date, similarity, lookback, next_7d_returns
+		FROM stock_pattern_matches
+		WHERE source_symbol = ? AND lookback = ?
+		ORDER BY similarity DESC
+		LIMIT ?
+	`, sourceSymbol, lookback, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []model.StockPatternMatch
+	for rows.Next() {
+		var m model.StockPatternMatch
+		var next7dStr string
+		err := rows.Scan(&m.ID, &m.SourceSymbol, &m.MatchSymbol, &m.MatchDate, &m.Similarity, &m.Lookback, &next7dStr)
+		if err != nil {
+			return nil, err
+		}
+		if next7dStr != "" {
+			var next7d []float64
+			if jsonErr := json.Unmarshal([]byte(next7dStr), &next7d); jsonErr == nil {
+				m.Next7d = next7d
+			}
+		}
+		result = append(result, m)
+	}
+	return result, rows.Err()
+}
+
+func (r *MySQLGrowthRepo) GetLatestRecommendationBySymbol(symbol string) (model.StockRecommendation, error) {
+	var item model.StockRecommendation
+	var positionRange, reasonSummary, strategyVersion, reviewer, publisher, reviewNote, performanceLabel sql.NullString
+	var validFrom, validTo, createdAt time.Time
+	err := r.db.QueryRow(`
+		SELECT id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary, source_type, strategy_version, reviewer, publisher, review_note, performance_label, created_at
+		FROM stock_recommendations
+		WHERE symbol = ? OR symbol LIKE ?
+		ORDER BY created_at DESC, valid_from DESC
+		LIMIT 1
+	`, symbol, symbol+".%").Scan(
+		&item.ID, &item.Symbol, &item.Name, &item.Score, &item.RiskLevel, &positionRange, &validFrom, &validTo, &item.Status, &reasonSummary,
+		&item.SourceType, &strategyVersion, &reviewer, &publisher, &reviewNote, &performanceLabel, &createdAt,
+	)
+	if err != nil {
+		return model.StockRecommendation{}, err
+	}
+	if positionRange.Valid {
+		item.PositionRange = positionRange.String
+	}
+	if reasonSummary.Valid {
+		item.ReasonSummary = reasonSummary.String
+	}
+	if strategyVersion.Valid {
+		item.StrategyVersion = strategyVersion.String
+	}
+	if reviewer.Valid {
+		item.Reviewer = reviewer.String
+	}
+	if publisher.Valid {
+		item.Publisher = publisher.String
+	}
+	if reviewNote.Valid {
+		item.ReviewNote = reviewNote.String
+	}
+	if performanceLabel.Valid {
+		item.PerformanceLabel = performanceLabel.String
+	}
+	item.ValidFrom = validFrom.Format(time.RFC3339)
+	item.ValidTo = validTo.Format(time.RFC3339)
+	return item, nil
+}
+
+type LLMEngine struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	BaseURL   string `json:"base_url"`
+	APIKey    string `json:"api_key"`
+	ModelName string `json:"model_name"`
+	IsActive  bool   `json:"is_active"`
+}
+
+func (r *MySQLGrowthRepo) getActiveLLMConfig() (apiKey, baseURL, modelName string) {
+	var enginesJSON string
+	err := r.db.QueryRow("SELECT config_value FROM system_configs WHERE config_key = 'llm.engines'").Scan(&enginesJSON)
+	if err == nil && enginesJSON != "" {
+		var engines []LLMEngine
+		if err := json.Unmarshal([]byte(enginesJSON), &engines); err == nil {
+			for _, engine := range engines {
+				if engine.IsActive {
+					return engine.APIKey, engine.BaseURL, engine.ModelName
+				}
+			}
+		}
+	}
+
+	_ = r.db.QueryRow("SELECT config_value FROM system_configs WHERE config_key = 'llm.api_key'").Scan(&apiKey)
+	_ = r.db.QueryRow("SELECT config_value FROM system_configs WHERE config_key = 'llm.base_url'").Scan(&baseURL)
+	_ = r.db.QueryRow("SELECT config_value FROM system_configs WHERE config_key = 'llm.model_name'").Scan(&modelName)
+	return apiKey, baseURL, modelName
+}
+
+func (r *MySQLGrowthRepo) GenerateRealtimeStockInsight(userID string, symbol string) (model.StockRecommendationInsight, error) {
+	llmApiKey, llmBaseUrl, llmModelName := r.getActiveLLMConfig()
+
+	llmConfig := make(map[string]string)
+	if llmApiKey != "" {
+		llmConfig["api_key"] = strings.TrimSpace(llmApiKey)
+	}
+	if llmBaseUrl != "" {
+		llmConfig["base_url"] = strings.TrimSpace(llmBaseUrl)
+	}
+	if llmModelName != "" {
+		llmConfig["model_name"] = strings.TrimSpace(llmModelName)
+	}
+
+	resp, err := r.strategyEngine.evaluateStockRealtime(symbol, llmConfig)
+	if err != nil {
+		return model.StockRecommendationInsight{}, fmt.Errorf("realtime evaluation failed: %w", err)
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return model.StockRecommendationInsight{}, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	recoID := newID("sr")
+	now := time.Now()
+	validFrom := now
+	validTo := now.Add(24 * time.Hour * 7)
+
+	_, err = tx.Exec(`
+		INSERT INTO stock_recommendations (id, symbol, name, score, risk_level, position_range, valid_from, valid_to, status, reason_summary, source_type, strategy_version, reviewer, publisher, review_note, performance_label, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'REALTIME_CACHED', ?, 'SYSTEM', 'realtime-v1', '', 'system', '由系统实时智能体分析计算。', 'ESTIMATED', ?)
+	`, recoID, resp.Recommendation.Symbol, resp.Recommendation.Name, resp.Recommendation.Score, resp.Recommendation.RiskLevel, resp.Recommendation.PositionRange, validFrom, validTo, resp.Recommendation.ReasonSummary, now)
+	if err != nil {
+		return model.StockRecommendationInsight{}, err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO stock_reco_details (reco_id, tech_score, fund_score, sentiment_score, money_flow_score, take_profit, stop_loss, risk_note)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, recoID, resp.Detail.TechScore, resp.Detail.FundScore, resp.Detail.SentimentScore, resp.Detail.MoneyFlowScore, resp.Detail.TakeProfit, resp.Detail.StopLoss, resp.Detail.RiskNote)
+	if err != nil {
+		return model.StockRecommendationInsight{}, err
+	}
+
+	report := map[string]any{
+		"generated_at":      now.Format(time.RFC3339),
+		"graph_summary":     resp.Explanation.GraphSummary,
+		"consensus_summary": resp.Explanation.ConsensusSummary,
+		"candidates": []map[string]any{
+			{
+				"symbol":           resp.Recommendation.Symbol,
+				"reason_summary":   resp.Recommendation.ReasonSummary,
+				"strategy_version": "realtime-v1",
+				"risk_flags":       resp.Explanation.RiskFlags,
+				"invalidations":    resp.Explanation.Invalidations,
+			},
+		},
+		"simulations": []map[string]any{
+			{
+				"asset_key":        resp.Recommendation.Symbol,
+				"asset_type":       "STOCK",
+				"agents":           resp.Explanation.AgentOpinions,
+				"scenarios":        resp.Explanation.ScenarioSnapshots,
+				"consensus_action": "HOLD",
+			},
+		},
+	}
+
+	reportBytes, err := json.Marshal(report)
+	if err != nil {
+		return model.StockRecommendationInsight{}, err
+	}
+
+	jobID := "job_rt_" + recoID
+	publishID := "pub_rt_" + recoID
+
+	_, err = tx.Exec(`
+		INSERT INTO strategy_job_runs (job_id, job_type, payload_snapshot, remote_created_at, trade_date, status, created_at)
+		VALUES (?, 'stock-selection', '{}', ?, ?, 'SUCCEEDED', ?)
+	`, jobID, now, now, now)
+	if err != nil {
+		return model.StockRecommendationInsight{}, err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO strategy_job_artifacts (job_id, report_snapshot, created_at)
+		VALUES (?, ?, ?)
+	`, jobID, string(reportBytes), now)
+	if err != nil {
+		return model.StockRecommendationInsight{}, err
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO strategy_job_replays (job_id, publish_id, publish_version, replay_snapshot, created_at)
+		VALUES (?, ?, 1, '{}', ?)
+	`, jobID, publishID, now)
+	if err != nil {
+		return model.StockRecommendationInsight{}, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return model.StockRecommendationInsight{}, err
+	}
+
+	return r.GetStockRecommendationInsight(userID, recoID)
+}
+
+func (r *MySQLGrowthRepo) AdminGetUsersByEmailRule(ruleType string) ([]model.AdminUser, error) {
+	var query string
+	switch ruleType {
+	case "VIP_EXPIRING_7_DAYS":
+		query = `
+			SELECT u.id, u.phone, COALESCE(u.email, ''), u.status, u.kyc_status, u.member_level, u.vip_expire_at, u.created_at
+			FROM users u
+			WHERE u.member_level LIKE 'VIP%' AND u.vip_expire_at IS NOT NULL AND u.vip_expire_at > NOW() AND u.vip_expire_at <= DATE_ADD(NOW(), INTERVAL 7 DAY)
+			ORDER BY u.vip_expire_at ASC`
+	case "VIP_EXPIRED_14_DAYS":
+		query = `
+			SELECT u.id, u.phone, COALESCE(u.email, ''), u.status, u.kyc_status, u.member_level, u.vip_expire_at, u.created_at
+			FROM users u
+			WHERE u.member_level = 'FREE' AND u.vip_expire_at IS NOT NULL AND u.vip_expire_at <= DATE_SUB(NOW(), INTERVAL 14 DAY)
+			ORDER BY u.vip_expire_at DESC`
+	case "REGISTERED_7_DAYS_NO_VIP":
+		query = `
+			SELECT u.id, u.phone, COALESCE(u.email, ''), u.status, u.kyc_status, u.member_level, u.vip_expire_at, u.created_at
+			FROM users u
+			WHERE u.member_level = 'FREE' AND u.vip_expire_at IS NULL AND u.created_at <= DATE_SUB(NOW(), INTERVAL 7 DAY)
+			ORDER BY u.created_at DESC`
+	case "REGISTERED_30_DAYS_NO_VIP":
+		query = `
+			SELECT u.id, u.phone, COALESCE(u.email, ''), u.status, u.kyc_status, u.member_level, u.vip_expire_at, u.created_at
+			FROM users u
+			WHERE u.member_level = 'FREE' AND u.vip_expire_at IS NULL AND u.created_at <= DATE_SUB(NOW(), INTERVAL 30 DAY)
+			ORDER BY u.created_at DESC`
+	case "READING_ACTIVE":
+		query = `
+			SELECT u.id, u.phone, COALESCE(u.email, ''), u.status, u.kyc_status, u.member_level, u.vip_expire_at, u.created_at
+			FROM users u
+			JOIN (
+				SELECT user_id, COUNT(*) as cnt
+				FROM browse_histories
+				WHERE viewed_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+				GROUP BY user_id
+			) bh ON bh.user_id = u.id
+			WHERE u.status = 'ACTIVE'
+			ORDER BY bh.cnt DESC`
+	case "READING_SILENT":
+		query = `
+			SELECT u.id, u.phone, COALESCE(u.email, ''), u.status, u.kyc_status, u.member_level, u.vip_expire_at, u.created_at
+			FROM users u
+			LEFT JOIN browse_histories bh ON bh.user_id = u.id
+			WHERE u.status = 'ACTIVE'
+			GROUP BY u.id, u.phone, u.email, u.status, u.kyc_status, u.member_level, u.vip_expire_at, u.created_at
+			HAVING MAX(bh.viewed_at) IS NULL OR MAX(bh.viewed_at) < DATE_SUB(NOW(), INTERVAL 7 DAY)
+			ORDER BY MAX(bh.viewed_at) ASC`
+	default:
+		return nil, fmt.Errorf("unknown rule type: %s", ruleType)
+	}
+
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	users := make([]model.AdminUser, 0)
+	for rows.Next() {
+		var item model.AdminUser
+		var phone sql.NullString
+		var email sql.NullString
+		var vipExpireAt sql.NullTime
+		var createdAt time.Time
+
+		if err := rows.Scan(&item.ID, &phone, &email, &item.Status, &item.KYCStatus, &item.MemberLevel, &vipExpireAt, &createdAt); err != nil {
+			return nil, err
+		}
+
+		if phone.Valid {
+			item.Phone = phone.String
+		}
+		if email.Valid {
+			item.Email = email.String
+		}
+		if vipExpireAt.Valid {
+			item.VIPExpireAt = vipExpireAt.Time.Format(time.RFC3339)
+		}
+		item.CreatedAt = createdAt.Format(time.RFC3339)
+		users = append(users, item)
+	}
+	return users, nil
+}
+
+func (r *MySQLGrowthRepo) AdminRecordEmailLog(userID string, email string, subject string, body string, ruleType string, status string, errMsg string) error {
+	id := newID("eml")
+	_, err := r.db.Exec(`
+		INSERT INTO user_email_logs (id, user_id, email, subject, body, rule_type, status, error_message, sent_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, userID, email, subject, body, ruleType, status, sql.NullString{String: errMsg, Valid: errMsg != ""}, time.Now(),
+	)
+	return err
+}
+
+
+

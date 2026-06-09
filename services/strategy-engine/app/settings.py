@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     graph_service_timeout_ms: int = Field(default=3000, ge=500, le=30000)
     allow_sample_stock_seeds: bool = False
     allow_sample_futures_seeds: bool = False
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = "gpt-4o-mini"
+    llm_timeout: float = Field(default=3.0, ge=0.5, le=30.0)
+    enable_llm_review: bool = True
 
     @property
     def supported_job_types(self) -> tuple[str, ...]:

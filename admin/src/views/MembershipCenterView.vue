@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, reactive, ref } from "vue";
+import { ElMessageBox, ElMessage } from "element-plus";
 import {
   adjustUserQuota,
   createMembershipProduct,
@@ -11,7 +12,10 @@ import {
   updateMembershipOrderStatus,
   updateMembershipProduct,
   updateMembershipProductStatus,
-  updateVIPQuotaConfig
+  updateVIPQuotaConfig,
+  deleteMembershipProduct,
+  deleteVIPQuotaConfig,
+  deleteUserQuota
 } from "../api/admin";
 import { getAccessToken, hasPermission } from "../lib/session";
 
@@ -72,6 +76,9 @@ const quotaForm = reactive({
   member_level: "VIP1",
   doc_read_limit: 500,
   news_subscribe_limit: 200,
+  download_limit: 10,
+  forecast_limit: 5,
+  stock_reco_limit: 20,
   reset_cycle: "MONTHLY",
   status: "ACTIVE",
   effective_at: ""
@@ -93,6 +100,9 @@ const usageAdjustForm = reactive({
   period_key: "",
   doc_read_delta: 0,
   news_subscribe_delta: 0,
+  download_delta: 0,
+  forecast_delta: 0,
+  stock_reco_delta: 0,
   reason: ""
 });
 
@@ -452,6 +462,9 @@ function resetQuotaForm() {
     member_level: "VIP1",
     doc_read_limit: 500,
     news_subscribe_limit: 200,
+    download_limit: 10,
+    forecast_limit: 5,
+    stock_reco_limit: 20,
     reset_cycle: "MONTHLY",
     status: "ACTIVE",
     effective_at: ""
@@ -476,6 +489,9 @@ function openEditQuotaDialog(item) {
     member_level: item.member_level || "VIP1",
     doc_read_limit: item.doc_read_limit ?? 0,
     news_subscribe_limit: item.news_subscribe_limit ?? 0,
+    download_limit: item.download_limit ?? 0,
+    forecast_limit: item.forecast_limit ?? 0,
+    stock_reco_limit: item.stock_reco_limit ?? 0,
     reset_cycle: item.reset_cycle || "MONTHLY",
     status: item.status || "ACTIVE",
     effective_at: item.effective_at || ""
@@ -514,6 +530,9 @@ async function submitQuotaForm() {
   const basePayload = {
     doc_read_limit: toSafeInt(quotaForm.doc_read_limit, 0),
     news_subscribe_limit: toSafeInt(quotaForm.news_subscribe_limit, 0),
+    download_limit: toSafeInt(quotaForm.download_limit, 0),
+    forecast_limit: toSafeInt(quotaForm.forecast_limit, 0),
+    stock_reco_limit: toSafeInt(quotaForm.stock_reco_limit, 0),
     reset_cycle: quotaForm.reset_cycle,
     status: quotaForm.status,
     effective_at: quotaForm.effective_at.trim()
@@ -601,6 +620,9 @@ function openAdjustUsageDialog(item) {
     period_key: item.period_key,
     doc_read_delta: 0,
     news_subscribe_delta: 0,
+    download_delta: 0,
+    forecast_delta: 0,
+    stock_reco_delta: 0,
     reason: ""
   });
   usageAdjustDialogVisible.value = true;
@@ -614,6 +636,9 @@ async function submitAdjustUsage() {
     period_key: usageAdjustForm.period_key,
     doc_read_delta: toSafeInt(usageAdjustForm.doc_read_delta, 0),
     news_subscribe_delta: toSafeInt(usageAdjustForm.news_subscribe_delta, 0),
+    download_delta: toSafeInt(usageAdjustForm.download_delta, 0),
+    forecast_delta: toSafeInt(usageAdjustForm.forecast_delta, 0),
+    stock_reco_delta: toSafeInt(usageAdjustForm.stock_reco_delta, 0),
     reason: usageAdjustForm.reason.trim()
   };
 
@@ -689,6 +714,99 @@ async function refreshAll() {
   }
 }
 
+async function handleDeleteProduct(row) {
+  if (!ensureCanEditMembership()) return;
+  try {
+    await ElMessageBox.confirm(
+      `确认删除会员产品「${row.name || row.id}」吗？`,
+      "删除确认",
+      {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+    clearMessages();
+    await deleteMembershipProduct(row.id);
+    message.value = `会员产品 ${row.name || row.id} 已成功删除`;
+    await fetchProducts({ keepMessage: true });
+  } catch (error) {
+    if (error !== "cancel") {
+      errorMessage.value = normalizeErrorMessage(error, "删除会员产品失败");
+    }
+  }
+}
+
+async function handleDeleteQuotaConfig(row) {
+  if (!ensureCanEditMembership()) return;
+  try {
+    await ElMessageBox.confirm(
+      `确认删除等级为 ${row.member_level} 的配额配置吗？此操作将使原本依赖该配额的会员等级产品在重新编辑保存时保存失败！`,
+      "删除确认",
+      {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+    clearMessages();
+    await deleteVIPQuotaConfig(row.id);
+    message.value = `配额配置已成功删除`;
+    await fetchQuotaConfigs({ keepMessage: true });
+    await syncProductMemberLevelOptions();
+  } catch (error) {
+    if (error !== "cancel") {
+      errorMessage.value = normalizeErrorMessage(error, "删除配额配置失败");
+    }
+  }
+}
+
+async function handleDeleteUserQuota(row) {
+  if (!ensureCanEditMembership()) return;
+  if (!row.id) {
+    ElMessage.warning("该用户在此周期下暂无实际配额使用记录，无需删除");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认删除该用户在 ${row.period_key} 周期下的配额使用记录吗？`,
+      "删除确认",
+      {
+        confirmButtonText: "确定",
+        cancelButtonText: "取消",
+        type: "warning"
+      }
+    );
+    clearMessages();
+    await deleteUserQuota(row.id);
+    message.value = `用户配额记录已成功删除`;
+    await fetchUserQuotaUsages({ keepMessage: true });
+  } catch (error) {
+    if (error !== "cancel") {
+      errorMessage.value = normalizeErrorMessage(error, "删除用户配额记录失败");
+    }
+  }
+}
+
+function getMatchedQuotaInfo(memberLevel) {
+  const level = String(memberLevel || '').trim().toUpperCase();
+  const matched = quotaItems.value.find(q => q.member_level === level && q.status === 'ACTIVE');
+  if (matched) {
+    return {
+      exists: true,
+      text: `文档: ${matched.doc_read_limit} / 新闻: ${matched.news_subscribe_limit} / 下载: ${matched.download_limit} / 推演: ${matched.forecast_limit} / 分析: ${matched.stock_reco_limit}`
+    };
+  }
+  return {
+    exists: false,
+    text: '缺失活跃配额'
+  };
+}
+
+function handleGoToQuotaConfig() {
+  activeTab.value = 'quotas';
+}
+
 onMounted(() => {
   refreshAll();
 });
@@ -742,7 +860,18 @@ onMounted(() => {
             <el-table-column prop="price" label="价格" min-width="100" />
             <el-table-column prop="member_level" label="会员等级" min-width="110" />
             <el-table-column prop="duration_days" label="时长(天)" min-width="100" />
-            <el-table-column label="状态" min-width="320">
+            <el-table-column label="关联配额" min-width="220">
+              <template #default="{ row }">
+                <span v-if="getMatchedQuotaInfo(row.member_level).exists">
+                  {{ getMatchedQuotaInfo(row.member_level).text }}
+                </span>
+                <span v-else style="color: var(--el-color-danger); display: inline-flex; align-items: center; gap: 4px; font-weight: bold;">
+                  ⚠️ {{ getMatchedQuotaInfo(row.member_level).text }}
+                  <el-button size="small" type="primary" link @click="handleGoToQuotaConfig">去配置</el-button>
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" min-width="380">
               <template #default="{ row }">
                 <div class="inline-actions">
                   <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
@@ -752,6 +881,7 @@ onMounted(() => {
                     </el-select>
                     <el-button size="small" @click="updateProductStatus(row)">保存</el-button>
                     <el-button size="small" type="primary" plain @click="openEditProductDialog(row)">编辑</el-button>
+                    <el-button size="small" type="danger" plain @click="handleDeleteProduct(row)">删除</el-button>
                   </template>
                 </div>
               </template>
@@ -845,6 +975,9 @@ onMounted(() => {
             <el-table-column prop="member_level" label="会员等级" min-width="110" />
             <el-table-column prop="doc_read_limit" label="文档阅读上限" min-width="120" />
             <el-table-column prop="news_subscribe_limit" label="新闻订阅上限" min-width="120" />
+            <el-table-column prop="download_limit" label="附件下载上限" min-width="120" />
+            <el-table-column prop="forecast_limit" label="深度推演上限" min-width="120" />
+            <el-table-column prop="stock_reco_limit" label="股票分析上限" min-width="120" />
             <el-table-column prop="reset_cycle" label="重置周期" min-width="100" />
             <el-table-column label="状态" min-width="100">
               <template #default="{ row }">
@@ -853,9 +986,10 @@ onMounted(() => {
             </el-table-column>
             <el-table-column prop="effective_at" label="生效时间" min-width="170" />
             <el-table-column prop="updated_at" label="更新时间" min-width="170" />
-            <el-table-column label="操作" align="right" min-width="120">
+            <el-table-column label="操作" align="right" min-width="180">
               <template #default="{ row }">
                 <el-button v-if="canEditMembership" size="small" @click="openEditQuotaDialog(row)">编辑</el-button>
+                <el-button v-if="canEditMembership" size="small" type="danger" plain @click="handleDeleteQuotaConfig(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -903,10 +1037,32 @@ onMounted(() => {
                 {{ (row.news_subscribe_limit || 0) - (row.news_subscribe_used || 0) }}
               </template>
             </el-table-column>
+            <el-table-column prop="download_limit" label="下载上限" min-width="100" />
+            <el-table-column prop="download_used" label="下载已用" min-width="100" />
+            <el-table-column label="下载剩余" min-width="100">
+              <template #default="{ row }">
+                {{ (row.download_limit || 0) - (row.download_used || 0) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="forecast_limit" label="推演上限" min-width="100" />
+            <el-table-column prop="forecast_used" label="推演已用" min-width="100" />
+            <el-table-column label="推演剩余" min-width="100">
+              <template #default="{ row }">
+                {{ (row.forecast_limit || 0) - (row.forecast_used || 0) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="stock_reco_limit" label="分析上限" min-width="100" />
+            <el-table-column prop="stock_reco_used" label="分析已用" min-width="100" />
+            <el-table-column label="分析剩余" min-width="100">
+              <template #default="{ row }">
+                {{ (row.stock_reco_limit || 0) - (row.stock_reco_used || 0) }}
+              </template>
+            </el-table-column>
             <el-table-column prop="updated_at" label="更新时间" min-width="170" />
-            <el-table-column label="操作" align="right" min-width="120">
+            <el-table-column label="操作" align="right" min-width="180">
               <template #default="{ row }">
                 <el-button v-if="canEditMembership" size="small" @click="openAdjustUsageDialog(row)">调整配额</el-button>
+                <el-button v-if="canEditMembership" :disabled="!row.id" size="small" type="danger" plain @click="handleDeleteUserQuota(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -943,6 +1099,13 @@ onMounted(() => {
           <el-select v-model="productForm.member_level" style="width: 100%">
             <el-option v-for="item in productMemberLevelOptions" :key="item" :label="item" :value="item" />
           </el-select>
+          <div style="font-size: 12px; color: #909399; margin-top: 4px; line-height: 1.4;">
+            提示：若选项中没有您想要的等级，请先前往 
+            <el-link type="primary" :underline="false" style="font-size: 12px; vertical-align: baseline;" @click="productFormVisible = false; handleGoToQuotaConfig()">
+              [VIP配额配置]
+            </el-link> 
+            页签添加相应规则。
+          </div>
         </el-form-item>
         <el-form-item label="时长(天)">
           <el-input-number v-model="productForm.duration_days" :min="1" :step="1" style="width: 100%" />
@@ -986,6 +1149,15 @@ onMounted(() => {
         <el-form-item label="新闻订阅上限" required>
           <el-input-number v-model="quotaForm.news_subscribe_limit" :min="0" :step="10" style="width: 100%" />
         </el-form-item>
+        <el-form-item label="附件下载上限" required>
+          <el-input-number v-model="quotaForm.download_limit" :min="0" :step="5" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="深度推演上限" required>
+          <el-input-number v-model="quotaForm.forecast_limit" :min="0" :step="5" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="股票分析上限" required>
+          <el-input-number v-model="quotaForm.stock_reco_limit" :min="0" :step="5" style="width: 100%" />
+        </el-form-item>
         <el-form-item label="重置周期" required>
           <el-select v-model="quotaForm.reset_cycle" style="width: 100%">
             <el-option v-for="item in resetCycleOptions" :key="item" :label="item" :value="item" />
@@ -1021,6 +1193,15 @@ onMounted(() => {
         </el-form-item>
         <el-form-item label="新闻增量">
           <el-input-number v-model="usageAdjustForm.news_subscribe_delta" :step="10" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="下载增量">
+          <el-input-number v-model="usageAdjustForm.download_delta" :step="5" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="推演增量">
+          <el-input-number v-model="usageAdjustForm.forecast_delta" :step="5" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="分析增量">
+          <el-input-number v-model="usageAdjustForm.stock_reco_delta" :step="5" style="width: 100%" />
         </el-form-item>
         <el-form-item label="调整原因">
           <el-input

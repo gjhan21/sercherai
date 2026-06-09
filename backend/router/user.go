@@ -78,6 +78,10 @@ func registerUserRoutes(v1 *gin.RouterGroup, userGrowthHandler *handler.UserGrow
 		futures.GET("/strategies/:id", userGrowthHandler.GetFuturesStrategyDetail)
 		futures.GET("/strategies/:id/insight", userGrowthHandler.GetFuturesStrategyInsight)
 		futures.GET("/strategies/:id/version-history", userGrowthHandler.GetFuturesStrategyVersionHistory)
+
+		// Simulated positions tracking
+		futures.GET("/simulated/overview", userGrowthHandler.GetFuturesSimulatedOverview)
+		futures.GET("/simulated/positions", userGrowthHandler.ListFuturesSimulatedPositions)
 	}
 
 	stocks := v1.Group("/stocks")
@@ -89,6 +93,7 @@ func registerUserRoutes(v1 *gin.RouterGroup, userGrowthHandler *handler.UserGrow
 		stocks.GET("/recommendations/:id/performance", userGrowthHandler.GetStockRecommendationPerformance)
 		stocks.GET("/recommendations/:id/insight", userGrowthHandler.GetStockRecommendationInsight)
 		stocks.GET("/recommendations/:id/version-history", userGrowthHandler.GetStockRecommendationVersionHistory)
+		stocks.GET("/insight", userGrowthHandler.GetStockInsight)
 
 		// Simulated positions tracking
 		stocks.GET("/simulated/overview", userGrowthHandler.GetStockSimulatedOverview)

@@ -28,7 +28,7 @@
           <svg viewBox="0 0 48 48" width="48" height="48"><circle cx="24" cy="24" r="20" fill="none" stroke="var(--accent-gold)" stroke-width="3" stroke-dasharray="125.6" stroke-dashoffset="0" class="spinner-ring"/></svg>
         </div>
         <h3>AI 正在分析...</h3>
-        <p>正在调用大模型进行多维度数据分析</p>
+        <p>{{ loadingStepText }}</p>
       </div>
     </section>
 
@@ -218,7 +218,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { STOCK_MASTER } from "@/mock/stocks.js";
-import { getStockRecommendationInsight, listStockRecommendations } from "@/api/market.js";
+import { getStockRecommendationInsight, getStockInsight, listStockRecommendations } from "@/api/market.js";
 import DeepForecastSummaryCard from "@/shared/components/deep-forecast/DeepForecastSummaryCard.vue";
 import { useDeepForecastEntry } from "@/shared/composables/useDeepForecastEntry.js";
 import { buildForecastContextQuery } from "@/shared/lib/forecast-context.js";
@@ -230,6 +230,7 @@ const analyzing = ref(false);
 const showResult = ref(false);
 const insight = ref(null);
 const symbol = ref("");
+const loadingStepText = ref("[1/3] 正在提取个股技术指标与基本面因子...");
 
 const hotStocks = [
   { symbol: '300750.SZ', name: '宁德时代' },
@@ -338,75 +339,71 @@ function quickAnalyze(hot) {
 
 function reset() { showResult.value = false; analyzing.value = false; insight.value = null; }
 
-async function analyzeStock(input) {
-  symbol.value = input;
-  analyzing.value = true;
-  showResult.value = false;
+function normalizeSymbol(query) {
+  let q = query.trim().toUpperCase();
+  if (/^\d{6}$/.test(q)) {
+    if (q.startsWith('6') || q.startsWith('68') || q.startsWith('9')) {
+      return q + '.SH';
+    } else {
+      return q + '.SZ';
+    }
+  }
+  return q;
+}
 
-  // Try to find the recommendation first
-  let recoId = null;
+let loadingInterval = null;
+
+function startLoadingSimulation() {
+  loadingStepText.value = "[1/3] 正在提取个股技术指标与基本面因子...";
+  const startTime = Date.now();
+  loadingInterval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    if (elapsed > 4000) {
+      loadingStepText.value = "[3/3] 正在生成大模型深度终审及多场景推演报告...";
+    } else if (elapsed > 1800) {
+      loadingStepText.value = "[2/3] 正在启动多智能体初审评估与场景研判...";
+    }
+  }, 200);
+}
+
+function stopLoadingSimulation() {
+  if (loadingInterval) {
+    clearInterval(loadingInterval);
+    loadingInterval = null;
+  }
+}
+
+async function analyzeStock(input) {
+  if (!input) return;
+  
+  let targetSymbol = normalizeSymbol(input);
   try {
-    const list = await listStockRecommendations({ page: 1, page_size: 20 });
+    const list = await listStockRecommendations({ page: 1, page_size: 100 });
     const match = list?.items?.find(r =>
-      r.symbol?.includes(input) || r.name?.includes(input)
+      r.symbol?.toLowerCase().includes(input.toLowerCase()) || r.name?.includes(input)
     );
-    if (match) recoId = match.id;
+    if (match) {
+      targetSymbol = match.symbol;
+    }
   } catch { /* continue */ }
 
-  // Get insight
-  if (recoId) {
-    try {
-      const result = await getStockRecommendationInsight(recoId);
-      if (result) {
-        insight.value = result;
-        analyzing.value = false;
-        showResult.value = true;
-        return;
-      }
-    } catch { /* fall through */ }
-  }
+  symbol.value = targetSymbol;
+  analyzing.value = true;
+  showResult.value = false;
+  startLoadingSimulation();
 
-  // Mock fallback
-  setTimeout(() => {
-    insight.value = {
-      Recommendation: {
-        symbol: input.split('.')[0] || input, name: input,
-        risk_level: 'MEDIUM', reason_summary: 'AI 多维度筛选推荐',
-        score: 82, strategy_version: 'stock-l2-v1'
-      },
-      ScoreFramework: {
-        method: 'growth-v1 (tech30 + fund30 + sentiment20 + flow20)',
-        total_score: 82.5, weighted_score: 78.3, score_gap: 4.2,
-        factors: [
-          { key: 'tech', label: '技术因子', weight: 0.30, score: 84, contribution: 25.2 },
-          { key: 'fund', label: '基本面因子', weight: 0.30, score: 78, contribution: 23.4 },
-          { key: 'sentiment', label: '情绪因子', weight: 0.20, score: 88, contribution: 17.6 },
-          { key: 'flow', label: '资金流因子', weight: 0.20, score: 76, contribution: 15.2 }
-        ]
-      },
-      Explanation: {
-        seed_summary: `${input} 基本面稳健，AI 从4个维度进行了综合评估。`,
-        graph_summary: '技术面呈现震荡整理格局，短期方向尚不明确。',
-        consensus_summary: '资金与情绪指标偏中性，等待明确信号。',
-        risk_flags: ['市场整体波动风险', '行业政策变化风险'],
-        invalidations: ['跌破关键支撑位'],
-        agent_opinions: [
-          { role: 'FLOW', stance: 'SUPPORT', confidence: 0.68, summary: '资金面表现中性偏积极', veto: false },
-          { role: 'THEME', stance: 'WATCH', confidence: 0.61, summary: '主题概念热度一般', veto: false },
-          { role: 'RISK', stance: 'WATCH', confidence: 0.73, summary: '风险可接受，注意仓位管理', veto: false }
-        ],
-        scenario_snapshots: [
-          { scenario: 'bull', thesis: '趋势延续', trigger: '量价共振', action_suggestion: '顺势跟踪', confidence: 0.72 },
-          { scenario: 'base', thesis: '核心逻辑维持', trigger: '常规波动', action_suggestion: '按计划执行', confidence: 0.64 },
-          { scenario: 'bear', thesis: '风险边界被触发', trigger: '消息扰动', action_suggestion: '收缩风险暴露', confidence: 0.38 }
-        ],
-        confidence_calibration: { base_confidence: 0.52, adjusted_confidence: 0.65, drivers: ['事件佐证', '回撤校准'], advisory_only: true }
-      },
-      GeneratedAt: new Date().toISOString()
-    };
+  try {
+    const result = await getStockInsight(targetSymbol);
+    if (result) {
+      insight.value = result;
+      showResult.value = true;
+    }
+  } catch (err) {
+    console.error("AI analysis failed:", err);
+  } finally {
+    stopLoadingSimulation();
     analyzing.value = false;
-    showResult.value = true;
-  }, 800);
+  }
 }
 </script>
 

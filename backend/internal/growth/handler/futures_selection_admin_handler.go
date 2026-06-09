@@ -510,3 +510,36 @@ func futuresSelectionTemplateFromRequest(req adminFuturesSelectionTemplateReques
 	}
 }
 
+func (h *AdminFuturesSelectionHandler) GetFuturesSimulatedOverview(c *gin.Context) {
+	data, err := h.service.AdminGetFuturesSimulatedOverview()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(data))
+}
+
+func (h *AdminFuturesSelectionHandler) ListFuturesSimulatedPositions(c *gin.Context) {
+	page, pageSize := utils.ParsePage(c)
+	status := c.Query("status")
+	contract := c.Query("contract")
+	items, total, err := h.service.AdminListFuturesSimulatedPositions(status, contract, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
+func (h *AdminFuturesSelectionHandler) SettleSimulatedPositions(c *gin.Context) {
+	tradeDate := c.Query("trade_date")
+	if tradeDate == "" {
+		tradeDate = time.Now().Format("2006-01-02")
+	}
+	if err := h.service.AdminSettlementFuturesSimulatedPositions(tradeDate); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+

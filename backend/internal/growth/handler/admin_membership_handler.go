@@ -171,6 +171,9 @@ func (h *AdminMembershipHandler) CreateVIPQuotaConfig(c *gin.Context) {
 		MemberLevel:        req.MemberLevel,
 		DocReadLimit:       req.DocReadLimit,
 		NewsSubscribeLimit: req.NewsSubscribeLimit,
+		DownloadLimit:      req.DownloadLimit,
+		ForecastLimit:      req.ForecastLimit,
+		StockRecoLimit:     req.StockRecoLimit,
 		ResetCycle:         req.ResetCycle,
 		Status:             req.Status,
 		EffectiveAt:        req.EffectiveAt,
@@ -197,6 +200,9 @@ func (h *AdminMembershipHandler) UpdateVIPQuotaConfig(c *gin.Context) {
 	err := h.service.AdminUpdateVIPQuotaConfig(id, model.VIPQuotaConfig{
 		DocReadLimit:       req.DocReadLimit,
 		NewsSubscribeLimit: req.NewsSubscribeLimit,
+		DownloadLimit:      req.DownloadLimit,
+		ForecastLimit:      req.ForecastLimit,
+		StockRecoLimit:     req.StockRecoLimit,
 		ResetCycle:         req.ResetCycle,
 		Status:             req.Status,
 		EffectiveAt:        req.EffectiveAt,
@@ -232,7 +238,7 @@ func (h *AdminMembershipHandler) AdjustUserQuota(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
-	if err := h.service.AdminAdjustUserQuota(userID, req.PeriodKey, req.DocReadDelta, req.NewsSubscribeDelta); err != nil {
+	if err := h.service.AdminAdjustUserQuota(userID, req.PeriodKey, req.DocReadDelta, req.NewsSubscribeDelta, req.DownloadDelta, req.ForecastDelta, req.StockRecoDelta); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "user not found", Data: struct{}{}})
 			return
@@ -240,7 +246,8 @@ func (h *AdminMembershipHandler) AdjustUserQuota(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
-	summary := fmt.Sprintf("period=%s,doc_delta=%d,news_delta=%d", req.PeriodKey, req.DocReadDelta, req.NewsSubscribeDelta)
+	summary := fmt.Sprintf("period=%s,doc_delta=%d,news_delta=%d,dl_delta=%d,fc_delta=%d,sr_delta=%d", 
+		req.PeriodKey, req.DocReadDelta, req.NewsSubscribeDelta, req.DownloadDelta, req.ForecastDelta, req.StockRecoDelta)
 	h.writeOperationLog(c, "MEMBERSHIP", "ADJUST_USER_QUOTA", "USER_QUOTA", userID, "", summary, req.Reason)
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
@@ -324,5 +331,47 @@ func (h *AdminMembershipHandler) ReviewWithdrawRequest(c *gin.Context) {
 		return
 	}
 	h.writeOperationLog(c, "FINANCE", "REVIEW_WITHDRAW", "WITHDRAW_REQUEST", id, "", req.Status, req.Reason)
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AdminMembershipHandler) DeleteMembershipProduct(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.service.AdminDeleteMembershipProduct(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "membership product not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MEMBERSHIP", "DELETE_PRODUCT", "MEMBERSHIP_PRODUCT", id, "", "DELETED", "")
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AdminMembershipHandler) DeleteVIPQuotaConfig(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.service.AdminDeleteVIPQuotaConfig(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "quota config not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MEMBERSHIP", "DELETE_VIP_QUOTA_CONFIG", "VIP_QUOTA_CONFIG", id, "", "DELETED", "")
+	c.JSON(http.StatusOK, dto.OK(struct{}{}))
+}
+
+func (h *AdminMembershipHandler) DeleteUserQuota(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.service.AdminDeleteUserQuota(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40401, Message: "user quota not found", Data: struct{}{}})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	h.writeOperationLog(c, "MEMBERSHIP", "DELETE_USER_QUOTA", "USER_QUOTA", id, "", "DELETED", "")
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }

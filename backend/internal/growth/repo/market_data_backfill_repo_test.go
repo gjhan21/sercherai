@@ -551,6 +551,12 @@ func TestMySQLExecuteMarketDataBackfillRunCompletesMockPipeline(t *testing.T) {
 	defer db.Close()
 	mock.MatchExpectationsInOrder(false)
 
+	for i := 0; i < 16; i++ {
+		mock.ExpectQuery(`SELECT status FROM market_backfill_runs WHERE id = \?`).
+			WithArgs("mbr_001").
+			WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("RUNNING"))
+	}
+
 	repo := &MySQLGrowthRepo{db: db}
 	createdAt := time.Date(2026, 3, 24, 9, 0, 0, 0, time.Local)
 
@@ -778,6 +784,12 @@ func TestMySQLAdminGetMarketCoverageSummaryUsesSelectedSourceKey(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
 	mock.ExpectQuery(`SELECT MAX\(trade_date\) FROM market_daily_bar_truth WHERE asset_class = 'STOCK'`).
 		WillReturnRows(sqlmock.NewRows([]string{"max_trade_date"}).AddRow(latestTradeDate))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM market_instruments WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND instrument_key NOT LIKE '%\.%'`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM market_instruments WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND \(display_name IS NULL OR TRIM\(display_name\) = '' OR display_name = instrument_key\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM market_instruments WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND list_date IS NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
 	mock.ExpectQuery(`(?s)SELECT COALESCE\(selected_source_key, ''\)\s+AS source_key,\s*COUNT\(\*\)\s+FROM market_daily_bar_truth`).
 		WillReturnRows(sqlmock.NewRows([]string{"selected_source_key", "count"}).
 			AddRow("TUSHARE", 7).

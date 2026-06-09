@@ -665,6 +665,12 @@ func TestGetStockRecommendationVersionHistoryUsesBackfilledLocalContexts(t *test
 		}).AddRow(
 			"reco_history_001", 88.0, 90.0, 84.0, 86.0, "上涨 8% 分批止盈", "跌破支撑位止损", "仓位保持克制",
 		))
+	mock.ExpectQuery(`SELECT member_level, vip_expire_at FROM users WHERE id = \?`).
+		WithArgs("user_history_001").
+		WillReturnRows(sqlmock.NewRows([]string{"member_level", "vip_expire_at"}).AddRow("FREE", sql.NullTime{}))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM browse_histories WHERE user_id = \? AND content_type = 'STOCK' AND content_id = \? AND viewed_at >= \?`).
+		WithArgs("user_history_001", "reco_history_001", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(localAssetContextQueryPattern).
 		WithArgs("stock-selection").
 		WillReturnRows(newLocalAssetContextRows())
@@ -767,6 +773,12 @@ func TestGetStockRecommendationVersionHistoryAttachesDeepForecastSummary(t *test
 		}).AddRow(
 			"reco_l3_history_001", 88.0, 90.0, 84.0, 86.0, "上涨 8% 分批止盈", "跌破支撑位止损", "仓位保持克制",
 		))
+	mock.ExpectQuery(`SELECT member_level, vip_expire_at FROM users WHERE id = \?`).
+		WithArgs("user_l3_history_001").
+		WillReturnRows(sqlmock.NewRows([]string{"member_level", "vip_expire_at"}).AddRow("FREE", sql.NullTime{}))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM browse_histories WHERE user_id = \? AND content_type = 'STOCK' AND content_id = \? AND viewed_at >= \?`).
+		WithArgs("user_l3_history_001", "reco_l3_history_001", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(forecastL3ReadConfigQueryPattern).
 		WillReturnRows(sqlmock.NewRows([]string{"config_key", "config_value"}).
 			AddRow("growth.forecast_l3.client_read_enabled", "true"))

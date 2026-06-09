@@ -5,7 +5,8 @@ import {
   getBrowseHistorySummary,
   getBrowseHistoryTrend,
   listBrowseHistories,
-  listBrowseUserSegments
+  listBrowseUserSegments,
+  sendNotificationEmail
 } from "../api/admin";
 import { getAccessToken, hasPermission } from "../lib/session";
 
@@ -51,7 +52,8 @@ const trendPoints = ref([]);
 const messageForm = reactive({
   type: "NEWS",
   title: "阅读提醒",
-  content: "你关注的资讯有更新，建议及时查看并结合策略页调整执行计划。"
+  content: "你关注的资讯有更新，建议及时查看并结合策略页调整执行计划。",
+  send_channel: "MESSAGE"
 });
 
 const contentTypeOptions = ["NEWS", "REPORT", "JOURNAL"];
@@ -259,6 +261,10 @@ async function handleSendBatch() {
   if (!ensureCanEditUsers()) {
     return;
   }
+  if (messageForm.send_channel === "EMAIL") {
+    errorMessage.value = "自定义勾选用户不支持邮件发送，请将通道切换回站内信，或对高活跃/沉默分层客群全量发送邮件。";
+    return;
+  }
   if (!canSendBatch.value || sendingBatch.value) {
     return;
   }
@@ -277,6 +283,10 @@ async function handleSendBatch() {
 
 async function handleSendSingle(row) {
   if (!ensureCanEditUsers()) {
+    return;
+  }
+  if (messageForm.send_channel === "EMAIL") {
+    errorMessage.value = "单个用户不支持邮件发送，请将通道切换回站内信，或对高活跃/沉默分层客群全量发送邮件。";
     return;
   }
   const userID = row?.user_id;
@@ -301,12 +311,7 @@ async function handleSendSegment(segmentType) {
     return;
   }
   const normalized = String(segmentType || "").toUpperCase();
-  const users =
-    normalized === "ACTIVE"
-      ? activeSegments.value.map((item) => item.user_id).filter(Boolean)
-      : silentSegments.value.map((item) => item.user_id).filter(Boolean);
-  const targetUserIDs = [...new Set(users)];
-  if (targetUserIDs.length === 0 || sendingSegment.value) {
+  if (sendingSegment.value) {
     return;
   }
   sendingSegment.value = normalized;
@@ -314,7 +319,14 @@ async function handleSendSegment(segmentType) {
   successMessage.value = "";
   sendFailures.value = [];
   try {
-    await sendMessage(targetUserIDs, `向${normalized === "ACTIVE" ? "高活跃" : "沉默"}用户发送提醒`);
+    const ruleType = normalized === "ACTIVE" ? "READING_ACTIVE" : "READING_SILENT";
+    const res = await sendNotificationEmail({
+      rule_type: ruleType,
+      send_channel: messageForm.send_channel,
+      subject: messageForm.title.trim(),
+      body: messageForm.content.trim()
+    });
+    successMessage.value = `向${normalized === "ACTIVE" ? "高活跃" : "沉默"}用户群发提醒执行完成。目标人数: ${res.target_count}人，成功发送: ${res.sent_count}人。`;
   } catch (error) {
     errorMessage.value = error?.message || "分层提醒发送失败";
   } finally {
@@ -530,10 +542,17 @@ onMounted(refreshAll);
         <h3>阅读提醒</h3>
         <el-text type="info">已选用户 {{ selectedUserIDs.length }} 人</el-text>
       </div>
-      <div class="form-grid">
+      <div class="form-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
+        <div class="form-item">
+          <span>发送通道</span>
+          <el-select v-model="messageForm.send_channel">
+            <el-option label="系统站内信 (MESSAGE)" value="MESSAGE" />
+            <el-option label="电子邮件 (EMAIL)" value="EMAIL" />
+          </el-select>
+        </div>
         <div class="form-item">
           <span>消息类型</span>
-          <el-select v-model="messageForm.type">
+          <el-select v-model="messageForm.type" :disabled="messageForm.send_channel === 'EMAIL'">
             <el-option
               v-for="item in messageTypeOptions"
               :key="item"
@@ -543,7 +562,8 @@ onMounted(refreshAll);
           </el-select>
         </div>
         <div class="form-item">
-          <span>消息标题</span>
+          <span v-if="messageForm.send_channel === 'EMAIL'">邮件主题</span>
+          <span v-else>消息标题</span>
           <el-input v-model="messageForm.title" maxlength="128" />
         </div>
       </div>

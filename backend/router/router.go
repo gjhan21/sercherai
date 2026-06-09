@@ -10,6 +10,7 @@ import (
 	"sercherai/backend/internal/growth/repo"
 	"sercherai/backend/internal/growth/service"
 	"sercherai/backend/internal/platform/config"
+	"sercherai/backend/internal/platform/scheduler"
 	"sercherai/backend/internal/platform/storage"
 	"sercherai/backend/internal/platform/worker"
 )
@@ -50,7 +51,8 @@ func Register(r *gin.Engine) {
 	)
 
 	if db != nil {
-		worker.StartAll(growthSvc)
+		scheduler.Init(growthSvc).Start()
+		worker.StartJobExecutorWorkers(3, growthSvc)
 	}
 
 	v1 := r.Group("/api/v1")

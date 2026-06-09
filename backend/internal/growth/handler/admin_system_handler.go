@@ -19,7 +19,9 @@ import (
 	"sercherai/backend/internal/growth/dto"
 	"sercherai/backend/internal/growth/model"
 	"sercherai/backend/internal/platform/oss"
+	"sercherai/backend/internal/platform/scheduler"
 	"sercherai/backend/internal/platform/utils"
+	"sercherai/backend/internal/platform/worker"
 )
 
 const (
@@ -279,6 +281,9 @@ func (h *AdminSystemHandler) CreateSchedulerJobDefinition(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
+	if scheduler.GlobalScheduler != nil {
+		scheduler.GlobalScheduler.Reload()
+	}
 	h.writeOperationLog(c, "SCHEDULER", "CREATE_JOB_DEFINITION", "JOB_DEFINITION", id, "", req.Status, req.JobName)
 	c.JSON(http.StatusOK, dto.OK(gin.H{"id": id}))
 }
@@ -302,6 +307,9 @@ func (h *AdminSystemHandler) UpdateSchedulerJobDefinition(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
+	if scheduler.GlobalScheduler != nil {
+		scheduler.GlobalScheduler.Reload()
+	}
 	h.writeOperationLog(c, "SCHEDULER", "UPDATE_JOB_DEFINITION", "JOB_DEFINITION", id, "", req.Status, req.CronExpr)
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
@@ -319,6 +327,9 @@ func (h *AdminSystemHandler) UpdateSchedulerJobDefinitionStatus(c *gin.Context) 
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
+	if scheduler.GlobalScheduler != nil {
+		scheduler.GlobalScheduler.Reload()
+	}
 	h.writeOperationLog(c, "SCHEDULER", "UPDATE_JOB_DEFINITION_STATUS", "JOB_DEFINITION", id, "", req.Status, "")
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
 }
@@ -332,6 +343,9 @@ func (h *AdminSystemHandler) DeleteSchedulerJobDefinition(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
+	}
+	if scheduler.GlobalScheduler != nil {
+		scheduler.GlobalScheduler.Reload()
 	}
 	h.writeOperationLog(c, "SCHEDULER", "DELETE_JOB_DEFINITION", "JOB_DEFINITION", id, "", "DELETED", "")
 	c.JSON(http.StatusOK, dto.OK(struct{}{}))
@@ -369,52 +383,33 @@ func (h *AdminSystemHandler) TriggerSchedulerJob(c *gin.Context) {
 		return
 	}
 	syncOptions := h.buildTushareNewsSyncOptions(req.NewsSources, req.Symbols, req.SyncTypes, req.BatchSize)
-	execResult, err := h.runSchedulerJob(req.JobName, syncOptions)
-	status := "SUCCESS"
-	errorMessage := ""
-	if err != nil {
-		status = "FAILED"
-		errorMessage = err.Error()
-	}
-	resultSummary := execResult.Summary
-	id, err := h.service.AdminCreateSchedulerJobRun(req.JobName, req.TriggerSource, status, resultSummary, errorMessage, operator)
+
+	// Create running job run record
+	runID, err := h.service.AdminCreateSchedulerJobRun(req.JobName, req.TriggerSource, "RUNNING", "任务提交中，等待后台调度执行", "", operator)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
-	if len(execResult.NewsSyncDetails) > 0 {
-		if detailErr := h.service.AdminCreateNewsSyncRunDetails(id, execResult.NewsSyncDetails); detailErr != nil {
-			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: detailErr.Error(), Data: struct{}{}})
-			return
-		}
+
+	select {
+	case worker.JobQueue <- worker.JobExecutionRequest{
+		RunID:         runID,
+		JobName:       req.JobName,
+		OperatorID:    operator,
+		TriggerSource: req.TriggerSource,
+		SyncOptions:   syncOptions,
+	}:
+		h.writeOperationLog(c, "SCHEDULER", "TRIGGER_JOB", "JOB", req.JobName, "", "RUNNING", req.TriggerSource)
+		c.JSON(http.StatusAccepted, dto.OK(gin.H{
+			"id":             runID,
+			"status":         "RUNNING",
+			"first_run_id":   runID,
+			"result_summary": "任务已加入后台队列，正在异步执行中",
+		}))
+	default:
+		_ = h.service.AdminUpdateSchedulerJobRun(runID, "FAILED", "任务通道队列已满", "Job queue channel is full")
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "后台任务队列已满，请稍后再试", Data: struct{}{}})
 	}
-	finalRunID, finalStatus, finalSummary, finalError, retryAttempts, retryErr := h.executeSchedulerAutoRetry(
-		req.JobName,
-		id,
-		status,
-		resultSummary,
-		errorMessage,
-		operator,
-		syncOptions,
-	)
-	if retryErr != nil {
-		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: retryErr.Error(), Data: struct{}{}})
-		return
-	}
-	reason := req.TriggerSource
-	if retryAttempts > 0 {
-		reason = fmt.Sprintf("%s,auto_retry=%d", req.TriggerSource, retryAttempts)
-	}
-	h.writeOperationLog(c, "SCHEDULER", "TRIGGER_JOB", "JOB", req.JobName, "", finalStatus, reason)
-	c.JSON(http.StatusOK, dto.OK(gin.H{
-		"id":                 finalRunID,
-		"status":             finalStatus,
-		"first_run_id":       id,
-		"retry_attempts":     retryAttempts,
-		"result_summary":     finalSummary,
-		"error_message":      finalError,
-		"auto_retry_applied": retryAttempts > 0,
-	}))
 }
 
 func (h *AdminSystemHandler) RetrySchedulerJobRun(c *gin.Context) {
@@ -443,52 +438,33 @@ func (h *AdminSystemHandler) RetrySchedulerJobRun(c *gin.Context) {
 		return
 	}
 	syncOptions := h.buildTushareNewsSyncOptions(req.NewsSources, req.Symbols, req.SyncTypes, req.BatchSize)
-	execResult, runErr := h.runSchedulerJob(jobName, syncOptions)
-	status := "SUCCESS"
-	errorMessage := ""
-	if runErr != nil {
-		status = "FAILED"
-		errorMessage = runErr.Error()
-	}
-	resultSummary := execResult.Summary
-	id, err := h.service.AdminRetrySchedulerJobRun(runID, "MANUAL", status, resultSummary, errorMessage, operator)
+
+	// Create running job run record for retry stub
+	newRunID, err := h.service.AdminRetrySchedulerJobRun(runID, "MANUAL", "RUNNING", "重跑任务提交中，等待后台调度执行", "", operator)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
-	if len(execResult.NewsSyncDetails) > 0 {
-		if detailErr := h.service.AdminCreateNewsSyncRunDetails(id, execResult.NewsSyncDetails); detailErr != nil {
-			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: detailErr.Error(), Data: struct{}{}})
-			return
-		}
+
+	select {
+	case worker.JobQueue <- worker.JobExecutionRequest{
+		RunID:         newRunID,
+		JobName:       jobName,
+		OperatorID:    operator,
+		TriggerSource: "MANUAL",
+		SyncOptions:   syncOptions,
+	}:
+		h.writeOperationLog(c, "SCHEDULER", "RETRY_JOB", "JOB_RUN", runID, "", "RUNNING", "MANUAL retry")
+		c.JSON(http.StatusAccepted, dto.OK(gin.H{
+			"id":             newRunID,
+			"status":         "RUNNING",
+			"first_run_id":   newRunID,
+			"result_summary": "重跑任务已加入后台队列，正在异步执行中",
+		}))
+	default:
+		_ = h.service.AdminUpdateSchedulerJobRun(newRunID, "FAILED", "任务通道队列已满", "Job queue channel is full")
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "后台任务队列已满，请稍后再试", Data: struct{}{}})
 	}
-	finalRunID, finalStatus, finalSummary, finalError, retryAttempts, retryErr := h.executeSchedulerAutoRetry(
-		jobName,
-		id,
-		status,
-		resultSummary,
-		errorMessage,
-		operator,
-		syncOptions,
-	)
-	if retryErr != nil {
-		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: retryErr.Error(), Data: struct{}{}})
-		return
-	}
-	reason := resultSummary
-	if retryAttempts > 0 {
-		reason = fmt.Sprintf("auto_retry=%d, %s", retryAttempts, strings.TrimSpace(resultSummary))
-	}
-	h.writeOperationLog(c, "SCHEDULER", "RETRY_JOB", "JOB_RUN", runID, "", finalStatus, reason)
-	c.JSON(http.StatusOK, dto.OK(gin.H{
-		"id":                 finalRunID,
-		"status":             finalStatus,
-		"first_run_id":       id,
-		"retry_attempts":     retryAttempts,
-		"result_summary":     finalSummary,
-		"error_message":      finalError,
-		"auto_retry_applied": retryAttempts > 0,
-	}))
 }
 
 func (h *AdminSystemHandler) RetryNewsSyncItem(c *gin.Context) {
@@ -520,45 +496,40 @@ func (h *AdminSystemHandler) RetryNewsSyncItem(c *gin.Context) {
 		[]string{req.SyncType},
 		req.BatchSize,
 	)
-	execResult, runErr := h.runSchedulerJob(jobName, syncOptions)
-	status := "SUCCESS"
-	errorMessage := ""
-	if runErr != nil {
-		status = "FAILED"
-		errorMessage = runErr.Error()
-	}
-	resultSummary := execResult.Summary
-	if resultSummary == "" {
-		resultSummary = "retry single news sync item"
-	}
 
-	newRunID, err := h.service.AdminRetrySchedulerJobRun(runID, "MANUAL", status, resultSummary, errorMessage, operator)
+	// Create running job run record for fine-grained retry stub
+	newRunID, err := h.service.AdminRetrySchedulerJobRun(runID, "MANUAL", "RUNNING", "单项资讯同步重跑中", "", operator)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
-	if len(execResult.NewsSyncDetails) > 0 {
-		if detailErr := h.service.AdminCreateNewsSyncRunDetails(newRunID, execResult.NewsSyncDetails); detailErr != nil {
-			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: detailErr.Error(), Data: struct{}{}})
-			return
-		}
+
+	select {
+	case worker.JobQueue <- worker.JobExecutionRequest{
+		RunID:         newRunID,
+		JobName:       jobName,
+		OperatorID:    operator,
+		TriggerSource: "MANUAL",
+		SyncOptions:   syncOptions,
+	}:
+		h.writeOperationLog(
+			c,
+			"SCHEDULER",
+			"RETRY_NEWS_SYNC_ITEM",
+			"JOB_RUN",
+			runID,
+			"",
+			"RUNNING",
+			fmt.Sprintf("sync_type=%s source=%s symbol=%s", strings.TrimSpace(req.SyncType), strings.TrimSpace(req.Source), strings.TrimSpace(req.Symbol)),
+		)
+		c.JSON(http.StatusAccepted, dto.OK(gin.H{
+			"id":     newRunID,
+			"status": "RUNNING",
+		}))
+	default:
+		_ = h.service.AdminUpdateSchedulerJobRun(newRunID, "FAILED", "任务通道队列已满", "Job queue channel is full")
+		c.JSON(http.StatusServiceUnavailable, dto.APIResponse{Code: 50301, Message: "后台任务队列已满，请稍后再试", Data: struct{}{}})
 	}
-	h.writeOperationLog(
-		c,
-		"SCHEDULER",
-		"RETRY_NEWS_SYNC_ITEM",
-		"JOB_RUN",
-		runID,
-		"",
-		status,
-		fmt.Sprintf("sync_type=%s source=%s symbol=%s", strings.TrimSpace(req.SyncType), strings.TrimSpace(req.Source), strings.TrimSpace(req.Symbol)),
-	)
-	c.JSON(http.StatusOK, dto.OK(gin.H{
-		"id":             newRunID,
-		"status":         status,
-		"result_summary": resultSummary,
-		"error_message":  errorMessage,
-	}))
 }
 
 func (h *AdminSystemHandler) SchedulerJobMetrics(c *gin.Context) {
@@ -752,211 +723,7 @@ func (h *AdminSystemHandler) buildTushareNewsSyncOptions(newsSources []string, s
 	return opts
 }
 
-func (h *AdminSystemHandler) executeSchedulerAutoRetry(jobName string, baseRunID string, baseStatus string, baseSummary string, baseError string, operator string, syncOptions model.TushareNewsSyncOptions) (string, string, string, string, int, error) {
-	finalRunID := strings.TrimSpace(baseRunID)
-	finalStatus := strings.ToUpper(strings.TrimSpace(baseStatus))
-	finalSummary := baseSummary
-	finalError := baseError
-	retryAttempts := 0
-	if finalStatus != "FAILED" || finalRunID == "" {
-		return finalRunID, finalStatus, finalSummary, finalError, retryAttempts, nil
-	}
-	policy := h.resolveSchedulerAutoRetryPolicy(jobName)
-	if !policy.Enabled {
-		return finalRunID, finalStatus, finalSummary, finalError, retryAttempts, nil
-	}
-	currentRunID := finalRunID
-	for attempt := 1; attempt <= policy.MaxRetries && finalStatus == "FAILED"; attempt++ {
-		if policy.BackoffSeconds > 0 {
-			time.Sleep(time.Duration(policy.BackoffSeconds*attempt) * time.Second)
-		}
-		execResult, runErr := h.runSchedulerJob(jobName, syncOptions)
-		summary := execResult.Summary
-		status := "SUCCESS"
-		errorMessage := ""
-		if runErr != nil {
-			status = "FAILED"
-			errorMessage = runErr.Error()
-		}
-		newRunID, createErr := h.service.AdminRetrySchedulerJobRun(currentRunID, "SYSTEM", status, summary, errorMessage, operator)
-		if createErr != nil {
-			return finalRunID, finalStatus, finalSummary, finalError, retryAttempts, createErr
-		}
-		if len(execResult.NewsSyncDetails) > 0 {
-			if detailErr := h.service.AdminCreateNewsSyncRunDetails(newRunID, execResult.NewsSyncDetails); detailErr != nil {
-				return finalRunID, finalStatus, finalSummary, finalError, retryAttempts, detailErr
-			}
-		}
-		retryAttempts = attempt
-		currentRunID = newRunID
-		finalRunID = newRunID
-		finalStatus = status
-		finalSummary = summary
-		finalError = errorMessage
-	}
-	return finalRunID, finalStatus, finalSummary, finalError, retryAttempts, nil
-}
-
-type schedulerJobExecutionResult struct {
-	Summary         string
-	NewsSyncDetails []model.NewsSyncRunDetail
-}
-
-type schedulerAutoRetryPolicy struct {
-	Enabled        bool
-	MaxRetries     int
-	BackoffSeconds int
-}
-
-func (h *AdminSystemHandler) resolveSchedulerAutoRetryPolicy(jobName string) schedulerAutoRetryPolicy {
-	policy := schedulerAutoRetryPolicy{
-		Enabled:        strings.EqualFold(strings.TrimSpace(jobName), schedulerAutoRetryDefaultJob),
-		MaxRetries:     2,
-		BackoffSeconds: 2,
-	}
-	items, _, err := h.service.AdminListSystemConfigs("scheduler.auto_retry", 1, 200)
-	if err != nil || len(items) == 0 {
-		return policy
-	}
-	allowedJobs := map[string]struct{}{
-		strings.ToLower(strings.TrimSpace(schedulerAutoRetryDefaultJob)): {},
-	}
-	for _, item := range items {
-		key := strings.ToLower(strings.TrimSpace(item.ConfigKey))
-		value := strings.TrimSpace(item.ConfigValue)
-		switch key {
-		case strings.ToLower(schedulerAutoRetryEnabledConfigKey):
-			policy.Enabled = utils.ParseConfigBool(value, policy.Enabled)
-		case strings.ToLower(schedulerAutoRetryMaxRetriesConfigKey):
-			policy.MaxRetries = utils.ParseConfigInt(value, policy.MaxRetries)
-		case strings.ToLower(schedulerAutoRetryBackoffSecondsConfigKey):
-			policy.BackoffSeconds = utils.ParseConfigInt(value, policy.BackoffSeconds)
-		case strings.ToLower(schedulerAutoRetryJobsConfigKey):
-			allowedJobs = map[string]struct{}{}
-			for _, name := range strings.Split(value, ",") {
-				normalized := strings.ToLower(strings.TrimSpace(name))
-				if normalized == "" {
-					continue
-				}
-				allowedJobs[normalized] = struct{}{}
-			}
-		}
-	}
-	if policy.MaxRetries < 0 {
-		policy.MaxRetries = 0
-	}
-	if policy.MaxRetries > 5 {
-		policy.MaxRetries = 5
-	}
-	if policy.BackoffSeconds < 0 {
-		policy.BackoffSeconds = 0
-	}
-	if policy.BackoffSeconds > 60 {
-		policy.BackoffSeconds = 60
-	}
-	if len(allowedJobs) > 0 {
-		if _, ok := allowedJobs[strings.ToLower(strings.TrimSpace(jobName))]; !ok {
-			policy.Enabled = false
-		}
-	}
-	if policy.MaxRetries <= 0 {
-		policy.Enabled = false
-	}
-	return policy
-}
-
-func (h *AdminSystemHandler) runSchedulerJob(jobName string, syncOptions model.TushareNewsSyncOptions) (schedulerJobExecutionResult, error) {
-	switch strings.ToLower(strings.TrimSpace(jobName)) {
-	case "daily_stock_quant_pipeline":
-		tradeDate := time.Now().Format("2006-01-02")
-		sourceKey := strings.ToUpper(strings.TrimSpace(h.resolveDefaultStockQuoteSourceKey()))
-		if sourceKey == "" {
-			sourceKey = stockDefaultSourceFallback
-		}
-		usedSourceKey := sourceKey
-		quoteCount, err := h.service.AdminSyncStockQuotes(sourceKey, nil, 180)
-		if err != nil && sourceKey != "MOCK" {
-			fallbackCount, fallbackErr := h.service.AdminSyncStockQuotes("MOCK", nil, 180)
-			if fallbackErr != nil {
-				return schedulerJobExecutionResult{}, fmt.Errorf("sync quotes failed(%s): %v, fallback MOCK failed: %w", sourceKey, err, fallbackErr)
-			}
-			quoteCount = fallbackCount
-			usedSourceKey = "MOCK"
-		}
-		if err != nil && sourceKey == "MOCK" {
-			return schedulerJobExecutionResult{}, err
-		}
-		topItems, err := h.service.AdminGetQuantTopStocks(10, 180)
-		if err != nil {
-			return schedulerJobExecutionResult{}, err
-		}
-		recoResult, err := h.service.AdminGenerateDailyStockRecommendations(tradeDate)
-		if err != nil {
-			return schedulerJobExecutionResult{}, err
-		}
-		return schedulerJobExecutionResult{
-			Summary: fmt.Sprintf(
-				"trade_date=%s source=%s quotes=%d top=%d recommendations=%d",
-				tradeDate,
-				usedSourceKey,
-				quoteCount,
-				len(topItems),
-				recoResult.Count,
-			),
-		}, nil
-	case "daily_stock_recommendation":
-		tradeDate := time.Now().Format("2006-01-02")
-		result, err := h.service.AdminGenerateDailyStockRecommendations(tradeDate)
-		if err != nil {
-			return schedulerJobExecutionResult{}, err
-		}
-		return schedulerJobExecutionResult{Summary: fmt.Sprintf("generated %d recommendations", result.Count)}, nil
-	case schedulerJobDailyFuturesStrategy, schedulerJobFuturesStrategyGenerate:
-		tradeDate := time.Now().Format("2006-01-02")
-		result, err := h.service.AdminGenerateDailyFuturesStrategies(tradeDate)
-		if err != nil {
-			return schedulerJobExecutionResult{}, err
-		}
-		return schedulerJobExecutionResult{
-			Summary: fmt.Sprintf("trade_date=%s generated=%d", tradeDate, result.Count),
-		}, nil
-	case schedulerJobFuturesStrategyEvaluate:
-		return schedulerJobExecutionResult{Summary: "Futures strategy evaluation triggered"}, nil
-	case "doc_fast_news_incremental":
-		summary, err := h.service.AdminSyncDocFastNewsIncremental(0)
-		if err != nil {
-			return schedulerJobExecutionResult{}, err
-		}
-		return schedulerJobExecutionResult{Summary: summary}, nil
-	case "tushare_news_incremental":
-		summary, details, err := h.service.AdminSyncTushareNewsIncrementalWithOptions(syncOptions)
-		if err != nil {
-			return schedulerJobExecutionResult{Summary: summary, NewsSyncDetails: details}, err
-		}
-		return schedulerJobExecutionResult{Summary: summary, NewsSyncDetails: details}, nil
-	case "vip_membership_lifecycle":
-		summary, err := h.service.AdminRunVIPMembershipLifecycle()
-		if err != nil {
-			return schedulerJobExecutionResult{}, err
-		}
-		return schedulerJobExecutionResult{Summary: summary}, nil
-	default:
-		return schedulerJobExecutionResult{}, fmt.Errorf("unsupported job: %s", jobName)
-	}
-}
-
-func (h *AdminSystemHandler) resolveDefaultStockQuoteSourceKey() string {
-	items, _, err := h.service.AdminListSystemConfigs(stockDefaultSourceConfigKey, 1, 10)
-	if err != nil || len(items) == 0 {
-		return stockDefaultSourceFallback
-	}
-	for _, item := range items {
-		if strings.EqualFold(strings.TrimSpace(item.ConfigKey), stockDefaultSourceConfigKey) {
-			return strings.TrimSpace(item.ConfigValue)
-		}
-	}
-	return stockDefaultSourceFallback
-}
+// Helpers
 
 func maskSystemConfigValueForAudit(configKey string, configValue string) string {
 	if isSensitiveSystemConfigKey(configKey) {

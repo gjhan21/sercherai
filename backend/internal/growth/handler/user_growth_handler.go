@@ -578,6 +578,10 @@ func (h *UserGrowthHandler) DownloadAttachment(c *gin.Context) {
 		return
 	}
 	if err := h.service.LogAttachmentDownload(userID, attachmentID, info.ArticleID); err != nil {
+		if err.Error() == "quota exceeded" {
+			c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "quota exceeded", Data: struct{}{}})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
 		return
 	}
@@ -1064,6 +1068,43 @@ func (h *UserGrowthHandler) ListStockSimulatedPositions(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
 }
 
+func (h *UserGrowthHandler) GetFuturesSimulatedOverview(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	_, ok = h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	data, err := h.service.AdminGetFuturesSimulatedOverview()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(data))
+}
+
+func (h *UserGrowthHandler) ListFuturesSimulatedPositions(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	_, ok = h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	page, pageSize := parsePage(c)
+	status := c.Query("status")
+	contract := c.Query("contract")
+	items, total, err := h.service.AdminListFuturesSimulatedPositions(status, contract, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+	c.JSON(http.StatusOK, dto.OK(gin.H{"items": items, "page": page, "page_size": pageSize, "total": total}))
+}
+
 func (h *UserGrowthHandler) GetStockRecommendationDetail(c *gin.Context) {
 	userID, ok := requireUserID(c)
 	if !ok {
@@ -1078,6 +1119,10 @@ func (h *UserGrowthHandler) GetStockRecommendationDetail(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, dto.APIResponse{Code: 40403, Message: "stock recommendation not found", Data: struct{}{}})
+			return
+		}
+		if err.Error() == "quota exceeded" {
+			c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "quota exceeded", Data: struct{}{}})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
@@ -1143,6 +1188,60 @@ func (h *UserGrowthHandler) GetStockRecommendationInsight(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.OK(item))
 }
+
+func (h *UserGrowthHandler) GetStockInsight(c *gin.Context) {
+	userID, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+	_, ok = h.loadAccessProfile(c, userID)
+	if !ok {
+		return
+	}
+	symbol := strings.TrimSpace(c.Query("symbol"))
+	if symbol == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "symbol is required", Data: struct{}{}})
+		return
+	}
+
+	var recoID string
+	reco, err := h.service.GetLatestRecommendationBySymbol(symbol)
+	if err == nil && reco.ID != "" {
+		if t, parseErr := time.Parse(time.RFC3339, reco.ValidFrom); parseErr == nil {
+			if time.Since(t) < 24*time.Hour {
+				recoID = reco.ID
+			}
+		}
+	}
+
+	var item model.StockRecommendationInsight
+	if recoID != "" {
+		item, err = h.service.GetStockRecommendationInsight(userID, recoID)
+	}
+
+	if recoID == "" || err != nil {
+		item, err = h.service.GenerateRealtimeStockInsight(userID, symbol)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: fmt.Sprintf("failed to generate realtime stock insight: %v", err), Data: struct{}{}})
+			return
+		}
+	}
+
+	if latestRun, err := h.service.GetLatestStrategyForecastL3Run(model.StrategyForecastL3TargetTypeStock, item.Recommendation.ID); err == nil && latestRun.ID != "" {
+		if item.Explanation.DeepForecastSummary == nil || latestRun.CreatedAt > item.Explanation.DeepForecastSummary.GeneratedAt {
+			summary := latestRun.Summary
+			if summary.RunID == "" {
+				summary.RunID = latestRun.ID
+			}
+			summary.Status = latestRun.Status
+			summary.GeneratedAt = latestRun.CreatedAt
+			item.Explanation.DeepForecastSummary = &summary
+		}
+	}
+
+	c.JSON(http.StatusOK, dto.OK(item))
+}
+
 
 func (h *UserGrowthHandler) GetStockRecommendationVersionHistory(c *gin.Context) {
 	userID, ok := requireUserID(c)
@@ -1832,88 +1931,107 @@ func (h *UserGrowthHandler) PatternMatch(c *gin.Context) {
 		normCur[i] = v / base * 100
 	}
 
-	// 2. Query candidate stocks (top 300 with enough data)
-	candidateStocks := []string{}
-	stockRows, err := db.Query("SELECT instrument_key FROM market_daily_bars WHERE asset_class='STOCK' AND source_key='TUSHARE' AND instrument_key != ? GROUP BY instrument_key HAVING COUNT(*) >= ? ORDER BY COUNT(*) DESC LIMIT 300", symbol, lookback+7)
-	if err == nil {
-		for stockRows.Next() {
-			var s string
-			stockRows.Scan(&s)
-			candidateStocks = append(candidateStocks, s)
-		}
-		stockRows.Close()
-	}
-
-	var candidates []candidate
-	for _, cs := range candidateStocks {
-		r, e := db.Query("SELECT close_price, trade_date FROM market_daily_bars WHERE asset_class='STOCK' AND instrument_key=? AND source_key='TUSHARE' ORDER BY trade_date ASC", cs)
-		if e != nil {
-			continue
-		}
-		var sp []float64
-		var sd []string
-		for r.Next() {
-			var p float64
-			var t time.Time
-			if err := r.Scan(&p, &t); err == nil {
-				sp = append(sp, p)
-				sd = append(sd, t.Format("2006-01-02"))
-			} else {
-				fmt.Printf("[DEBUG] cs=%s Scan error: %v\n", cs, err)
-			}
-		}
-		r.Close()
-		if len(sp) < lookback+1 {
-			continue
-		}
-		baseSeg := currentSeg[0]
-		for i := 0; i <= len(sp)-lookback-7; i++ {
-			sb := sp[i]
-			dot, n1, n2 := 0.0, 0.0, 0.0
-			for j := 0; j < lookback; j++ {
-				nv := sp[i+j] / sb * 100
-				cv := currentSeg[j] / baseSeg * 100
-				dot += cv * nv
-				n1 += cv * cv
-				n2 += nv * nv
-			}
-			sim := dot / (sqrt(n1*n2) + 1e-10)
-			if sim > 0.85 {
-				next7 := make([]float64, 7)
-				for j := 0; j < 7 && i+lookback+j < len(sp); j++ {
-					next7[j] = (sp[i+lookback+j]/sp[i+lookback-1] - 1) * 100
-				}
-				matchDate := ""
-				if i+lookback-1 < len(sd) {
-					matchDate = sd[i+lookback-1]
-				}
-				candidates = append(candidates, candidate{stock: cs, date: matchDate, similarity: sim, next: next7})
-				if len(candidates) > 100 {
-					sortCandidates(candidates)
-					candidates = candidates[:100]
-				}
-			}
-		}
-	}
-
-	// 4. Sort candidates by similarity, take topN
-	// 4. Sort candidates by similarity, take topN
-	sortCandidates(candidates)
-
 	matches := make([]matchResult, 0, topN)
 	var allNext7d [][]float64
-	for i := 0; i < len(candidates) && i < topN; i++ {
-		c := candidates[i]
-		ret := 0.0
-		if len(c.next) > 0 {
-			ret = c.next[len(c.next)-1]
+
+	// Try database cache first
+	dbMatches, dbErr := h.service.GetPatternMatches(symbol, lookback, topN)
+	if dbErr == nil && len(dbMatches) > 0 {
+		for i, m := range dbMatches {
+			ret := 0.0
+			if len(m.Next7d) > 0 {
+				ret = m.Next7d[len(m.Next7d)-1]
+			}
+			matches = append(matches, matchResult{
+				Rank:       i + 1,
+				Stock:      m.MatchSymbol,
+				Similarity: float64(int(m.Similarity*1000)) / 1000,
+				MatchDate:  m.MatchDate,
+				Next7d:     m.Next7d,
+				Return7d:   ret,
+			})
+			allNext7d = append(allNext7d, m.Next7d)
 		}
-		matches = append(matches, matchResult{
-			Rank: i + 1, Stock: c.stock,
-			Similarity: float64(int(c.similarity*1000)) / 1000,
-			MatchDate:  c.date, Next7d: c.next, Return7d: ret,
-		})
-		allNext7d = append(allNext7d, c.next)
+	} else {
+		// 2. Query candidate stocks (top 300 with enough data)
+		candidateStocks := []string{}
+		stockRows, err := db.Query("SELECT instrument_key FROM market_daily_bars WHERE asset_class='STOCK' AND source_key='TUSHARE' AND instrument_key != ? GROUP BY instrument_key HAVING COUNT(*) >= ? ORDER BY COUNT(*) DESC LIMIT 300", symbol, lookback+7)
+		if err == nil {
+			for stockRows.Next() {
+				var s string
+				stockRows.Scan(&s)
+				candidateStocks = append(candidateStocks, s)
+			}
+			stockRows.Close()
+		}
+
+		var candidates []candidate
+		for _, cs := range candidateStocks {
+			r, e := db.Query("SELECT close_price, trade_date FROM market_daily_bars WHERE asset_class='STOCK' AND instrument_key=? AND source_key='TUSHARE' ORDER BY trade_date ASC", cs)
+			if e != nil {
+				continue
+			}
+			var sp []float64
+			var sd []string
+			for r.Next() {
+				var p float64
+				var t time.Time
+				if err := r.Scan(&p, &t); err == nil {
+					sp = append(sp, p)
+					sd = append(sd, t.Format("2006-01-02"))
+				} else {
+					fmt.Printf("[DEBUG] cs=%s Scan error: %v\n", cs, err)
+				}
+			}
+			r.Close()
+			if len(sp) < lookback+1 {
+				continue
+			}
+			baseSeg := currentSeg[0]
+			for i := 0; i <= len(sp)-lookback-7; i++ {
+				sb := sp[i]
+				dot, n1, n2 := 0.0, 0.0, 0.0
+				for j := 0; j < lookback; j++ {
+					nv := sp[i+j] / sb * 100
+					cv := currentSeg[j] / baseSeg * 100
+					dot += cv * nv
+					n1 += cv * cv
+					n2 += nv * nv
+				}
+				sim := dot / (sqrt(n1*n2) + 1e-10)
+				if sim > 0.85 {
+					next7 := make([]float64, 7)
+					for j := 0; j < 7 && i+lookback+j < len(sp); j++ {
+						next7[j] = (sp[i+lookback+j]/sp[i+lookback-1] - 1) * 100
+					}
+					matchDate := ""
+					if i+lookback-1 < len(sd) {
+						matchDate = sd[i+lookback-1]
+					}
+					candidates = append(candidates, candidate{stock: cs, date: matchDate, similarity: sim, next: next7})
+					if len(candidates) > 100 {
+						sortCandidates(candidates)
+						candidates = candidates[:100]
+					}
+				}
+			}
+		}
+
+		sortCandidates(candidates)
+
+		for i := 0; i < len(candidates) && i < topN; i++ {
+			c := candidates[i]
+			ret := 0.0
+			if len(c.next) > 0 {
+				ret = c.next[len(c.next)-1]
+			}
+			matches = append(matches, matchResult{
+				Rank: i + 1, Stock: c.stock,
+				Similarity: float64(int(c.similarity*1000)) / 1000,
+				MatchDate:  c.date, Next7d: c.next, Return7d: ret,
+			})
+			allNext7d = append(allNext7d, c.next)
+		}
 	}
 
 	// 5. Fetch prediction from Python strategy-engine, fallback to local morph prediction if offline

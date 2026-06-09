@@ -7,7 +7,8 @@
       <div class="kt-row"><span>收</span><strong :style="{color:hoverData.close >= hoverData.open?'var(--positive)':'var(--negative)'}">{{ hoverData.close.toFixed(2) }}</strong></div>
       <div class="kt-row"><span>高</span><strong>{{ hoverData.high.toFixed(2) }}</strong></div>
       <div class="kt-row"><span>低</span><strong>{{ hoverData.low.toFixed(2) }}</strong></div>
-      <div class="kt-row"><span>量</span><strong>{{ (hoverData.volume / 10000).toFixed(0) }}万</strong></div>
+      <div class="kt-row" v-if="!hoverData.isPredict"><span>量</span><strong>{{ (hoverData.volume / 10000).toFixed(0) }}万</strong></div>
+      <div class="kt-row" v-else><span>类型</span><strong style="color: #8b5cf6">AI 7D 预测</strong></div>
     </div>
   </div>
 </template>
@@ -20,7 +21,8 @@ const props = defineProps({
   width: { type: Number, default: 600 },
   height: { type: Number, default: 380 },
   showMa: { type: Boolean, default: true },
-  prediction: { type: Object, default: null }
+  prediction: { type: Object, default: null },
+  matches: { type: Array, default: () => [] }
 });
 
 const emit = defineEmits(["loaded"]);
@@ -180,18 +182,35 @@ function draw() {
     ctx.fillText("▎预测区", lastX + 4, PADDING.top + 12);
 
     let prevClose = lastClose;
+    let maxHighVal = -Infinity, minLowVal = Infinity;
+    let maxHighIdx = -1, minLowIdx = -1;
+    const predPts = [];
+
     for (let d = 0; d < predCount; d++) {
       const cumRet = pred.median[d];
       const open = prevClose;
       const close = lastClose * (1 + cumRet / 100);
       const upPct = pred.upper_75 && pred.upper_75[d] !== undefined ? pred.upper_75[d] : cumRet;
       const lowPct = pred.lower_25 && pred.lower_25[d] !== undefined ? pred.lower_25[d] : cumRet;
-      const high = lastClose * (1 + Math.max(upPct, cumRet) / 100);
-      const low = lastClose * (1 + Math.min(lowPct, cumRet) / 100);
+      let high = lastClose * (1 + Math.max(upPct, cumRet) / 100);
+      let low = lastClose * (1 + Math.min(lowPct, cumRet) / 100);
+      high = Math.max(high, open, close);
+      low = Math.min(low, open, close);
       prevClose = close;
 
       const cx = lastX + (d + 1) * predStep;
       const cw2 = predBarW / 2;
+
+      predPts.push({ d: d + 1, date: `D${d+1} (预测)`, open, close, high, low, cx });
+
+      if (high > maxHighVal) {
+        maxHighVal = high;
+        maxHighIdx = d;
+      }
+      if (low < minLowVal) {
+        minLowVal = low;
+        minLowIdx = d;
+      }
 
       ctx.strokeStyle = "rgba(139,92,246,0.6)";
       ctx.lineWidth = 1;
@@ -211,6 +230,92 @@ function draw() {
       ctx.font = "9px sans-serif";
       ctx.textAlign = "center";
       ctx.fillText("D" + (d + 1), cx, props.height - 10);
+    }
+
+    // 标出预测期的极高极低点
+    if (maxHighIdx !== -1) {
+      const p = predPts[maxHighIdx];
+      const y = py(p.high);
+      ctx.fillStyle = "#ff4757";
+      ctx.beginPath(); ctx.arc(p.cx, y, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.font = "bold 10px sans-serif";
+      ctx.textAlign = p.cx > props.width - 100 ? "right" : "left";
+      ctx.fillText(`▲最高: ${maxHighVal.toFixed(2)}`, p.cx > props.width - 100 ? p.cx - 6 : p.cx + 6, y - 2);
+    }
+    if (minLowIdx !== -1) {
+      const p = predPts[minLowIdx];
+      const y = py(p.low);
+      ctx.fillStyle = "#00c897";
+      ctx.beginPath(); ctx.arc(p.cx, y, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.font = "bold 10px sans-serif";
+      ctx.textAlign = p.cx > props.width - 100 ? "right" : "left";
+      ctx.fillText(`▼最低: ${minLowVal.toFixed(2)}`, p.cx > props.width - 100 ? p.cx - 6 : p.cx + 6, y + 8);
+    }
+
+    // 预测 K 线的 Hover 交互
+    predPts.forEach(p => {
+      if (mouseX >= 0) {
+        const dist = Math.abs(p.cx - mouseX);
+        if (dist < predStep / 2 && dist < 15) {
+          ctx.strokeStyle = "rgba(139,92,246,0.3)";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath(); ctx.moveTo(p.cx, PADDING.top); ctx.lineTo(p.cx, PADDING.top + ch); ctx.stroke();
+          ctx.setLineDash([]);
+          
+          hoverData.value = {
+            date: p.date,
+            open: p.open,
+            close: p.close,
+            high: p.high,
+            low: p.low,
+            isPredict: true
+          };
+          tooltipStyle.value = { 
+            left: Math.min(p.cx + 15, props.width - 160) + "px", 
+            top: Math.max(PADDING.top, mouseY - 80) + "px" 
+          };
+        }
+      }
+    });
+
+    // 绘制历史相似印证均线折线
+    const hasMatches = props.matches && props.matches.length;
+    const matchAvgPath = [];
+    if (hasMatches) {
+      for (let d = 0; d < 7; d++) {
+        let sumPct = 0;
+        let count = 0;
+        props.matches.forEach(m => {
+          if (m.next_7d && m.next_7d[d] !== undefined) {
+            sumPct += m.next_7d[d];
+            count++;
+          }
+        });
+        matchAvgPath.push(count > 0 ? sumPct / count : 0);
+      }
+    }
+
+    if (hasMatches && matchAvgPath.length > 0) {
+      ctx.strokeStyle = "rgba(59,130,246,0.75)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(lastX, py(lastClose));
+      for (let d = 0; d < 7; d++) {
+        const cx = lastX + (d + 1) * predStep;
+        const price = lastClose * (1 + matchAvgPath[d] / 100);
+        ctx.lineTo(cx, py(price));
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const endX = lastX + 7 * predStep;
+      const endPrice = lastClose * (1 + matchAvgPath[6] / 100);
+      ctx.fillStyle = "rgba(59,130,246,0.95)";
+      ctx.font = "9px sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(" ── 历史相似均线", endX, py(endPrice) + 3);
     }
   }
 
@@ -278,6 +383,7 @@ onUnmounted(() => {
 
 watch(() => props.data, draw, { deep: true });
 watch(() => props.prediction, draw, { deep: true });
+watch(() => props.matches, draw, { deep: true });
 </script>
 
 <style scoped>

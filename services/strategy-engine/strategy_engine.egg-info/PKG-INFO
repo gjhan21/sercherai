@@ -8,6 +8,10 @@ Requires-Dist: akshare
 Requires-Dist: fastapi<1.0,>=0.116
 Requires-Dist: pydantic-settings<3.0,>=2.10
 Requires-Dist: uvicorn<1.0,>=0.35
+Requires-Dist: lightgbm>=4.0.0
+Requires-Dist: pandas>=2.0.0
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: scikit-learn>=1.2.0
 Provides-Extra: dev
 Requires-Dist: httpx<1.0,>=0.28; extra == "dev"
 Requires-Dist: pytest<9.0,>=8.4; extra == "dev"
@@ -34,6 +38,7 @@ cd /Users/gjhan21/cursor/sercherai/services/strategy-engine
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
+STRATEGY_ENGINE_GO_BACKEND_BASE_URL=http://127.0.0.1:18080 \
 uvicorn app.main:app --reload --port 8081
 ```
 
@@ -104,4 +109,15 @@ The job detail response includes a structured `report` artifact with publish-rea
 - stock and futures reports include `simulations` for bull/base/bear/shock scenario cards
 - reports include `graph_summary` for lightweight market structure context
 - reports include `consensus_summary` plus per-asset agent opinions and veto state
+- reports now include `context_meta`, so stock/futures explanation chains can show the real trade date, source, and news window
 - publish records include versioned Markdown / HTML report snapshots and replay metadata
+
+## Real context source
+
+- stock-selection now loads seeds from Go backend `POST /internal/v1/strategy-engine/context/stock-selection`
+- futures-strategy now loads seeds from Go backend `POST /internal/v1/strategy-engine/context/futures-strategy`
+- the Go backend reads from local truth/news tables instead of letting `strategy-engine` connect to MySQL directly
+- when running locally, `STRATEGY_ENGINE_GO_BACKEND_BASE_URL` must point to the Go backend base URL, otherwise stock/futures jobs cannot fetch context
+- sample seeds are kept only for explicit dev/test fallback via:
+  - `STRATEGY_ENGINE_ALLOW_SAMPLE_STOCK_SEEDS=true`
+  - `STRATEGY_ENGINE_ALLOW_SAMPLE_FUTURES_SEEDS=true`

@@ -879,6 +879,20 @@ export function generateDailyFuturesStrategies(tradeDate = "") {
   });
 }
 
+export function getFuturesSimulatedOverview() {
+  return http.get("/admin/futures-selection/simulated/overview");
+}
+
+export function listFuturesSimulatedPositions(params) {
+  return http.get("/admin/futures-selection/simulated/positions", { params: buildParams(params) });
+}
+
+export function triggerFuturesSimulatedSettlement(tradeDate = "") {
+  return http.post("/admin/futures-selection/simulated/settle", null, {
+    params: buildParams({ trade_date: tradeDate })
+  });
+}
+
 export function listFuturesStrategyEnginePublishHistory() {
   return http.get("/admin/futures/strategy-engine/publish-history");
 }
@@ -1083,4 +1097,24 @@ export function unlockAuthRiskState(payload) {
 
 export function listAuthUnlockLogs(params) {
   return http.get("/admin/auth/unlock-logs", { params: buildParams(params) });
+}
+
+export function deleteMembershipProduct(id) {
+  return http.delete(`/admin/membership/products/${encodeURIComponent(id)}`);
+}
+
+export function deleteVIPQuotaConfig(id) {
+  return http.delete(`/admin/membership/quota-configs/${encodeURIComponent(id)}`);
+}
+
+export function deleteUserQuota(id) {
+  return http.delete(`/admin/membership/user-quotas/${encodeURIComponent(id)}`);
+}
+
+export function previewEmailTargets(params) {
+  return http.get("/admin/users/email-targets", { params: buildParams(params) });
+}
+
+export function sendNotificationEmail(payload) {
+  return http.post("/admin/users/send-email", payload);
 }

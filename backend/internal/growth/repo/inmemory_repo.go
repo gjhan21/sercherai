@@ -304,6 +304,15 @@ func (r *InMemoryGrowthRepo) GetMembershipQuota(userID string) (model.Membership
 		NewsSubscribeLimit:     50,
 		NewsSubscribeUsed:      12,
 		NewsSubscribeRemaining: 38,
+		DownloadLimit:          10,
+		DownloadUsed:           2,
+		DownloadRemaining:      8,
+		ForecastLimit:          5,
+		ForecastUsed:           1,
+		ForecastRemaining:      4,
+		StockRecoLimit:         20,
+		StockRecoUsed:          5,
+		StockRecoRemaining:     15,
 		ResetCycle:             "MONTHLY",
 		ResetAt:                "2026-03-01T00:00:00+08:00",
 		VIPExpireAt:            "2026-03-20T23:59:59+08:00",
@@ -478,9 +487,31 @@ func (r *InMemoryGrowthRepo) GetStockRecommendationPerformance(userID string, re
 	return []model.RecommendationPerformancePoint{
 		{Date: "2026-02-24", Return: 0.012},
 		{Date: "2026-02-25", Return: 0.021},
-		{Date: "2026-02-26", Return: 0.018},
 	}, nil
 }
+func (r *InMemoryGrowthRepo) SavePatternMatches(matches []model.StockPatternMatch) error {
+	return nil
+}
+
+
+func (r *InMemoryGrowthRepo) GetPatternMatches(sourceSymbol string, lookback int, limit int) ([]model.StockPatternMatch, error) {
+	return []model.StockPatternMatch{}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminPrecomputeStockPatternMatches(lookback int) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) GetLatestRecommendationBySymbol(symbol string) (model.StockRecommendation, error) {
+	return model.StockRecommendation{}, nil
+}
+
+func (r *InMemoryGrowthRepo) GenerateRealtimeStockInsight(userID string, symbol string) (model.StockRecommendationInsight, error) {
+	return model.StockRecommendationInsight{}, nil
+}
+
+
+
 
 func (r *InMemoryGrowthRepo) GetStockRecommendationInsight(userID string, recoID string) (model.StockRecommendationInsight, error) {
 	recommendation := model.StockRecommendation{
@@ -1377,6 +1408,85 @@ func (r *InMemoryGrowthRepo) AdminSettlementSimulatedPositions(tradeDate string)
 	return nil
 }
 
+func (r *InMemoryGrowthRepo) AdminListFuturesSimulatedPositions(status string, contract string, page int, pageSize int) ([]model.FuturesSimulatedPosition, int, error) {
+	items := []model.FuturesSimulatedPosition{
+		{
+			ID:              "fp_demo_001",
+			StrategyID:      "fs_001",
+			Contract:        "IF2606",
+			Name:            "沪深300期指2606",
+			Direction:       "LONG",
+			Status:          "HOLDING",
+			OpenDate:        "2026-06-01",
+			OpenPrice:       3800.0,
+			CurrentPrice:    3914.0,
+			TakeProfitPrice: 4050.0,
+			StopLossPrice:   3650.0,
+			Quantity:        10.0,
+			CostBasis:       38000.0,
+			ReturnRate:      0.03,
+			MaxDrawdown:     0.0,
+			HoldDays:        8,
+			CreatedAt:       "2026-06-01T09:00:00Z",
+		},
+		{
+			ID:              "fp_demo_002",
+			StrategyID:      "fs_002",
+			Contract:        "RB2610",
+			Name:            "螺纹钢2610",
+			Direction:       "SHORT",
+			Status:          "CLOSED",
+			OpenDate:        "2026-06-01",
+			OpenPrice:       3600.0,
+			CurrentPrice:    3500.0,
+			CloseDate:       "2026-06-05",
+			ClosePrice:      3480.0,
+			TakeProfitPrice: 3480.0,
+			StopLossPrice:   3700.0,
+			Quantity:        10.0,
+			CostBasis:       36000.0,
+			CloseValue:      37200.0,
+			ReturnRate:      0.0333,
+			MaxDrawdown:     0.01,
+			HoldDays:        4,
+			CloseReason:     "TAKE_PROFIT",
+			CreatedAt:       "2026-06-01T09:00:00Z",
+		},
+	}
+	var filtered []model.FuturesSimulatedPosition
+	for _, item := range items {
+		if status != "" && item.Status != status {
+			continue
+		}
+		if contract != "" && item.Contract != contract {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered, len(filtered), nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetFuturesSimulatedOverview() (model.FuturesSimulatedOverview, error) {
+	return model.FuturesSimulatedOverview{
+		TotalTrades:    2,
+		ActiveHoldings: 1,
+		WinRate:        1.0,
+		AverageReturn:  0.0333,
+		TotalReturn:    0.0316,
+		AvgHoldDays:    4.0,
+		MaxProfitRate:  0.0333,
+		MaxLossRate:    0.0,
+	}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminAutoOpenFuturesSimulatedPositions(tradeDate string) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) AdminSettlementFuturesSimulatedPositions(tradeDate string) error {
+	return nil
+}
+
 func (r *InMemoryGrowthRepo) AddUserVirtualSandbox(userID string, recoID string, addPrice float64) error {
 	return nil
 }
@@ -1937,8 +2047,10 @@ func (r *InMemoryGrowthRepo) AdminUpdateFuturesStrategyStatus(id string, status 
 	return nil
 }
 
-func (r *InMemoryGrowthRepo) AdminListUsers(status string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error) {
+func (r *InMemoryGrowthRepo) AdminListUsers(status string, memberLevel string, registrationSource string, phone string, email string, page int, pageSize int) ([]model.AdminUser, int, error) {
 	registrationSource = strings.ToUpper(strings.TrimSpace(registrationSource))
+	phone = strings.TrimSpace(phone)
+	email = strings.TrimSpace(email)
 	items := []model.AdminUser{
 		{
 			ID:                 "u_demo_001",
@@ -1974,12 +2086,18 @@ func (r *InMemoryGrowthRepo) AdminListUsers(status string, memberLevel string, r
 		if registrationSource == "DIRECT" && strings.ToUpper(item.RegistrationSource) != "DIRECT" {
 			continue
 		}
+		if phone != "" && !strings.Contains(item.Phone, phone) {
+			continue
+		}
+		if email != "" && !strings.Contains(item.Email, email) {
+			continue
+		}
 		filtered = append(filtered, item)
 	}
 	return filtered, len(filtered), nil
 }
 
-func (r *InMemoryGrowthRepo) AdminGetUserSourceSummary(status string, memberLevel string, registrationSource string) (model.AdminUserSourceSummary, error) {
+func (r *InMemoryGrowthRepo) AdminGetUserSourceSummary(status string, memberLevel string, registrationSource string, phone string, email string) (model.AdminUserSourceSummary, error) {
 	summary := model.AdminUserSourceSummary{
 		TotalUsers:            2,
 		DirectUsers:           1,
@@ -2280,6 +2398,10 @@ func (r *InMemoryGrowthRepo) AdminUpdateMembershipProductStatus(id string, statu
 	return nil
 }
 
+func (r *InMemoryGrowthRepo) AdminDeleteMembershipProduct(id string) error {
+	return nil
+}
+
 func (r *InMemoryGrowthRepo) AdminListMembershipOrders(status string, userID string, page int, pageSize int) ([]model.MembershipOrderAdmin, int, error) {
 	items := []model.MembershipOrderAdmin{
 		{ID: "mo_001", OrderNo: "mo_001", UserID: "u_demo_001", ProductID: "mp_001", Amount: 99, PayChannel: "ALIPAY", Status: "PAID", PaidAt: "2026-02-25T10:00:00+08:00", CreatedAt: "2026-02-25T09:59:00+08:00"},
@@ -2323,8 +2445,8 @@ func (r *InMemoryGrowthRepo) AdminGetExperimentAnalyticsSummary(days int) (model
 
 func (r *InMemoryGrowthRepo) AdminListVIPQuotaConfigs(memberLevel string, status string, page int, pageSize int) ([]model.VIPQuotaConfig, int, error) {
 	items := []model.VIPQuotaConfig{
-		{ID: "vqc_001", MemberLevel: "FREE", DocReadLimit: 3, NewsSubscribeLimit: 2, ResetCycle: "MONTHLY", Status: "ACTIVE", EffectiveAt: "2026-02-01T00:00:00+08:00", UpdatedAt: "2026-02-25T00:00:00+08:00"},
-		{ID: "vqc_002", MemberLevel: "VIP2", DocReadLimit: 200, NewsSubscribeLimit: 100, ResetCycle: "MONTHLY", Status: "ACTIVE", EffectiveAt: "2026-02-01T00:00:00+08:00", UpdatedAt: "2026-02-25T00:00:00+08:00"},
+		{ID: "vqc_001", MemberLevel: "FREE", DocReadLimit: 3, NewsSubscribeLimit: 2, DownloadLimit: 0, ForecastLimit: 0, StockRecoLimit: 0, ResetCycle: "MONTHLY", Status: "ACTIVE", EffectiveAt: "2026-02-01T00:00:00+08:00", UpdatedAt: "2026-02-25T00:00:00+08:00"},
+		{ID: "vqc_002", MemberLevel: "VIP2", DocReadLimit: 200, NewsSubscribeLimit: 100, DownloadLimit: 10, ForecastLimit: 5, StockRecoLimit: 20, ResetCycle: "MONTHLY", Status: "ACTIVE", EffectiveAt: "2026-02-01T00:00:00+08:00", UpdatedAt: "2026-02-25T00:00:00+08:00"},
 	}
 	return items, len(items), nil
 }
@@ -2337,9 +2459,14 @@ func (r *InMemoryGrowthRepo) AdminUpdateVIPQuotaConfig(id string, item model.VIP
 	return nil
 }
 
+func (r *InMemoryGrowthRepo) AdminDeleteVIPQuotaConfig(id string) error {
+	return nil
+}
+
 func (r *InMemoryGrowthRepo) AdminListUserQuotaUsages(userID string, periodKey string, page int, pageSize int) ([]model.UserQuotaUsage, int, error) {
 	items := []model.UserQuotaUsage{
 		{
+			ID:                 "uqu_demo_001",
 			UserID:             "u_demo_001",
 			MemberLevel:        "VIP1",
 			PeriodKey:          "2026-02",
@@ -2347,12 +2474,22 @@ func (r *InMemoryGrowthRepo) AdminListUserQuotaUsages(userID string, periodKey s
 			DocReadUsed:        24,
 			NewsSubscribeLimit: 50,
 			NewsSubscribeUsed:  12,
+			DownloadLimit:      10,
+			DownloadUsed:       2,
+			ForecastLimit:      5,
+			ForecastUsed:       1,
+			StockRecoLimit:     20,
+			StockRecoUsed:      5,
 		},
 	}
 	return items, len(items), nil
 }
 
-func (r *InMemoryGrowthRepo) AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int) error {
+func (r *InMemoryGrowthRepo) AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int, downloadDelta int, forecastDelta int, stockRecoDelta int) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) AdminDeleteUserQuota(id string) error {
 	return nil
 }
 
@@ -2541,6 +2678,14 @@ func (r *InMemoryGrowthRepo) AdminListSystemConfigs(keyword string, page int, pa
 }
 
 func (r *InMemoryGrowthRepo) AdminUpsertSystemConfig(configKey string, configValue string, description string, operator string) error {
+	return nil
+}
+
+func (r *InMemoryGrowthRepo) AdminGetUsersByEmailRule(ruleType string) ([]model.AdminUser, error) {
+	return []model.AdminUser{}, nil
+}
+
+func (r *InMemoryGrowthRepo) AdminRecordEmailLog(userID string, email string, subject string, body string, ruleType string, status string, errMsg string) error {
 	return nil
 }
 

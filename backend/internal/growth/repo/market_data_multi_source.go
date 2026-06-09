@@ -2549,6 +2549,97 @@ func fetchStockMarketBarsFromTushareDateRange(token string, sourceKey string, in
 	}), nil
 }
 
+func fetchFuturesMarketBarsFromTushareByTradeDates(client *http.Client, token string, sourceKey string, instrumentKeys []string, startDate string, endDate string, externalSymbols map[string]string) ([]model.MarketDailyBar, error) {
+	start, err := time.ParseInLocation("20060102", startDate, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	end, err := time.ParseInLocation("20060102", endDate, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	if end.Before(start) {
+		return nil, fmt.Errorf("end_date must be >= start_date")
+	}
+
+	keyMap := make(map[string]string, len(instrumentKeys))
+	for _, key := range instrumentKeys {
+		external := strings.ToUpper(strings.TrimSpace(externalSymbols[key]))
+		if external == "" {
+			external = strings.ToUpper(strings.TrimSpace(key))
+		}
+		keyMap[external] = strings.ToUpper(strings.TrimSpace(key))
+	}
+
+	result := make([]model.MarketDailyBar, 0, len(instrumentKeys)*int(end.Sub(start).Hours()/24+1))
+	for current := start; !current.After(end); current = current.AddDate(0, 0, 1) {
+		tradeDateStr := current.Format("20060102")
+		parsed, err := callTushareAPI(client, token, "fut_daily", map[string]string{
+			"trade_date": tradeDateStr,
+		}, "ts_code,trade_date,pre_close,pre_settle,open,high,low,close,settle,vol,amount,oi")
+		if err != nil {
+			return nil, err
+		}
+
+		fieldIndex := make(map[string]int, len(parsed.Data.Fields))
+		for idx, field := range parsed.Data.Fields {
+			fieldIndex[strings.TrimSpace(field)] = idx
+		}
+
+		for _, row := range parsed.Data.Items {
+			tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+			if !ok {
+				continue
+			}
+			upperCode := strings.ToUpper(strings.TrimSpace(tsCode))
+			instrumentKey, matches := keyMap[upperCode]
+			if !matches {
+				continue
+			}
+			tradeDateRaw, ok := tushareGetString(row, fieldIndex, "trade_date")
+			if !ok {
+				continue
+			}
+			tradeDate, err := time.ParseInLocation("20060102", tradeDateRaw, time.Local)
+			if err != nil {
+				continue
+			}
+			openPrice, _ := tushareGetFloat(row, fieldIndex, "open")
+			highPrice, _ := tushareGetFloat(row, fieldIndex, "high")
+			lowPrice, _ := tushareGetFloat(row, fieldIndex, "low")
+			closePrice, ok := tushareGetFloat(row, fieldIndex, "close")
+			if !ok || closePrice <= 0 {
+				continue
+			}
+			prevClose, _ := tushareGetFloat(row, fieldIndex, "pre_close")
+			prevSettle, _ := tushareGetFloat(row, fieldIndex, "pre_settle")
+			settlePrice, _ := tushareGetFloat(row, fieldIndex, "settle")
+			volume, _ := tushareGetFloat(row, fieldIndex, "vol")
+			turnover, _ := tushareGetFloat(row, fieldIndex, "amount")
+			openInterest, _ := tushareGetFloat(row, fieldIndex, "oi")
+
+			result = append(result, model.MarketDailyBar{
+				AssetClass:      marketAssetClassFutures,
+				InstrumentKey:   instrumentKey,
+				ExternalSymbol:  upperCode,
+				TradeDate:       tradeDate.Format("2006-01-02"),
+				OpenPrice:       roundTo(openPrice, 4),
+				HighPrice:       roundTo(highPrice, 4),
+				LowPrice:        roundTo(lowPrice, 4),
+				ClosePrice:      roundTo(closePrice, 4),
+				PrevClosePrice:  roundTo(prevClose, 4),
+				SettlePrice:     roundTo(settlePrice, 4),
+				PrevSettlePrice: roundTo(prevSettle, 4),
+				Volume:          int64(math.Round(volume)),
+				Turnover:        roundTo(turnover, 4),
+				OpenInterest:    roundTo(openInterest, 4),
+				SourceKey:       sourceKey,
+			})
+		}
+	}
+	return result, nil
+}
+
 func fetchFuturesMarketBarsFromTushare(token string, sourceKey string, instrumentKeys []string, externalSymbols map[string]string, days int, timeoutMS int) ([]model.MarketDailyBar, string, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -2563,6 +2654,16 @@ func fetchFuturesMarketBarsFromTushare(token string, sourceKey string, instrumen
 	startDate := time.Now().AddDate(0, 0, -(days + 20)).Format("20060102")
 	endDate := time.Now().Format("20060102")
 	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+
+	// Smart routing: choose the loop dimension that minimizes total API calls.
+	if len(instrumentKeys) > 1 && len(instrumentKeys) > days+20 {
+		quotes, err := fetchFuturesMarketBarsFromTushareByTradeDates(client, token, sourceKey, instrumentKeys, startDate, endDate, externalSymbols)
+		if err != nil {
+			return nil, "", err
+		}
+		return quotes, "", nil
+	}
+
 	items := make([]model.MarketDailyBar, 0, len(instrumentKeys)*days)
 	rawSnapshots := make([]map[string]interface{}, 0, len(instrumentKeys))
 	reverse := make(map[string]string, len(instrumentKeys))

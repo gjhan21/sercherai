@@ -38,6 +38,20 @@ func (r *MySQLGrowthRepo) CreateStrategyForecastL3Run(input model.StrategyForeca
 		return model.StrategyForecastL3Run{}, err
 	}
 	if run.TriggerType == model.StrategyForecastL3TriggerTypeUserRequest && strings.TrimSpace(run.RequestUserID) != "" {
+		allowed, err := r.CheckAndConsumeQuota(run.RequestUserID, "forecast", run.ID)
+		if err != nil {
+			return model.StrategyForecastL3Run{}, err
+		}
+		if !allowed {
+			return model.StrategyForecastL3Run{}, errors.New("quota exceeded")
+		}
+
+		_, _ = r.db.Exec(`
+INSERT INTO browse_histories (id, user_id, content_type, content_id, source_page, viewed_at)
+VALUES (?, ?, 'FORECAST', ?, '/forecast', ?)`,
+			newID("bh"), run.RequestUserID, run.ID, now,
+		)
+
 		userCount, err := r.countStrategyForecastL3RunsCreatedToday(run.RequestUserID)
 		if err != nil {
 			return model.StrategyForecastL3Run{}, err

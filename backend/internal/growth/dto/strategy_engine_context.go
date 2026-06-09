@@ -20,3 +20,10 @@ type StrategyEngineFuturesStrategyContextRequest struct {
 	Limit                           int      `json:"limit" binding:"omitempty,gte=1,lte=20"`
 	AllowMockFallbackOnShortHistory bool     `json:"allow_mock_fallback_on_short_history"`
 }
+
+type StrategyEngineStockHistoryContextRequest struct {
+	Symbol    string `json:"symbol" binding:"required"`
+	TradeDate string `json:"trade_date" binding:"required"`
+	Limit     int    `json:"limit" binding:"omitempty,gte=1,lte=200"`
+}
+

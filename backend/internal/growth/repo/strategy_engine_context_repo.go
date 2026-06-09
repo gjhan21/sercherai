@@ -322,6 +322,252 @@ func resolveStrategyStockContextSymbols(selectionMode string, seedSymbols []stri
 	}
 }
 
+func (r *MySQLGrowthRepo) BuildStrategyEngineStockHistoryContext(symbol string, selectedTradeDate time.Time, limit int) (model.StrategyEngineStockSelectionContextResponse, error) {
+	symbol = canonicalStockInstrumentKey(symbol)
+	if symbol == "" {
+		return model.StrategyEngineStockSelectionContextResponse{}, fmt.Errorf("invalid symbol")
+	}
+
+	rows, err := r.db.Query(`
+SELECT trade_date, open_price, high_price, low_price, close_price, prev_close_price, volume, turnover
+FROM market_daily_bar_truth
+WHERE asset_class = 'STOCK'
+  AND instrument_key = ?
+  AND trade_date <= ?
+  AND selected_source_key != 'MOCK'
+ORDER BY trade_date DESC
+LIMIT ?`, symbol, selectedTradeDate.Format("2006-01-02"), limit+30)
+	if err != nil {
+		return model.StrategyEngineStockSelectionContextResponse{}, err
+	}
+	defer rows.Close()
+
+	var reverseQuotes []stockQuoteCandle
+	for rows.Next() {
+		var item stockQuoteCandle
+		item.Symbol = symbol
+		var prevClose sql.NullFloat64
+		var turnover sql.NullFloat64
+		if err := rows.Scan(
+			&item.TradeDate,
+			&item.OpenPrice,
+			&item.HighPrice,
+			&item.LowPrice,
+			&item.ClosePrice,
+			&prevClose,
+			&item.Volume,
+			&turnover,
+		); err != nil {
+			return model.StrategyEngineStockSelectionContextResponse{}, err
+		}
+		if prevClose.Valid {
+			item.PrevClosePrice = prevClose.Float64
+		}
+		if turnover.Valid {
+			item.Turnover = turnover.Float64
+		}
+		if item.ClosePrice <= 0 {
+			continue
+		}
+		reverseQuotes = append(reverseQuotes, item)
+	}
+
+	if len(reverseQuotes) < 25 {
+		return model.StrategyEngineStockSelectionContextResponse{}, fmt.Errorf("insufficient stock truth history for %s, got %d bars", symbol, len(reverseQuotes))
+	}
+
+	// Reverse to chronological order
+	quotes := make([]stockQuoteCandle, len(reverseQuotes))
+	for i := range reverseQuotes {
+		quotes[i] = reverseQuotes[len(reverseQuotes)-1-i]
+	}
+
+	startIndex := len(quotes) - limit
+	if startIndex < 25 {
+		startIndex = 25
+	}
+
+	startDateStr := quotes[startIndex].TradeDate.Format("2006-01-02")
+	endDateStr := quotes[len(quotes)-1].TradeDate.Format("2006-01-02")
+
+	// Daily basics
+	dailyBasics := make(map[string]stockDailyBasicPoint)
+	basicRows, err := r.db.Query(`
+SELECT trade_date, turnover_rate, volume_ratio, pe_ttm, pb, total_mv, circ_mv
+FROM stock_daily_basic
+WHERE symbol = ? AND trade_date >= ? AND trade_date <= ?`, symbol, startDateStr, endDateStr)
+	if err == nil {
+		defer basicRows.Close()
+		for basicRows.Next() {
+			var (
+				tradeDate    time.Time
+				item         stockDailyBasicPoint
+				turnoverRate sql.NullFloat64
+				volumeRatio  sql.NullFloat64
+				peTTM        sql.NullFloat64
+				pb           sql.NullFloat64
+				totalMV      sql.NullFloat64
+				circMV       sql.NullFloat64
+			)
+			if err := basicRows.Scan(&tradeDate, &turnoverRate, &volumeRatio, &peTTM, &pb, &totalMV, &circMV); err == nil {
+				item.Symbol = symbol
+				item.TradeDate = tradeDate
+				item.TurnoverRate = sqlNullFloat(turnoverRate)
+				item.VolumeRatio = sqlNullFloat(volumeRatio)
+				item.PeTTM = sqlNullFloat(peTTM)
+				item.PB = sqlNullFloat(pb)
+				item.TotalMV = sqlNullFloat(totalMV)
+				item.CircMV = sqlNullFloat(circMV)
+				dailyBasics[tradeDate.Format("2006-01-02")] = item
+			}
+		}
+	}
+
+	// Moneyflows
+	moneyflows := make(map[string]stockMoneyflowPoint)
+	flowRows, err := r.db.Query(`
+SELECT trade_date, net_mf_amount, buy_lg_amount, sell_lg_amount, buy_elg_amount, sell_elg_amount
+FROM stock_moneyflow_daily
+WHERE symbol = ? AND trade_date >= ? AND trade_date <= ?`, symbol, startDateStr, endDateStr)
+	if err == nil {
+		defer flowRows.Close()
+		for flowRows.Next() {
+			var (
+				tradeDate time.Time
+				item      stockMoneyflowPoint
+				netMF     sql.NullFloat64
+				buyLG     sql.NullFloat64
+				sellLG    sql.NullFloat64
+				buyELG    sql.NullFloat64
+				sellELG   sql.NullFloat64
+			)
+			if err := flowRows.Scan(&tradeDate, &netMF, &buyLG, &sellLG, &buyELG, &sellELG); err == nil {
+				item.Symbol = symbol
+				item.TradeDate = tradeDate
+				item.NetMFAmount = sqlNullFloat(netMF)
+				item.BuyLGAmount = sqlNullFloat(buyLG)
+				item.SellLGAmount = sqlNullFloat(sellLG)
+				item.BuyELGAmount = sqlNullFloat(buyELG)
+				item.SellELGAmount = sqlNullFloat(sellELG)
+				moneyflows[tradeDate.Format("2006-01-02")] = item
+			}
+		}
+	}
+
+	// News
+	newsStart, _ := time.Parse("2006-01-02", startDateStr)
+	newsStart = newsStart.AddDate(0, 0, -13)
+	newsEnd, _ := time.Parse("2006-01-02", endDateStr)
+	newsEnd = newsEnd.AddDate(0, 0, 1)
+
+	type newsItem struct {
+		publishedAt time.Time
+		title       string
+	}
+	var news []newsItem
+	newsRows, err := r.db.Query(`
+SELECT published_at, title
+FROM market_news_items
+WHERE published_at >= ? AND published_at < ?
+  AND (primary_symbol = ? OR JSON_CONTAINS(symbols_json, JSON_QUOTE(?)))`,
+		newsStart, newsEnd, symbol, symbol)
+	if err == nil {
+		defer newsRows.Close()
+		for newsRows.Next() {
+			var n newsItem
+			if err := newsRows.Scan(&n.publishedAt, &n.title); err == nil {
+				news = append(news, n)
+			}
+		}
+	}
+
+	getNewsSignal := func(dt time.Time) stockNewsSignal {
+		wStart := dt.AddDate(0, 0, -13)
+		wEnd := dt.AddDate(0, 0, 1)
+		heat := 0
+		pos := 0
+		for _, n := range news {
+			if (n.publishedAt.After(wStart) || n.publishedAt.Equal(wStart)) && n.publishedAt.Before(wEnd) {
+				heat++
+				if classifyNewsSentiment(n.title) == "POSITIVE" {
+					pos++
+				}
+			}
+		}
+		if heat == 0 {
+			return stockNewsSignal{Heat: 0, PositiveRate: 0.5}
+		}
+		return stockNewsSignal{Heat: heat, PositiveRate: float64(pos) / float64(heat)}
+	}
+
+	seeds := make([]model.StrategyEngineStockSeed, 0, len(quotes)-startIndex)
+	for i := startIndex; i < len(quotes); i++ {
+		dt := quotes[i].TradeDate
+		dtStr := dt.Format("2006-01-02")
+
+		score, ok := buildStockQuantScore(symbol, quotes[:i+1])
+		if !ok {
+			continue
+		}
+
+		if basic, basicOk := dailyBasics[dtStr]; basicOk {
+			score.PeTTM = basic.PeTTM
+			score.PB = basic.PB
+			score.TurnoverRate = basic.TurnoverRate
+		}
+		if flow, flowOk := moneyflows[dtStr]; flowOk {
+			score.NetMFAmount = flow.NetMFAmount
+		}
+		ns := getNewsSignal(dt)
+		score.NewsHeat = ns.Heat
+		score.PositiveNewsRate = ns.PositiveRate
+
+		seeds = append(seeds, model.StrategyEngineStockSeed{
+			Symbol:                symbol,
+			Name:                  symbol,
+			TradeDate:             dtStr,
+			ClosePrice:            roundTo(score.ClosePrice, 4),
+			Momentum5:             roundTo(score.Momentum5, 4),
+			Momentum20:            roundTo(score.Momentum20, 4),
+			Volatility20:          roundTo(score.Volatility20, 4),
+			VolumeRatio:           roundTo(score.VolumeRatio, 4),
+			Drawdown20:            roundTo(score.Drawdown20, 4),
+			TrendStrength:         roundTo(score.TrendStrength, 4),
+			NetMFAmount:           roundTo(score.NetMFAmount, 4),
+			PeTTM:                 roundTo(score.PeTTM, 4),
+			PB:                    roundTo(score.PB, 4),
+			TurnoverRate:          roundTo(score.TurnoverRate, 4),
+			NewsHeat:              score.NewsHeat,
+			PositiveNewsRate:      roundTo(score.PositiveNewsRate, 4),
+			SuspendedProxy:        quotes[i].Volume <= 0,
+			Momentum1:             roundTo(score.Momentum1, 4),
+			Momentum2:             roundTo(score.Momentum2, 4),
+			Momentum3:             roundTo(score.Momentum3, 4),
+			ConsecutiveDownDays:   score.ConsecutiveDownDays,
+			CandleBodyPct:         roundTo(score.CandleBodyPct, 6),
+			LowerShadowPct:        roundTo(score.LowerShadowPct, 6),
+			UpperShadowPct:        roundTo(score.UpperShadowPct, 6),
+			IsBullish:             score.IsBullish,
+			IsDoji:                score.IsDoji,
+			IsEngulfingBullish:    score.IsEngulfingBullish,
+			DeviationMA5:          roundTo(score.DeviationMA5, 4),
+			DeviationMA10:         roundTo(score.DeviationMA10, 4),
+			DeviationMA20:         roundTo(score.DeviationMA20, 4),
+			DeviationMA60:         roundTo(score.DeviationMA60, 4),
+			Volume20dMinRank:      score.Volume20dMinRank,
+			VolumeContractionDays: score.VolumeContractionDays,
+		})
+	}
+
+	return model.StrategyEngineStockSelectionContextResponse{
+		Seeds: seeds,
+		Meta: model.StrategyEngineStockSelectionContextMeta{
+			SelectedTradeDate: quotes[len(quotes)-1].TradeDate.Format("2006-01-02"),
+			NewsWindowDays:    14,
+		},
+	}, nil
+}
+
 func (r *MySQLGrowthRepo) BuildStrategyEngineFuturesStrategyContext(input model.StrategyEngineFuturesStrategyContextRequest) (model.StrategyEngineFuturesStrategyContextResponse, error) {
 	requestedTradeDate, err := parseStrategyContextTradeDate(input.TradeDate)
 	if err != nil {
@@ -2025,6 +2271,7 @@ WHERE asset_class = ?
   AND instrument_key IN (%s)
   AND trade_date >= ?
   AND trade_date <= ?
+  AND selected_source_key != 'MOCK'
 ORDER BY instrument_key ASC, trade_date ASC`, placeholders)
 	rows, err := r.db.Query(query, args...)
 	if err != nil {

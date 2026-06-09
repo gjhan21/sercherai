@@ -175,6 +175,23 @@ class MarketSeedLoader:
             top_buy_sell_ratio=_as_float(item.get("top_buy_sell_ratio")),
         )
 
+    def load_history(self, symbol: str, trade_date: str, limit: int = 120) -> list[MarketSeed]:
+        base_url = self._settings.go_backend_base_url.strip().rstrip("/")
+        if not base_url:
+            raise ValueError("STRATEGY_ENGINE_GO_BACKEND_BASE_URL is not configured")
+        response = self._post_context_request(
+            f"{base_url}/internal/v1/strategy-engine/context/stock-history",
+            {
+                "symbol": symbol,
+                "trade_date": trade_date,
+                "limit": limit
+            }
+        )
+        seeds_payload = response.get("seeds")
+        if not isinstance(seeds_payload, list) or not seeds_payload:
+            raise ValueError("go backend returned empty stock seeds history")
+        return [self._parse_seed(item) for item in seeds_payload if isinstance(item, dict)]
+
 
 def _as_float(value: Any, default: float = 0.0) -> float:
     if value is None:

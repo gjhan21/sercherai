@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -49,6 +50,28 @@ func (h *AdminStrategyHandler) InternalStrategyEngineFuturesStrategyContext(c *g
 		Limit:                           req.Limit,
 		AllowMockFallbackOnShortHistory: req.AllowMockFallbackOnShortHistory,
 	})
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *AdminStrategyHandler) InternalStrategyEngineStockHistoryContext(c *gin.Context) {
+	var req dto.StrategyEngineStockHistoryContextRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+	t, err := time.Parse("2006-01-02", req.TradeDate)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "invalid trade_date format, must be YYYY-MM-DD"})
+		return
+	}
+	if req.Limit <= 0 {
+		req.Limit = 120
+	}
+	resp, err := h.service.BuildStrategyEngineStockHistoryContext(req.Symbol, t, req.Limit)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"message": err.Error()})
 		return

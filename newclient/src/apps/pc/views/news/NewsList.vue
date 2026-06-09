@@ -6,7 +6,7 @@
         <p class="section-subtitle">AI 为您聚合市场最新动态与深度解读</p>
       </div>
       <div class="news-categories">
-        <button v-for="cat in NEWS_CATEGORIES" :key="cat" class="cat-tab" :class="{ active: activeCat === cat }" @click="activeCat = cat">{{ cat }}</button>
+        <button v-for="cat in categoriesList" :key="cat" class="cat-tab" :class="{ active: activeCat === cat }" @click="selectCategory(cat)">{{ cat }}</button>
       </div>
 
       <!-- Featured -->
@@ -48,7 +48,10 @@ import { NEWS_CATEGORIES, NEWS_ARTICLES as MOCK_ARTICLES } from "@/mock/news.js"
 import { listNewsArticles, listNewsCategories } from "@/api/news.js";
 
 const activeCat = ref('全部');
+const categoriesList = ref(['全部', ...NEWS_CATEGORIES.slice(1)]);
 const articles = ref(MOCK_ARTICLES);
+const categoryMap = ref({});
+const categoryNameToIdMap = ref({});
 
 const featured = computed(() => articles.value.find(a => a.isFeatured));
 const filteredNews = computed(() => {
@@ -62,23 +65,70 @@ function catClass(cat) {
   return map[cat] || 'tag-neutral';
 }
 
-async function loadNews() {
+async function selectCategory(catName) {
+  activeCat.value = catName;
+  await loadNewsArticles();
+}
+
+async function loadCategories() {
   try {
-    const [catResult, articleResult] = await Promise.allSettled([listNewsCategories(), listNewsArticles({ page: 1, page_size: 20 })]);
-    if (articleResult.status === 'fulfilled' && articleResult.value?.items?.length) {
-      const items = articleResult.value.items;
+    const res = await listNewsCategories();
+    if (res?.items?.length) {
+      const backendCats = res.items;
+      categoriesList.value = ['全部', ...backendCats.map(c => c.name)];
+      
+      const idToName = {};
+      const nameToId = {};
+      backendCats.forEach(c => {
+        idToName[c.id] = c.name;
+        nameToId[c.name] = c.id;
+      });
+      categoryMap.value = idToName;
+      categoryNameToIdMap.value = nameToId;
+    }
+  } catch (e) {
+    console.error('Failed to load categories', e);
+  }
+}
+
+async function loadNewsArticles() {
+  try {
+    const params = { page: 1, page_size: 20 };
+    if (activeCat.value !== '全部') {
+      const catId = categoryNameToIdMap.value[activeCat.value];
+      if (catId) {
+        params.category_id = catId;
+      }
+    }
+    const result = await listNewsArticles(params);
+    if (result?.items?.length) {
+      const items = result.items;
       articles.value = items.map((item, i) => ({
-        id: item.id, title: item.title, category: item.category_name || '资讯', source: item.source || '资讯中心',
+        id: item.id, title: item.title, category: categoryMap.value[item.category_id] || item.category_name || '资讯', source: item.source || '资讯中心',
         publishTime: item.published_at ? item.published_at.slice(0, 10) : '-',
         views: 0, likes: 0, aiSummary: (item.summary || '').slice(0, 100),
         impact: { direction: 'neutral', level: 'low', affectedStocks: [] },
-        isFeatured: i === 0, tags: [], content: [item.content || item.summary || '暂无内容']
+        isFeatured: activeCat.value === '全部' && i === 0, tags: [], content: [item.content || item.summary || '暂无内容']
       }));
+    } else {
+      articles.value = [];
     }
-  } catch { /* use mock */ }
+  } catch (e) {
+    // Fallback to mock
+    if (activeCat.value === '全部') {
+      articles.value = MOCK_ARTICLES;
+    } else {
+      articles.value = MOCK_ARTICLES.filter(a => a.category === activeCat.value);
+    }
+  }
 }
 
-onMounted(loadNews);
+async function init() {
+  await loadCategories();
+  await loadNewsArticles();
+}
+
+onMounted(init);
 </script>
 
 <style scoped>

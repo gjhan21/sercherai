@@ -29,6 +29,11 @@ export function getStockRecommendationInsight(id) {
   return http.get(`/stocks/recommendations/${encodeURIComponent(id)}/insight`);
 }
 
+export function getStockInsight(symbol) {
+  return http.get("/stocks/insight", { params: { symbol } });
+}
+
+
 export function getStockRecommendationVersionHistory(id) {
   return http.get(`/stocks/recommendations/${encodeURIComponent(id)}/version-history`);
 }

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -612,6 +613,9 @@ WHERE run_id = ?`,
 	}
 	if err = tx.Commit(); err != nil {
 		return model.FuturesSelectionPublishReview{}, err
+	}
+	if posErr := r.AdminAutoOpenFuturesSimulatedPositions(run.TradeDate); posErr != nil {
+		log.Printf("[simulated-positions] failed to auto open futures simulated positions for %s after approval: %v", run.TradeDate, posErr)
 	}
 	return r.getFuturesSelectionReview(runID)
 }

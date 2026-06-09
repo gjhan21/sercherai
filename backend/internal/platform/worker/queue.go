@@ -267,6 +267,13 @@ func runSchedulerJob(svc service.GrowthService, jobName string, syncOptions mode
 			return schedulerJobExecutionResult{}, err
 		}
 		return schedulerJobExecutionResult{Summary: summary}, nil
+	case "precompute_stock_pattern_matches":
+		err20 := svc.AdminPrecomputeStockPatternMatches(20)
+		err60 := svc.AdminPrecomputeStockPatternMatches(60)
+		if err20 != nil || err60 != nil {
+			return schedulerJobExecutionResult{}, fmt.Errorf("precompute failed: err20=%v, err60=%v", err20, err60)
+		}
+		return schedulerJobExecutionResult{Summary: "Precomputed stock pattern matches for lookback 20 and 60"}, nil
 	default:
 		return schedulerJobExecutionResult{}, fmt.Errorf("unsupported job: %s", jobName)
 	}

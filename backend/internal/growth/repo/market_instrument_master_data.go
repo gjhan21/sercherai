@@ -257,6 +257,23 @@ func fetchStockInstrumentFactsFromTushare(token string, sourceKey string, instru
 	if len(instrumentKeys) == 0 {
 		return fetchAllStockInstrumentFactsFromTushare(client, token, sourceKey)
 	}
+	if len(instrumentKeys) > 50 {
+		allFacts, err := fetchAllStockInstrumentFactsFromTushare(client, token, sourceKey)
+		if err != nil {
+			return nil, err
+		}
+		keyMap := make(map[string]bool, len(instrumentKeys))
+		for _, key := range instrumentKeys {
+			keyMap[strings.ToUpper(strings.TrimSpace(key))] = true
+		}
+		filtered := make([]marketInstrumentSourceFact, 0, len(instrumentKeys))
+		for _, fact := range allFacts {
+			if keyMap[strings.ToUpper(strings.TrimSpace(fact.InstrumentKey))] {
+				filtered = append(filtered, fact)
+			}
+		}
+		return filtered, nil
+	}
 	facts := make([]marketInstrumentSourceFact, 0, len(instrumentKeys))
 	errs := make([]string, 0)
 	fetchedAt := time.Now()
@@ -325,6 +342,61 @@ func fetchAllStockInstrumentFactsFromTushare(client *http.Client, token string, 
 	return facts, nil
 }
 
+func fetchAllFuturesInstrumentFactsFromTushare(client *http.Client, token string, sourceKey string) ([]marketInstrumentSourceFact, error) {
+	responses, err := fetchPaginatedTushareUniverseResponses(
+		client,
+		token,
+		"fut_basic",
+		nil,
+		"ts_code,symbol,exchange,name,fut_code,multiplier,trade_unit,quote_unit,quote_unit_desc,list_date,delist_date,d_mode_desc,trade_time_desc,last_ddate,d_month",
+	)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]tushareFuturesBasicRecord, 0, 4096)
+	for _, parsed := range responses {
+		fieldIndex := buildTushareFieldIndex(parsed.Data.Fields)
+		for _, row := range parsed.Data.Items {
+			tsCode, ok := tushareGetString(row, fieldIndex, "ts_code")
+			if !ok {
+				continue
+			}
+			record := tushareFuturesBasicRecord{
+				TSCode:        strings.ToUpper(strings.TrimSpace(tsCode)),
+				Symbol:        fallbackTushareString(row, fieldIndex, "symbol"),
+				Exchange:      fallbackTushareString(row, fieldIndex, "exchange"),
+				Name:          fallbackTushareString(row, fieldIndex, "name"),
+				FutCode:       fallbackTushareString(row, fieldIndex, "fut_code"),
+				TradeUnit:     fallbackTushareString(row, fieldIndex, "trade_unit"),
+				QuoteUnit:     fallbackTushareString(row, fieldIndex, "quote_unit"),
+				QuoteUnitDesc: fallbackTushareString(row, fieldIndex, "quote_unit_desc"),
+				ListDate:      fallbackTushareString(row, fieldIndex, "list_date"),
+				DelistDate:    fallbackTushareString(row, fieldIndex, "delist_date"),
+				DModeDesc:     fallbackTushareString(row, fieldIndex, "d_mode_desc"),
+				TradeTimeDesc: fallbackTushareString(row, fieldIndex, "trade_time_desc"),
+				LastTradeDate: fallbackTushareString(row, fieldIndex, "last_ddate"),
+				DeliveryMonth: fallbackTushareString(row, fieldIndex, "d_month"),
+			}
+			if multiplier, ok := tushareGetFloat(row, fieldIndex, "multiplier"); ok {
+				record.Multiplier = int(multiplier)
+			}
+			records = append(records, record)
+		}
+	}
+	facts := make([]marketInstrumentSourceFact, 0, len(records))
+	fetchedAt := time.Now()
+	for _, record := range records {
+		fact, ok := buildTushareFuturesInstrumentFact(record, fetchedAt)
+		if !ok {
+			continue
+		}
+		fact.SourceKey = sourceKey
+		fact.QualityScore = deriveMarketInstrumentQualityScore(fact)
+		facts = append(facts, fact)
+	}
+	return facts, nil
+}
+
 func fetchFuturesInstrumentFactsFromTushare(token string, sourceKey string, instrumentKeys []string, timeoutMS int) ([]marketInstrumentSourceFact, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -334,6 +406,23 @@ func fetchFuturesInstrumentFactsFromTushare(token string, sourceKey string, inst
 		timeoutMS = 12000
 	}
 	client := &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond}
+	if len(instrumentKeys) > 50 {
+		allFacts, err := fetchAllFuturesInstrumentFactsFromTushare(client, token, sourceKey)
+		if err != nil {
+			return nil, err
+		}
+		keyMap := make(map[string]bool, len(instrumentKeys))
+		for _, key := range instrumentKeys {
+			keyMap[strings.ToUpper(strings.TrimSpace(key))] = true
+		}
+		filtered := make([]marketInstrumentSourceFact, 0, len(instrumentKeys))
+		for _, fact := range allFacts {
+			if keyMap[strings.ToUpper(strings.TrimSpace(fact.InstrumentKey))] {
+				filtered = append(filtered, fact)
+			}
+		}
+		return filtered, nil
+	}
 	facts := make([]marketInstrumentSourceFact, 0, len(instrumentKeys))
 	errs := make([]string, 0)
 	fetchedAt := time.Now()

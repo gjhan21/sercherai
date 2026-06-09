@@ -7,7 +7,9 @@ import {
   resetUserPassword,
   updateUserMemberLevel,
   updateUserSubscription,
-  updateUserStatus
+  updateUserStatus,
+  previewEmailTargets,
+  sendNotificationEmail
 } from "../api/admin";
 import { getAccessToken, hasPermission } from "../lib/session";
 
@@ -22,7 +24,9 @@ const message = ref("");
 const filters = reactive({
   status: "",
   member_level: "",
-  registration_source: ""
+  registration_source: "",
+  phone: "",
+  email: ""
 });
 
 const users = ref([]);
@@ -91,6 +95,7 @@ const passwordForm = reactive({
 });
 
 const statusOptions = ["ACTIVE", "DISABLED", "BANNED"];
+const memberLevelOptions = ["FREE", "VIP1", "VIP2", "VIP3", "VIP4"];
 const registrationSourceOptions = [
   { value: "DIRECT", label: "自然注册" },
   { value: "INVITED", label: "邀请注册" }
@@ -261,6 +266,8 @@ async function fetchUsers(options = {}) {
       status: filters.status,
       member_level: filters.member_level,
       registration_source: filters.registration_source,
+      phone: filters.phone,
+      email: filters.email,
       page: page.value,
       page_size: pageSize.value
     };
@@ -269,7 +276,9 @@ async function fetchUsers(options = {}) {
       getUserSourceSummary({
         status: filters.status,
         member_level: filters.member_level,
-        registration_source: filters.registration_source
+        registration_source: filters.registration_source,
+        phone: filters.phone,
+        email: filters.email
       })
     ]);
     if (listResult.status !== "fulfilled") {
@@ -826,6 +835,8 @@ async function exportFilteredCSV() {
     if (filters.status) params.set("status", filters.status);
     if (filters.member_level.trim()) params.set("member_level", filters.member_level.trim());
     if (filters.registration_source) params.set("registration_source", filters.registration_source);
+    if (filters.phone.trim()) params.set("phone", filters.phone.trim());
+    if (filters.email.trim()) params.set("email", filters.email.trim());
 
     const baseURL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(/\/$/, "");
     const query = params.toString();
@@ -870,6 +881,8 @@ function resetFilters() {
   filters.status = "";
   filters.member_level = "";
   filters.registration_source = "";
+  filters.phone = "";
+  filters.email = "";
   page.value = 1;
   fetchUsers();
 }
@@ -889,6 +902,103 @@ function statusTagType(status) {
   return "info";
 }
 
+
+// ==================== 智能用户触达与多通道运营客群召回逻辑 ====================
+const reachForm = reactive({
+  rule_type: "VIP_EXPIRING_7_DAYS",
+  send_channel: "EMAIL",
+  subject: "",
+  body: ""
+});
+
+const reachRules = [
+  { value: "VIP_EXPIRING_7_DAYS", label: "VIP还有1周到期" },
+  { value: "VIP_EXPIRED_14_DAYS", label: "VIP已到期2周" },
+  { value: "REGISTERED_7_DAYS_NO_VIP", label: "注册1周未购买VIP" },
+  { value: "REGISTERED_30_DAYS_NO_VIP", label: "注册1个月未购买VIP" },
+  { value: "READING_ACTIVE", label: "高活跃阅读用户" },
+  { value: "READING_SILENT", label: "沉默阅读用户" }
+];
+
+const templateTemplates = {
+  VIP_EXPIRING_7_DAYS: {
+    subject: "您的 VIP 会员还有一周即将到期，续费享特惠！",
+    body: "亲爱的用户：您的 VIP 会员即将于 1 周后到期。为了不影响您使用大模型和高级策略分析，我们为您准备了专属的续费优惠券，立即续费享 8 折优惠！"
+  },
+  VIP_EXPIRED_14_DAYS: {
+    subject: "限时特惠召回：送您双周 VIP 体验卡！",
+    body: "亲爱的用户：我们发现您的 VIP 会员已经到期两周了。为了感谢您的支持，系统特别赠送您一张 3 天 VIP 体验卡。点击链接立即激活，查看最新的行业预测与大模型分析报告！"
+  },
+  REGISTERED_7_DAYS_NO_VIP: {
+    subject: "新用户专属礼遇：解锁大模型高级分析功能！",
+    body: "亲爱的用户：您已注册满一周。您知道吗？VIP 会员可以使用更多高级功能，如无限次大模型提问、智能选股策略等。现在升级 VIP，首月仅需 9.9 元！"
+  },
+  REGISTERED_30_DAYS_NO_VIP: {
+    subject: "探索 SercherAI：大模型策略助您跑赢市场！",
+    body: "亲爱的用户：您注册 SercherAI 已经一个月了。在此期间，我们的策略库新增了 10+ 选股方案。首月特惠依然有效，快来加入 VIP 开启智能化投资之旅吧！"
+  },
+  READING_ACTIVE: {
+    subject: "感谢陪伴，您的阅读达人专属礼包已送达！",
+    body: "亲爱的用户：我们注意到您近期阅读十分活跃！为感谢您对 SercherAI 的支持，特为您奉上专属阅读礼包，点击即可领取。"
+  },
+  READING_SILENT: {
+    subject: "好久不见，SercherAI 上线了多款重磅策略！",
+    body: "亲爱的用户：好久不见！我们为您整理了近期最热门的行业洞察和最新上线的智能选股模型，快回来看看吧！"
+  }
+};
+
+const updateReachTemplate = () => {
+  const tpl = templateTemplates[reachForm.rule_type];
+  if (tpl) {
+    reachForm.subject = tpl.subject;
+    reachForm.body = tpl.body;
+  }
+};
+
+// 初始化模板
+updateReachTemplate();
+
+const previewDialogVisible = ref(false);
+const previewLoading = ref(false);
+const previewTotal = ref(0);
+const previewUsers = ref([]);
+
+const previewTargets = async () => {
+  previewLoading.value = true;
+  previewDialogVisible.value = true;
+  try {
+    const res = await previewEmailTargets({ rule_type: reachForm.rule_type });
+    previewTotal.value = res.total_count || 0;
+    previewUsers.value = res.preview || [];
+  } catch (error) {
+    errorMessage.value = error.message || "获取预览失败";
+  } finally {
+    previewLoading.value = false;
+  }
+};
+
+const sendSubmitting = ref(false);
+const handleSendReach = async () => {
+  if (!ensureCanEditUsers()) {
+    return;
+  }
+  sendSubmitting.value = true;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    const res = await sendNotificationEmail({
+      rule_type: reachForm.rule_type,
+      send_channel: reachForm.send_channel,
+      subject: reachForm.subject,
+      body: reachForm.body
+    });
+    message.value = `触达任务执行完成。目标受众: ${res.target_count}人，成功发送: ${res.sent_count}人。`;
+  } catch (error) {
+    errorMessage.value = error.message || "发送失败";
+  } finally {
+    sendSubmitting.value = false;
+  }
+};
 
 onMounted(fetchUsers);
 </script>
@@ -923,7 +1033,9 @@ onMounted(fetchUsers);
         <el-select v-model="filters.status" clearable placeholder="全部用户状态" style="width: 160px">
           <el-option v-for="item in statusOptions" :key="item" :label="item" :value="item" />
         </el-select>
-        <el-input v-model="filters.member_level" clearable placeholder="会员等级，如 VIP1" style="width: 180px" />
+        <el-select v-model="filters.member_level" clearable placeholder="全部会员等级" style="width: 180px">
+          <el-option v-for="item in memberLevelOptions" :key="item" :label="item" :value="item" />
+        </el-select>
         <el-select
           v-model="filters.registration_source"
           clearable
@@ -937,6 +1049,8 @@ onMounted(fetchUsers);
             :value="item.value"
           />
         </el-select>
+        <el-input v-model="filters.phone" placeholder="手机号查询" clearable style="width: 160px" />
+        <el-input v-model="filters.email" placeholder="邮箱查询" clearable style="width: 180px" />
         <el-button :loading="exportingFiltered" @click="exportFilteredCSV">导出筛选CSV</el-button>
         <el-button @click="exportCurrentPageCSV">导出当前页CSV</el-button>
         <el-button type="primary" plain @click="applyFilters">查询</el-button>
@@ -976,7 +1090,9 @@ onMounted(fetchUsers);
 
 
         <div class="field-stack">
-          <el-input v-model="batchMemberLevel" placeholder="目标会员等级" style="width: 140px" />
+          <el-select v-model="batchMemberLevel" placeholder="目标会员等级" style="width: 140px">
+            <el-option v-for="item in memberLevelOptions" :key="item" :label="item" :value="item" />
+          </el-select>
           <el-popconfirm
             width="300"
             :title="`确认将选中用户会员等级批量更新为 ${batchMemberLevel || '-'} 吗？`"
@@ -989,6 +1105,56 @@ onMounted(fetchUsers);
         </div>
 
         <el-button @click="clearSelection">清空勾选</el-button>
+      </div>
+    </div>
+
+    <!-- 智能用户触达与多通道运营客群召回 -->
+    <div v-if="canEditUsers" class="card" style="margin-bottom: 12px">
+      <div class="section-header">
+        <h3 style="margin: 0">智能用户触达与多通道运营客群召回</h3>
+        <el-text type="info">通过 6 大智能筛选规则，模拟邮件或站内信，精准触达目标客群</el-text>
+      </div>
+      <div style="margin-top: 15px">
+        <el-form :model="reachForm" label-width="100px" label-position="left">
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="筛选规则">
+                <el-select v-model="reachForm.rule_type" placeholder="请选择筛选规则" style="width: 100%" @change="updateReachTemplate">
+                  <el-option v-for="item in reachRules" :key="item.value" :label="item.label" :value="item.value" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="触达通道">
+                <el-radio-group v-model="reachForm.send_channel">
+                  <el-radio-button label="EMAIL">电子邮件 (EMAIL)</el-radio-button>
+                  <el-radio-button label="MESSAGE">系统站内信 (MESSAGE)</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="邮件主题" v-if="reachForm.send_channel === 'EMAIL'">
+            <el-input v-model="reachForm.subject" placeholder="请输入邮件主题" />
+          </el-form-item>
+          <el-form-item label="站内信标题" v-else>
+            <el-input v-model="reachForm.subject" placeholder="请输入站内信标题" />
+          </el-form-item>
+          <el-form-item label="触达内容">
+            <el-input v-model="reachForm.body" type="textarea" :rows="4" placeholder="请输入触达文案内容" />
+          </el-form-item>
+          <el-form-item style="margin-bottom: 0;">
+            <el-button type="info" plain @click="previewTargets">预览受众客群</el-button>
+            <el-popconfirm
+              width="350"
+              :title="`确认使用 [${reachForm.send_channel === 'EMAIL' ? '电子邮件' : '站内信'}] 通道向符合该规则的所有用户发送触达吗？`"
+              @confirm="handleSendReach"
+            >
+              <template #reference>
+                <el-button type="primary" :loading="sendSubmitting">执行群发触达</el-button>
+              </template>
+            </el-popconfirm>
+          </el-form-item>
+        </el-form>
       </div>
     </div>
 
@@ -1046,7 +1212,9 @@ onMounted(fetchUsers);
           <template #default="{ row }">
             <div class="inline-actions">
               <template v-if="canEditUsers">
-                <el-input v-model="draftLevelMap[row.id]" style="width: 120px" />
+                <el-select v-model="draftLevelMap[row.id]" style="width: 120px">
+                  <el-option v-for="item in memberLevelOptions" :key="item" :label="item" :value="item" />
+                </el-select>
                 <el-button size="small" @click="handleUpdateMemberLevel(row)">保存</el-button>
               </template>
               <span v-else>{{ row.member_level || "-" }}</span>
@@ -1174,6 +1342,15 @@ onMounted(fetchUsers);
           <el-descriptions-item label="资讯订阅剩余">
             {{ centerData.membership_quota?.news_subscribe_remaining ?? 0 }}
           </el-descriptions-item>
+          <el-descriptions-item label="附件下载剩余">
+            {{ centerData.membership_quota?.download_remaining ?? 0 }}
+          </el-descriptions-item>
+          <el-descriptions-item label="深度推演剩余">
+            {{ centerData.membership_quota?.forecast_remaining ?? 0 }}
+          </el-descriptions-item>
+          <el-descriptions-item label="股票分析剩余">
+            {{ centerData.membership_quota?.stock_reco_remaining ?? 0 }}
+          </el-descriptions-item>
         </el-descriptions>
 
         <div class="center-summary-row">
@@ -1210,6 +1387,18 @@ onMounted(fetchUsers);
               <el-descriptions-item label="资讯订阅">
                 {{ centerData.membership_quota?.news_subscribe_used ?? 0 }} /
                 {{ centerData.membership_quota?.news_subscribe_limit ?? 0 }}
+              </el-descriptions-item>
+              <el-descriptions-item label="附件下载">
+                {{ centerData.membership_quota?.download_used ?? 0 }} /
+                {{ centerData.membership_quota?.download_limit ?? 0 }}
+              </el-descriptions-item>
+              <el-descriptions-item label="深度推演">
+                {{ centerData.membership_quota?.forecast_used ?? 0 }} /
+                {{ centerData.membership_quota?.forecast_limit ?? 0 }}
+              </el-descriptions-item>
+              <el-descriptions-item label="股票分析">
+                {{ centerData.membership_quota?.stock_reco_used ?? 0 }} /
+                {{ centerData.membership_quota?.stock_reco_limit ?? 0 }}
               </el-descriptions-item>
               <el-descriptions-item label="下次重置">
                 {{ formatCenterDateTime(centerData.membership_quota?.reset_at) }}
@@ -1441,6 +1630,43 @@ onMounted(fetchUsers);
         <el-button type="primary" :loading="passwordSubmitting" @click="handleResetUserPassword">
           确认修改
         </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 智能触达客群预览 Dialog -->
+    <el-dialog v-model="previewDialogVisible" title="智能触达受众预览" width="800px" destroy-on-close>
+      <div v-loading="previewLoading">
+        <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
+          <el-text size="large" type="primary" style="font-weight: bold;">符合该规则的客群总人数: {{ previewTotal }} 人</el-text>
+          <el-text size="small" type="info">由于性能优化，此处仅预览展示前 5 位候选人</el-text>
+        </div>
+        <el-table :data="previewUsers" border stripe empty-text="未匹配到符合条件的用户">
+          <el-table-column prop="id" label="用户ID" min-width="150" />
+          <el-table-column prop="phone" label="手机号" min-width="120" />
+          <el-table-column prop="email" label="邮箱" min-width="150">
+            <template #default="{ row }">
+              {{ row.email || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="member_level" label="会员等级" width="100">
+            <template #default="{ row }">
+              <el-tag size="small">{{ row.member_level || 'FREE' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="vip_expire_at" label="VIP过期时间" min-width="160">
+            <template #default="{ row }">
+              {{ row.vip_expire_at || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="created_at" label="注册时间" min-width="160">
+            <template #default="{ row }">
+              {{ row.created_at || '-' }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <template #footer>
+        <el-button type="primary" @click="previewDialogVisible = false">确定</el-button>
       </template>
     </el-dialog>
   </div>

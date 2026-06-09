@@ -1,1 +1,0 @@
-import{x as o}from"./index-JEvnwXU1.js";function n(t){return o.post("/auth/register",t)}function s(t){return o.post("/auth/login",t)}function a(t){return o.post("/auth/logout",{refresh_token:t})}function e(t){return o.post("/auth/change-password",t)}export{s as a,e as c,a as l,n as r};

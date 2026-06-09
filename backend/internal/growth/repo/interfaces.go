@@ -1,6 +1,10 @@
 package repo
 
-import "sercherai/backend/internal/growth/model"
+import (
+	"time"
+
+	"sercherai/backend/internal/growth/model"
+)
 
 type GrowthRepo interface {
 	ListBrowseHistory(userID string, contentType string, page int, pageSize int) ([]model.BrowseHistory, int, error)
@@ -45,7 +49,12 @@ type GrowthRepo interface {
 	GetStockRecommendationDetail(userID string, recoID string) (model.StockRecommendationDetail, error)
 	GetStockRecommendationPerformance(userID string, recoID string) ([]model.RecommendationPerformancePoint, error)
 	GetStockRecommendationInsight(userID string, recoID string) (model.StockRecommendationInsight, error)
+	GenerateRealtimeStockInsight(userID string, symbol string) (model.StockRecommendationInsight, error)
 	GetStockRecommendationVersionHistory(userID string, recoID string) ([]model.StrategyVersionHistoryItem, error)
+	GetLatestRecommendationBySymbol(symbol string) (model.StockRecommendation, error)
+	SavePatternMatches(matches []model.StockPatternMatch) error
+	GetPatternMatches(sourceSymbol string, lookback int, limit int) ([]model.StockPatternMatch, error)
+	AdminPrecomputeStockPatternMatches(lookback int) error
 	AddUserVirtualSandbox(userID string, recoID string, addPrice float64) error
 	GetUserVirtualSandbox(userID string) ([]model.UserVirtualSandbox, error)
 	ListFuturesStrategies(userID string, contract string, status string, page int, pageSize int) ([]model.FuturesStrategy, int, error)
@@ -120,6 +129,14 @@ type GrowthRepo interface {
 	AdminCreateStockRecommendation(item model.StockRecommendation) (string, error)
 	AdminUpdateStockRecommendationStatus(id string, status string) error
 	AdminUpdateStockRecommendationAIReview(id string, aiReviewContent string) error
+	AdminListStockSimulatedPositions(status string, symbol string, page int, pageSize int) ([]model.StockSimulatedPosition, int, error)
+	AdminGetStockSimulatedOverview() (model.StockSimulatedOverview, error)
+	AdminAutoOpenSimulatedPositions(tradeDate string) error
+	AdminSettlementSimulatedPositions(tradeDate string) error
+	AdminListFuturesSimulatedPositions(status string, contract string, page int, pageSize int) ([]model.FuturesSimulatedPosition, int, error)
+	AdminGetFuturesSimulatedOverview() (model.FuturesSimulatedOverview, error)
+	AdminAutoOpenFuturesSimulatedPositions(tradeDate string) error
+	AdminSettlementFuturesSimulatedPositions(tradeDate string) error
 	AdminSyncStockInstrumentMaster(sourceKey string, symbols []string) (model.MarketSyncResult, error)
 	AdminSyncStockQuotes(sourceKey string, symbols []string, days int) (int, error)
 	AdminSyncStockQuotesDetailed(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
@@ -138,6 +155,7 @@ type GrowthRepo interface {
 	AdminSyncFuturesInventory(sourceKey string, symbols []string, days int) (model.MarketSyncResult, error)
 	AdminSyncMarketNews(sourceKey string, symbols []string, days int, limit int) (model.MarketSyncResult, error)
 	BuildStrategyEngineStockSelectionContext(input model.StrategyEngineStockSelectionContextRequest) (model.StrategyEngineStockSelectionContextResponse, error)
+	BuildStrategyEngineStockHistoryContext(symbol string, selectedTradeDate time.Time, limit int) (model.StrategyEngineStockSelectionContextResponse, error)
 	BuildStrategyEngineFuturesStrategyContext(input model.StrategyEngineFuturesStrategyContextRequest) (model.StrategyEngineFuturesStrategyContextResponse, error)
 	AdminSyncDocFastNewsIncremental(batchSize int) (string, error)
 	AdminSyncTushareNewsIncremental(batchSize int) (string, error)
@@ -229,8 +247,8 @@ type GrowthRepo interface {
 	AdminEnsureMarketRhythmTasks(taskDate string) ([]model.MarketRhythmTask, error)
 	AdminUpdateMarketRhythmTask(id string, owner string, notes string, sourceLinks []string, status string) (model.MarketRhythmTask, error)
 	AdminUpdateMarketRhythmTaskStatus(id string, status string, owner string, notes string) (model.MarketRhythmTask, error)
-	AdminListUsers(status string, memberLevel string, registrationSource string, page int, pageSize int) ([]model.AdminUser, int, error)
-	AdminGetUserSourceSummary(status string, memberLevel string, registrationSource string) (model.AdminUserSourceSummary, error)
+	AdminListUsers(status string, memberLevel string, registrationSource string, phone string, email string, page int, pageSize int) ([]model.AdminUser, int, error)
+	AdminGetUserSourceSummary(status string, memberLevel string, registrationSource string, phone string, email string) (model.AdminUserSourceSummary, error)
 	AdminListBrowseHistories(userID string, contentType string, keyword string, page int, pageSize int) ([]model.AdminBrowseHistory, int, error)
 	AdminGetBrowseHistorySummary() (model.AdminBrowseHistorySummary, error)
 	AdminGetBrowseHistoryTrend(days int) ([]model.AdminBrowseTrendPoint, error)
@@ -250,14 +268,17 @@ type GrowthRepo interface {
 	AdminCreateMembershipProduct(name string, price float64, status string, memberLevel string, durationDays int) (string, error)
 	AdminUpdateMembershipProduct(id string, name string, price float64, status string, memberLevel string, durationDays int) error
 	AdminUpdateMembershipProductStatus(id string, status string) error
+	AdminDeleteMembershipProduct(id string) error
 	AdminListMembershipOrders(status string, userID string, page int, pageSize int) ([]model.MembershipOrderAdmin, int, error)
 	AdminUpdateMembershipOrderStatus(id string, status string) error
 	AdminGetExperimentAnalyticsSummary(days int) (model.AdminExperimentAnalyticsSummary, error)
 	AdminListVIPQuotaConfigs(memberLevel string, status string, page int, pageSize int) ([]model.VIPQuotaConfig, int, error)
 	AdminCreateVIPQuotaConfig(item model.VIPQuotaConfig) (string, error)
 	AdminUpdateVIPQuotaConfig(id string, item model.VIPQuotaConfig) error
+	AdminDeleteVIPQuotaConfig(id string) error
 	AdminListUserQuotaUsages(userID string, periodKey string, page int, pageSize int) ([]model.UserQuotaUsage, int, error)
-	AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int) error
+	AdminAdjustUserQuota(userID string, periodKey string, docReadDelta int, newsSubscribeDelta int, downloadDelta int, forecastDelta int, stockRecoDelta int) error
+	AdminDeleteUserQuota(id string) error
 	AdminListDataSources(page int, pageSize int) ([]model.DataSource, int, error)
 	AdminCreateDataSource(item model.DataSource) (string, error)
 	AdminUpdateDataSource(sourceKey string, item model.DataSource) error
@@ -287,6 +308,8 @@ type GrowthRepo interface {
 	AdminGetMarketCoverageSummary() (model.MarketCoverageSummary, error)
 	AdminListSystemConfigs(keyword string, page int, pageSize int) ([]model.SystemConfig, int, error)
 	AdminUpsertSystemConfig(configKey string, configValue string, description string, operator string) error
+	AdminGetUsersByEmailRule(ruleType string) ([]model.AdminUser, error)
+	AdminRecordEmailLog(userID string, email string, subject string, body string, ruleType string, status string, errMsg string) error
 	AdminListReviewTasks(module string, status string, submitterID string, reviewerID string, page int, pageSize int) ([]model.ReviewTask, int, error)
 	AdminSubmitReviewTask(module string, targetID string, submitterID string, reviewerID string, submitNote string) (string, error)
 	AdminAssignReviewTask(reviewID string, reviewerID string) error
@@ -297,6 +320,7 @@ type GrowthRepo interface {
 	AdminCreateNewsSyncRunDetails(runID string, details []model.NewsSyncRunDetail) error
 	AdminCreateSchedulerJobRun(jobName string, triggerSource string, status string, resultSummary string, errorMessage string, operatorID string) (string, error)
 	AdminRetrySchedulerJobRun(runID string, triggerSource string, status string, resultSummary string, errorMessage string, operatorID string) (string, error)
+	AdminUpdateSchedulerJobRun(runID string, status string, resultSummary string, errorMessage string) error
 	AdminListSchedulerJobDefinitions(status string, module string, page int, pageSize int) ([]model.SchedulerJobDefinition, int, error)
 	AdminCreateSchedulerJobDefinition(item model.SchedulerJobDefinition, operatorID string) (string, error)
 	AdminUpdateSchedulerJobDefinition(id string, item model.SchedulerJobDefinition, operatorID string) error

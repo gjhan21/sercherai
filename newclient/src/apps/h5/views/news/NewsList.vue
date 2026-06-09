@@ -1,7 +1,7 @@
 <template>
   <div class="h5-news">
     <div class="h5-cat-scroll">
-      <button v-for="cat in NEWS_CATEGORIES" :key="cat" class="h5-cat-tab" :class="{active: activeCat === cat}" @click="activeCat = cat">{{ cat }}</button>
+      <button v-for="cat in categoriesList" :key="cat" class="h5-cat-tab" :class="{active: activeCat === cat}" @click="selectCategory(cat)">{{ cat }}</button>
     </div>
     <div class="h5-news-list">
       <article v-for="article in filtered" :key="article.id" class="h5-news-card" @click="$router.push('/news/' + article.id)">
@@ -17,10 +17,13 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { NEWS_CATEGORIES, NEWS_ARTICLES as MOCK_ARTICLES } from "@/mock/news.js";
-import { listNewsArticles } from "@/api/news.js";
+import { listNewsArticles, listNewsCategories } from "@/api/news.js";
 
 const activeCat = ref('全部');
+const categoriesList = ref(['全部', ...NEWS_CATEGORIES.slice(1)]);
 const articles = ref(MOCK_ARTICLES);
+const categoryMap = ref({});
+const categoryNameToIdMap = ref({});
 
 const filtered = computed(() => {
   if (activeCat.value === '全部') return articles.value;
@@ -32,21 +35,69 @@ function catClass(cat) {
   return map[cat] || 'tag-neutral';
 }
 
-async function loadNews() {
+async function selectCategory(catName) {
+  activeCat.value = catName;
+  await loadNewsArticles();
+}
+
+async function loadCategories() {
   try {
-    const result = await listNewsArticles({ page: 1, page_size: 20 });
+    const res = await listNewsCategories();
+    if (res?.items?.length) {
+      const backendCats = res.items;
+      categoriesList.value = ['全部', ...backendCats.map(c => c.name)];
+      
+      const idToName = {};
+      const nameToId = {};
+      backendCats.forEach(c => {
+        idToName[c.id] = c.name;
+        nameToId[c.name] = c.id;
+      });
+      categoryMap.value = idToName;
+      categoryNameToIdMap.value = nameToId;
+    }
+  } catch (e) {
+    console.error('Failed to load categories', e);
+  }
+}
+
+async function loadNewsArticles() {
+  try {
+    const params = { page: 1, page_size: 20 };
+    if (activeCat.value !== '全部') {
+      const catId = categoryNameToIdMap.value[activeCat.value];
+      if (catId) {
+        params.category_id = catId;
+      }
+    }
+    const result = await listNewsArticles(params);
     if (result?.items?.length) {
-      articles.value = result.items.map((item) => ({
-        id: item.id, title: item.title, category: item.category_name || '资讯',
+      const items = result.items;
+      articles.value = items.map((item) => ({
+        id: item.id, title: item.title, category: categoryMap.value[item.category_id] || item.category_name || '资讯',
         source: item.source || '资讯中心',
         publishTime: item.published_at ? item.published_at.slice(0, 10) : '-',
         aiSummary: (item.summary || '').slice(0, 100)
       }));
+    } else {
+      articles.value = [];
     }
-  } catch { /* use mock */ }
+  } catch (e) {
+    // Fallback to mock
+    if (activeCat.value === '全部') {
+      articles.value = MOCK_ARTICLES;
+    } else {
+      articles.value = MOCK_ARTICLES.filter(a => a.category === activeCat.value);
+    }
+  }
 }
 
-onMounted(loadNews);
+async function init() {
+  await loadCategories();
+  await loadNewsArticles();
+}
+
+onMounted(init);
 </script>
 
 <style scoped>

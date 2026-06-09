@@ -105,7 +105,7 @@
           </div>
           <div class="chart-status">{{ klineLoading ? '加载中...' : (klineData.length + ' 天') }}</div>
         </div>
-        <KlineChart :data="klineData" :width="chartWidth" :height="380" :prediction="prediction" v-if="klineData.length" />
+        <KlineChart :data="klineData" :width="chartWidth" :height="380" :prediction="prediction" :matches="matches" v-if="klineData.length" />
         <div v-else class="chart-empty">暂无K线数据</div>
       </div>
       <div v-if="prediction" class="prediction-panel glass">
@@ -122,7 +122,10 @@
           <div class="pred-matches-title">Top 匹配</div>
           <div v-for="m in matches.slice(0, 5)" :key="m.rank" class="pred-match-row">
             <span>#{{ m.rank }}</span>
-            <span>{{ m.stock }}</span>
+            <span>
+              {{ m.stock }}
+              <small v-if="m.match_date" style="color: var(--text-muted); margin-left: 6px; font-size: 10px;">({{ m.match_date }})</small>
+            </span>
             <span>相似 {{ (m.similarity * 100).toFixed(0) }}%</span>
             <span :style="{color: m.return_7d >= 0 ? 'var(--positive)' : 'var(--negative)'}">{{ m.return_7d >= 0 ? '+' : '' }}{{ m.return_7d.toFixed(1) }}%</span>
           </div>

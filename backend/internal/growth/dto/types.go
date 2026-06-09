@@ -282,6 +282,9 @@ type VIPQuotaConfigRequest struct {
 	MemberLevel        string `json:"member_level" binding:"required"`
 	DocReadLimit       int    `json:"doc_read_limit" binding:"required,gte=0"`
 	NewsSubscribeLimit int    `json:"news_subscribe_limit" binding:"required,gte=0"`
+	DownloadLimit      int    `json:"download_limit" binding:"gte=0"`
+	ForecastLimit      int    `json:"forecast_limit" binding:"gte=0"`
+	StockRecoLimit     int    `json:"stock_reco_limit" binding:"gte=0"`
 	ResetCycle         string `json:"reset_cycle" binding:"required,oneof=MONTHLY WEEKLY DAILY"`
 	Status             string `json:"status" binding:"required,oneof=ACTIVE DISABLED"`
 	EffectiveAt        string `json:"effective_at" binding:"required"`
@@ -290,6 +293,9 @@ type VIPQuotaConfigRequest struct {
 type VIPQuotaConfigUpdateRequest struct {
 	DocReadLimit       int    `json:"doc_read_limit" binding:"required,gte=0"`
 	NewsSubscribeLimit int    `json:"news_subscribe_limit" binding:"required,gte=0"`
+	DownloadLimit      int    `json:"download_limit" binding:"gte=0"`
+	ForecastLimit      int    `json:"forecast_limit" binding:"gte=0"`
+	StockRecoLimit     int    `json:"stock_reco_limit" binding:"gte=0"`
 	ResetCycle         string `json:"reset_cycle" binding:"required,oneof=MONTHLY WEEKLY DAILY"`
 	Status             string `json:"status" binding:"required,oneof=ACTIVE DISABLED"`
 	EffectiveAt        string `json:"effective_at" binding:"required"`
@@ -299,6 +305,9 @@ type UserQuotaAdjustRequest struct {
 	PeriodKey          string `json:"period_key" binding:"required"`
 	DocReadDelta       int    `json:"doc_read_delta"`
 	NewsSubscribeDelta int    `json:"news_subscribe_delta"`
+	DownloadDelta      int    `json:"download_delta"`
+	ForecastDelta      int    `json:"forecast_delta"`
+	StockRecoDelta     int    `json:"stock_reco_delta"`
 	Reason             string `json:"reason"`
 }
 
@@ -463,4 +472,11 @@ func OK(data interface{}) APIResponse {
 		Message: "ok",
 		Data:    data,
 	}
+}
+
+type AdminSendEmailRequest struct {
+	RuleType    string `json:"rule_type" binding:"required"`
+	SendChannel string `json:"send_channel" binding:"required,oneof=EMAIL MESSAGE"`
+	Subject     string `json:"subject" binding:"required"`
+	Body        string `json:"body" binding:"required"`
 }

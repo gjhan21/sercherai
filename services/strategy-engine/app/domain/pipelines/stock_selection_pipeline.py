@@ -4,6 +4,8 @@ from datetime import datetime
 from time import perf_counter
 from typing import Optional
 
+from app.core.llm_client import LLMClient
+
 from app.domain.agents.agent_panel import AgentPanel
 from app.domain.candidates.trend_candidate_pool_builder import TrendCandidatePoolBuilder
 from app.domain.decision.intraday_decision_fusion import IntradayDecisionFusion
@@ -64,8 +66,19 @@ class StockSelectionPipeline:
         self._trend_candidate_pool_builder = TrendCandidatePoolBuilder()
         self._short_term_head = ShortTermRecommendationHead()
         self._swing_head = SwingRecommendationHead()
+        self._llm_client = LLMClient()
 
     def run(self, raw_payload: dict) -> tuple[StockSelectionReport, list[str]]:
+        # 如果 Go 端传了大模型配置，则在此覆盖本地配置，使其能够跟随网页配置变更
+        llm_config = raw_payload.get("llm_config", {})
+        if isinstance(llm_config, dict):
+            if llm_config.get("api_key"):
+                self._llm_client.settings.llm_api_key = llm_config.get("api_key")
+            if llm_config.get("base_url"):
+                self._llm_client.settings.llm_base_url = llm_config.get("base_url")
+            if llm_config.get("model_name"):
+                self._llm_client.settings.llm_model = llm_config.get("model_name")
+
         payload = StockSelectionPayload.model_validate(raw_payload)
         if not payload.trade_date:
             payload.trade_date = datetime.now().strftime("%Y-%m-%d")
@@ -466,6 +479,109 @@ class StockSelectionPipeline:
             report.context_meta["template_name"] = payload.template_name
         report.simulations = self._stock_scenario_engine.simulate(guarded, agent_options)
         report.consensus_summary = _build_consensus_summary(report.simulations)
+
+        # === LLM 大模型终审与结果回填 ===
+        if guarded:
+            try:
+                stocks_to_review = []
+                for item in guarded:
+                    local_opinions = []
+                    sim_card = next((c for c in report.simulations if c.asset_key == item.symbol), None)
+                    if sim_card:
+                        for op in sim_card.agents:
+                            local_opinions.append(f"{op.agent}：{op.summary} ({op.stance})")
+
+                    metrics = {
+                        "quant_score": item.quant_score,
+                        "total_score": item.score,
+                        "risk_level": item.risk_level,
+                        "momentum5": getattr(item, "momentum5", 0.0),
+                        "momentum20": getattr(item, "momentum20", 0.0),
+                        "volatility20": getattr(item, "volatility20", 0.0),
+                        "volume_ratio": getattr(item, "volume_ratio", 1.0),
+                        "drawdown20": getattr(item, "drawdown20", 0.0),
+                        "pe_ttm": getattr(item, "pe_ttm", 0.0),
+                        "pb": getattr(item, "pb", 0.0),
+                        "industry": getattr(item, "industry", ""),
+                        "sector": getattr(item, "sector", ""),
+                        "theme_tags": getattr(item, "theme_tags", []),
+                        "risk_flags": getattr(item, "risk_flags", []),
+                    }
+                    stocks_to_review.append({
+                        "symbol": item.symbol,
+                        "name": item.name,
+                        "metrics": metrics,
+                        "local_opinions": local_opinions
+                    })
+
+                # 并发请求 LLM 端点
+                llm_results = self._llm_client.review_stock_list_concurrent(stocks_to_review, market_regime)
+
+                # 将大模型终审结论注入各相关实体
+                # 1. 注入 portfolio_entries
+                for entry in report.portfolio_entries:
+                    llm_res = llm_results.get(entry.symbol)
+                    if llm_res:
+                        if entry.evidence_cards is None:
+                            entry.evidence_cards = []
+                        entry.evidence_cards.append({
+                            "title": "AI 终审判定",
+                            "value": f"{llm_res['rating']} ({llm_res['summary']})"
+                        })
+                        entry.evidence_summary = f"{entry.evidence_summary} | AI终审研判：{llm_res['analysis']}"
+                        entry.reason_summary = f"{entry.reason_summary} | AI终审研判：{llm_res['analysis']}"
+
+                # 2. 注入 candidates
+                for entry in report.candidates:
+                    llm_res = llm_results.get(entry.symbol)
+                    if llm_res:
+                        if entry.evidence_cards is None:
+                            entry.evidence_cards = []
+                        entry.evidence_cards.append({
+                            "title": "AI 终审判定",
+                            "value": f"{llm_res['rating']} ({llm_res['summary']})"
+                        })
+                        entry.evidence_summary = f"{entry.evidence_summary} | AI终审研判：{llm_res['analysis']}"
+                        entry.reason_summary = f"{entry.reason_summary} | AI终审研判：{llm_res['analysis']}"
+
+                # 3. 注入 evidence_records
+                for entry in report.evidence_records:
+                    llm_res = llm_results.get(entry.symbol)
+                    if llm_res:
+                        if entry.evidence_cards is None:
+                            entry.evidence_cards = []
+                        entry.evidence_cards.append({
+                            "title": "AI 终审判定",
+                            "value": f"{llm_res['rating']} ({llm_res['summary']})"
+                        })
+                        entry.evidence_summary = f"{entry.evidence_summary} | AI终审研判：{llm_res['analysis']}"
+
+                # 4. 注入 candidate_snapshots
+                for entry in report.candidate_snapshots:
+                    llm_res = llm_results.get(entry.symbol)
+                    if llm_res:
+                        entry.evidence_summary = f"{entry.evidence_summary} | AI终审研判：{llm_res['analysis']}"
+                        entry.reason_summary = f"{entry.reason_summary} | AI终审研判：{llm_res['analysis']}"
+
+                # 5. 注入 publish_payloads
+                for entry in report.publish_payloads:
+                    llm_res = llm_results.get(entry.recommendation.symbol)
+                    if llm_res:
+                        entry.recommendation.reason_summary = f"{entry.recommendation.reason_summary} | AI终审研判：{llm_res['analysis']}"
+
+                # 6. 在整体报告摘要中突出显示大模型强烈推荐的标的
+                strongly_recommended = [
+                    f"{res.get('name', symbol)} ({symbol})"
+                    for symbol, res in llm_results.items()
+                    if res.get("rating") == "强烈推荐"
+                ]
+                if strongly_recommended:
+                    report.report_summary = f"【AI强烈推荐：{', '.join(strongly_recommended)}】{report.report_summary}"
+
+            except Exception as exc:
+                # 终极保护，绝不因 LLM 模块的内部错误阻断常规选股的持久化和输出
+                warnings.append(f"AI终审回填发生异常：{str(exc)}")
+
         return report, warnings
 
 

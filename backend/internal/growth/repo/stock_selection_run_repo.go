@@ -290,6 +290,17 @@ func (r *MySQLGrowthRepo) AdminCreateStockSelectionRun(input model.StockSelectio
 	runtimeScenario, _ := r.ResolveActiveStrategyScenarioTemplate("STOCK")
 	runtimePolicy, _ := r.ResolveActiveStrategyPublishPolicy("STOCK")
 	payload := buildStockSelectionProfileJobPayload(tradeDate, *profile, template, input, runtimeProfile, runtimeScenario, runtimePolicy)
+
+	llmApiKey, llmBaseUrl, llmModelName := r.getActiveLLMConfig()
+
+	if llmApiKey != "" || llmBaseUrl != "" || llmModelName != "" {
+		payload["llm_config"] = map[string]string{
+			"api_key":    strings.TrimSpace(llmApiKey),
+			"base_url":   strings.TrimSpace(llmBaseUrl),
+			"model_name": strings.TrimSpace(llmModelName),
+		}
+	}
+
 	jobRequest := map[string]any{
 		"requested_by": operator,
 		"payload":      payload,

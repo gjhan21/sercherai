@@ -213,6 +213,11 @@ func registerAdminRoutes(v1 *gin.RouterGroup, adminHandlers *handler.AdminHandle
 		adminFuturesSelection.GET("/evaluation/leaderboard", middleware.PermissionRequired(db, "futures_selection.view"), adminHandlers.FuturesSelection.ListFuturesSelectionEvaluationLeaderboard)
 		adminFuturesSelection.POST("/reviews/:run_id/approve", middleware.PermissionRequired(db, "futures_selection.manage"), adminHandlers.FuturesSelection.ApproveFuturesSelectionReview)
 		adminFuturesSelection.POST("/reviews/:run_id/reject", middleware.PermissionRequired(db, "futures_selection.manage"), adminHandlers.FuturesSelection.RejectFuturesSelectionReview)
+
+		// Simulated positions tracking
+		adminFuturesSelection.GET("/simulated/overview", middleware.PermissionRequired(db, "futures_selection.view"), adminHandlers.FuturesSelection.GetFuturesSimulatedOverview)
+		adminFuturesSelection.GET("/simulated/positions", middleware.PermissionRequired(db, "futures_selection.view"), adminHandlers.FuturesSelection.ListFuturesSimulatedPositions)
+		adminFuturesSelection.POST("/simulated/settle", middleware.PermissionRequired(db, "futures_selection.manage"), adminHandlers.FuturesSelection.SettleSimulatedPositions)
 	}
 
 	adminStrategyGraph := v1.Group("/admin/strategy-graph")
@@ -284,6 +289,8 @@ func registerAdminRoutes(v1 *gin.RouterGroup, adminHandlers *handler.AdminHandle
 		adminUsers.PUT("/:id/status", middleware.PermissionRequired(db, "users.edit"), adminHandlers.User.UpdateUserStatus)
 		adminUsers.PUT("/:id/member-level", middleware.PermissionRequired(db, "users.edit"), adminHandlers.User.UpdateUserMemberLevel)
 		adminUsers.PUT("/:id/password", middleware.PermissionRequired(db, "users.edit"), adminHandlers.User.ResetUserPassword)
+		adminUsers.GET("/email-targets", middleware.PermissionRequired(db, "users.view"), adminHandlers.User.PreviewEmailTargets)
+		adminUsers.POST("/send-email", middleware.PermissionRequired(db, "users.edit"), adminHandlers.User.SendNotificationEmail)
 	}
 
 	adminDashboard := v1.Group("/admin/dashboard")
@@ -308,6 +315,7 @@ func registerAdminRoutes(v1 *gin.RouterGroup, adminHandlers *handler.AdminHandle
 		adminMembership.POST("/products", middleware.PermissionRequired(db, "membership.edit"), adminHandlers.Membership.CreateMembershipProduct)
 		adminMembership.PUT("/products/:id", middleware.PermissionRequired(db, "membership.edit"), adminHandlers.Membership.UpdateMembershipProduct)
 		adminMembership.PUT("/products/:id/status", middleware.PermissionRequired(db, "membership.edit"), adminHandlers.Membership.UpdateMembershipProductStatus)
+		adminMembership.DELETE("/products/:id", middleware.PermissionRequired(db, "membership.edit"), adminHandlers.Membership.DeleteMembershipProduct)
 
 		adminMembership.GET("/orders", middleware.PermissionRequired(db, "membership.view"), adminHandlers.Membership.ListMembershipOrders)
 		adminMembership.GET("/orders/export.csv", middleware.PermissionRequired(db, "membership.view"), adminHandlers.Membership.ListMembershipOrdersCSV)
@@ -316,8 +324,11 @@ func registerAdminRoutes(v1 *gin.RouterGroup, adminHandlers *handler.AdminHandle
 		adminMembership.GET("/quota-configs", middleware.PermissionRequired(db, "membership.view"), adminHandlers.Membership.ListVIPQuotaConfigs)
 		adminMembership.POST("/quota-configs", middleware.PermissionRequired(db, "membership.edit"), adminHandlers.Membership.CreateVIPQuotaConfig)
 		adminMembership.PUT("/quota-configs/:id", middleware.PermissionRequired(db, "membership.edit"), adminHandlers.Membership.UpdateVIPQuotaConfig)
+		adminMembership.DELETE("/quota-configs/:id", middleware.PermissionRequired(db, "membership.edit"), adminHandlers.Membership.DeleteVIPQuotaConfig)
+
 		adminMembership.GET("/user-quotas", middleware.PermissionRequired(db, "membership.view"), adminHandlers.Membership.ListUserQuotas)
 		adminMembership.PUT("/user-quotas/:user_id/adjust", middleware.PermissionRequired(db, "membership.edit"), adminHandlers.Membership.AdjustUserQuota)
+		adminMembership.DELETE("/user-quotas/:id", middleware.PermissionRequired(db, "membership.edit"), adminHandlers.Membership.DeleteUserQuota)
 	}
 
 	adminSystem := v1.Group("/admin/system")

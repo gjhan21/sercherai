@@ -31,6 +31,7 @@ func registerPublicRoutes(r *gin.Engine, v1 *gin.RouterGroup, userGrowthHandler 
 	// Public stock K-line data
 	v1.GET("/public/stocks/kline", userGrowthHandler.GetStockKline)
 	v1.GET("/public/stocks/pattern-match", userGrowthHandler.PatternMatch)
+	v1.GET("/news/attachments/:id/download", userGrowthHandler.DownloadAttachment)
 
 	payment := v1.Group("/payment")
 	{
@@ -43,6 +44,7 @@ func registerPublicRoutes(r *gin.Engine, v1 *gin.RouterGroup, userGrowthHandler 
 		internalStrategy := internalV1.Group("/strategy-engine")
 		{
 			internalStrategy.POST("/context/stock-selection", adminHandlers.Strategy.InternalStrategyEngineStockSelectionContext)
+			internalStrategy.POST("/context/stock-history", adminHandlers.Strategy.InternalStrategyEngineStockHistoryContext)
 			internalStrategy.POST("/context/futures-strategy", adminHandlers.Strategy.InternalStrategyEngineFuturesStrategyContext)
 		}
 	}

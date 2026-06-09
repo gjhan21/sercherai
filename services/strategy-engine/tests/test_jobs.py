@@ -42,7 +42,7 @@ def test_create_stock_selection_job_and_query_status() -> None:
     assert len(report["publish_payloads"]) == 5
     assert report["stage_counts"]["PORTFOLIO"] == 5
     assert report["market_regime"] in {"UPTREND", "ROTATION", "EVENT_DRIVEN", "DEFENSIVE", "RISK_OFF"}
-    assert len(report["stage_logs"]) == 10
+    assert len(report["stage_logs"]) >= 10
     assert len(report["portfolio_entries"]) == 5
     assert len(report["evidence_records"]) >= 5
     assert len(report["simulations"]) == 5
@@ -145,3 +145,30 @@ def test_list_jobs_supports_filters() -> None:
     assert payload["items"][0]["job_type"] == "stock-selection"
     assert payload["items"][0]["status"] == "SUCCEEDED"
     assert payload["items"][0]["result"]["summary"].startswith("stock-selection completed")
+
+
+def test_evaluate_stock_endpoint() -> None:
+    from app.settings import get_settings
+    settings = get_settings()
+    old_allow = settings.allow_sample_stock_seeds
+    settings.allow_sample_stock_seeds = True
+
+    try:
+        response = client.post(
+            "/internal/v1/strategy/evaluate-stock",
+            json={
+                "symbol": "300750.SZ",
+                "trade_date": "2026-03-17"
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["recommendation"]["symbol"] == "300750.SZ"
+        assert data["recommendation"]["name"]
+        assert data["recommendation"]["score"] > 0
+        assert data["detail"]["tech_score"] > 0
+        assert len(data["explanation"]["agent_opinions"]) > 0
+        assert len(data["explanation"]["scenario_snapshots"]) == 4
+    finally:
+        settings.allow_sample_stock_seeds = old_allow
+

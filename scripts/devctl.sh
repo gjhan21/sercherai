@@ -208,7 +208,7 @@ fi
 APP_PORT="\${APP_PORT:-$(service_port backend)}"
 STRATEGY_ENGINE_BASE_URL="\${STRATEGY_ENGINE_BASE_URL:-$(service_url strategy-engine)}"
 STRATEGY_GRAPH_BASE_URL="\${STRATEGY_GRAPH_BASE_URL:-$(service_url strategy-graph)}"
-cd "$ROOT_DIR/backend" && exec env APP_PORT="\${APP_PORT}" TUSHARE_TOKEN="\${TUSHARE_TOKEN:-}" STRATEGY_ENGINE_BASE_URL="\${STRATEGY_ENGINE_BASE_URL}" STRATEGY_GRAPH_BASE_URL="\${STRATEGY_GRAPH_BASE_URL}" GOCACHE=\$(pwd)/.gocache GOMODCACHE=\$(pwd)/.gomodcache GOPATH=\$(pwd)/.gopath "$GO_BIN" run .
+cd "$ROOT_DIR/backend" && exec env APP_PORT="\${APP_PORT}" GOPROXY="https://mirrors.aliyun.com/goproxy/,https://proxy.golang.org,direct" TUSHARE_TOKEN="\${TUSHARE_TOKEN:-}" STRATEGY_ENGINE_BASE_URL="\${STRATEGY_ENGINE_BASE_URL}" STRATEGY_GRAPH_BASE_URL="\${STRATEGY_GRAPH_BASE_URL}" GOCACHE=\$(pwd)/.gocache GOMODCACHE=\$(pwd)/.gomodcache GOPATH=\$(pwd)/.gopath "$GO_BIN" run .
 EOF
       ;;
     admin)

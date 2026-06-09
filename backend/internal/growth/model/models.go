@@ -7,6 +7,7 @@ type BrowseHistory struct {
 	Title       string `json:"title"`
 	SourcePage  string `json:"source_page"`
 	ViewedAt    string `json:"viewed_at"`
+	TargetKey   string `json:"target_key,omitempty"`
 }
 
 type AdminBrowseHistory struct {
@@ -18,6 +19,7 @@ type AdminBrowseHistory struct {
 	Title       string `json:"title"`
 	SourcePage  string `json:"source_page"`
 	ViewedAt    string `json:"viewed_at"`
+	TargetKey   string `json:"target_key,omitempty"`
 }
 
 type AdminBrowseHistorySummary struct {
@@ -163,6 +165,15 @@ type MembershipQuota struct {
 	NewsSubscribeLimit     int    `json:"news_subscribe_limit"`
 	NewsSubscribeUsed      int    `json:"news_subscribe_used"`
 	NewsSubscribeRemaining int    `json:"news_subscribe_remaining"`
+	DownloadLimit          int    `json:"download_limit"`
+	DownloadUsed           int    `json:"download_used"`
+	DownloadRemaining      int    `json:"download_remaining"`
+	ForecastLimit          int    `json:"forecast_limit"`
+	ForecastUsed           int    `json:"forecast_used"`
+	ForecastRemaining      int    `json:"forecast_remaining"`
+	StockRecoLimit         int    `json:"stock_reco_limit"`
+	StockRecoUsed          int    `json:"stock_reco_used"`
+	StockRecoRemaining     int    `json:"stock_reco_remaining"`
 	ResetCycle             string `json:"reset_cycle"`
 	ResetAt                string `json:"reset_at,omitempty"`
 	VIPExpireAt            string `json:"vip_expire_at,omitempty"`
@@ -304,6 +315,7 @@ type NewsArticle struct {
 	PublishedAt     string `json:"published_at,omitempty"`
 	AuthorID        string `json:"author_id,omitempty"`
 	AttachmentCount int    `json:"attachment_count,omitempty"`
+	IsLocked        bool   `json:"is_locked"`
 }
 
 type NewsAttachment struct {
@@ -729,6 +741,7 @@ type AdminUser struct {
 	Status             string `json:"status"`
 	KYCStatus          string `json:"-"`
 	MemberLevel        string `json:"member_level"`
+	VIPExpireAt        string `json:"vip_expire_at,omitempty"`
 	ActivationState    string `json:"activation_state,omitempty"`
 	RegistrationSource string `json:"registration_source,omitempty"`
 	InviterUserID      string `json:"inviter_user_id,omitempty"`
@@ -867,6 +880,9 @@ type VIPQuotaConfig struct {
 	MemberLevel        string `json:"member_level"`
 	DocReadLimit       int    `json:"doc_read_limit"`
 	NewsSubscribeLimit int    `json:"news_subscribe_limit"`
+	DownloadLimit      int    `json:"download_limit"`
+	ForecastLimit      int    `json:"forecast_limit"`
+	StockRecoLimit     int    `json:"stock_reco_limit"`
 	ResetCycle         string `json:"reset_cycle"`
 	Status             string `json:"status"`
 	EffectiveAt        string `json:"effective_at"`
@@ -874,6 +890,7 @@ type VIPQuotaConfig struct {
 }
 
 type UserQuotaUsage struct {
+	ID                 string `json:"id"`
 	UserID             string `json:"user_id"`
 	MemberLevel        string `json:"member_level"`
 	PeriodKey          string `json:"period_key"`
@@ -881,6 +898,12 @@ type UserQuotaUsage struct {
 	DocReadUsed        int    `json:"doc_read_used"`
 	NewsSubscribeLimit int    `json:"news_subscribe_limit"`
 	NewsSubscribeUsed  int    `json:"news_subscribe_used"`
+	DownloadLimit      int    `json:"download_limit"`
+	DownloadUsed       int    `json:"download_used"`
+	ForecastLimit      int    `json:"forecast_limit"`
+	ForecastUsed       int    `json:"forecast_used"`
+	StockRecoLimit     int    `json:"stock_reco_limit"`
+	StockRecoUsed      int    `json:"stock_reco_used"`
 	UpdatedAt          string `json:"updated_at,omitempty"`
 }
 
@@ -1396,3 +1419,84 @@ type StockTopListDaily struct {
 	NetAmount float64 `json:"net_amount"`
 	Reason    string  `json:"reason"`
 }
+
+type StockSimulatedPosition struct {
+	ID              string   `json:"id"`
+	RecoID          string   `json:"reco_id"`
+	Symbol          string   `json:"symbol"`
+	Name            string   `json:"name"`
+	Status          string   `json:"status"` // HOLDING, CLOSED
+	OpenDate        string   `json:"open_date"`
+	OpenPrice       float64  `json:"open_price"`
+	CurrentPrice    float64  `json:"current_price"`
+	CloseDate       string   `json:"close_date,omitempty"`
+	ClosePrice      float64  `json:"close_price,omitempty"`
+	TakeProfitPrice float64  `json:"take_profit_price,omitempty"`
+	StopLossPrice   float64  `json:"stop_loss_price,omitempty"`
+	Quantity        float64  `json:"quantity"`
+	CostBasis       float64  `json:"cost_basis"`
+	CloseValue      float64  `json:"close_value,omitempty"`
+	ReturnRate      float64  `json:"return_rate"`
+	MaxDrawdown     float64  `json:"max_drawdown"`
+	HoldDays        int      `json:"hold_days"`
+	CloseReason     string   `json:"close_reason,omitempty"`
+	CreatedAt       string   `json:"created_at"`
+}
+
+type StockSimulatedOverview struct {
+	TotalTrades        int     `json:"total_trades"`
+	ActiveHoldings     int     `json:"active_holdings"`
+	WinRate            float64 `json:"win_rate"`            // 盈利单数 / 已结单数
+	AverageReturn      float64 `json:"average_return"`      // 已结单平均收益率
+	TotalReturn        float64 `json:"total_return"`        // 累计总盈亏率
+	AvgHoldDays        float64 `json:"avg_hold_days"`       // 平均持有天数
+	MaxProfitRate      float64 `json:"max_profit_rate"`     // 单笔最大盈利率
+	MaxLossRate        float64 `json:"max_loss_rate"`       // 单笔最大亏损率
+}
+
+type StockPatternMatch struct {
+	ID           string    `json:"id"`
+	SourceSymbol string    `json:"source_symbol"`
+	MatchSymbol  string    `json:"match_symbol"`
+	MatchDate    string    `json:"match_date"`
+	Similarity   float64   `json:"similarity"`
+	Lookback     int       `json:"lookback"`
+	Next7d       []float64 `json:"next_7d"`
+}
+
+type FuturesSimulatedPosition struct {
+	ID              string   `json:"id"`
+	StrategyID      string   `json:"strategy_id"` // 关联 futures_strategies.id
+	Contract        string   `json:"contract"`
+	Name            string   `json:"name"`
+	Direction       string   `json:"direction"` // LONG, SHORT
+	Status          string   `json:"status"`    // HOLDING, CLOSED
+	OpenDate        string   `json:"open_date"`
+	OpenPrice       float64  `json:"open_price"`
+	CurrentPrice    float64  `json:"current_price"`
+	CloseDate       string   `json:"close_date,omitempty"`
+	ClosePrice      float64  `json:"close_price,omitempty"`
+	TakeProfitPrice float64  `json:"take_profit_price,omitempty"`
+	StopLossPrice   float64  `json:"stop_loss_price,omitempty"`
+	Quantity        float64  `json:"quantity"`
+	CostBasis       float64  `json:"cost_basis"`
+	CloseValue      float64  `json:"close_value,omitempty"`
+	ReturnRate      float64  `json:"return_rate"`
+	MaxDrawdown     float64  `json:"max_drawdown"`
+	HoldDays        int      `json:"hold_days"`
+	CloseReason     string   `json:"close_reason,omitempty"`
+	CreatedAt       string   `json:"created_at"`
+}
+
+type FuturesSimulatedOverview struct {
+	TotalTrades        int     `json:"total_trades"`
+	ActiveHoldings     int     `json:"active_holdings"`
+	WinRate            float64 `json:"win_rate"`
+	AverageReturn      float64 `json:"average_return"`
+	TotalReturn        float64 `json:"total_return"`
+	AvgHoldDays        float64 `json:"avg_hold_days"`
+	MaxProfitRate      float64 `json:"max_profit_rate"`
+	MaxLossRate        float64 `json:"max_loss_rate"`
+}
+
+

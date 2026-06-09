@@ -2073,3 +2073,69 @@ func readBodyText(body io.Reader) string {
 	}
 	return strings.TrimSpace(string(data))
 }
+
+type strategyEngineEvaluateStockResponse struct {
+	Recommendation struct {
+		Symbol        string  `json:"symbol"`
+		Name          string  `json:"name"`
+		Score         float64 `json:"score"`
+		RiskLevel     string  `json:"risk_level"`
+		PositionRange string  `json:"position_range"`
+		ReasonSummary string  `json:"reason_summary"`
+	} `json:"recommendation"`
+	Detail struct {
+		TechScore      float64 `json:"tech_score"`
+		FundScore      float64 `json:"fund_score"`
+		SentimentScore float64 `json:"sentiment_score"`
+		MoneyFlowScore float64 `json:"money_flow_score"`
+		TakeProfit     string  `json:"take_profit"`
+		StopLoss       string  `json:"stop_loss"`
+		RiskNote       string  `json:"risk_note"`
+	} `json:"detail"`
+	Explanation struct {
+		SeedSummary           string                                     `json:"seed_summary"`
+		GraphSummary          string                                     `json:"graph_summary"`
+		ConsensusSummary      string                                     `json:"consensus_summary"`
+		RiskFlags             []string                                   `json:"risk_flags"`
+		Invalidations         []string                                   `json:"invalidations"`
+		AgentOpinions         []model.StrategyExplanationAgentOpinion    `json:"agent_opinions"`
+		ScenarioSnapshots     []model.StrategyExplanationScenarioSnapshot `json:"scenario_snapshots"`
+		ConfidenceCalibration model.StrategyExplanationConfidenceCalibration `json:"confidence_calibration"`
+	} `json:"explanation"`
+}
+
+func (c *strategyEngineClient) evaluateStockRealtime(symbol string, llmConfig map[string]string) (strategyEngineEvaluateStockResponse, error) {
+	payload := map[string]any{
+		"symbol": symbol,
+	}
+	if len(llmConfig) > 0 {
+		payload["llm_config"] = llmConfig
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return strategyEngineEvaluateStockResponse{}, err
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, c.baseURL+"/internal/v1/strategy/evaluate-stock", bytes.NewReader(payloadBytes))
+	if err != nil {
+		return strategyEngineEvaluateStockResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return strategyEngineEvaluateStockResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return strategyEngineEvaluateStockResponse{}, fmt.Errorf("strategy-engine returned %d when evaluating stock %s: %s", resp.StatusCode, symbol, readBodyText(resp.Body))
+	}
+
+	var result strategyEngineEvaluateStockResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return strategyEngineEvaluateStockResponse{}, err
+	}
+	return result, nil
+}
+

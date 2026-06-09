@@ -22,6 +22,8 @@ const strategyStockContextStatusTruthQueryPattern = `SELECT instrument_key, list
 const strategyStockContextDailyBasicQueryPattern = `SELECT t\.symbol, t\.trade_date, t\.turnover_rate, t\.volume_ratio, t\.pe_ttm, t\.pb, t\.total_mv, t\.circ_mv, t\.source_key\s+FROM stock_daily_basic`
 const strategyStockContextMoneyflowQueryPattern = `SELECT t\.symbol, t\.trade_date, t\.net_mf_amount, t\.buy_lg_amount, t\.sell_lg_amount, t\.buy_elg_amount, t\.sell_elg_amount, t\.source_key\s+FROM stock_moneyflow_daily`
 const strategyStockContextNewsQueryPattern = `SELECT primary_symbol, symbols_json, title\s+FROM market_news_items`
+const strategyStockContextLimitUpQueryPattern = `(?s)SELECT t\.ts_code, t\.trade_date, t\.name.*FROM stock_limit_up_daily`
+const strategyStockContextTopListQueryPattern = `(?s)SELECT t\.ts_code, t\.trade_date, t\.name.*FROM stock_top_list_daily`
 const strategyFuturesContextTradeDateQueryPattern = `SELECT MAX\(trade_date\)\s+FROM market_daily_bar_truth`
 const strategyFuturesContextCandidatesQueryPattern = `SELECT t\.instrument_key,\s+SUBSTRING_INDEX\(t\.instrument_key, '\.', 1\) AS contract_key,\s+COALESCE\(NULLIF\(mi\.display_name, ''\), SUBSTRING_INDEX\(t\.instrument_key, '\.', 1\)\) AS display_name,\s+t\.selected_source_key\s+FROM market_daily_bar_truth`
 const strategyFuturesContextMappingQueryPattern = `SELECT m\.dominant_instrument_key,\s+COALESCE\(t\.turnover, 0\)\s+FROM futures_contract_mappings`
@@ -155,6 +157,13 @@ func TestBuildStrategyEngineStockSelectionContextUsesTruthBarsAndNews(t *testing
 			AddRow(sql.NullString{String: "600519.SH", Valid: true}, sql.NullString{String: "", Valid: false}, "公司风险提示").
 			AddRow(sql.NullString{String: "", Valid: false}, sql.NullString{String: `["300750.SZ"]`, Valid: true}, "宁德时代中标创新高"))
 
+	mock.ExpectQuery(strategyStockContextLimitUpQueryPattern).
+		WithArgs("600519.SH", "300750.SZ", "2026-03-18", "600519.SH", "300750.SZ").
+		WillReturnRows(sqlmock.NewRows([]string{"ts_code", "trade_date", "name", "lu_time", "open_time", "last_time", "tag", "theme", "status", "limit_order", "lu_limit_order", "bid_amount", "bid_change", "float_mv", "pct_chg"}))
+	mock.ExpectQuery(strategyStockContextTopListQueryPattern).
+		WithArgs("600519.SH", "300750.SZ", "2026-03-18", "600519.SH", "300750.SZ").
+		WillReturnRows(sqlmock.NewRows([]string{"ts_code", "trade_date", "name", "buy_amount", "sell_amount", "net_amount", "reason"}))
+
 	ctx, err := repo.BuildStrategyEngineStockSelectionContext(model.StrategyEngineStockSelectionContextRequest{
 		TradeDate:   "2026-03-19",
 		SeedSymbols: []string{"600519.SH", "300750.SZ"},
@@ -252,6 +261,13 @@ func TestBuildStrategyEngineStockSelectionContextFallsBackToNeutralNewsSignals(t
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"primary_symbol", "symbols_json", "title"}))
 
+	mock.ExpectQuery(strategyStockContextLimitUpQueryPattern).
+		WithArgs("600519.SH", "2026-03-18", "600519.SH").
+		WillReturnRows(sqlmock.NewRows([]string{"ts_code", "trade_date", "name", "lu_time", "open_time", "last_time", "tag", "theme", "status", "limit_order", "lu_limit_order", "bid_amount", "bid_change", "float_mv", "pct_chg"}))
+	mock.ExpectQuery(strategyStockContextTopListQueryPattern).
+		WithArgs("600519.SH", "2026-03-18", "600519.SH").
+		WillReturnRows(sqlmock.NewRows([]string{"ts_code", "trade_date", "name", "buy_amount", "sell_amount", "net_amount", "reason"}))
+
 	ctx, err := repo.BuildStrategyEngineStockSelectionContext(model.StrategyEngineStockSelectionContextRequest{
 		TradeDate:   "2026-03-19",
 		SeedSymbols: []string{"600519.SH"},
@@ -329,6 +345,13 @@ func TestBuildStrategyEngineStockSelectionContextAutoModeAppliesUniverseFilters(
 	mock.ExpectQuery(strategyStockContextNewsQueryPattern).
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"primary_symbol", "symbols_json", "title"}))
+
+	mock.ExpectQuery(strategyStockContextLimitUpQueryPattern).
+		WithArgs("600519.SH", "600001.SH", "300750.SZ", "2026-03-19", "600519.SH", "600001.SH", "300750.SZ").
+		WillReturnRows(sqlmock.NewRows([]string{"ts_code", "trade_date", "name", "lu_time", "open_time", "last_time", "tag", "theme", "status", "limit_order", "lu_limit_order", "bid_amount", "bid_change", "float_mv", "pct_chg"}))
+	mock.ExpectQuery(strategyStockContextTopListQueryPattern).
+		WithArgs("600519.SH", "600001.SH", "300750.SZ", "2026-03-19", "600519.SH", "600001.SH", "300750.SZ").
+		WillReturnRows(sqlmock.NewRows([]string{"ts_code", "trade_date", "name", "buy_amount", "sell_amount", "net_amount", "reason"}))
 
 	ctx, err := repo.BuildStrategyEngineStockSelectionContext(model.StrategyEngineStockSelectionContextRequest{
 		TradeDate:      "2026-03-19",
@@ -441,6 +464,13 @@ func TestBuildStrategyEngineStockSelectionContextAutoModeSkipsListingDaysWhenTru
 	mock.ExpectQuery(strategyStockContextNewsQueryPattern).
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"primary_symbol", "symbols_json", "title"}))
+
+	mock.ExpectQuery(strategyStockContextLimitUpQueryPattern).
+		WithArgs("600519.SH", "300750.SZ", "2026-03-20", "600519.SH", "300750.SZ").
+		WillReturnRows(sqlmock.NewRows([]string{"ts_code", "trade_date", "name", "lu_time", "open_time", "last_time", "tag", "theme", "status", "limit_order", "lu_limit_order", "bid_amount", "bid_change", "float_mv", "pct_chg"}))
+	mock.ExpectQuery(strategyStockContextTopListQueryPattern).
+		WithArgs("600519.SH", "300750.SZ", "2026-03-20", "600519.SH", "300750.SZ").
+		WillReturnRows(sqlmock.NewRows([]string{"ts_code", "trade_date", "name", "buy_amount", "sell_amount", "net_amount", "reason"}))
 
 	ctx, err := repo.BuildStrategyEngineStockSelectionContext(model.StrategyEngineStockSelectionContextRequest{
 		TradeDate:      "2026-03-21",
