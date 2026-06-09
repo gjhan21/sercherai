@@ -41,6 +41,7 @@ const routes = [
   // Auth (blank layout)
   { path: "/login", name: "login", component: () => import("../views/user/Login.vue"), meta: { title: "登录", layout: "blank" } },
   { path: "/register", name: "register", component: () => import("../views/user/Register.vue"), meta: { title: "注册", layout: "blank" } },
+  { path: "/forgot-password", name: "forgot-password", component: () => import("../views/user/ForgotPassword.vue"), meta: { title: "找回密码", layout: "blank" } },
 
   // Search
   { path: "/search", name: "search", component: () => import("../views/SearchPage.vue"), meta: { title: "搜索", section: "home" } },

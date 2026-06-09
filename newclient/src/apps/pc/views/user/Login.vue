@@ -14,7 +14,10 @@
           <input type="text" placeholder="请输入手机号或邮箱" v-model="account" />
         </div>
         <div class="auth-field">
-          <label>密码</label>
+          <div class="field-header">
+            <label>密码</label>
+            <button class="link-btn-sm" @click="$router.push('/forgot-password')">忘记密码？</button>
+          </div>
           <input type="password" placeholder="请输入密码" v-model="password" @keyup.enter="handleLogin" />
         </div>
         <p v-if="errorMsg" class="auth-error">{{ errorMsg }}</p>
@@ -70,4 +73,7 @@ async function handleLogin() {
 .auth-btn:disabled { opacity: .5; }
 .auth-switch { text-align: center; font-size: 13px; color: var(--text-secondary); }
 .link { color: var(--accent-gold); font-weight: 600; }
+.field-header { display: flex; justify-content: space-between; align-items: center; }
+.link-btn-sm { background: none; border: none; color: var(--accent-gold); font-size: 12px; cursor: pointer; padding: 0; }
+.link-btn-sm:hover { text-decoration: underline; }
 </style>

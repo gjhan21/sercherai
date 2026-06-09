@@ -14,6 +14,11 @@
           <input type="text" placeholder="请输入手机号" v-model="phone" />
         </div>
         <div class="auth-field">
+          <label>邮箱</label>
+          <input type="email" placeholder="请输入电子邮箱" v-model="email" />
+          <p class="field-hint">💡 邮箱为帐号找回，密码重置唯一凭证</p>
+        </div>
+        <div class="auth-field">
           <label>设置密码</label>
           <input type="password" placeholder="至少6位密码" v-model="password" />
         </div>
@@ -37,19 +42,20 @@ import { setClientAuthSession } from "@/shared/auth/client-auth";
 
 const router = useRouter();
 const phone = ref("");
+const email = ref("");
 const password = ref("");
 const confirmPwd = ref("");
 const loading = ref(false);
 const errorMsg = ref("");
 
 async function handleRegister() {
-  if (!phone.value || !password.value) return;
+  if (!phone.value || !email.value || !password.value) { errorMsg.value = "请填写完整"; return; }
   if (password.value !== confirmPwd.value) { errorMsg.value = "两次密码不一致"; return; }
   if (password.value.length < 6) { errorMsg.value = "密码至少6位"; return; }
   loading.value = true;
   errorMsg.value = "";
   try {
-    const payload = { phone: phone.value, password: password.value };
+    const payload = { phone: phone.value, email: email.value, password: password.value };
     const result = await register(payload);
     setClientAuthSession(result);
     router.push("/");
@@ -77,4 +83,5 @@ async function handleRegister() {
 .auth-btn:disabled { opacity: .5; }
 .auth-switch { text-align: center; font-size: 13px; color: var(--text-secondary); }
 .link { color: var(--accent-gold); font-weight: 600; }
+.field-hint { font-size: 11px; color: var(--accent-gold); margin-top: 4px; opacity: 0.9; }
 </style>
