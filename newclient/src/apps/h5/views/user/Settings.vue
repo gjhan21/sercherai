@@ -51,10 +51,11 @@
 </template>
 
 <script setup>
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { useClientAuth } from "@/shared/auth/client-auth";
+import { useClientAuth, setClientAuthSession } from "@/shared/auth/client-auth";
 import { logout, changePassword } from "@/api/auth.js";
+import { getUserProfile } from "@/api/membership.js";
 
 const router = useRouter();
 const { session, isLoggedIn } = useClientAuth();
@@ -91,6 +92,19 @@ async function handleLogout() {
   loggingOut.value = false;
   router.push("/login");
 }
+
+onMounted(async () => {
+  if (isLoggedIn.value) {
+    try {
+      const profile = await getUserProfile();
+      if (profile) {
+        setClientAuthSession(profile);
+      }
+    } catch (e) {
+      console.error("Failed to load user profile in settings:", e);
+    }
+  }
+});
 </script>
 
 <style scoped>
