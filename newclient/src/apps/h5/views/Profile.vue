@@ -1,12 +1,13 @@
 <template>
   <div class="h5-profile">
     <div class="h5-profile-card">
-      <div class="h5-avatar">{{ (profile?.nickname || '股')[0] }}</div>
+      <div class="h5-avatar">{{ isLoggedIn ? (profile?.nickname || '用')[0] : '客' }}</div>
       <div class="h5-profile-info">
-        <strong>{{ profile?.nickname || '股票投资者' }}</strong>
-        <span>{{ profile?.vip?.tierName || '免费版' }} · AI 剩余 {{ quota?.doc_read_remaining || '--' }} 次</span>
+        <strong>{{ isLoggedIn ? (profile?.nickname || '股票投资者') : '未登录 / 游客' }}</strong>
+        <span v-if="isLoggedIn">{{ quota?.member_level || '免费版' }} · AI 剩余 {{ quota?.doc_read_remaining || '--' }} 次</span>
+        <span v-else>登录后体验完整 AI 投资助手</span>
       </div>
-      <button class="h5-profile-btn" @click="$router.push('/login')">登录</button>
+      <button class="h5-profile-btn" v-if="!isLoggedIn" @click="$router.push('/login')">登录</button>
     </div>
 
     <div class="h5-quick-menu">
@@ -15,7 +16,7 @@
       <button class="h5-menu-item" @click="$router.push('/ai-chat')"><span style="color:var(--accent-gold)">💬</span><span>AI 对话</span><span>→</span></button>
     </div>
 
-    <div class="h5-section">
+    <div class="h5-section" v-if="isLoggedIn">
       <div class="h5-section-header"><h3>持仓概览</h3></div>
       <div class="h5-holdings">
         <div v-for="h in profile?.portfolio?.holdings || mockHoldings" :key="h.symbol" class="h5-holding-item" @click="$router.push('/markets/' + h.symbol)">
@@ -24,6 +25,10 @@
           <span class="h5-holding-profit" :class="(h.profitPct || 0) >= 0 ? 'up' : 'down'">{{ h.profitPct >= 0 ? '+' : '' }}{{ h.profitPct }}%</span>
         </div>
       </div>
+    </div>
+    <div class="h5-portfolio-empty-login" v-else>
+      <p>请登录后查看您的持仓数据与资产总览</p>
+      <button class="h5-login-btn-sm" @click="$router.push('/login')">立即登录</button>
     </div>
   </div>
 </template>
@@ -34,7 +39,7 @@ import { USER_PROFILE as MOCK } from "@/mock/user.js"
 import { getUserProfile, getMembershipQuota } from "@/api/membership.js"
 import { useClientAuth } from "@/shared/auth/client-auth"
 
-
+const { isLoggedIn } = useClientAuth();
 
 const profile = ref(MOCK);
 const quota = ref(null);
@@ -79,4 +84,31 @@ onMounted(loadProfile);
 .h5-holding-profit { font-size: 12px; font-weight: 600; }
 .up { color: var(--positive); }
 .down { color: var(--negative); }
+
+.h5-portfolio-empty-login {
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  padding: 30px 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.h5-portfolio-empty-login p {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.h5-login-btn-sm {
+  padding: 8px 20px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg,var(--accent-gold),var(--accent-gold-dim));
+  color: #000;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+}
 </style>

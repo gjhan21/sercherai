@@ -1,24 +1,25 @@
 <template>
   <div class="profile-page">
     <section class="user-card glass fade-in-up">
-      <div class="user-avatar">{{ (profile?.nickname || '股票投资者')[0] }}</div>
+      <div class="user-avatar">{{ isLoggedIn ? (profile?.nickname || '用')[0] : '客' }}</div>
       <div class="user-info">
-        <h2>{{ profile?.nickname || '股票投资者' }}</h2>
+        <h2>{{ isLoggedIn ? (profile?.nickname || '股票投资者') : '未登录 / 游客' }}</h2>
         <div class="user-meta">
-          <span class="user-level">{{ profile?.level || 'Lv.1' }}</span>
-          <span class="user-vip" v-if="quota">{{ quota.member_level || '免费版' }}</span>
-          <span v-if="quota">分析剩余 {{ quota.doc_read_remaining || '-' }}/{{ quota.doc_read_limit || '-' }}</span>
+          <span class="user-level">{{ isLoggedIn ? (profile?.level || 'Lv.1') : 'Lv.0' }}</span>
+          <span class="user-vip" v-if="isLoggedIn && quota">{{ quota.member_level || '免费版' }}</span>
+          <span v-if="isLoggedIn && quota">分析剩余 {{ quota.doc_read_remaining || '-' }}/{{ quota.doc_read_limit || '-' }}</span>
         </div>
       </div>
       <div class="user-actions">
-        <button class="btn-primary" @click="$router.push('/user/vip')">VIP 中心</button>
+        <button class="btn-primary" v-if="isLoggedIn" @click="$router.push('/user/vip')">VIP 中心</button>
+        <button class="btn-primary" v-else @click="$router.push('/login')">立即登录</button>
       </div>
     </section>
 
     <!-- Portfolio Summary -->
     <section class="section fade-in-up fade-in-up-delay-1">
       <div class="section-header"><h2 class="section-title">投资组合</h2></div>
-      <div class="portfolio-summary">
+      <div class="portfolio-summary" v-if="isLoggedIn">
         <div class="portfolio-total glass">
           <span class="pt-label">总资产 (模拟)</span>
           <span class="pt-value">¥{{ (portfolioTotal).toLocaleString() }}</span>
@@ -36,6 +37,10 @@
             </div>
           </div>
         </div>
+      </div>
+      <div class="portfolio-empty-login" v-else>
+        <p>请登录后查看您的投资组合与持仓数据</p>
+        <button class="btn-secondary" @click="$router.push('/login')">去登录</button>
       </div>
     </section>
 
@@ -64,7 +69,8 @@ import { getUserProfile } from "@/api/membership.js"
 import { getMembershipQuota } from "@/api/membership.js"
 import { useClientAuth } from "@/shared/auth/client-auth"
 
-
+const router = useRouter();
+const { isLoggedIn } = useClientAuth();
 
 const profile = ref(MOCK_PROFILE);
 const quota = ref(null);
@@ -117,4 +123,35 @@ onMounted(loadProfile);
 .menu-item:hover { background: rgba(255,255,255,.03); }
 .menu-icon { font-size: 18px; width: 24px; }
 .menu-arrow { margin-left: auto; color: var(--text-muted); }
+
+.portfolio-empty-login {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.01);
+}
+.portfolio-empty-login p {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+.btn-secondary {
+  padding: 8px 20px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-secondary:hover {
+  border-color: var(--accent-gold);
+  color: var(--accent-gold);
+}
 </style>
