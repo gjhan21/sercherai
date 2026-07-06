@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"net/url"
@@ -326,12 +327,19 @@ func (r *MySQLGrowthRepo) AdminSyncStockDailyBasics(sourceKey string, symbols []
 	if days > 365 {
 		days = 365
 	}
-	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.factor.source_priority", []string{"AKSHARE", "TUSHARE"})
+	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(sourceKey, marketAssetClassStock, marketDataKindStockDailyBasic, "market.stock.factor.source_priority", []string{"AKSHARE", "TUSHARE"})
+	routingSummary := buildMarketSourceRoutingSummary(sourceKey, sourceKeys, marketAssetClassStock, marketDataKindStockDailyBasic)
 	result := model.MarketSyncResult{
 		AssetClass:         marketAssetClassStock,
 		DataKind:           marketDataKindStockDailyBasic,
 		RequestedSourceKey: strings.ToUpper(strings.TrimSpace(sourceKey)),
 		ResolvedSourceKeys: sourceKeys,
+		SelectedSource:     routingSummary.SelectedSource,
+		FallbackSourceKeys: append([]string(nil), routingSummary.FallbackSourceKeys...),
+		FallbackChain:      append([]string(nil), routingSummary.FallbackSourceKeys...),
+		RoutingPolicyKey:   routingSummary.RoutingPolicyKey,
+		PolicyKey:          routingSummary.RoutingPolicyKey,
+		DecisionReason:     routingSummary.DecisionReason,
 		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
 	}
 	totalCount := 0
@@ -409,12 +417,19 @@ func (r *MySQLGrowthRepo) AdminSyncStockMoneyflows(sourceKey string, symbols []s
 	if days > 365 {
 		days = 365
 	}
-	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.factor.source_priority", []string{"AKSHARE", "TUSHARE"})
+	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(sourceKey, marketAssetClassStock, marketDataKindStockMoneyflow, "market.stock.factor.source_priority", []string{"AKSHARE", "TUSHARE"})
+	routingSummary := buildMarketSourceRoutingSummary(sourceKey, sourceKeys, marketAssetClassStock, marketDataKindStockMoneyflow)
 	result := model.MarketSyncResult{
 		AssetClass:         marketAssetClassStock,
 		DataKind:           marketDataKindStockMoneyflow,
 		RequestedSourceKey: strings.ToUpper(strings.TrimSpace(sourceKey)),
 		ResolvedSourceKeys: sourceKeys,
+		SelectedSource:     routingSummary.SelectedSource,
+		FallbackSourceKeys: append([]string(nil), routingSummary.FallbackSourceKeys...),
+		FallbackChain:      append([]string(nil), routingSummary.FallbackSourceKeys...),
+		RoutingPolicyKey:   routingSummary.RoutingPolicyKey,
+		PolicyKey:          routingSummary.RoutingPolicyKey,
+		DecisionReason:     routingSummary.DecisionReason,
 		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
 	}
 	totalCount := 0
@@ -492,12 +507,19 @@ func (r *MySQLGrowthRepo) AdminSyncStockNewsRaw(sourceKey string, symbols []stri
 	if days > 30 {
 		days = 30
 	}
-	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.news.source_priority", []string{"AKSHARE", "TUSHARE"})
+	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(sourceKey, marketAssetClassStock, marketDataKindStockNewsRaw, "market.stock.news.source_priority", []string{"AKSHARE", "TUSHARE"})
+	routingSummary := buildMarketSourceRoutingSummary(sourceKey, sourceKeys, marketAssetClassStock, marketDataKindStockNewsRaw)
 	result := model.MarketSyncResult{
 		AssetClass:         marketAssetClassStock,
 		DataKind:           marketDataKindStockNewsRaw,
 		RequestedSourceKey: strings.ToUpper(strings.TrimSpace(sourceKey)),
 		ResolvedSourceKeys: sourceKeys,
+		SelectedSource:     routingSummary.SelectedSource,
+		FallbackSourceKeys: append([]string(nil), routingSummary.FallbackSourceKeys...),
+		FallbackChain:      append([]string(nil), routingSummary.FallbackSourceKeys...),
+		RoutingPolicyKey:   routingSummary.RoutingPolicyKey,
+		PolicyKey:          routingSummary.RoutingPolicyKey,
+		DecisionReason:     routingSummary.DecisionReason,
 		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
 	}
 	totalCount := 0
@@ -570,12 +592,19 @@ func (r *MySQLGrowthRepo) AdminSyncStockKPLList(sourceKey string, days int) (mod
 	if days > 30 {
 		days = 30
 	}
-	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.factor.source_priority", []string{"TUSHARE"})
+	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(sourceKey, marketAssetClassStock, marketDataKindStockKPLList, "market.stock.factor.source_priority", []string{"TUSHARE"})
+	routingSummary := buildMarketSourceRoutingSummary(sourceKey, sourceKeys, marketAssetClassStock, marketDataKindStockKPLList)
 	result := model.MarketSyncResult{
 		AssetClass:         marketAssetClassStock,
 		DataKind:           marketDataKindStockKPLList,
 		RequestedSourceKey: strings.ToUpper(strings.TrimSpace(sourceKey)),
 		ResolvedSourceKeys: sourceKeys,
+		SelectedSource:     routingSummary.SelectedSource,
+		FallbackSourceKeys: append([]string(nil), routingSummary.FallbackSourceKeys...),
+		FallbackChain:      append([]string(nil), routingSummary.FallbackSourceKeys...),
+		RoutingPolicyKey:   routingSummary.RoutingPolicyKey,
+		PolicyKey:          routingSummary.RoutingPolicyKey,
+		DecisionReason:     routingSummary.DecisionReason,
 		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
 	}
 	totalCount := 0
@@ -644,12 +673,19 @@ func (r *MySQLGrowthRepo) AdminSyncStockTopList(sourceKey string, days int) (mod
 	if days > 30 {
 		days = 30
 	}
-	sourceKeys := r.resolveRequestedMarketSourceKeys(sourceKey, "market.stock.factor.source_priority", []string{"TUSHARE"})
+	sourceKeys := r.resolveRequestedMarketSourceKeysWithGovernance(sourceKey, marketAssetClassStock, marketDataKindStockTopList, "market.stock.factor.source_priority", []string{"TUSHARE"})
+	routingSummary := buildMarketSourceRoutingSummary(sourceKey, sourceKeys, marketAssetClassStock, marketDataKindStockTopList)
 	result := model.MarketSyncResult{
 		AssetClass:         marketAssetClassStock,
 		DataKind:           marketDataKindStockTopList,
 		RequestedSourceKey: strings.ToUpper(strings.TrimSpace(sourceKey)),
 		ResolvedSourceKeys: sourceKeys,
+		SelectedSource:     routingSummary.SelectedSource,
+		FallbackSourceKeys: append([]string(nil), routingSummary.FallbackSourceKeys...),
+		FallbackChain:      append([]string(nil), routingSummary.FallbackSourceKeys...),
+		RoutingPolicyKey:   routingSummary.RoutingPolicyKey,
+		PolicyKey:          routingSummary.RoutingPolicyKey,
+		DecisionReason:     routingSummary.DecisionReason,
 		Results:            make([]model.MarketSourceSyncItemResult, 0, len(sourceKeys)),
 	}
 	totalCount := 0
@@ -1543,10 +1579,16 @@ LIMIT 1`
 			if len(items) > 0 {
 				return items
 			}
-		} else if err != sql.ErrNoRows && !isMarketProviderGovernanceSchemaCompatError(err) {
+		} else {
+			if err == sql.ErrNoRows {
+				log.Printf("[Governance Routing] Policy not found for %s/%s, falling back to legacy config %s", assetClass, dataKind, routeConfigKey)
+			} else if !isMarketProviderGovernanceSchemaCompatError(err) {
+				log.Printf("[Governance Routing Error] Failed to load policy for %s/%s: %v", assetClass, dataKind, err)
+			}
 			return r.loadMarketSourcePriority(routeConfigKey, fallback)
 		}
 	}
+	log.Printf("[Governance Routing] Data kind is empty, skipping policy lookup for %s", assetClass)
 	return r.loadMarketSourcePriority(routeConfigKey, fallback)
 }
 
@@ -3256,6 +3298,8 @@ func (r *MySQLGrowthRepo) fetchStockDailyBasicsForSource(item model.DataSource, 
 	}
 	sourceKey = canonicalMarketSourceKey(sourceKey, provider)
 	switch provider {
+	case "MOCK":
+		return buildMockStockDailyBasics(sourceKey, symbols, days), "", nil
 	case "AKSHARE":
 		return fetchStockDailyBasicsFromAkshareBridge(item.Config, sourceKey, symbols, days)
 	case "TUSHARE":
@@ -3274,6 +3318,8 @@ func (r *MySQLGrowthRepo) fetchStockMoneyflowsForSource(item model.DataSource, s
 	}
 	sourceKey = canonicalMarketSourceKey(sourceKey, provider)
 	switch provider {
+	case "MOCK":
+		return buildMockStockMoneyflows(sourceKey, symbols, days), "", nil
 	case "AKSHARE":
 		return fetchStockMoneyflowsFromAkshareBridge(item.Config, sourceKey, symbols, days)
 	case "TUSHARE":
