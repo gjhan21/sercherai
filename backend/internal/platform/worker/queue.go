@@ -274,6 +274,18 @@ func runSchedulerJob(svc service.GrowthService, jobName string, syncOptions mode
 			return schedulerJobExecutionResult{}, fmt.Errorf("precompute failed: err20=%v, err60=%v", err20, err60)
 		}
 		return schedulerJobExecutionResult{Summary: "Precomputed stock pattern matches for lookback 20 and 60"}, nil
+	case "forecast_l3_dispatch_pending":
+		count, err := svc.ExecuteQueuedStrategyForecastL3Runs(10, "system")
+		if err != nil {
+			return schedulerJobExecutionResult{}, err
+		}
+		return schedulerJobExecutionResult{Summary: fmt.Sprintf("dispatched %d queued runs", count)}, nil
+	case "forecast_l3_quality_backfill":
+		count, err := svc.RunStrategyForecastL3QualityBackfill(10, "system")
+		if err != nil {
+			return schedulerJobExecutionResult{}, err
+		}
+		return schedulerJobExecutionResult{Summary: fmt.Sprintf("processed %d quality backfills", count)}, nil
 	default:
 		return schedulerJobExecutionResult{}, fmt.Errorf("unsupported job: %s", jobName)
 	}
