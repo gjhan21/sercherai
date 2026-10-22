@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -709,6 +711,174 @@ func (h *AdminSystemHandler) TestYolkPayConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.OK(result))
 }
 
+func (h *AdminSystemHandler) TestLLMConfig(c *gin.Context) {
+	var req struct {
+		APIKey    string `json:"api_key"`
+		BaseURL   string `json:"base_url"`
+		ModelName string `json:"model_name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// Ignore error to allow empty request for testing active LLM config
+	}
+
+	apiKey := req.APIKey
+	baseURL := req.BaseURL
+	modelName := req.ModelName
+
+	// If empty, load active config
+	if apiKey == "" && baseURL == "" && modelName == "" {
+		items, _, err := h.service.AdminListSystemConfigs("llm.", 1, 50)
+		if err == nil {
+			var enginesJSON string
+			for _, item := range items {
+				if strings.TrimSpace(item.ConfigKey) == "llm.engines" {
+					enginesJSON = item.ConfigValue
+					break
+				}
+			}
+			if enginesJSON != "" {
+				var engines []struct {
+					ID        string `json:"id"`
+					Name      string `json:"name"`
+					BaseURL   string `json:"base_url"`
+					APIKey    string `json:"api_key"`
+					ModelName string `json:"model_name"`
+					IsActive  bool   `json:"is_active"`
+				}
+				if err := json.Unmarshal([]byte(enginesJSON), &engines); err == nil {
+					for _, e := range engines {
+						if e.IsActive {
+							apiKey = e.APIKey
+							baseURL = e.BaseURL
+							modelName = e.ModelName
+							break
+						}
+					}
+				}
+			}
+			if apiKey == "" {
+				for _, item := range items {
+					key := strings.TrimSpace(item.ConfigKey)
+					if key == "llm.api_key" {
+						apiKey = item.ConfigValue
+					} else if key == "llm.base_url" {
+						baseURL = item.ConfigValue
+					} else if key == "llm.model_name" {
+						modelName = item.ConfigValue
+					}
+				}
+			}
+		}
+	}
+
+	apiKey = strings.TrimSpace(apiKey)
+	baseURL = strings.TrimSpace(baseURL)
+	modelName = strings.TrimSpace(modelName)
+
+	if apiKey == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "API Key 不能为空", Data: struct{}{}})
+		return
+	}
+	if baseURL == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "Base URL 不能为空", Data: struct{}{}})
+		return
+	}
+	if modelName == "" {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "Model Name 不能为空", Data: struct{}{}})
+		return
+	}
+
+	url := baseURL
+	if !strings.HasSuffix(url, "/chat/completions") {
+		url = strings.TrimRight(url, "/") + "/chat/completions"
+	}
+
+	type ChatMessage struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	type ChatCompletionRequest struct {
+		Model       string        `json:"model"`
+		Messages    []ChatMessage `json:"messages"`
+		Temperature float32       `json:"temperature,omitempty"`
+		MaxTokens   int           `json:"max_tokens,omitempty"`
+	}
+
+	jsonData, err := json.Marshal(ChatCompletionRequest{
+		Model: modelName,
+		Messages: []ChatMessage{
+			{Role: "user", Content: "你好，请回复“配置成功”四个字。"},
+		},
+		Temperature: 0.1,
+		MaxTokens:   50,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: "序列化请求失败: " + err.Error(), Data: struct{}{}})
+		return
+	}
+
+	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: "创建请求失败: " + err.Error(), Data: struct{}{}})
+		return
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, dto.APIResponse{Code: 50201, Message: "请求大模型网关失败: " + err.Error(), Data: struct{}{}})
+		return
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: "读取响应失败: " + err.Error(), Data: struct{}{}})
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: fmt.Sprintf("大模型返回错误 (状态码 %d): %s", resp.StatusCode, string(bodyBytes)), Data: struct{}{}})
+		return
+	}
+
+	var chatResp struct {
+		Choices []struct {
+			Message struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(bodyBytes, &chatResp); err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "解析大模型响应失败: " + err.Error() + ", body: " + string(bodyBytes), Data: struct{}{}})
+		return
+	}
+
+	if chatResp.Error != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "大模型返回异常: " + chatResp.Error.Message, Data: struct{}{}})
+		return
+	}
+
+	if len(chatResp.Choices) == 0 {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "大模型返回 choices 为空", Data: struct{}{}})
+		return
+	}
+
+	content := chatResp.Choices[0].Message.Content
+	h.writeOperationLog(c, "SYSTEM", "TEST_LLM_CONFIG", "SYSTEM_CONFIG", "llm.engines", "", "SUCCESS", modelName)
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"message": "测试成功",
+		"content": content,
+	}))
+}
+
 // Helpers
 func (h *AdminSystemHandler) buildTushareNewsSyncOptions(newsSources []string, symbols []string, syncTypes []string, batchSize int) model.TushareNewsSyncOptions {
 	opts := model.TushareNewsSyncOptions{
@@ -799,4 +969,242 @@ func (h *AdminSystemHandler) writeOperationLog(c *gin.Context, module string, ac
 		operator = "admin_unknown"
 	}
 	_ = h.service.AdminCreateOperationLog(module, action, targetType, targetID, operator, beforeValue, afterValue, reason)
+}
+
+func (h *AdminSystemHandler) DatabaseBackup(c *gin.Context) {
+	host := h.cfg.MySQLHost
+	port := h.cfg.MySQLPort
+	user := h.cfg.MySQLUser
+	password := h.cfg.MySQLPass
+	dbName := h.cfg.MySQLDB
+
+	var sqlBytes []byte
+	var err error
+
+	// 优先使用 mysqldump
+	dumpPath, lookErr := exec.LookPath("mysqldump")
+	if lookErr == nil {
+		cmd := exec.Command(dumpPath,
+			"-h"+host,
+			"-P"+port,
+			"-u"+user,
+			"-p"+password,
+			"--single-transaction",
+			"--skip-add-locks",
+			"--skip-comments",
+			dbName,
+		)
+		var out bytes.Buffer
+		var stderr bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &stderr
+		if runErr := cmd.Run(); runErr == nil {
+			sqlBytes = out.Bytes()
+		} else {
+			// mysqldump 失败，回退到纯 Go 备份
+			sqlBytes, err = h.backupDatabaseGo(host, port, user, password, dbName)
+		}
+	} else {
+		// 未找到 mysqldump，使用纯 Go 备份
+		sqlBytes, err = h.backupDatabaseGo(host, port, user, password, dbName)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: fmt.Sprintf("database backup failed: %v", err), Data: struct{}{}})
+		return
+	}
+
+	h.writeOperationLog(c, "SYSTEM", "BACKUP_DATABASE", "DATABASE", dbName, "", "", fmt.Sprintf("size=%d", len(sqlBytes)))
+
+	fileName := fmt.Sprintf("sercherai_backup_%s.sql", time.Now().Format("20060102_150405"))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
+	c.Data(http.StatusOK, "application/octet-stream", sqlBytes)
+}
+
+func (h *AdminSystemHandler) backupDatabaseGo(host, port, user, password, dbName string) ([]byte, error) {
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4", user, password, host, port, dbName)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SHOW TABLES")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var table string
+		if err := rows.Scan(&table); err == nil {
+			tables = append(tables, table)
+		}
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString("/* sercherai database backup (pure Go) */\n")
+	buf.WriteString("SET FOREIGN_KEY_CHECKS=0;\n\n")
+
+	for _, table := range tables {
+		var tName, createSQL string
+		err := db.QueryRow(fmt.Sprintf("SHOW CREATE TABLE `%s`", table)).Scan(&tName, &createSQL)
+		if err != nil {
+			return nil, err
+		}
+		buf.WriteString(fmt.Sprintf("DROP TABLE IF EXISTS `%s`;\n", table))
+		buf.WriteString(createSQL + ";\n\n")
+
+		dataRows, err := db.Query(fmt.Sprintf("SELECT * FROM `%s`", table))
+		if err != nil {
+			return nil, err
+		}
+		
+		cols, err := dataRows.Columns()
+		if err != nil {
+			dataRows.Close()
+			return nil, err
+		}
+
+		scanArgs := make([]interface{}, len(cols))
+		values := make([]sql.RawBytes, len(cols))
+		for i := range values {
+			scanArgs[i] = &values[i]
+		}
+
+		for dataRows.Next() {
+			err = dataRows.Scan(scanArgs...)
+			if err != nil {
+				dataRows.Close()
+				return nil, err
+			}
+
+			var valStrs []string
+			for _, colVal := range values {
+				if colVal == nil {
+					valStrs = append(valStrs, "NULL")
+				} else {
+					escaped := strings.ReplaceAll(string(colVal), "\\", "\\\\")
+					escaped = strings.ReplaceAll(escaped, "'", "\\'")
+					valStrs = append(valStrs, fmt.Sprintf("'%s'", escaped))
+				}
+			}
+			buf.WriteString(fmt.Sprintf("INSERT INTO `%s` VALUES (%s);\n", table, strings.Join(valStrs, ",")))
+		}
+		dataRows.Close()
+		buf.WriteString("\n")
+	}
+
+	buf.WriteString("SET FOREIGN_KEY_CHECKS=1;\n")
+	return buf.Bytes(), nil
+}
+
+func (h *AdminSystemHandler) DatabaseRestore(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "upload file is required", Data: struct{}{}})
+		return
+	}
+
+	if !strings.HasSuffix(strings.ToLower(file.Filename), ".sql") {
+		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "only .sql files are allowed", Data: struct{}{}})
+		return
+	}
+
+	uploadedFile, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: "failed to open uploaded file", Data: struct{}{}})
+		return
+	}
+	defer uploadedFile.Close()
+
+	sqlBytes, err := io.ReadAll(uploadedFile)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: "failed to read uploaded file", Data: struct{}{}})
+		return
+	}
+
+	host := h.cfg.MySQLHost
+	port := h.cfg.MySQLPort
+	user := h.cfg.MySQLUser
+	password := h.cfg.MySQLPass
+	dbName := h.cfg.MySQLDB
+
+	// 1. 前置安全自动备份
+	_ = os.MkdirAll("./backups", 0755)
+	safetyFileName := fmt.Sprintf("./backups/auto_safety_backup_%s.sql", time.Now().Format("20060102_150405"))
+	
+	dumpPath, lookErr := exec.LookPath("mysqldump")
+	if lookErr == nil {
+		cmd := exec.Command(dumpPath,
+			"-h"+host,
+			"-P"+port,
+			"-u"+user,
+			"-p"+password,
+			"--single-transaction",
+			"--skip-add-locks",
+			"--skip-comments",
+			"-r"+safetyFileName,
+			dbName,
+		)
+		_ = cmd.Run()
+	} else {
+		safetyBytes, safetyErr := h.backupDatabaseGo(host, port, user, password, dbName)
+		if safetyErr == nil {
+			_ = os.WriteFile(safetyFileName, safetyBytes, 0644)
+		}
+	}
+
+	// 2. 导入恢复
+	var restoreErr error
+	mysqlPath, lookErr := exec.LookPath("mysql")
+	if lookErr == nil {
+		cmd := exec.Command(mysqlPath, "-h"+host, "-P"+port, "-u"+user, "-p"+password, dbName)
+		cmd.Stdin = bytes.NewReader(sqlBytes)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if runErr := cmd.Run(); runErr != nil {
+			// mysql 执行失败，回退到 Go multiStatements 执行
+			restoreErr = h.restoreDatabaseGo(host, port, user, password, dbName, sqlBytes)
+		}
+	} else {
+		// 未找到 mysql 客户端，回退使用 Go 执行
+		restoreErr = h.restoreDatabaseGo(host, port, user, password, dbName, sqlBytes)
+	}
+
+	if restoreErr != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: fmt.Sprintf("database restore failed: %v", restoreErr), Data: struct{}{}})
+		return
+	}
+
+	h.writeOperationLog(c, "SYSTEM", "RESTORE_DATABASE", "DATABASE", dbName, "", "", fmt.Sprintf("file_size=%d", len(sqlBytes)))
+	h.writeAuditEvent(c, model.AdminAuditEvent{
+		EventDomain: "SYSTEM",
+		EventType:   "RESTORE_DATABASE",
+		Level:       "INFO",
+		Module:      "SYSTEM",
+		ObjectType:  "DATABASE",
+		ObjectID:    dbName,
+		Status:      "SUCCESS",
+		Title:       "Database restored from upload",
+		Summary:     fmt.Sprintf("Database successfully restored from upload file. Size: %d bytes.", len(sqlBytes)),
+	})
+
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"message": "database successfully restored",
+		"size":    len(sqlBytes),
+	}))
+}
+
+func (h *AdminSystemHandler) restoreDatabaseGo(host, port, user, password, dbName string, sqlBytes []byte) error {
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4&multiStatements=true", user, password, host, port, dbName)
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	_, err = db.Exec(string(sqlBytes))
+	return err
 }

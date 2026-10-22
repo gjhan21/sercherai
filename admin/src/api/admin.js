@@ -1075,6 +1075,10 @@ export function testPaymentYolkPayConfig() {
   return http.post("/admin/system/configs/payment/yolkpay/test");
 }
 
+export function testLLMConfig(payload) {
+  return http.post("/admin/system/configs/llm/test", payload);
+}
+
 export function listAuthLoginLogs(params) {
   return http.get("/admin/auth/login-logs", { params: buildParams(params) });
 }
@@ -1117,4 +1121,14 @@ export function previewEmailTargets(params) {
 
 export function sendNotificationEmail(payload) {
   return http.post("/admin/users/send-email", payload);
+}
+
+export function exportDatabaseBackup() {
+  return http.post("/admin/system/database/backup", null, { responseType: "blob" });
+}
+
+export function restoreDatabase(formData) {
+  return http.post("/admin/system/database/restore", formData, {
+    headers: { "Content-Type": "multipart/form-data" }
+  });
 }

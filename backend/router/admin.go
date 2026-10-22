@@ -338,6 +338,9 @@ func registerAdminRoutes(v1 *gin.RouterGroup, adminHandlers *handler.AdminHandle
 		adminSystem.PUT("/configs", middleware.PermissionRequired(db, "system_config.edit"), adminHandlers.System.UpsertSystemConfig)
 		adminSystem.POST("/configs/oss/qiniu/test", middleware.PermissionRequired(db, "system_config.edit"), adminHandlers.System.TestOSSQiniuConfig)
 		adminSystem.POST("/configs/payment/yolkpay/test", middleware.PermissionRequired(db, "system_config.edit"), adminHandlers.System.TestYolkPayConfig)
+		adminSystem.POST("/configs/llm/test", middleware.PermissionRequired(db, "system_config.edit"), adminHandlers.System.TestLLMConfig)
+		adminSystem.POST("/database/backup", middleware.PermissionRequired(db, "system_config.edit"), adminHandlers.System.DatabaseBackup)
+		adminSystem.POST("/database/restore", middleware.PermissionRequired(db, "system_config.edit"), adminHandlers.System.DatabaseRestore)
 
 		adminSystem.GET("/job-definitions", middleware.PermissionRequired(db, "system_job.view"), adminHandlers.System.ListSchedulerJobDefinitions)
 		adminSystem.GET("/job-definitions/supported", middleware.PermissionRequired(db, "system_job.view"), adminHandlers.System.ListSupportedSchedulerJobs)

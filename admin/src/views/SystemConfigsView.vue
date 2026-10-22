@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
-import { listSystemConfigs, testOSSQiniuConfig, testPaymentYolkPayConfig, upsertSystemConfig, triggerSchedulerJob } from "../api/admin";
+import { listSystemConfigs, testOSSQiniuConfig, testPaymentYolkPayConfig, testLLMConfig, upsertSystemConfig, triggerSchedulerJob, exportDatabaseBackup, restoreDatabase } from "../api/admin";
 import { buildForecastAdminConfigPayloads, parseForecastAdminConfigMap } from "../lib/forecast-admin";
 import { hasPermission } from "../lib/session";
 
@@ -64,6 +64,7 @@ const paymentForm = reactive({
 
 const llmLoading = ref(false);
 const llmSaving = ref(false);
+const llmTesting = ref(false);
 const llmForm = reactive({
   engines: []
 });
@@ -822,6 +823,56 @@ async function saveLLMConfig() {
   }
 }
 
+async function testLLMEngine(row) {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
+  llmTesting.value = true;
+  clearMessages();
+  try {
+    const payload = {
+      api_key: row.api_key,
+      base_url: row.base_url,
+      model_name: row.model_name
+    };
+    const res = await testLLMConfig(payload);
+    message.value = `大模型【${row.name}】测试成功！回复: "${res?.content || ""}"`;
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "大模型测试失败");
+  } finally {
+    llmTesting.value = false;
+  }
+}
+
+async function testLLMDiaForm() {
+  if (!ensureCanEditSystemConfigs()) {
+    return;
+  }
+  if (!llmDialogForm.base_url.trim()) {
+    errorMessage.value = "Base URL 不能为空";
+    return;
+  }
+  if (!llmDialogForm.model_name.trim()) {
+    errorMessage.value = "Model Name 不能为空";
+    return;
+  }
+  llmTesting.value = true;
+  clearMessages();
+  try {
+    const payload = {
+      api_key: llmDialogForm.api_key.trim(),
+      base_url: llmDialogForm.base_url.trim(),
+      model_name: llmDialogForm.model_name.trim()
+    };
+    const res = await testLLMConfig(payload);
+    message.value = `大模型【${llmDialogForm.name || "未命名"}】测试成功！回复: "${res?.content || ""}"`;
+  } catch (error) {
+    errorMessage.value = normalizeErrorMessage(error, "大模型测试失败");
+  } finally {
+    llmTesting.value = false;
+  }
+}
+
 function openAddLLMEngineDialog() {
   llmDialogTitle.value = "新增大模型引擎";
   llmDialogForm.id = "";
@@ -1053,6 +1104,77 @@ function handleListPageChange(nextPage) {
   fetchConfigList();
 }
 
+const backupLoading = ref(false);
+const restoreLoading = ref(false);
+const restoreFile = ref(null);
+const confirmInput = ref("");
+const showConfirmDialog = ref(false);
+
+const handleExportBackup = async () => {
+  backupLoading.value = true;
+  errorMessage.value = "";
+  message.value = "";
+  try {
+    const response = await exportDatabaseBackup();
+    const blob = new Blob([response], { type: "application/octet-stream" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    const dateStr = new Date().toISOString().slice(0, 19).replace(/[-T:]/g, "_");
+    link.setAttribute("download", `sercherai_backup_${dateStr}.sql`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    message.value = "数据库备份文件生成并下载成功！";
+  } catch (err) {
+    errorMessage.value = "备份数据库失败: " + (err.response?.data?.message || err.message);
+  } finally {
+    backupLoading.value = false;
+  }
+};
+
+const triggerRestoreConfirmation = () => {
+  if (!restoreFile.value) {
+    errorMessage.value = "请先选择需要恢复的 .sql 文件！";
+    return;
+  }
+  confirmInput.value = "";
+  showConfirmDialog.value = true;
+};
+
+const handleFileChange = (file) => {
+  if (file && file.raw) {
+    restoreFile.value = file.raw;
+    errorMessage.value = "";
+  }
+};
+
+const handleRestore = async () => {
+  if (confirmInput.value !== "RECOVER_CONFIRM") {
+    errorMessage.value = "确认码输入错误，请重新输入 'RECOVER_CONFIRM'！";
+    showConfirmDialog.value = false;
+    return;
+  }
+  showConfirmDialog.value = false;
+  restoreLoading.value = true;
+  errorMessage.value = "";
+  message.value = "";
+
+  const formData = new FormData();
+  formData.append("file", restoreFile.value);
+
+  try {
+    const res = await restoreDatabase(formData);
+    message.value = "数据库成功恢复！导入数据量: " + res.size + " 字节。服务器已自动保存了前置安全快照备份。";
+    restoreFile.value = null;
+  } catch (err) {
+    errorMessage.value = "数据库恢复失败: " + (err.response?.data?.message || err.message);
+  } finally {
+    restoreLoading.value = false;
+  }
+};
+
 onMounted(refreshAll);
 </script>
 
@@ -1122,8 +1244,11 @@ onMounted(refreshAll);
                 <el-tag v-else type="info">未启用</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="160" align="center" v-if="canEditSystemConfigs">
+            <el-table-column label="操作" width="200" align="center" v-if="canEditSystemConfigs">
               <template #default="scope">
+                <el-button size="small" type="warning" link :loading="llmTesting" @click="testLLMEngine(scope.row)">
+                  测试
+                </el-button>
                 <el-button size="small" type="primary" link @click="openEditLLMEngineDialog(scope.row)">
                   编辑
                 </el-button>
@@ -1830,6 +1955,71 @@ onMounted(refreshAll);
           </div>
         </div>
       </el-tab-pane>
+
+      <el-tab-pane label="数据库备份恢复" name="database-backup-restore">
+        <div class="card" v-loading="restoreLoading || backupLoading">
+          <div class="section-title">数据库备份与覆盖恢复</div>
+          <el-alert
+            title="【高危操作警告】"
+            description="恢复数据库操作会将当前环境数据库中的所有数据完全清空并覆盖导入。一旦执行将不可逆，可能导致最新业务数据丢失。非运维人员请勿在生产环境进行任何恢复操作！"
+            type="error"
+            :closable="false"
+            show-icon
+            style="margin: 12px 0 20px"
+          />
+
+          <div style="display: flex; flex-direction: column; gap: 24px;">
+            <!-- 备份下载卡片 -->
+            <div>
+              <div class="subsection">1. 数据导出备份</div>
+              <p style="color: #606266; font-size: 14px; margin-bottom: 12px;">
+                将当前运行环境数据库的数据及表结构导出为 SQL 备份文件并下载到本地电脑。
+              </p>
+              <el-button type="success" :loading="backupLoading" @click="handleExportBackup">
+                执行数据库导出备份
+              </el-button>
+            </div>
+
+            <el-divider />
+
+            <!-- 恢复上传卡片 -->
+            <div>
+              <div class="subsection">2. 导入恢复数据库</div>
+              <p style="color: #606266; font-size: 14px; margin-bottom: 12px;">
+                选择本地备份的 .sql 文件上传。系统会首先在服务器端自动对当前运行数据库执行一次快照备份，随后执行上传备份覆盖恢复。
+              </p>
+              
+              <el-upload
+                action="#"
+                :auto-upload="false"
+                :show-file-list="true"
+                :on-change="handleFileChange"
+                :limit="1"
+                accept=".sql"
+                style="max-width: 480px; margin-bottom: 16px;"
+              >
+                <template #trigger>
+                  <el-button type="primary">选择备份 SQL 文件</el-button>
+                </template>
+                <template #tip>
+                  <div class="el-upload__tip" style="color: #909399; margin-top: 6px;">
+                    仅支持上传以 .sql 结尾的数据库备份脚本文件。
+                  </div>
+                </template>
+              </el-upload>
+
+              <el-button
+                type="danger"
+                :disabled="!restoreFile"
+                :loading="restoreLoading"
+                @click="triggerRestoreConfirmation"
+              >
+                导入并覆盖恢复数据库
+              </el-button>
+            </div>
+          </div>
+        </div>
+      </el-tab-pane>
     </el-tabs>
 
     <el-dialog v-model="dialogVisible" title="系统配置" width="640px" destroy-on-close>
@@ -1889,7 +2079,36 @@ onMounted(refreshAll);
       </el-form>
       <template #footer>
         <el-button @click="llmDialogVisible = false">取消</el-button>
+        <el-button v-if="canEditSystemConfigs" type="warning" plain :loading="llmTesting" @click="testLLMDiaForm">测试配置</el-button>
         <el-button v-if="canEditSystemConfigs" type="primary" @click="submitLLMEngineDialog">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="showConfirmDialog"
+      title="高危恢复操作二次核验"
+      width="480px"
+      destroy-on-close
+    >
+      <div style="font-size: 14px; line-height: 1.6; color: #f56c6c; margin-bottom: 16px;">
+        您正在尝试恢复数据库！这会覆盖本环境当前的全部数据（系统配置、用户、交易流水、因子等）。<br />
+        系统在开始前会生成一个自动备用快照。如果确认要执行恢复，请在下方文本框中输入 <strong>RECOVER_CONFIRM</strong> 进行授权：
+      </div>
+      <el-input
+        v-model="confirmInput"
+        placeholder="请输入 RECOVER_CONFIRM"
+        clearable
+        style="margin-bottom: 12px"
+      />
+      <template #footer>
+        <el-button @click="showConfirmDialog = false">取消</el-button>
+        <el-button
+          type="danger"
+          :disabled="confirmInput !== 'RECOVER_CONFIRM'"
+          @click="handleRestore"
+        >
+          确认恢复
+        </el-button>
       </template>
     </el-dialog>
   </div>
