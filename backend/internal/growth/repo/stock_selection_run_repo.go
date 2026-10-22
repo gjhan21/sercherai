@@ -868,6 +868,7 @@ func (r *MySQLGrowthRepo) persistCompletedStockSelectionRun(
 	if resultSummary == "" {
 		resultSummary = fmt.Sprintf("stock-selection completed with %d publish-ready candidates", report.SelectedCount)
 	}
+	previousSnapshot, _ := r.loadLatestApprovedPortfolioSnapshot(runID)
 	contextMeta := buildStockSelectionRunContextMeta(report)
 	if _, err = tx.Exec(`
 UPDATE stock_selection_runs
@@ -900,7 +901,7 @@ WHERE run_id = ?`,
 		strings.TrimSpace(report.MarketRegime),
 		stockSelectionMustJSON(contextMeta),
 		stockSelectionMustJSON(report.TemplateSnapshot),
-		stockSelectionMustJSON(buildStockSelectionCompareSummary(nil, report.PortfolioEntries)),
+		stockSelectionMustJSON(buildStockSelectionCompareSummary(previousSnapshot, report.PortfolioEntries)),
 		startedAt,
 		runID,
 	); err != nil {
