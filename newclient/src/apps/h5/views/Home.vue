@@ -71,7 +71,7 @@
 
 <script setup>
 import { onMounted, ref } from "vue";
-import { listStockRecommendations } from "@/api/market.js"
+import { listStockRecommendations, listHotSectors, listMarketEvents } from "@/api/market.js"
 import { useClientAuth } from "@/shared/auth/client-auth";
 const { isLoggedIn } = useClientAuth();
 
@@ -113,7 +113,51 @@ async function loadPicks() {
   } catch { /* keep mock */ }
 }
 
-onMounted(loadPicks);
+async function loadHotSectors() {
+  try {
+    const res = await listHotSectors();
+    if (Array.isArray(res) && res.length > 0) {
+      sectors.value = res;
+    }
+  } catch (e) {
+    console.error("Failed to load hot sectors in H5 home:", e);
+  }
+}
+
+async function loadMarketEvents() {
+  try {
+    const res = await listMarketEvents({ page: 1, page_size: 5 });
+    if (res?.items?.length) {
+      alerts.value = res.items.map((event) => {
+        let type = 'info';
+        const et = String(event.event_type || '').toUpperCase();
+        if (et === 'PRICE') {
+          type = 'warning';
+        } else if (et === 'VOLUME' || et === 'SUCCESS') {
+          type = 'success';
+        }
+        
+        let title = event.symbol && event.symbol !== 'ALL' 
+          ? `${event.symbol} - ${event.event_type}`
+          : `${event.event_type} 提醒`;
+          
+        return {
+          type: type,
+          title: title,
+          desc: event.summary || event.trigger_rule || '市场异动提醒'
+        };
+      });
+    }
+  } catch (e) {
+    console.error("Failed to load market events in H5 home:", e);
+  }
+}
+
+onMounted(() => {
+  loadPicks();
+  loadHotSectors();
+  loadMarketEvents();
+});
 </script>
 
 <style scoped>

@@ -101,3 +101,7 @@ export function getStockSimulatedOverview() {
 export function listStockSimulatedPositions(params) {
   return http.get("/stocks/simulated/positions", { params: buildParams(params) });
 }
+
+export function listHotSectors() {
+  return http.get("/public/sectors");
+}

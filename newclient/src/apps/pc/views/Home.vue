@@ -32,34 +32,7 @@
       </div>
     </section>
 
-    <!-- Quick Links to Modules -->
-    <div class="quick-modules fade-in-up fade-in-up-delay-2">
-      <button class="quick-module glass card-hover" @click="$router.push('/recommendations')">
-        <span class="qm-icon" style="background:var(--accent-gold-glow);color:var(--accent-gold)">★</span>
-        <span class="qm-title">每日推荐</span>
-        <span class="qm-desc">AI 精选 6 只标的</span>
-      </button>
-      <button class="quick-module glass card-hover" @click="$router.push('/identify')">
-        <span class="qm-icon" style="background:rgba(59,130,246,.1);color:var(--accent-blue)">◎</span>
-        <span class="qm-title">鉴别分析</span>
-        <span class="qm-desc">输入股票 AI 分析</span>
-      </button>
-      <button class="quick-module glass card-hover" @click="$router.push('/forecast-lab')">
-        <span class="qm-icon" style="background:rgba(14,165,233,.14);color:var(--accent-cyan)">◌</span>
-        <span class="qm-title">深度推演</span>
-        <span class="qm-desc">查看 L3 运行与报告</span>
-      </button>
-      <button class="quick-module glass card-hover" @click="$router.push('/news')">
-        <span class="qm-icon" style="background:var(--positive-bg);color:var(--positive)">📰</span>
-        <span class="qm-title">资讯中心</span>
-        <span class="qm-desc">市场最新动态</span>
-      </button>
-      <button class="quick-module glass card-hover" @click="$router.push('/community')">
-        <span class="qm-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6">💬</span>
-        <span class="qm-title">社区</span>
-        <span class="qm-desc">投资者交流</span>
-      </button>
-    </div>
+
 
     <!-- AI Top Picks -->
     <section class="section fade-in-up fade-in-up-delay-2">
@@ -110,7 +83,7 @@
       <section class="section">
         <div class="section-header"><div><h2 class="section-title">最新 AI 研报</h2></div><div class="section-actions"><button class="btn-ghost" @click="$router.push('/news')">更多</button></div></div>
         <div class="reports-list">
-          <article v-for="r in reports" :key="r.title" class="report-item glass card-hover" @click="$router.push('/news')">
+          <article v-for="r in reports" :key="r.title" class="report-item glass card-hover" @click="$router.push('/news/' + r.id)">
             <div class="report-item-top"><span class="tag" :class="r.tag === '深度' ? 'tag-gold' : 'tag-blue'">{{ r.tag }}</span><span class="report-time">{{ r.time }}</span></div>
             <h3>{{ r.title }}</h3>
             <p>{{ r.summary }}</p>
@@ -146,9 +119,11 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { POSTS } from "@/mock/community.js";
+import { POSTS, USERS } from "@/mock/community.js";
 import { NEWS_ARTICLES } from "@/mock/news.js";
-import { listStockRecommendations } from "@/api/market.js"
+import { listStockRecommendations, listHotSectors, listMarketEvents } from "@/api/market.js"
+import { listNewsArticles, listNewsCategories } from "@/api/news.js";
+import { listCommunityTopics } from "@/api/community.js";
 import { useClientAuth } from "@/shared/auth/client-auth";
 const { isLoggedIn } = useClientAuth();
 
@@ -166,23 +141,90 @@ const topPicks = ref([
   { rank: 6, symbol: '688981.SH', name: '中芯国际', price: '56.78', change: 4.12, score: 79, reason: '半导体周期回暖，AI 情绪模型积极', tags: ['半导体', '热点'] }
 ]);
 
-const sectors = [
+const sectors = ref([
   { name: '半导体', change: 3.82, flow: 85 },
   { name: '人工智能', change: 3.45, flow: 78 },
   { name: '新能源', change: 2.68, flow: 72 },
   { name: '消费电子', change: 2.12, flow: 65 },
   { name: '医药生物', change: 1.56, flow: 48 },
   { name: '金融', change: 0.85, flow: 35 }
-];
+]);
 
-const alerts = [
+const alerts = ref([
   { type: 'warning', title: '宁德时代出现大单异动', desc: '盘中出现 5000 万级大单买入', time: '10:32' },
   { type: 'info', title: '半导体板块资金持续流入', desc: '连续 3 日主力资金净流入，AI 评级上调', time: '10:15' },
   { type: 'success', title: '迈瑞医疗发布超预期季报', desc: 'AI 预测目标价上调 12%', time: '09:48' }
-];
+]);
 
-const reports = NEWS_ARTICLES.filter(a => a.isFeatured).slice(0, 3);
-const hotPosts = [...POSTS].sort((a, b) => b.likes - a.likes).slice(0, 4);
+const reports = ref(NEWS_ARTICLES.filter(a => a.isFeatured).slice(0, 3));
+const hotPosts = ref([...POSTS].sort((a, b) => b.likes - a.likes).slice(0, 4));
+
+async function loadLatestReports() {
+  try {
+    let categoryMap = {};
+    try {
+      const catRes = await listNewsCategories();
+      if (catRes?.items?.length) {
+        catRes.items.forEach(c => {
+          categoryMap[c.id] = c.name;
+        });
+      }
+    } catch (e) {
+      console.error("Failed to load categories in home page:", e);
+    }
+
+    const res = await listNewsArticles({ page: 1, page_size: 10 });
+    if (res?.items?.length) {
+      reports.value = res.items.slice(0, 3).map((item, i) => {
+        const catName = categoryMap[item.category_id] || item.category_name || '';
+        let tag = '研报';
+        if (catName.includes('研究') || catName.includes('深度') || catName.includes('AI')) {
+          tag = '深度';
+        } else if (catName) {
+          tag = catName.slice(0, 2);
+        }
+        return {
+          id: item.id,
+          title: item.title,
+          tag: tag,
+          time: item.published_at ? item.published_at.slice(5, 10) : '-',
+          summary: item.summary || item.content || '暂无内容概要'
+        };
+      });
+    }
+  } catch (e) {
+    console.error("Failed to load news articles in home page:", e);
+  }
+}
+
+async function loadHotPosts() {
+  try {
+    const res = await listCommunityTopics({ page: 1, page_size: 20 });
+    if (res?.items?.length) {
+      const sortedItems = [...res.items].sort((a, b) => (b.like_count || 0) - (a.like_count || 0)).slice(0, 4);
+      hotPosts.value = sortedItems.map((item) => ({
+        id: item.id,
+        title: item.title,
+        likes: item.like_count || 0,
+        comments: item.comment_count || 0,
+        author: USERS[Math.floor(Math.random() * USERS.length)]
+      }));
+    }
+  } catch (e) {
+    console.error("Failed to load community topics in home page:", e);
+  }
+}
+
+async function loadHotSectors() {
+  try {
+    const res = await listHotSectors();
+    if (Array.isArray(res) && res.length > 0) {
+      sectors.value = res;
+    }
+  } catch (e) {
+    console.error("Failed to load hot sectors:", e);
+  }
+}
 
 async function loadHomeData() {
   if (!isLoggedIn.value) return;
@@ -201,7 +243,43 @@ async function loadHomeData() {
   } catch { /* keep mock data */ }
 }
 
-onMounted(loadHomeData);
+async function loadMarketEvents() {
+  try {
+    const res = await listMarketEvents({ page: 1, page_size: 5 });
+    if (res?.items?.length) {
+      alerts.value = res.items.map((event) => {
+        let type = 'info';
+        const et = String(event.event_type || '').toUpperCase();
+        if (et === 'PRICE') {
+          type = 'warning';
+        } else if (et === 'VOLUME' || et === 'SUCCESS') {
+          type = 'success';
+        }
+        
+        let title = event.symbol && event.symbol !== 'ALL' 
+          ? `${event.symbol} - ${event.event_type}`
+          : `${event.event_type} 提醒`;
+          
+        return {
+          type: type,
+          title: title,
+          desc: event.summary || event.trigger_rule || '市场异动提醒',
+          time: event.created_at ? event.created_at.slice(11, 16) : '-'
+        };
+      });
+    }
+  } catch (e) {
+    console.error("Failed to load market events:", e);
+  }
+}
+
+onMounted(() => {
+  loadLatestReports();
+  loadHotPosts();
+  loadHotSectors();
+  loadHomeData();
+  loadMarketEvents();
+});
 </script>
 
 <style scoped>
@@ -234,12 +312,7 @@ onMounted(loadHomeData);
 .btn-ghost:hover { border-color: var(--border-light); color: var(--text-primary); }
 .btn-primary { padding: 8px 18px; border-radius: var(--radius-full); background: linear-gradient(135deg,var(--accent-gold),var(--accent-gold-dim)); color: #000; font-size: 13px; font-weight: 600; }
 
-/* Quick Modules */
-.quick-modules { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; }
-.quick-module { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px; border-radius: var(--radius-lg); cursor: pointer; text-align: center; }
-.qm-icon { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; }
-.qm-title { font-size: 15px; font-weight: 700; }
-.qm-desc { font-size: 12px; color: var(--text-secondary); }
+
 
 .picks-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
 .pick-card { padding: 14px; border-radius: var(--radius-md); cursor: pointer; position: relative; }
@@ -299,7 +372,7 @@ onMounted(loadHomeData);
 .vip-cta-content h2 { font-size: 18px; font-weight: 700; margin: 8px 0; }
 .vip-cta-content p { font-size: 13px; color: var(--text-secondary); }
 
-@media (max-width:1100px) { .picks-grid { grid-template-columns: repeat(2,1fr); } .quick-modules { grid-template-columns: repeat(2,1fr); } }
+@media (max-width:1100px) { .picks-grid { grid-template-columns: repeat(2,1fr); } }
 @media (max-width:900px) { .home-grid-2col { grid-template-columns: 1fr; } .hero-stats { grid-template-columns: repeat(2,1fr); } }
 @media (max-width:600px) { .picks-grid { grid-template-columns: 1fr; } .hero-stats { grid-template-columns: 1fr 1fr; } }
 </style>

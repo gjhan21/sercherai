@@ -16,6 +16,7 @@ func registerPublicRoutes(r *gin.Engine, v1 *gin.RouterGroup, userGrowthHandler 
 		public.GET("/news/articles/:id", userGrowthHandler.GetNewsArticleDetail)
 		public.GET("/news/articles/:id/attachments", userGrowthHandler.ListNewsAttachments)
 		public.GET("/search/global", userGrowthHandler.SearchGlobal)
+		public.GET("/sectors", userGrowthHandler.ListPublicSectors)
 		public.GET("/community/topics", userGrowthHandler.ListPublicCommunityTopics)
 		public.GET("/community/topics/:id", userGrowthHandler.GetPublicCommunityTopic)
 		public.GET("/community/topics/:id/comments", userGrowthHandler.ListPublicCommunityComments)

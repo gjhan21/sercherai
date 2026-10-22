@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -218,4 +220,116 @@ func getFloatField(item []interface{}, fieldMap map[string]int, key string) floa
 		}
 	}
 	return 0
+}
+
+// FetchShenWanSectorsFromTushare 从 Tushare 获取申万一级行业及最新一交易日的涨跌幅
+func FetchShenWanSectorsFromTushare(token string) ([]map[string]interface{}, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, fmt.Errorf("tushare token is empty")
+	}
+
+	// 1. 获取申万一级行业分类 mapping
+	classifyRes, err := callTushare(token, "index_classify", map[string]string{
+		"src":   "SW2021",
+		"level": "L1",
+	}, "index_code,industry_name,level")
+	if err != nil {
+		return nil, fmt.Errorf("call index_classify failed: %w", err)
+	}
+
+	fieldMap := map[string]int{}
+	for i, f := range classifyRes.Data.Fields {
+		fieldMap[f] = i
+	}
+
+	codeToName := make(map[string]string)
+	for _, item := range classifyRes.Data.Items {
+		code := getStringField(item, fieldMap, "index_code")
+		name := getStringField(item, fieldMap, "industry_name")
+		if code != "" && name != "" {
+			codeToName[code] = name
+		}
+	}
+
+	if len(codeToName) == 0 {
+		return nil, fmt.Errorf("no SW2021 L1 industries found")
+	}
+
+	// 2. 获取申万行业日线行情 sw_daily
+	now := time.Now()
+	startDate := now.AddDate(0, 0, -10).Format("20060102")
+	endDate := now.Format("20060102")
+
+	dailyRes, err := callTushare(token, "sw_daily", map[string]string{
+		"start_date": startDate,
+		"end_date":   endDate,
+	}, "ts_code,trade_date,name,pct_change")
+	if err != nil {
+		return nil, fmt.Errorf("call sw_daily failed: %w", err)
+	}
+
+	dailyFieldMap := map[string]int{}
+	for i, f := range dailyRes.Data.Fields {
+		dailyFieldMap[f] = i
+	}
+
+	type sectorTemp struct {
+		Code      string
+		Name      string
+		TradeDate string
+		Change    float64
+	}
+	latestSectors := make(map[string]*sectorTemp)
+
+	for _, item := range dailyRes.Data.Items {
+		code := getStringField(item, dailyFieldMap, "ts_code")
+		industryName, isL1 := codeToName[code]
+		if !isL1 {
+			continue
+		}
+
+		tradeDate := getStringField(item, dailyFieldMap, "trade_date")
+		pctChange := getFloatField(item, dailyFieldMap, "pct_change")
+
+		existing, exists := latestSectors[code]
+		if !exists || tradeDate > existing.TradeDate {
+			latestSectors[code] = &sectorTemp{
+				Code:      code,
+				Name:      industryName,
+				TradeDate: tradeDate,
+				Change:    pctChange,
+			}
+		}
+	}
+
+	var resultList []map[string]interface{}
+	for _, s := range latestSectors {
+		flowVal := 50.0 + s.Change*10.0
+		if flowVal > 95.0 {
+			flowVal = 95.0
+		}
+		if flowVal < 30.0 {
+			flowVal = 30.0
+		}
+
+		resultList = append(resultList, map[string]interface{}{
+			"name":   s.Name,
+			"change": parseFloatTwo(s.Change),
+			"flow":   int(flowVal),
+		})
+	}
+
+	sort.Slice(resultList, func(i, j int) bool {
+		valI := resultList[i]["change"].(float64)
+		valJ := resultList[j]["change"].(float64)
+		return valI > valJ
+	})
+
+	return resultList, nil
+}
+
+func parseFloatTwo(v float64) float64 {
+	val, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", v), 64)
+	return val
 }
