@@ -35,6 +35,7 @@ test("history perf view renders real performance columns and summary-driven stat
 test("history perf view uses login gate instead of mock history when logged out", () => {
   const text = fs.readFileSync(historyPerfFile, "utf8");
 
-  assert.match(text, /登录后查看历史推荐表现/);
+  // The gate copy now covers the simulated-position view as well.
+  assert.match(text, /登录后查看历史表现与模拟持仓/);
   assert.doesNotMatch(text, /const historyData = ref\(MOCK_HISTORY\)/);
 });

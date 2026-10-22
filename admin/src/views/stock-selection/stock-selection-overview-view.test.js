@@ -2,8 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const filePath = path.resolve("admin/src/views/stock-selection/StockSelectionOverviewView.vue");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const filePath = path.join(__dirname, "StockSelectionOverviewView.vue");
 const text = fs.readFileSync(filePath, "utf8");
 
 test("StockSelectionOverviewView renders evaluation backfill state card", () => {

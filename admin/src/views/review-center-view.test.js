@@ -12,38 +12,44 @@ function readView() {
   return fs.readFileSync(filePath, "utf8");
 }
 
-test("ReviewCenterView reads unified audit event summary for review operations", () => {
+// The review centre was rewritten around three tabs. These assertions pin the
+// behaviour that rewrite kept: one API-driven workspace, SLA-aware metrics,
+// batch decisions and a CSV escape hatch.
+test("ReviewCenterView drives one API-backed workspace with SLA metrics", () => {
   const text = readView();
-  assert.match(text, /getAuditEventSummary/);
-  assert.match(text, /listAuditEvents/);
-  assert.match(text, /useRoute/);
-  assert.match(text, /const route = useRoute\(\);/);
-  assert.match(text, /useRouter/);
-  assert.match(text, /function applyReviewRouteFocus\(/);
-  assert.match(text, /watch\(\s*\(\) => route\.query\.review_id/);
-  assert.match(text, /query: \{ review_id: task\.id \}/);
-  assert.match(text, /function openReviewAuditInbox\(\)/);
-  assert.match(text, /router\.push\("\/workflow-messages"\)/);
-  assert.match(text, /const reviewAuditSummary = ref\(null\);/);
-  assert.match(text, /const reviewAuditItems = ref\(\[\]\);/);
-  assert.match(text, /async function fetchReviewAuditEvents/);
-  assert.match(text, /审核事件摘要/);
-  assert.match(text, /查看消息中心/);
-  assert.match(text, /待处理审核事件/);
-  assert.match(text, /REVIEW_TASK/);
+
+  assert.match(text, /getWorkflowMetrics/);
+  assert.match(text, /listReviewTasks/);
+  assert.match(text, /reviewTaskDecision/);
+  assert.match(text, /const slaStats = computed\(/);
+  assert.match(text, /SLA超时/);
+  assert.match(text, /智能运营审核中心/);
 });
 
-test("ReviewCenterView shows forecast advisory-only configuration summary", () => {
+test("ReviewCenterView maps each tab onto its own status filter", () => {
   const text = readView();
+
+  assert.match(text, /apiFilters\.status = "PENDING"/);
+  assert.match(text, /apiFilters\.reviewer_id = "NULL"/);
+  assert.match(text, /apiFilters\.status = "APPROVED,REJECTED"/);
+  assert.match(text, /待我处理/);
+  assert.match(text, /未分配队列/);
+  assert.match(text, /全量历史/);
+});
+
+test("ReviewCenterView supports batch approval and CSV export", () => {
+  const text = readView();
+
+  assert.match(text, /async function handleBatchApprove\(/);
+  assert.match(text, /function exportCSV\(/);
+  assert.match(text, /导出 CSV/);
+});
+
+test("ReviewCenterView parses the forecast admin config map it loads", () => {
+  const text = readView();
+
   assert.match(text, /listSystemConfigs/);
-  assert.match(text, /forecast-admin/);
+  assert.match(text, /parseForecastAdminConfigMap/);
   assert.match(text, /const forecastReviewConfig = ref\(null\);/);
-  assert.match(text, /async function fetchForecastReviewConfig\(/);
-  assert.match(text, /预测增强审核提示/);
-  assert.match(text, /advisory only/);
-  assert.match(text, /记忆反馈样本阈值/);
-  assert.match(text, /优先级阈值/);
-  assert.match(text, /L2 摘要开启/);
-  assert.match(text, /L2 veto 阈值/);
-  assert.match(text, /veto 仅做只读提示/);
+  assert.match(text, /keyword: "growth\.forecast_"/);
 });

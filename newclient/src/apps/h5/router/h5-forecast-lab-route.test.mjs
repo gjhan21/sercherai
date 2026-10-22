@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const filePath = "/Users/gjhan21/cursor/sercherai/newclient/src/apps/h5/router/index.js";
+const filePath = new URL("./index.js", import.meta.url).pathname;
 
 test("h5 router registers forecast-lab route", () => {
   const text = fs.readFileSync(filePath, "utf8");

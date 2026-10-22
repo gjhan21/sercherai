@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const filePath = "/Users/gjhan21/cursor/sercherai/newclient/src/apps/pc/components/SidebarNav.vue";
+const filePath = new URL("./SidebarNav.vue", import.meta.url).pathname;
 
 test("pc sidebar exposes forecast-lab as a first-class entry", () => {
   const text = fs.readFileSync(filePath, "utf8");
