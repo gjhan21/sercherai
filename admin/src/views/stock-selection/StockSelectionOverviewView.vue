@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import StockSelectionModuleShell from "../../components/StockSelectionModuleShell.vue";
-import { createStockSelectionRun, getStockSelectionOverview } from "../../api/admin";
+import { createStockSelectionRun, getStockSelectionOverview, listSystemConfigs } from "../../api/admin";
 import {
   formatStockSelectionLabel,
   formatStockSelectionEvaluationStatus,
@@ -164,7 +164,67 @@ async function handleRunNow() {
   }
 }
 
-onMounted(fetchOverview);
+const activeLLMEngine = ref(null);
+const llmLoading = ref(false);
+
+async function fetchActiveLLM() {
+  llmLoading.value = true;
+  try {
+    const data = await listSystemConfigs({ keyword: "llm.", page: 1, page_size: 50 });
+    const items = data?.items || [];
+    const map = {};
+    items.forEach((item) => {
+      const key = String(item?.config_key || "").trim().toLowerCase();
+      if (key) {
+        map[key] = String(item?.config_value ?? "").trim();
+      }
+    });
+
+    const enginesStr = map["llm.engines"] || "";
+    let engines = [];
+    if (enginesStr.trim()) {
+      try {
+        engines = JSON.parse(enginesStr);
+      } catch (e) {
+        console.error("Failed to parse llm.engines:", e);
+      }
+    }
+
+    let active = engines.find((e) => e.is_active);
+    if (!active) {
+      const oldApiKey = map["llm.api_key"] || "";
+      const oldBaseUrl = map["llm.base_url"] || "";
+      const oldModelName = map["llm.model_name"] || "";
+      if (oldApiKey || oldBaseUrl || oldModelName) {
+        active = {
+          name: "系统默认",
+          model_name: oldModelName,
+          base_url: oldBaseUrl,
+          api_key: oldApiKey
+        };
+      }
+    }
+
+    if (active) {
+      activeLLMEngine.value = {
+        name: active.name || "未命名引擎",
+        model_name: active.model_name || "-",
+        base_url: active.base_url || "-"
+      };
+    } else {
+      activeLLMEngine.value = null;
+    }
+  } catch (error) {
+    console.error("Failed to fetch active LLM config:", error);
+  } finally {
+    llmLoading.value = false;
+  }
+}
+
+onMounted(() => {
+  fetchOverview();
+  fetchActiveLLM();
+});
 </script>
 
 <template>
@@ -215,6 +275,16 @@ onMounted(fetchOverview);
           </el-descriptions-item>
           <el-descriptions-item label="默认模板">
             {{ overview.template_summary?.default_template_name || "-" }}
+          </el-descriptions-item>
+          <el-descriptions-item label="大模型引擎 (LLM)" v-loading="llmLoading">
+            <template v-if="activeLLMEngine">
+              <el-tag type="success" size="small" effect="plain">
+                {{ activeLLMEngine.name }} ({{ activeLLMEngine.model_name }})
+              </el-tag>
+            </template>
+            <template v-else>
+              <el-tag type="info" size="small" effect="plain">未启用/未配置</el-tag>
+            </template>
           </el-descriptions-item>
         </el-descriptions>
       </div>
