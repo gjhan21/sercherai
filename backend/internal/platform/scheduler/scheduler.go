@@ -90,9 +90,15 @@ func (s *Scheduler) loadAndRegisterJobs() {
 
 	for _, item := range items {
 		def := item // copy
-		cronExpr := strings.TrimSpace(def.CronExpr)
+		cronExpr, translated := normalizeCronExpr(def.CronExpr)
 		if cronExpr == "" {
 			continue
+		}
+		if translated {
+			// Rows seeded before the admin form switched to raw cron still hold
+			// preset labels. Translate them instead of dropping the job.
+			log.Printf("[scheduler] job %s(%s) stored legacy schedule %q, using cron %q",
+				def.DisplayName, def.JobName, strings.TrimSpace(def.CronExpr), cronExpr)
 		}
 
 		// 注册定时任务
