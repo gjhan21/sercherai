@@ -632,7 +632,7 @@ async function loadHistoryContext() {
   const tasks = await Promise.allSettled([
     getForecastRunHistory({ target_type: targetType, target_key: targetKey, page: 1, page_size: 12 }),
     getForecastRunCompare({ target_type: targetType, target_key: targetKey }),
-    getForecastRunReview(runId.value)
+    String(run.value?.status || "").toUpperCase() === "SUCCEEDED" ? getForecastRunReview(runId.value) : Promise.resolve(null)
   ]);
   historyRuns.value = tasks[0].status === "fulfilled" ? tasks[0].value?.items || [] : [];
   historyCompare.value = tasks[1].status === "fulfilled" ? tasks[1].value : null;

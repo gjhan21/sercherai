@@ -58,6 +58,7 @@
           {{ showAllContext ? "聚焦该标的最近运行" : "查看全部运行清单" }}
         </button>
       </div>
+      <p v-if="errorMessage" class="error-state">{{ localizeForecastText(errorMessage) }}</p>
     </section>
 
     <section class="forecast-lab-card">
@@ -188,7 +189,7 @@
         <strong>{{ runEmptyTitle }}</strong>
         <p>{{ runEmptyCopy }}</p>
       </div>
-      <p v-if="errorMessage" class="error-state">{{ errorMessage }}</p>
+      <p v-if="errorMessage" class="error-state">{{ localizeForecastText(errorMessage) }}</p>
     </section>
   </section>
 </template>
@@ -202,7 +203,7 @@ import { useClientAuth } from "@/shared/auth/client-auth";
 import { canLaunchForecastContext, resolveForecastContextFromRoute } from "@/shared/lib/forecast-context.js";
 import { buildForecastHistoryViewModel, getLatestSuccessfulForecastRun } from "@/shared/lib/forecast-history-view-model.js";
 import { buildDeepForecastSummary } from "@/shared/lib/forecast-summary.js";
-import { localizeForecastValidationStatus } from "@/shared/lib/forecast-localization.js";
+import { localizeForecastText, localizeForecastValidationStatus } from "@/shared/lib/forecast-localization.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -527,7 +528,7 @@ async function loadLab() {
             target_type: focusedTargetType.value || route.query.target_type || "STOCK",
             target_key: focusedTargetKey.value || route.query.symbol || route.query.name || ""
           }),
-          focusedRuns.value[0]?.id || focusedRuns.value[0]?.run_id ? getForecastRunReview(focusedRuns.value[0]?.id || focusedRuns.value[0]?.run_id) : Promise.resolve(null)
+          focusedRuns.value[0] && String(focusedRuns.value[0].status || "").toUpperCase() === "SUCCEEDED" ? getForecastRunReview(focusedRuns.value[0].id || focusedRuns.value[0].run_id) : Promise.resolve(null)
         ]);
       }
     } catch {

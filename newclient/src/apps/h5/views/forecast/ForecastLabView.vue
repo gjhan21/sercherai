@@ -491,7 +491,7 @@ async function loadLab() {
             target_type: focusedTargetType.value || route.query.target_type || "STOCK",
             target_key: focusedTargetKey.value || route.query.symbol || route.query.name || ""
           }),
-          focusedRuns.value[0]?.id || focusedRuns.value[0]?.run_id ? getForecastRunReview(focusedRuns.value[0]?.id || focusedRuns.value[0]?.run_id) : Promise.resolve(null)
+          focusedRuns.value[0] && String(focusedRuns.value[0].status || "").toUpperCase() === "SUCCEEDED" ? getForecastRunReview(focusedRuns.value[0].id || focusedRuns.value[0].run_id) : Promise.resolve(null)
         ]);
       }
     } catch {

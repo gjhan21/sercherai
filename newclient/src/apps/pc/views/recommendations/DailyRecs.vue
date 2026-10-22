@@ -84,6 +84,7 @@
     </section>
 
     <!-- Real K-line Chart -->
+    <!-- Real K-line Chart -->
     <section class="section fade-in-up fade-in-up-delay-2">
       <div class="section-header">
         <h2 class="section-title">行情图表 — {{ chartStock?.name || '--' }}</h2>
@@ -96,38 +97,119 @@
           </span>
         </button>
       </div>
-      <div class="chart-container glass">
-        <div class="chart-header">
-          <div>
-            <span class="chart-stock-name">{{ chartStock?.name }}</span>
-            <span class="chart-stock-price">{{ chartStock?.score ? `AI 评分 ${chartStock.score}` : '--' }}</span>
-            <span class="chart-stock-change">{{ chartStock?.riskLevel || '待评估' }}</span>
+
+      <div class="forecast-workspace-grid">
+        <div class="chart-container-wrapper">
+          <div class="chart-container glass">
+            <div class="chart-header">
+              <div>
+                <span class="chart-stock-name">{{ chartStock?.name }}</span>
+                <span class="chart-stock-price">{{ chartStock?.score ? `AI 评分 ${chartStock.score}` : '--' }}</span>
+                <span class="chart-stock-change">{{ chartStock?.riskLevel || '待评估' }}</span>
+              </div>
+              <div class="chart-status">{{ klineLoading ? '加载中...' : (klineData.length + ' 天') }}</div>
+            </div>
+            <KlineChart 
+              :data="klineData" 
+              :width="chartWidth" 
+              :height="380" 
+              :prediction="prediction" 
+              :matches="matches" 
+              @hover-predict-day="handleHoverPredictDay"
+              v-if="klineData.length" 
+            />
+            <div v-else class="chart-empty">暂无K线数据</div>
+
+            <!-- Time Slider UI -->
+            <div class="time-slider-container" v-if="prediction">
+              <span class="slider-label">时空推演步长：</span>
+              <div class="time-steps">
+                <button 
+                  v-for="d in 7" 
+                  :key="'day-btn-' + d"
+                  class="time-step-btn" 
+                  :class="{ active: activePredictDay === d }"
+                  @click="activePredictDay = d"
+                >
+                  D{{ d }}
+                </button>
+              </div>
+              <span class="slider-tip">（或在图表中直接悬停）</span>
+            </div>
           </div>
-          <div class="chart-status">{{ klineLoading ? '加载中...' : (klineData.length + ' 天') }}</div>
         </div>
-        <KlineChart :data="klineData" :width="chartWidth" :height="380" :prediction="prediction" :matches="matches" v-if="klineData.length" />
-        <div v-else class="chart-empty">暂无K线数据</div>
+
+        <!-- Micro Insight Panel -->
+        <div class="micro-insight-panel glass" v-if="prediction && dailyInsight">
+          <div class="insight-header">
+            <span class="insight-title">⚡ 第 {{ activePredictDay }} 天 AI 时空研判</span>
+            <span class="pred-close" @click="prediction = null" style="cursor: pointer;">×</span>
+          </div>
+          <div class="insight-metrics">
+            <div class="insight-metric-box">
+              <span class="imb-label">上涨概率</span>
+              <span class="imb-value" :style="{color: parseFloat(dailyInsight.winRate) >= 55 ? 'var(--positive)' : parseFloat(dailyInsight.winRate) <= 45 ? 'var(--negative)' : 'var(--accent-gold)'}">
+                {{ dailyInsight.winRate }}%
+              </span>
+            </div>
+            <div class="insight-metric-box">
+              <span class="imb-label">期望累计回报</span>
+              <span class="imb-value" :style="{color: parseFloat(dailyInsight.median) >= 0 ? 'var(--positive)' : 'var(--negative)'}">
+                {{ parseFloat(dailyInsight.median) >= 0 ? '+' : '' }}{{ dailyInsight.median }}%
+              </span>
+            </div>
+          </div>
+          <div class="insight-detail-item">
+            <div class="idi-label">累计波动区间</div>
+            <div class="idi-val">{{ dailyInsight.range }}</div>
+          </div>
+          <div class="insight-detail-item">
+            <div class="idi-label">AI 决策建议</div>
+            <div class="idi-val font-semibold" :style="{ color: dailyInsight.actionColor }">{{ dailyInsight.action }}</div>
+          </div>
+          <div class="insight-reasoning-desc">
+            <p>{{ dailyInsight.desc }}</p>
+          </div>
+        </div>
       </div>
-      <div v-if="prediction" class="prediction-panel glass">
-        <div class="pred-header">
-          <span>📈 历史形态预测 — K线图上金色区域为未来 7 天置信区间</span>
-          <button class="pred-close" @click="prediction = null">×</button>
+      <!-- Historical Matches Sparkline Carousel -->
+      <div class="matches-carousel-wrapper" v-if="matches.length">
+        <div class="carousel-title-row">
+          <span class="carousel-title">📊 历史形态匹配回溯 (相似度 Top 5)</span>
+          <span class="carousel-subtitle">点击形态可查看其历史收益路径</span>
         </div>
-        <div class="pred-stats">
-          <span>平均收益: <strong :style="{color: prediction.avg_return >= 0 ? 'var(--positive)' : 'var(--negative)'}">{{ prediction.avg_return >= 0 ? '+' : '' }}{{ prediction.avg_return }}%</strong></span>
-          <span>上涨概率: <strong>{{ prediction.win_rate }}%</strong></span>
-          <span>匹配数量: <strong>{{ matches.length }}</strong></span>
-        </div>
-        <div class="pred-matches" v-if="matches.length">
-          <div class="pred-matches-title">Top 匹配</div>
-          <div v-for="m in matches.slice(0, 5)" :key="m.rank" class="pred-match-row">
-            <span>#{{ m.rank }}</span>
-            <span>
-              {{ m.stock }}
-              <small v-if="m.match_date" style="color: var(--text-muted); margin-left: 6px; font-size: 10px;">({{ m.match_date }})</small>
-            </span>
-            <span>相似 {{ (m.similarity * 100).toFixed(0) }}%</span>
-            <span :style="{color: m.return_7d >= 0 ? 'var(--positive)' : 'var(--negative)'}">{{ m.return_7d >= 0 ? '+' : '' }}{{ m.return_7d.toFixed(1) }}%</span>
+        <div class="matches-carousel">
+          <div 
+            v-for="m in matches.slice(0, 5)" 
+            :key="'match-card-' + m.rank" 
+            class="match-spark-card glass"
+          >
+            <div class="msc-header">
+              <span class="msc-rank">#{{ m.rank }}</span>
+              <span class="msc-stock">{{ m.stock }}</span>
+              <span class="msc-similarity">{{ (m.similarity * 100).toFixed(0) }}% 相似</span>
+            </div>
+            <!-- SVG Sparkline -->
+            <div class="msc-sparkline" v-if="m.next_7d && m.next_7d.length">
+              <svg viewBox="0 0 100 30" class="spark-svg">
+                <!-- Zero reference line -->
+                <line x1="0" y1="15" x2="100" y2="15" stroke="rgba(255,255,255,0.06)" stroke-width="0.5" stroke-dasharray="2 2" />
+                <polyline
+                  fill="none"
+                  :stroke="m.return_7d >= 0 ? 'var(--positive)' : 'var(--negative)'"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  :points="m.next_7d.map((val, idx) => `${idx * 16.6}, ${15 - (val * 3)}`).join(' ')"
+                />
+              </svg>
+            </div>
+            <div class="msc-footer">
+              <span class="msc-date">{{ m.match_date }}</span>
+              <span class="msc-return" :style="{color: m.return_7d >= 0 ? 'var(--positive)' : 'var(--negative)'}">
+                7D: {{ m.return_7d >= 0 ? '+' : '' }}{{ m.return_7d.toFixed(1) }}%
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -179,6 +261,48 @@ const chartWidth = ref(800);
 const prediction = ref(null);
 const predictLoading = ref(false);
 const matches = ref([]);
+const activePredictDay = ref(3);
+
+const dailyInsight = computed(() => {
+  if (!prediction.value || !prediction.value.median) return null;
+  const dayIdx = activePredictDay.value - 1;
+  const median = prediction.value.median[dayIdx] || 0;
+  const winRate = prediction.value.win_rate || 50;
+  const upper = prediction.value.upper_75 ? prediction.value.upper_75[dayIdx] : median;
+  const lower = prediction.value.lower_25 ? prediction.value.lower_25[dayIdx] : median;
+
+  let action = "观望";
+  let actionColor = "var(--text-secondary)";
+  let desc = "";
+  if (winRate >= 55 && median > 1.0) {
+    action = "建议加仓/持有";
+    actionColor = "var(--positive)";
+    desc = `多头动能主导。AI 模型推演形态向上概率极高，预计累计涨幅可达 +${median.toFixed(2)}%。建议逢低布仓，止损位参考前低。`;
+  } else if (winRate <= 45 && median < -1.0) {
+    action = "建议减仓防守";
+    actionColor = "var(--negative)";
+    desc = `空头抛压增大。D${activePredictDay.value}可能遭遇筹码密集成交区，回撤压力明显，累计跌幅可达 ${median.toFixed(2)}%。注意防守。`;
+  } else {
+    action = "观望或窄幅高抛低吸";
+    actionColor = "var(--accent-gold)";
+    desc = `窄幅震荡整理。主力资金流向暂不明朗，走势预计在 [${lower.toFixed(1)}%, ${upper.toFixed(1)}%] 区间内作窄幅波动。`;
+  }
+
+  return {
+    winRate: winRate.toFixed(1),
+    median: median.toFixed(2),
+    range: `${lower >= 0 ? '+' : ''}${lower.toFixed(2)}% 至 ${upper >= 0 ? '+' : ''}${upper.toFixed(2)}%`,
+    action,
+    actionColor,
+    desc
+  };
+});
+
+function handleHoverPredictDay(dayIdx) {
+  if (dayIdx >= 1 && dayIdx <= 7) {
+    activePredictDay.value = dayIdx;
+  }
+}
 const todayTradeDate = computed(() => {
   const d = new Date();
   const year = d.getFullYear();
@@ -311,7 +435,12 @@ async function loadDailyRecs() {
 
 onMounted(() => { loadDailyRecs(); loadKline(chartSymbol.value); });
 import { watch } from "vue";
-watch(chartSymbol, (val) => { if (val) loadKline(val); });
+watch(chartSymbol, (val) => {
+  if (val) {
+    loadKline(val);
+    prediction.value = null; // Clear old prediction when switching stock
+  }
+});
 watch(() => route.query.symbol, (val) => { if (val && val !== chartSymbol.value) { chartSymbol.value = val; } });
 
 async function loadKline(symbol) {
@@ -333,6 +462,7 @@ async function loadPrediction() {
     if (result) {
       prediction.value = result.prediction;
       matches.value = result.matches || [];
+      activePredictDay.value = 3; // Reset step slider to D3
     }
   } catch { /* ignore */ }
   finally { predictLoading.value = false; }
@@ -447,17 +577,231 @@ async function loadPrediction() {
 .predict-loading { display: inline-flex; align-items: center; gap: 6px; }
 .predict-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(0,0,0,.15); border-top-color: #0b0e1a; border-radius: 50%; animation: spin .6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.pred-chart { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 12px; }
-.pred-bars { display: flex; align-items: flex-end; gap: 4px; flex: 1; height: 80px; }
-.pred-bar-group { display: flex; flex-direction: column; align-items: center; flex: 1; }
-.pred-bar { width: 100%; max-width: 24px; border-radius: 3px 3px 0 0; min-height: 2px; transition: height .5s; }
-.pred-bar-up { background: linear-gradient(to top, var(--positive), rgba(0,200,151,.4)); }
-.pred-bar-down { background: linear-gradient(to top, var(--negative), rgba(255,71,87,.4)); }
-.pred-bar-label { font-size: 9px; color: var(--text-muted); margin-top: 2px; }
-.pred-avg { font-size: 20px; font-weight: 800; color: var(--positive); white-space: nowrap; }
-.pred-stats { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; margin-bottom: 12px; color: var(--text-secondary); }
-.pred-matches-title { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
-.pred-match-row { display: flex; gap: 12px; font-size: 12px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.03); }
-.pred-match-row span { flex: 1; }
+  /* Forecast workspace grid and panels */
+  .forecast-workspace-grid {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 16px;
+    margin-top: 10px;
+    align-items: start;
+  }
+  @media (max-width: 1100px) {
+    .forecast-workspace-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .chart-container-wrapper {
+    min-width: 0;
+  }
+
+  /* Micro insight panel glassmorphism */
+  .micro-insight-panel {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: var(--shadow-glow);
+  }
+  
+  .insight-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 10px;
+    margin-bottom: 4px;
+  }
+  .insight-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+  }
+  .insight-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .insight-metric-box {
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+  }
+  .imb-label {
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+  }
+  .imb-value {
+    font-size: 20px;
+    font-weight: 800;
+  }
+  .insight-detail-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.05);
+    padding-bottom: 8px;
+  }
+  .idi-label {
+    color: var(--text-secondary);
+  }
+  .idi-val {
+    color: #ffffff;
+    font-weight: 500;
+  }
+  .font-semibold {
+    font-weight: 600;
+  }
+  .insight-reasoning-desc {
+    background: rgba(240, 185, 11, 0.04);
+    border-left: 3px solid var(--accent-gold);
+    padding: 10px 14px;
+    border-radius: 0 8px 8px 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+
+  /* Time slider styles */
+  .time-slider-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 14px;
+  }
+  .slider-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .time-steps {
+    display: flex;
+    gap: 6px;
+  }
+  .time-step-btn {
+    padding: 5px 12px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .time-step-btn:hover {
+    border-color: var(--accent-gold);
+    color: var(--accent-gold);
+  }
+  .time-step-btn.active {
+    background: var(--accent-gold);
+    border-color: var(--accent-gold);
+    color: #000;
+    box-shadow: 0 0 10px rgba(240, 185, 11, 0.35);
+  }
+  .slider-tip {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: 8px;
+  }
+
+  /* Matches sparkline carousel */
+  .matches-carousel-wrapper {
+    margin-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    padding-top: 16px;
+  }
+  .carousel-title-row {
+    margin-bottom: 12px;
+  }
+  .carousel-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #ffffff;
+    display: block;
+    margin-bottom: 2px;
+  }
+  .carousel-subtitle {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .matches-carousel {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-top: 8px;
+  }
+  @media (max-width: 900px) {
+    .matches-carousel {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  .match-spark-card {
+    background: rgba(255, 255, 255, 0.01);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: all 0.25s ease;
+    cursor: pointer;
+  }
+  .match-spark-card:hover {
+    border-color: var(--accent-gold);
+    transform: translateY(-2px);
+    background: rgba(255, 255, 255, 0.03);
+    box-shadow: 0 4px 12px rgba(240, 185, 11, 0.08);
+  }
+  .msc-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: bold;
+    align-items: center;
+  }
+  .msc-rank {
+    color: var(--accent-gold);
+  }
+  .msc-stock {
+    color: #ffffff;
+  }
+  .msc-similarity {
+    color: var(--text-secondary);
+    font-size: 10px;
+  }
+  .msc-sparkline {
+    height: 35px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    padding: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.02);
+  }
+  .spark-svg {
+    width: 100%;
+    height: 100%;
+  }
+  .msc-footer {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    align-items: center;
+  }
+  .msc-date {
+    color: var(--text-secondary);
+  }
+  .msc-return {
+    font-weight: bold;
+  }
 
 </style>

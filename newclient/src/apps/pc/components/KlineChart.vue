@@ -25,7 +25,7 @@ const props = defineProps({
   matches: { type: Array, default: () => [] }
 });
 
-const emit = defineEmits(["loaded"]);
+const emit = defineEmits(["loaded", "hover-predict-day"]);
 
 const canvasRef = ref(null);
 const wrapperRef = ref(null);
@@ -160,7 +160,7 @@ function draw() {
     ctx.fillText(p.date.slice(5), px(i), props.height - 10);
   });
 
-  // Prediction overlay as candlesticks
+  // Prediction overlay as gold cloud & glowing median curve
   const pred = props.prediction;
   if (pred && pred.median && pred.median.length && pts.length > 0) {
     const lastCandle = pts[pts.length - 1];
@@ -169,39 +169,77 @@ function draw() {
     const predCount = pred.median.length;
     const availPx = (props.width - PADDING.right) - lastX - 8;
     const predStep = Math.max(6, Math.min(14, availPx / (predCount + 0.5)));
-    const predBarW = Math.max(3, predStep * 0.45);
-    ctx.strokeStyle = "rgba(139,92,246,0.4)";
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath(); ctx.moveTo(lastX, PADDING.top); ctx.lineTo(lastX, PADDING.top + ch);
+    
+    // 1. Draw Gold Confidence Funnel/Cloud (between upper_75 and lower_25)
+    ctx.beginPath();
+    ctx.moveTo(lastX, py(lastClose));
+    
+    // Top bound path (upper_75)
+    for (let d = 0; d < predCount; d++) {
+      const cx = lastX + (d + 1) * predStep;
+      const upPct = pred.upper_75 && pred.upper_75[d] !== undefined ? pred.upper_75[d] : pred.median[d];
+      const highVal = lastClose * (1 + upPct / 100);
+      ctx.lineTo(cx, py(highVal));
+    }
+    // Bottom bound path (lower_25) backwards
+    for (let d = predCount - 1; d >= 0; d--) {
+      const cx = lastX + (d + 1) * predStep;
+      const lowPct = pred.lower_25 && pred.lower_25[d] !== undefined ? pred.lower_25[d] : pred.median[d];
+      const lowVal = lastClose * (1 + lowPct / 100);
+      ctx.lineTo(cx, py(lowVal));
+    }
+    ctx.closePath();
+    
+    // Create soft gold gradient
+    const gradient = ctx.createLinearGradient(lastX, PADDING.top, lastX + predCount * predStep, PADDING.top);
+    gradient.addColorStop(0, "rgba(240, 185, 11, 0.22)");
+    gradient.addColorStop(1, "rgba(240, 185, 11, 0.04)");
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    
+    // Cloud dashed boundaries
+    ctx.strokeStyle = "rgba(240, 185, 11, 0.35)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = "rgba(139,92,246,0.8)";
-    ctx.font = "10px sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillText("▎预测区", lastX + 4, PADDING.top + 12);
 
+    // 2. Draw Glowing Gold Median Trend Curve
+    ctx.beginPath();
+    ctx.moveTo(lastX, py(lastClose));
+    for (let d = 0; d < predCount; d++) {
+      const cx = lastX + (d + 1) * predStep;
+      const closeVal = lastClose * (1 + pred.median[d] / 100);
+      ctx.lineTo(cx, py(closeVal));
+    }
+    ctx.strokeStyle = "#f0b90b";
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = "rgba(240, 185, 11, 0.45)";
+    ctx.shadowBlur = 6;
+    ctx.stroke();
+    ctx.shadowBlur = 0; // Reset canvas shadow for subsequent drawings
+
+    // 3. Render prediction title label
+    ctx.fillStyle = "rgba(240, 185, 11, 0.75)";
+    ctx.font = "9px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("▎AI 7D 预测云图", lastX + 6, PADDING.top + 12);
+
+    // Prepare point structures for hover and bounds labeling
+    const predPts = [];
     let prevClose = lastClose;
     let maxHighVal = -Infinity, minLowVal = Infinity;
     let maxHighIdx = -1, minLowIdx = -1;
-    const predPts = [];
 
     for (let d = 0; d < predCount; d++) {
-      const cumRet = pred.median[d];
       const open = prevClose;
-      const close = lastClose * (1 + cumRet / 100);
-      const upPct = pred.upper_75 && pred.upper_75[d] !== undefined ? pred.upper_75[d] : cumRet;
-      const lowPct = pred.lower_25 && pred.lower_25[d] !== undefined ? pred.lower_25[d] : cumRet;
-      let high = lastClose * (1 + Math.max(upPct, cumRet) / 100);
-      let low = lastClose * (1 + Math.min(lowPct, cumRet) / 100);
-      high = Math.max(high, open, close);
-      low = Math.min(low, open, close);
+      const close = lastClose * (1 + pred.median[d] / 100);
+      const high = lastClose * (1 + (pred.upper_75 ? Math.max(pred.upper_75[d], pred.median[d]) : pred.median[d]) / 100);
+      const low = lastClose * (1 + (pred.lower_25 ? Math.min(pred.lower_25[d], pred.median[d]) : pred.median[d]) / 100);
       prevClose = close;
-
+      
       const cx = lastX + (d + 1) * predStep;
-      const cw2 = predBarW / 2;
-
-      predPts.push({ d: d + 1, date: `D${d+1} (预测)`, open, close, high, low, cx });
+      predPts.push({ dayIndex: d + 1, date: `D${d+1} (预测)`, open, close, high, low, cx });
 
       if (high > maxHighVal) {
         maxHighVal = high;
@@ -212,52 +250,39 @@ function draw() {
         minLowIdx = d;
       }
 
-      ctx.strokeStyle = "rgba(139,92,246,0.6)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(cx, Math.max(PADDING.top, Math.min(PADDING.top + ch, py(high))));
-      ctx.lineTo(cx, Math.max(PADDING.top, Math.min(PADDING.top + ch, py(low))));
-      ctx.stroke();
-
-      const bodyTop = py(Math.max(open, close));
-      const bodyBtm = py(Math.min(open, close));
-      const bodyH = Math.max(2, bodyBtm - bodyTop);
-      const isUp = close >= open;
-      ctx.fillStyle = isUp ? "rgba(139,92,246,0.55)" : "rgba(99,52,206,0.55)";
-      ctx.fillRect(cx - cw2, bodyTop, predBarW, bodyH);
-
-      ctx.fillStyle = "rgba(139,92,246,0.5)";
+      // Draw light date indicator on X axis
+      ctx.fillStyle = "rgba(240, 185, 11, 0.4)";
       ctx.font = "9px sans-serif";
       ctx.textAlign = "center";
       ctx.fillText("D" + (d + 1), cx, props.height - 10);
     }
 
-    // 标出预测期的极高极低点
+    // 4. Mark peak high & low predictions in cloud
     if (maxHighIdx !== -1) {
       const p = predPts[maxHighIdx];
       const y = py(p.high);
       ctx.fillStyle = "#ff4757";
       ctx.beginPath(); ctx.arc(p.cx, y, 3, 0, Math.PI * 2); ctx.fill();
-      ctx.font = "bold 10px sans-serif";
-      ctx.textAlign = p.cx > props.width - 100 ? "right" : "left";
-      ctx.fillText(`▲最高: ${maxHighVal.toFixed(2)}`, p.cx > props.width - 100 ? p.cx - 6 : p.cx + 6, y - 2);
+      ctx.font = "bold 9px sans-serif";
+      ctx.textAlign = p.cx > props.width - 120 ? "right" : "left";
+      ctx.fillText(`▲最高: ${maxHighVal.toFixed(2)}`, p.cx > props.width - 120 ? p.cx - 6 : p.cx + 6, y - 2);
     }
     if (minLowIdx !== -1) {
       const p = predPts[minLowIdx];
       const y = py(p.low);
       ctx.fillStyle = "#00c897";
       ctx.beginPath(); ctx.arc(p.cx, y, 3, 0, Math.PI * 2); ctx.fill();
-      ctx.font = "bold 10px sans-serif";
-      ctx.textAlign = p.cx > props.width - 100 ? "right" : "left";
-      ctx.fillText(`▼最低: ${minLowVal.toFixed(2)}`, p.cx > props.width - 100 ? p.cx - 6 : p.cx + 6, y + 8);
+      ctx.font = "bold 9px sans-serif";
+      ctx.textAlign = p.cx > props.width - 120 ? "right" : "left";
+      ctx.fillText(`▼最低: ${minLowVal.toFixed(2)}`, p.cx > props.width - 120 ? p.cx - 6 : p.cx + 6, y + 8);
     }
 
-    // 预测 K 线的 Hover 交互
+    // 5. Prediction hover detection
     predPts.forEach(p => {
       if (mouseX >= 0) {
         const dist = Math.abs(p.cx - mouseX);
         if (dist < predStep / 2 && dist < 15) {
-          ctx.strokeStyle = "rgba(139,92,246,0.3)";
+          ctx.strokeStyle = "rgba(240, 185, 11, 0.25)";
           ctx.lineWidth = 1;
           ctx.setLineDash([3, 3]);
           ctx.beginPath(); ctx.moveTo(p.cx, PADDING.top); ctx.lineTo(p.cx, PADDING.top + ch); ctx.stroke();
@@ -275,6 +300,7 @@ function draw() {
             left: Math.min(p.cx + 15, props.width - 160) + "px", 
             top: Math.max(PADDING.top, mouseY - 80) + "px" 
           };
+          emit("hover-predict-day", p.dayIndex);
         }
       }
     });
