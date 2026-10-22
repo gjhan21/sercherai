@@ -1,10 +1,25 @@
 # Go build/cache artifacts
+# NOTE: caches are also found nested one level deeper (backend/backend/.gocache)
+# because the cache env var was once pointed at a relative path.
 .gocache/
 .gomodcache/
+.gopath/
 backend/.gocache/
 backend/.gomodcache/
 backend/.gopath/
+backend/backend/.gocache/
+backend/backend/.gomodcache/
 backend/uploads/
+backend/tmp_bin
+backend/backups/
+
+# Python build artifacts
+*.egg-info/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+services/*/.venv/
 
 # Admin frontend
 admin/node_modules/
@@ -25,14 +40,19 @@ newclient/dist-h5/
 .mysql-local/
 .worktrees/
 .tmp/
+.scratch/
+*.log
 
 # Local/dev misc
 .DS_Store
+.claude/
 .codex/
+.codex-artifacts/
 .superpowers/
+.agent/local/
 .tmp-*.png
+/tmp-*
 /releases/
 /sercherai*.sql
 /users.sql
-__pycache__/
-*.py[cod]
+/vibe-trading/
