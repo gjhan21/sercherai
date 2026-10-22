@@ -46,10 +46,10 @@ type Config struct {
 
 func Load() Config {
 	appEnv := getEnv("APP_ENV", "dev")
-	return Config{
+	cfg := Config{
 		AppEnv:                  appEnv,
 		AppPort:                 getEnv("APP_PORT", "8080"),
-		JWTSecret:               getEnv("JWT_SECRET", "sercherai_dev_secret_change_me"),
+		JWTSecret:               getEnv("JWT_SECRET", DevJWTSecret),
 		JWTExpireSeconds:        getEnvInt("JWT_EXPIRE_SECONDS", 86400),
 		JWTRefreshExpireSeconds: getEnvInt("JWT_REFRESH_EXPIRE_SECONDS", 604800),
 		LoginFailThreshold:      getEnvInt("LOGIN_FAIL_THRESHOLD", 5),
@@ -60,12 +60,12 @@ func Load() Config {
 		MySQLHost: getEnv("MYSQL_HOST", "127.0.0.1"),
 		MySQLPort: getEnv("MYSQL_PORT", "3306"),
 		MySQLUser: getEnv("MYSQL_USER", "root"),
-		MySQLPass: getEnv("MYSQL_PWD", "abc123"),
+		MySQLPass: getEnv("MYSQL_PWD", DevDatabasePass),
 		MySQLDB:   getEnv("MYSQL_DB", "sercherai"),
 
 		RedisHost: getEnv("REDIS_HOST", "127.0.0.1"),
 		RedisPort: getEnv("REDIS_PORT", "6379"),
-		RedisPass: getEnv("REDIS_PWD", "abc123"),
+		RedisPass: getEnv("REDIS_PWD", DevRedisPassword),
 
 		PublicBaseURL:              getEnv("PUBLIC_BASE_URL", "http://127.0.0.1:8080"),
 		AllowMockLogin:             getEnvBool("ALLOW_MOCK_LOGIN", false),
@@ -84,6 +84,8 @@ func Load() Config {
 		LLMBaseURL:                 getEnv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
 		LLMModelName:               getEnv("LLM_MODEL_NAME", "qwen-plus"),
 	}
+	cfg.WarnInsecureDefaults()
+	return cfg
 }
 
 func getEnv(key string, def string) string {
