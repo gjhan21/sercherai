@@ -111,7 +111,7 @@ func TestAdminAutoOpenSimulatedPositions(t *testing.T) {
 	tradeDate := "2026-06-09"
 	tDate, _ := time.Parse("2006-01-02", tradeDate)
 
-	mock.ExpectQuery(`SELECT id, symbol, name, take_profit, stop_loss FROM stock_recommendations`).
+	mock.ExpectQuery(`SELECT r\.id, r\.symbol, r\.name, COALESCE\(d\.take_profit, ''\), COALESCE\(d\.stop_loss, ''\)`).
 		WithArgs(tDate, tDate).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "symbol", "name", "take_profit", "stop_loss"}).
 			AddRow("reco_001", "600519.SH", "贵州茅台", "1850.00", "1600.00"))

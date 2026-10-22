@@ -1005,68 +1005,90 @@ func buildMarketUniverseAssetSummariesFromJSON(raw string) []model.MarketUnivers
 	return nil
 }
 
+func (r *MySQLGrowthRepo) queryAssetCoverage(assetClass string) (model.MarketCoverageSummaryAssetItem, error) {
+	item := model.MarketCoverageSummaryAssetItem{
+		AssetType: assetClass,
+	}
+
+	// 1. 查询总品种主数据量
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM market_instruments WHERE asset_class = ?`, assetClass).Scan(&item.UniverseCount); err != nil {
+		return item, err
+	}
+	item.MasterCoverageCount = item.UniverseCount
+
+	// 2. 查询日行情覆盖品种数
+	if err := r.db.QueryRow(`SELECT COUNT(DISTINCT instrument_key) FROM market_daily_bar_truth WHERE asset_class = ?`, assetClass).Scan(&item.QuotesCoverageCount); err != nil {
+		return item, err
+	}
+
+	// 3. 查询最新同步的交易日
+	var latestTradeDate sql.NullTime
+	if err := r.db.QueryRow(`SELECT MAX(trade_date) FROM market_daily_bar_truth WHERE asset_class = ?`, assetClass).Scan(&latestTradeDate); err != nil {
+		return item, err
+	}
+	if latestTradeDate.Valid {
+		item.LatestTradeDate = latestTradeDate.Time.Format("2006-01-02")
+	}
+
+	// 4. 股票特有子表指标
+	if assetClass == "STOCK" {
+		_ = r.db.QueryRow(`SELECT COUNT(DISTINCT symbol) FROM stock_daily_basic`).Scan(&item.DailyBasicCoverageCount)
+		_ = r.db.QueryRow(`SELECT COUNT(DISTINCT symbol) FROM stock_moneyflow_daily`).Scan(&item.MoneyflowCoverageCount)
+	}
+
+	return item, nil
+}
+
 func (r *MySQLGrowthRepo) AdminGetMarketCoverageSummary() (model.MarketCoverageSummary, error) {
 	summary := model.MarketCoverageSummary{
-		AssetItems: make([]model.MarketCoverageSummaryAssetItem, 0, len(allowedMarketBackfillAssetTypes)),
-	}
-	if err := r.db.QueryRow(`SELECT COUNT(*) FROM market_instruments WHERE asset_class = 'STOCK'`).Scan(&summary.TotalUniverseCount); err != nil {
-		return summary, err
-	}
-	summary.MasterCoverageCount = summary.TotalUniverseCount
-	if err := r.db.QueryRow(`SELECT COUNT(DISTINCT instrument_key) FROM market_daily_bar_truth WHERE asset_class = 'STOCK'`).Scan(&summary.QuotesCoverageCount); err != nil {
-		return summary, err
-	}
-	if err := r.db.QueryRow(`SELECT COUNT(DISTINCT symbol) FROM stock_daily_basic`).Scan(&summary.DailyBasicCoverageCount); err != nil {
-		return summary, err
-	}
-	if err := r.db.QueryRow(`SELECT COUNT(DISTINCT symbol) FROM stock_moneyflow_daily`).Scan(&summary.MoneyflowCoverageCount); err != nil {
-		return summary, err
-	}
-	var latestTradeDate sql.NullTime
-	if err := r.db.QueryRow(`SELECT MAX(trade_date) FROM market_daily_bar_truth WHERE asset_class = 'STOCK'`).Scan(&latestTradeDate); err != nil {
-		return summary, err
-	}
-	summary.LatestTradeDate = parseNullableTimeRFC3339(latestTradeDate)
-	if summary.LatestTradeDate != "" {
-		summary.LatestTradeDate = latestTradeDate.Time.Format("2006-01-02")
+		AssetItems: make([]model.MarketCoverageSummaryAssetItem, 0, 6),
 	}
 
-	// Calculate Main Data Gaps for Stocks
-	if err := r.db.QueryRow(`
-		SELECT COUNT(*) 
-		FROM market_instruments 
-		WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND instrument_key NOT LIKE '%.%'`).Scan(&summary.CanonicalKeyGapCount); err != nil {
+	// 查询股票与期货覆盖数据
+	stockItem, err := r.queryAssetCoverage("STOCK")
+	if err != nil {
 		return summary, err
 	}
-	if err := r.db.QueryRow(`
-		SELECT COUNT(*) 
-		FROM market_instruments 
-		WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND (display_name IS NULL OR TRIM(display_name) = '' OR display_name = instrument_key)`).Scan(&summary.DisplayNameGapCount); err != nil {
-		return summary, err
-	}
-	if err := r.db.QueryRow(`
-		SELECT COUNT(*) 
-		FROM market_instruments 
-		WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND list_date IS NULL`).Scan(&summary.ListDateGapCount); err != nil {
+	futuresItem, err := r.queryAssetCoverage("FUTURES")
+	if err != nil {
 		return summary, err
 	}
 
+	// 填充全集顶层信息（以 STOCK 为主，兼容老接口契约）
+	summary.TotalUniverseCount = stockItem.UniverseCount
+	summary.MasterCoverageCount = stockItem.MasterCoverageCount
+	summary.QuotesCoverageCount = stockItem.QuotesCoverageCount
+	summary.DailyBasicCoverageCount = stockItem.DailyBasicCoverageCount
+	summary.MoneyflowCoverageCount = stockItem.MoneyflowCoverageCount
+	summary.LatestTradeDate = stockItem.LatestTradeDate
+
+	// 填充 gap 指标 (STOCK)
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM market_instruments WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND instrument_key NOT LIKE '%.%'`).Scan(&summary.CanonicalKeyGapCount); err != nil {
+		return summary, err
+	}
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM market_instruments WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND (display_name IS NULL OR TRIM(display_name) = '' OR display_name = instrument_key)`).Scan(&summary.DisplayNameGapCount); err != nil {
+		return summary, err
+	}
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM market_instruments WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND list_date IS NULL`).Scan(&summary.ListDateGapCount); err != nil {
+		return summary, err
+	}
+
+	// 查询 fallback_source_summary
 	rows, err := r.db.Query(`
-SELECT COALESCE(selected_source_key, '') AS source_key, COUNT(*)
-FROM market_daily_bar_truth
-WHERE asset_class = 'STOCK'
-GROUP BY COALESCE(selected_source_key, '')
-ORDER BY COUNT(*) DESC, source_key ASC
-LIMIT 5`)
+		SELECT COALESCE(selected_source_key, '') AS source_key, COUNT(*)
+		FROM market_daily_bar_truth
+		WHERE asset_class = 'STOCK'
+		GROUP BY COALESCE(selected_source_key, '')
+		ORDER BY COUNT(*) DESC, source_key ASC
+		LIMIT 5`)
 	if err != nil && isMarketStatusSchemaCompatError(err) {
-		// Schema compatibility fallback for historical deployments that used `source_key`.
 		rows, err = r.db.Query(`
-SELECT COALESCE(source_key, '') AS source_key, COUNT(*)
-FROM market_daily_bar_truth
-WHERE asset_class = 'STOCK'
-GROUP BY COALESCE(source_key, '')
-ORDER BY COUNT(*) DESC, source_key ASC
-LIMIT 5`)
+			SELECT COALESCE(source_key, '') AS source_key, COUNT(*)
+			FROM market_daily_bar_truth
+			WHERE asset_class = 'STOCK'
+			GROUP BY COALESCE(source_key, '')
+			ORDER BY COUNT(*) DESC, source_key ASC
+			LIMIT 5`)
 	}
 	if err != nil {
 		return summary, err
@@ -1079,19 +1101,10 @@ LIMIT 5`)
 		}
 		summary.FallbackSourceSummary = append(summary.FallbackSourceSummary, item)
 	}
-	if err := rows.Err(); err != nil {
-		return summary, err
-	}
+
 	summary.AssetItems = append(summary.AssetItems,
-		model.MarketCoverageSummaryAssetItem{
-			AssetType:               "STOCK",
-			UniverseCount:           summary.TotalUniverseCount,
-			MasterCoverageCount:     summary.MasterCoverageCount,
-			QuotesCoverageCount:     summary.QuotesCoverageCount,
-			DailyBasicCoverageCount: summary.DailyBasicCoverageCount,
-			MoneyflowCoverageCount:  summary.MoneyflowCoverageCount,
-			LatestTradeDate:         summary.LatestTradeDate,
-		},
+		stockItem,
+		futuresItem,
 		model.MarketCoverageSummaryAssetItem{AssetType: "INDEX"},
 		model.MarketCoverageSummaryAssetItem{AssetType: "ETF"},
 		model.MarketCoverageSummaryAssetItem{AssetType: "LOF"},
@@ -1306,6 +1319,7 @@ func (r *InMemoryGrowthRepo) AdminGetMarketCoverageSummary() (model.MarketCovera
 		},
 		AssetItems: []model.MarketCoverageSummaryAssetItem{
 			{AssetType: "STOCK", UniverseCount: 2, MasterCoverageCount: 2, QuotesCoverageCount: 2, DailyBasicCoverageCount: 2, MoneyflowCoverageCount: 2, LatestTradeDate: "2026-03-24"},
+			{AssetType: "FUTURES", UniverseCount: 1, MasterCoverageCount: 1, QuotesCoverageCount: 1, LatestTradeDate: "2026-03-24"},
 			{AssetType: "INDEX", UniverseCount: 1, MasterCoverageCount: 1, QuotesCoverageCount: 1, LatestTradeDate: "2026-03-24"},
 			{AssetType: "ETF", UniverseCount: 1, MasterCoverageCount: 1},
 			{AssetType: "LOF", UniverseCount: 1},

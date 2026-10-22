@@ -237,10 +237,10 @@ export function buildMarketCoverageAssetRows(summary = {}) {
       latestTradeDate: String(item?.latest_trade_date || "").trim() || "-"
     }))
     .sort((left, right) => {
-      const stockBias = left.key === "STOCK" ? -1 : right.key === "STOCK" ? 1 : 0;
-      if (stockBias !== 0) {
-        return stockBias;
-      }
+      if (left.key === "STOCK") return -1;
+      if (right.key === "STOCK") return 1;
+      if (left.key === "FUTURES") return -1;
+      if (right.key === "FUTURES") return 1;
       return left.key.localeCompare(right.key, "zh-Hans-CN");
     });
 }

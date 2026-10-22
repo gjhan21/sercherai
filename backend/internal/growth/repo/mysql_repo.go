@@ -15184,10 +15184,11 @@ func (r *MySQLGrowthRepo) AdminAutoOpenSimulatedPositions(tradeDate string) erro
 	}
 
 	rows, err := r.db.Query(`
-SELECT id, symbol, name, take_profit, stop_loss
-FROM stock_recommendations
-WHERE valid_from <= ? AND valid_to >= ? 
-  AND id NOT IN (SELECT reco_id FROM stock_simulated_positions)`, tDate, tDate)
+SELECT r.id, r.symbol, r.name, COALESCE(d.take_profit, ''), COALESCE(d.stop_loss, '')
+FROM stock_recommendations r
+LEFT JOIN stock_reco_details d ON r.id = d.reco_id
+WHERE r.valid_from <= ? AND r.valid_to >= ? 
+  AND r.id NOT IN (SELECT reco_id FROM stock_simulated_positions)`, tDate, tDate)
 	if err != nil {
 		return err
 	}

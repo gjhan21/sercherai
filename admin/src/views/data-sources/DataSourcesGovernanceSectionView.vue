@@ -24,6 +24,29 @@ const workspace = useDataSourcesWorkspaceContext();
     </div>
   </div>
 
+  <el-row :gutter="12" style="margin-bottom: 12px">
+    <el-col :span="12" v-for="item in workspace.marketCoverageAssetRows.filter(r => ['STOCK', 'FUTURES'].includes(r.key))" :key="item.key">
+      <div class="card" v-loading="workspace.marketCoverageLoading">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-weight: 600; font-size: 14px; color: #303133;">{{ item.label }} 数据同步水位</span>
+          <el-tag :type="item.latestTradeDate !== '-' ? 'success' : 'info'" size="small">
+            {{ item.latestTradeDate !== '-' ? '已同步' : '未导入' }}
+          </el-tag>
+        </div>
+        <div style="margin-top: 14px; display: flex; align-items: baseline; gap: 8px;">
+          <span style="font-size: 24px; font-weight: 700; color: #1f2937;">
+            {{ item.latestTradeDate }}
+          </span>
+          <span class="muted" style="font-size: 12px;">最新交易日</span>
+        </div>
+        <div style="margin-top: 12px; display: flex; justify-content: space-between; font-size: 13px; border-top: 1px solid #f3f4f6; padding-top: 10px;">
+          <span class="muted">主数据证券全集：<strong style="color: #374151;">{{ item.universeCount }}</strong></span>
+          <span class="muted">行情覆盖品种数：<strong style="color: #374151;">{{ item.quotesCoverageCount }}</strong></span>
+        </div>
+      </div>
+    </el-col>
+  </el-row>
+
   <ProviderGovernanceOverviewPanel
     :loading="workspace.governanceLoading"
     :stock-overview="workspace.governanceOverviewStock"

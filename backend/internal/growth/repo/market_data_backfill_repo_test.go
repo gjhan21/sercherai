@@ -774,16 +774,30 @@ func TestMySQLAdminGetMarketCoverageSummaryUsesSelectedSourceKey(t *testing.T) {
 	repo := &MySQLGrowthRepo{db: db}
 	latestTradeDate := time.Date(2026, 3, 25, 0, 0, 0, 0, time.Local)
 
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM market_instruments WHERE asset_class = 'STOCK'`).
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM market_instruments WHERE asset_class = \?`).
+		WithArgs("STOCK").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(10))
-	mock.ExpectQuery(`SELECT COUNT\(DISTINCT instrument_key\) FROM market_daily_bar_truth WHERE asset_class = 'STOCK'`).
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT instrument_key\) FROM market_daily_bar_truth WHERE asset_class = \?`).
+		WithArgs("STOCK").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(8))
+	mock.ExpectQuery(`SELECT MAX\(trade_date\) FROM market_daily_bar_truth WHERE asset_class = \?`).
+		WithArgs("STOCK").
+		WillReturnRows(sqlmock.NewRows([]string{"max_trade_date"}).AddRow(latestTradeDate))
 	mock.ExpectQuery(`SELECT COUNT\(DISTINCT symbol\) FROM stock_daily_basic`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(6))
 	mock.ExpectQuery(`SELECT COUNT\(DISTINCT symbol\) FROM stock_moneyflow_daily`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
-	mock.ExpectQuery(`SELECT MAX\(trade_date\) FROM market_daily_bar_truth WHERE asset_class = 'STOCK'`).
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM market_instruments WHERE asset_class = \?`).
+		WithArgs("FUTURES").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT instrument_key\) FROM market_daily_bar_truth WHERE asset_class = \?`).
+		WithArgs("FUTURES").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4))
+	mock.ExpectQuery(`SELECT MAX\(trade_date\) FROM market_daily_bar_truth WHERE asset_class = \?`).
+		WithArgs("FUTURES").
 		WillReturnRows(sqlmock.NewRows([]string{"max_trade_date"}).AddRow(latestTradeDate))
+
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM market_instruments WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND instrument_key NOT LIKE '%\.%'`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM market_instruments WHERE asset_class = 'STOCK' AND status = 'ACTIVE' AND \(display_name IS NULL OR TRIM\(display_name\) = '' OR display_name = instrument_key\)`).
