@@ -2205,3 +2205,55 @@ func sortFloats(v []float64) {
 		}
 	}
 }
+
+func (h *UserGrowthHandler) GetActivePaymentChannels(c *gin.Context) {
+	_, ok := requireUserID(c)
+	if !ok {
+		return
+	}
+
+	items, _, err := h.service.AdminListSystemConfigs("payment.", 1, 100)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.APIResponse{Code: 50001, Message: err.Error(), Data: struct{}{}})
+		return
+	}
+
+	paymentEnabled := false
+	alipayEnabled := false
+	wechatEnabled := false
+	yolkpayEnabled := false
+
+	for _, item := range items {
+		key := strings.ToLower(strings.TrimSpace(item.ConfigKey))
+		val := strings.ToLower(strings.TrimSpace(item.ConfigValue))
+		enabled := val == "true" || val == "1" || val == "yes" || val == "on"
+
+		switch key {
+		case "payment.enabled":
+			paymentEnabled = enabled
+		case "payment.channel.alipay.enabled":
+			alipayEnabled = enabled
+		case "payment.channel.wechat.enabled":
+			wechatEnabled = enabled
+		case "payment.channel.yolkpay.enabled":
+			yolkpayEnabled = enabled
+		}
+	}
+
+	channels := []string{}
+	if paymentEnabled {
+		if alipayEnabled {
+			channels = append(channels, "ALIPAY")
+		}
+		if wechatEnabled {
+			channels = append(channels, "WECHAT")
+		}
+		if yolkpayEnabled {
+			channels = append(channels, "YOLKPAY")
+		}
+	}
+
+	c.JSON(http.StatusOK, dto.OK(gin.H{
+		"channels": channels,
+	}))
+}

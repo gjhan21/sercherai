@@ -63,6 +63,7 @@ func registerUserRoutes(v1 *gin.RouterGroup, userGrowthHandler *handler.UserGrow
 		membership.POST("/orders", userGrowthHandler.CreateMembershipOrder)
 		membership.GET("/orders", userGrowthHandler.ListMembershipOrders)
 		membership.GET("/quota", userGrowthHandler.GetMembershipQuota)
+		membership.GET("/payment-channels", userGrowthHandler.GetActivePaymentChannels)
 	}
 
 	futures := v1.Group("/futures")

@@ -25,6 +25,10 @@ export function createMembershipOrder(payload) {
   return http.post("/membership/orders", payload);
 }
 
+export function getActivePaymentChannels() {
+  return http.get("/membership/payment-channels");
+}
+
 export function triggerPaymentCallback(channel, payload) {
   return http.post(`/payment/callbacks/${encodeURIComponent(channel)}`, payload);
 }

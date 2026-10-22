@@ -11809,7 +11809,7 @@ WHERE user_id = ? AND period_key = ?`, usedColumn), userID, periodKey).Scan(&use
 		}
 	}
 
-	if limit > 0 && used >= limit {
+	if used >= limit {
 		return false, nil
 	}
 

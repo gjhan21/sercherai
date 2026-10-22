@@ -29,11 +29,24 @@
       </div>
 
       <div v-if="wizardStep === 3" class="step-content">
-        <div class="payment-methods">
-          <label class="payment-option glass"><input type="radio" name="pay" checked /><span>💳 微信支付</span></label>
-          <label class="payment-option glass"><input type="radio" name="pay" /><span>💳 支付宝</span></label>
+        <div v-if="activeChannels.length > 0" class="payment-methods">
+          <label v-if="activeChannels.includes('WECHAT')" class="payment-option glass" :class="{ active: selectedChannel === 'WECHAT' }">
+            <input type="radio" name="pay" value="WECHAT" v-model="selectedChannel" />
+            <span>💳 微信支付</span>
+          </label>
+          <label v-if="activeChannels.includes('ALIPAY')" class="payment-option glass" :class="{ active: selectedChannel === 'ALIPAY' }">
+            <input type="radio" name="pay" value="ALIPAY" v-model="selectedChannel" />
+            <span>💳 支付宝</span>
+          </label>
+          <label v-if="activeChannels.includes('YOLKPAY')" class="payment-option glass" :class="{ active: selectedChannel === 'YOLKPAY' }">
+            <input type="radio" name="pay" value="YOLKPAY" v-model="selectedChannel" />
+            <span>💳 蛋黄支付 (YolkPay)</span>
+          </label>
         </div>
-        <button class="btn-primary next-btn" @click="completePurchase">💳 确认支付 ¥{{ selectedInfo?.price }}</button>
+        <div v-else class="no-channels glass">
+          <p>⚠️ 暂无可用的支付通道，请联系系统管理员配置。</p>
+        </div>
+        <button class="btn-primary next-btn" :disabled="activeChannels.length === 0" @click="completePurchase">💳 确认支付 ¥{{ selectedInfo?.price }}</button>
       </div>
 
       <div v-if="done" class="success-step glass">
@@ -50,7 +63,7 @@
 import { computed, onMounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { VIP_TIERS as MOCK_TIERS } from "@/mock/user.js"
-import { listMembershipProducts, createMembershipOrder } from "@/api/membership.js"
+import { listMembershipProducts, createMembershipOrder, getActivePaymentChannels } from "@/api/membership.js"
 import { useClientAuth } from "@/shared/auth/client-auth"
 import { trackExposure, trackUpgradeIntent, trackPaymentSuccess } from "@/shared/lib/experiment-tracker.js"
 
@@ -62,6 +75,24 @@ const selectedTier = ref(route.query.tier || null);
 const done = ref(false);
 const loadingProducts = ref(false);
 const products = ref([]);
+const selectedChannel = ref('ALIPAY');
+const activeChannels = ref(['ALIPAY', 'WECHAT']);
+
+async function loadPaymentChannels() {
+  try {
+    const result = await getActivePaymentChannels();
+    if (result && Array.isArray(result.channels)) {
+      activeChannels.value = result.channels;
+      if (activeChannels.value.length > 0) {
+        selectedChannel.value = activeChannels.value[0];
+      } else {
+        selectedChannel.value = '';
+      }
+    }
+  } catch (e) {
+    console.error("Failed to load payment channels:", e);
+  }
+}
 
 const paidTiers = computed(() => {
   if (products.value.length) return products.value;
@@ -96,13 +127,42 @@ async function loadProducts() {
 async function completePurchase() {
   if (selectedInfo.value && selectedInfo.value.price > 0) {
     try {
-      await createMembershipOrder({ product_id: selectedInfo.value.id, pay_channel: 'ALIPAY' });
+      const result = await createMembershipOrder({
+        product_id: selectedInfo.value.id,
+        pay_channel: selectedChannel.value
+      });
       trackPaymentSuccess("vip_purchase", {
         price: selectedInfo.value.price,
-        pay_channel: 'ALIPAY',
+        pay_channel: selectedChannel.value,
         product_id: selectedInfo.value.id,
         tier: selectedInfo.value.tier
       });
+      if (result && result.payment_initialized === true && result.payment_action) {
+        const action = result.payment_action;
+        if (action.pay_url) {
+          window.location.href = action.pay_url;
+          return;
+        }
+        if (action.submit_url) {
+          const form = document.createElement('form');
+          form.method = action.method || 'POST';
+          form.action = action.submit_url;
+          form.style.display = 'none';
+
+          Object.keys(action.params || {}).forEach(key => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = key;
+            input.value = action.params[key];
+            form.appendChild(input);
+          });
+
+          document.body.appendChild(form);
+          form.submit();
+          document.body.removeChild(form);
+          return;
+        }
+      }
     } catch (e) {
       console.error("Order creation failed:", e);
     }
@@ -120,6 +180,7 @@ watch(wizardStep, (newStep) => {
 
 onMounted(() => {
   loadProducts();
+  loadPaymentChannels();
   trackExposure("vip_purchase");
 });
 </script>
@@ -150,8 +211,11 @@ onMounted(() => {
 .order-row span { color: var(--text-secondary); }
 .order-row strong { color: var(--text-primary); }
 .payment-methods { display: grid; gap: 8px; }
-.payment-option { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: var(--radius-md); cursor: pointer; }
+.payment-option { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: var(--radius-md); cursor: pointer; border: 1px solid var(--border); transition: all 0.2s ease; }
+.payment-option:hover { border-color: var(--border-light); }
+.payment-option.active { border-color: var(--accent-gold); background: var(--accent-gold-glow); }
 .success-step { text-align: center; padding: 40px 20px; border-radius: var(--radius-lg); }
+.no-channels { padding: 24px; text-align: center; color: var(--text-muted); border-radius: var(--radius-md); border: 1px dashed var(--border); }
 .success-icon { font-size: 48px; margin-bottom: 16px; }
 .success-step h3 { font-size: 22px; margin-bottom: 8px; }
 .success-step p { font-size: 14px; color: var(--text-secondary); margin-bottom: 20px; }
