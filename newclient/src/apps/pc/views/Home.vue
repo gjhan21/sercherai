@@ -32,7 +32,34 @@
       </div>
     </section>
 
-
+    <!-- Quick Links to Modules -->
+    <div class="quick-modules fade-in-up fade-in-up-delay-2">
+      <button class="quick-module glass card-hover" @click="$router.push('/recommendations')">
+        <span class="qm-icon" style="background:var(--accent-gold-glow);color:var(--accent-gold)">★</span>
+        <span class="qm-title">每日推荐</span>
+        <span class="qm-desc">AI 精选 6 只标的</span>
+      </button>
+      <button class="quick-module glass card-hover" @click="$router.push('/identify')">
+        <span class="qm-icon" style="background:rgba(59,130,246,.1);color:var(--accent-blue)">◎</span>
+        <span class="qm-title">鉴别分析</span>
+        <span class="qm-desc">输入股票 AI 分析</span>
+      </button>
+      <button class="quick-module glass card-hover" @click="$router.push('/forecast-lab')">
+        <span class="qm-icon" style="background:rgba(14,165,233,.14);color:var(--accent-cyan)">◌</span>
+        <span class="qm-title">深度推演</span>
+        <span class="qm-desc">查看 L3 运行与报告</span>
+      </button>
+      <button class="quick-module glass card-hover" @click="$router.push('/news')">
+        <span class="qm-icon" style="background:var(--positive-bg);color:var(--positive)">📰</span>
+        <span class="qm-title">资讯中心</span>
+        <span class="qm-desc">市场最新动态</span>
+      </button>
+      <button class="quick-module glass card-hover" @click="$router.push('/community')">
+        <span class="qm-icon" style="background:rgba(139,92,246,.1);color:#8b5cf6">💬</span>
+        <span class="qm-title">社区</span>
+        <span class="qm-desc">投资者交流</span>
+      </button>
+    </div>
 
     <!-- AI Top Picks -->
     <section class="section fade-in-up fade-in-up-delay-2">
