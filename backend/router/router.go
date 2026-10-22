@@ -34,7 +34,7 @@ func Register(r *gin.Engine) {
 	}
 
 	growthSvc := service.NewGrowthService(growthRepo)
-	userGrowthHandler := handler.NewUserGrowthHandler(growthSvc, cfg)
+	userGrowthHandler := handler.NewUserGrowthHandler(growthSvc, cfg, redisClient)
 	adminHandlers := handler.NewAdminHandlers(growthSvc, cfg)
 	authHandler := handler.NewAuthHandler(
 		cfg.JWTSecret,

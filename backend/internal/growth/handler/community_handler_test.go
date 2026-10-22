@@ -18,7 +18,7 @@ import (
 func newUserGrowthHandlerForTest(t *testing.T) *UserGrowthHandler {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	return NewUserGrowthHandler(service.NewGrowthService(repo.NewInMemoryGrowthRepo()), config.Config{})
+	return NewUserGrowthHandler(service.NewGrowthService(repo.NewInMemoryGrowthRepo()), config.Config{}, nil)
 }
 
 func newAdminHandlersForTest(t *testing.T) *AdminHandlers {

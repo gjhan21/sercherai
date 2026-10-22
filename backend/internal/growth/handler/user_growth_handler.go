@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 
 	"sercherai/backend/internal/growth/dto"
 	"sercherai/backend/internal/growth/model"
@@ -30,10 +31,11 @@ import (
 type UserGrowthHandler struct {
 	service service.GrowthService
 	cfg     config.Config
+	redis   *redis.Client
 }
 
-func NewUserGrowthHandler(service service.GrowthService, cfg config.Config) *UserGrowthHandler {
-	return &UserGrowthHandler{service: service, cfg: cfg}
+func NewUserGrowthHandler(service service.GrowthService, cfg config.Config, redisClient *redis.Client) *UserGrowthHandler {
+	return &UserGrowthHandler{service: service, cfg: cfg, redis: redisClient}
 }
 
 
@@ -1705,6 +1707,17 @@ func (h *UserGrowthHandler) GetStockKline(c *gin.Context) {
 	}
 
 	// Try reading real data from market_daily_bars (reused connection pool)
+	cacheKey := fmt.Sprintf("stock:kline:%s:%d", symbol, days)
+	if h.redis != nil {
+		if cachedVal, err := h.redis.Get(c.Request.Context(), cacheKey).Result(); err == nil {
+			var cachedPoints []klinePoint
+			if json.Unmarshal([]byte(cachedVal), &cachedPoints) == nil && len(cachedPoints) > 0 {
+				c.JSON(http.StatusOK, dto.OK(gin.H{"symbol": symbol, "days": len(cachedPoints), "points": cachedPoints}))
+				return
+			}
+		}
+	}
+
 	db := h.getKlineDB()
 	if db != nil {
 		rows, qErr := db.Query("SELECT trade_date, open_price, high_price, low_price, close_price, volume FROM market_daily_bars WHERE asset_class = 'STOCK' AND instrument_key = ? AND source_key = 'TUSHARE' ORDER BY trade_date DESC LIMIT ?", symbol, days)
@@ -1755,8 +1768,13 @@ func (h *UserGrowthHandler) GetStockKline(c *gin.Context) {
 						pts[i].Ma20 = float64(int(s/20*100+0.5)) / 100
 					}
 			}
-			c.JSON(http.StatusOK, dto.OK(gin.H{"symbol": symbol, "days": len(pts), "points": pts}))
-			return
+				if h.redis != nil && len(pts) > 0 {
+					if jsonBytes, err := json.Marshal(pts); err == nil {
+						_ = h.redis.Set(c.Request.Context(), cacheKey, string(jsonBytes), 4*time.Hour).Err()
+					}
+				}
+				c.JSON(http.StatusOK, dto.OK(gin.H{"symbol": symbol, "days": len(pts), "points": pts}))
+				return
 		}
 	}
 }
@@ -1892,6 +1910,36 @@ func (h *UserGrowthHandler) PatternMatch(c *gin.Context) {
 	if symbol == "" {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: "symbol is required", Data: struct{}{}})
 		return
+	}
+
+	predictKey := fmt.Sprintf("stock:predict:pattern:%s:%d", symbol, lookback)
+	if h.redis != nil {
+		// 1. Check Cache
+		if cachedVal, err := h.redis.Get(c.Request.Context(), predictKey).Result(); err == nil {
+			var respData map[string]any
+			if json.Unmarshal([]byte(cachedVal), &respData) == nil {
+				c.JSON(http.StatusOK, dto.OK(respData))
+				return
+			}
+		}
+
+		// 2. Prevent Cache stampede: Acquire Lock
+		lockKey := fmt.Sprintf("lock:predict:%s", symbol)
+		acquired, err := h.redis.SetNX(c.Request.Context(), lockKey, "1", 15*time.Second).Result()
+		if err == nil && !acquired {
+			// Lock is held by another worker. Wait and retry reading cache.
+			time.Sleep(300 * time.Millisecond)
+			if cachedVal, err := h.redis.Get(c.Request.Context(), predictKey).Result(); err == nil {
+				var respData map[string]any
+				if json.Unmarshal([]byte(cachedVal), &respData) == nil {
+					c.JSON(http.StatusOK, dto.OK(respData))
+					return
+				}
+			}
+		}
+
+		// Clean up lock when calculation finishes
+		defer h.redis.Del(c.Request.Context(), lockKey)
 	}
 
 	db := h.getKlineDB()
@@ -2077,13 +2125,19 @@ func (h *UserGrowthHandler) PatternMatch(c *gin.Context) {
 		pred = buildPrediction(allNext7d)
 	}
 
-	c.JSON(http.StatusOK, dto.OK(gin.H{
+	responsePayload := gin.H{
 		"symbol":     symbol,
 		"lookback":   lookback,
 		"current":    normCur[len(normCur)-7:],
 		"matches":    matches,
 		"prediction": pred,
-	}))
+	}
+	if h.redis != nil {
+		if jsonBytes, err := json.Marshal(responsePayload); err == nil {
+			_ = h.redis.Set(c.Request.Context(), predictKey, string(jsonBytes), 24*time.Hour).Err()
+		}
+	}
+	c.JSON(http.StatusOK, dto.OK(responsePayload))
 }
 
 func sqrt(x float64) float64 {

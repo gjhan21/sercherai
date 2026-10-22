@@ -133,7 +133,7 @@ func TestListForecastL3HistoryReturnsSucceededTimeline(t *testing.T) {
 	growthRepo := repo.NewInMemoryGrowthRepo()
 	seedForecastHistoryHandlerRuns(t, growthRepo, "600519.SH", model.StrategyForecastL3TargetTypeStock)
 	growthService := service.NewGrowthService(growthRepo)
-	growthHandler := NewUserGrowthHandler(growthService, config.Config{})
+	growthHandler := NewUserGrowthHandler(growthService, config.Config{}, nil)
 
 	router := gin.New()
 	attachUserID(router, "user_001")
@@ -165,7 +165,7 @@ func TestGetForecastL3HistoryCompareDefaultsToLatestVsPrevious(t *testing.T) {
 	growthRepo := repo.NewInMemoryGrowthRepo()
 	seedForecastHistoryHandlerRuns(t, growthRepo, "AU2408", model.StrategyForecastL3TargetTypeFutures)
 	growthService := service.NewGrowthService(growthRepo)
-	growthHandler := NewUserGrowthHandler(growthService, config.Config{})
+	growthHandler := NewUserGrowthHandler(growthService, config.Config{}, nil)
 
 	router := gin.New()
 	attachUserID(router, "user_001")
@@ -199,7 +199,7 @@ func TestGetForecastL3RunReviewReturnsExplainableScore(t *testing.T) {
 		t.Fatalf("seed history items error = %v items=%d", err, len(items))
 	}
 	growthService := service.NewGrowthService(growthRepo)
-	growthHandler := NewUserGrowthHandler(growthService, config.Config{})
+	growthHandler := NewUserGrowthHandler(growthService, config.Config{}, nil)
 
 	router := gin.New()
 	attachUserID(router, "user_001")
@@ -229,7 +229,7 @@ func TestListForecastL3HistoryRejectsOtherUsersTargetHistory(t *testing.T) {
 	growthRepo := repo.NewInMemoryGrowthRepo()
 	seedForecastHistoryHandlerRuns(t, growthRepo, "600519.SH", model.StrategyForecastL3TargetTypeStock)
 	growthService := service.NewGrowthService(growthRepo)
-	growthHandler := NewUserGrowthHandler(growthService, config.Config{})
+	growthHandler := NewUserGrowthHandler(growthService, config.Config{}, nil)
 
 	router := gin.New()
 	attachUserID(router, "another_user")
@@ -265,7 +265,7 @@ func TestGetForecastL3RunReviewRejectsOtherUsersRun(t *testing.T) {
 		t.Fatalf("seed history items error = %v items=%d", err, len(items))
 	}
 	growthService := service.NewGrowthService(growthRepo)
-	growthHandler := NewUserGrowthHandler(growthService, config.Config{})
+	growthHandler := NewUserGrowthHandler(growthService, config.Config{}, nil)
 
 	router := gin.New()
 	attachUserID(router, "another_user")
