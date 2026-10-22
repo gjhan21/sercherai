@@ -1427,7 +1427,6 @@ func (r *InMemoryGrowthRepo) executeMarketDataBackfillRun(runID string) (model.M
 	progress := run.StageProgress
 
 	if normalizeMarketBackfillRunStatus(run.Status) == "CANCELLED" {
-		run.CurrentStage = run.CurrentStage
 		run.FinishedAt = nowText
 		run.UpdatedAt = nowText
 		r.marketBackfillRuns[run.ID] = run

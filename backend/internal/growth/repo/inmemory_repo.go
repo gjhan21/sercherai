@@ -2840,7 +2840,6 @@ func (r *InMemoryGrowthRepo) applyModuleTargetStatusLocked(module string, target
 	default:
 		return nil
 	}
-	return nil
 }
 
 func (r *InMemoryGrowthRepo) GetSchedulerJobNameByRunID(runID string) (string, error) {
