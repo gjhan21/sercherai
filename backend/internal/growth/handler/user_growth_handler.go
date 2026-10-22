@@ -958,10 +958,6 @@ func (h *UserGrowthHandler) GetFuturesGuidance(c *gin.Context) {
 }
 
 func (h *UserGrowthHandler) ListMarketEvents(c *gin.Context) {
-	_, ok := requireUserID(c)
-	if !ok {
-		return
-	}
 	page, pageSize := parsePage(c)
 	eventType := strings.TrimSpace(c.Query("type"))
 	if eventType == "" {
@@ -976,10 +972,6 @@ func (h *UserGrowthHandler) ListMarketEvents(c *gin.Context) {
 }
 
 func (h *UserGrowthHandler) GetMarketEventDetail(c *gin.Context) {
-	_, ok := requireUserID(c)
-	if !ok {
-		return
-	}
 	id := c.Param("id")
 	item, err := h.service.GetMarketEventDetail(id)
 	if err != nil {
