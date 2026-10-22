@@ -140,7 +140,7 @@ func executeStrategyForecastL3Run(
 		"roles":  len(roles),
 	}, now))
 
-	validation := runStrategyForecastL3Validation(run, pack, roles)
+	validation := runStrategyForecastL3Validation(reader, run, pack, roles)
 	logs = append(logs, newStrategyForecastL3Log(run.ID, "VALIDATE_REPORT", "SUCCESS", "validation review completed", map[string]any{
 		"status": validation.Status,
 	}, now))
@@ -179,6 +179,7 @@ func executeStrategyForecastL3Run(
 }
 
 func runStrategyForecastL3Validation(
+	reader strategyForecastL3ContextReader,
 	run model.StrategyForecastL3Run,
 	pack strategyForecastL3ResearchPack,
 	roles []strategyForecastL3RoleResult,
@@ -208,6 +209,19 @@ func runStrategyForecastL3Validation(
 	}
 
 	cfg := config.Load()
+	if dbRepo, ok := reader.(*MySQLGrowthRepo); ok {
+		llmApiKey, llmBaseUrl, llmModelName := dbRepo.getActiveLLMConfig()
+		if llmApiKey != "" {
+			cfg.LLMAPIKey = strings.TrimSpace(llmApiKey)
+		}
+		if llmBaseUrl != "" {
+			cfg.LLMBaseURL = strings.TrimSpace(llmBaseUrl)
+		}
+		if llmModelName != "" {
+			cfg.LLMModelName = strings.TrimSpace(llmModelName)
+		}
+	}
+
 	client := llm.NewClient(cfg)
 	content, err := client.ChatCompletion([]llm.ChatMessage{
 		{

@@ -12,10 +12,12 @@ import (
 )
 
 func (h *UserGrowthHandler) CreateForecastL3Run(c *gin.Context) {
-	userID, ok := requireUserID(c)
+	userIDVal, ok := c.Get("user_id")
 	if !ok {
+		c.JSON(http.StatusUnauthorized, dto.APIResponse{Code: 40101, Message: "unauthorized", Data: struct{}{}})
 		return
 	}
+	userID, _ := userIDVal.(string)
 	var req dto.StrategyForecastL3CreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40001, Message: err.Error(), Data: struct{}{}})
@@ -36,6 +38,10 @@ func (h *UserGrowthHandler) CreateForecastL3Run(c *gin.Context) {
 		Reason:        req.Reason,
 	})
 	if err != nil {
+		if err.Error() == "quota exceeded" {
+			c.JSON(http.StatusForbidden, dto.APIResponse{Code: 40302, Message: "quota exceeded", Data: struct{}{}})
+			return
+		}
 		if isForecastL3BadRequest(err) {
 			c.JSON(http.StatusBadRequest, dto.APIResponse{Code: 40002, Message: err.Error(), Data: struct{}{}})
 			return
@@ -47,10 +53,12 @@ func (h *UserGrowthHandler) CreateForecastL3Run(c *gin.Context) {
 }
 
 func (h *UserGrowthHandler) ListForecastL3Runs(c *gin.Context) {
-	userID, ok := requireUserID(c)
+	userIDVal, ok := c.Get("user_id")
 	if !ok {
+		c.JSON(http.StatusUnauthorized, dto.APIResponse{Code: 40101, Message: "unauthorized", Data: struct{}{}})
 		return
 	}
+	userID, _ := userIDVal.(string)
 	page, pageSize := parsePage(c)
 	items, total, err := h.service.ListStrategyForecastL3Runs(
 		userID,
@@ -68,10 +76,12 @@ func (h *UserGrowthHandler) ListForecastL3Runs(c *gin.Context) {
 }
 
 func (h *UserGrowthHandler) GetForecastL3RunDetail(c *gin.Context) {
-	userID, ok := requireUserID(c)
+	userIDVal, ok := c.Get("user_id")
 	if !ok {
+		c.JSON(http.StatusUnauthorized, dto.APIResponse{Code: 40101, Message: "unauthorized", Data: struct{}{}})
 		return
 	}
+	userID, _ := userIDVal.(string)
 	detail, err := h.service.GetStrategyForecastL3RunDetailForUser(c.Param("id"), userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -89,10 +99,12 @@ func (h *UserGrowthHandler) GetForecastL3RunDetail(c *gin.Context) {
 }
 
 func (h *UserGrowthHandler) ListForecastL3History(c *gin.Context) {
-	userID, ok := requireUserID(c)
+	userIDVal, ok := c.Get("user_id")
 	if !ok {
+		c.JSON(http.StatusUnauthorized, dto.APIResponse{Code: 40101, Message: "unauthorized", Data: struct{}{}})
 		return
 	}
+	userID, _ := userIDVal.(string)
 	page, pageSize := parsePage(c)
 	items, err := h.service.ListStrategyForecastL3HistoryForTarget(
 		userID,
@@ -109,10 +121,12 @@ func (h *UserGrowthHandler) ListForecastL3History(c *gin.Context) {
 }
 
 func (h *UserGrowthHandler) GetForecastL3HistoryCompare(c *gin.Context) {
-	userID, ok := requireUserID(c)
+	userIDVal, ok := c.Get("user_id")
 	if !ok {
+		c.JSON(http.StatusUnauthorized, dto.APIResponse{Code: 40101, Message: "unauthorized", Data: struct{}{}})
 		return
 	}
+	userID, _ := userIDVal.(string)
 	compare, err := h.service.GetStrategyForecastL3HistoryCompare(
 		userID,
 		c.Query("target_type"),
@@ -128,10 +142,12 @@ func (h *UserGrowthHandler) GetForecastL3HistoryCompare(c *gin.Context) {
 }
 
 func (h *UserGrowthHandler) GetForecastL3RunReview(c *gin.Context) {
-	userID, ok := requireUserID(c)
+	userIDVal, ok := c.Get("user_id")
 	if !ok {
+		c.JSON(http.StatusUnauthorized, dto.APIResponse{Code: 40101, Message: "unauthorized", Data: struct{}{}})
 		return
 	}
+	userID, _ := userIDVal.(string)
 	review, err := h.service.GetStrategyForecastL3RunReview(c.Param("id"), userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
