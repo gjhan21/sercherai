@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -82,6 +83,7 @@ func (c *Client) ChatCompletion(messages []ChatMessage) (string, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		log.Printf("[llm-error] request failed: %v", err)
 		return "", fmt.Errorf("llm request failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -92,6 +94,7 @@ func (c *Client) ChatCompletion(messages []ChatMessage) (string, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		log.Printf("[llm-error] api error status=%d: %s", resp.StatusCode, string(bodyBytes))
 		return "", fmt.Errorf("llm api error (status %d): %s", resp.StatusCode, string(bodyBytes))
 	}
 
