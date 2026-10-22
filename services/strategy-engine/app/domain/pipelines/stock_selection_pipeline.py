@@ -570,8 +570,9 @@ class StockSelectionPipeline:
                         entry.recommendation.reason_summary = f"{entry.recommendation.reason_summary} | AI终审研判：{llm_res['analysis']}"
 
                 # 6. 在整体报告摘要中突出显示大模型强烈推荐的标的
+                symbol_name_map = {item["symbol"]: item.get("name", item["symbol"]) for item in stocks_to_review}
                 strongly_recommended = [
-                    f"{res.get('name', symbol)} ({symbol})"
+                    f"{symbol_name_map.get(symbol, symbol)} ({symbol})"
                     for symbol, res in llm_results.items()
                     if res.get("rating") == "强烈推荐"
                 ]

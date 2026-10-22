@@ -51,30 +51,39 @@ class FuturesFeatureFactory:
             )
             news_score = _clamp(50 + item.news_bias * 20, 0, 100)
             directional_edge = (
-                item.trend_strength * 0.45
-                + item.flow_bias * 0.35
-                + item.carry_pct * 0.12
-                + item.news_bias * 0.08
-                + item.inventory_pressure * (0.10 + inventory_structure_share * 0.08)
-                + inventory_depth_edge * 0.12
-                + structure_depth_edge * 0.10
-                + item.spread_pressure * 0.14
+                item.trend_strength * 0.55
+                + item.flow_bias * 0.40
+                + item.carry_pct * 0.08
+                + item.news_bias * 0.05
+                + item.inventory_pressure * (0.05 + inventory_structure_share * 0.05)
+                + inventory_depth_edge * 0.08
+                + structure_depth_edge * 0.08
+                + item.spread_pressure * 0.10
             )
             conviction_score = _clamp(
-                trend_score * 0.30
-                + flow_score * 0.25
-                + carry_score * 0.15
-                + structure_depth_score * 0.15
-                + news_score * 0.15
-                + inventory_depth_score * 0.10,
+                trend_score * 0.40
+                + flow_score * 0.30
+                + carry_score * 0.10
+                + structure_depth_score * 0.10
+                + news_score * 0.05
+                + inventory_depth_score * 0.05,
                 0,
                 100,
             )
 
+            # Integrate market regime into directional edge calculation instead of overriding direction directly
+            regime_bias = 0.0
+            if item.regime in {"TREND", "DEFENSIVE"}:
+                regime_bias = 0.08
+            elif item.regime in {"WEAK", "VOLATILE"}:
+                regime_bias = -0.08
+
+            directional_edge_adjusted = directional_edge + regime_bias
+
             direction = "NEUTRAL"
-            if directional_edge >= 0.18 or item.regime in {"TREND", "DEFENSIVE"}:
+            if directional_edge_adjusted >= 0.18:
                 direction = "LONG"
-            elif directional_edge <= -0.18 or item.regime in {"WEAK", "VOLATILE"}:
+            elif directional_edge_adjusted <= -0.18:
                 direction = "SHORT"
 
             risk_level = _classify_futures_risk(item.volatility14, item.volume_ratio, item.basis_pct)

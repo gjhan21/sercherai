@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.domain.agents.agent_panel import AgentPanel
+from app.domain.seeds.market_seed_loader import MarketSeedLoader
 from app.schemas.simulation import ScenarioOutcome, ScenarioTemplateConfig, SimulationCard
 
 
@@ -11,7 +12,56 @@ class StockScenarioEngine:
     def simulate(self, features: list, agent_options: dict | None = None) -> list[SimulationCard]:
         cards = []
         scenario_templates = _normalize_templates((agent_options or {}).get("scenario_templates", []))
+        loader = MarketSeedLoader()
         for item in features:
+            # 统一加载历史种子数据
+            history_seeds = []
+            try:
+                history_seeds = loader.load_history(item.symbol, item.trade_date, limit=1250)
+            except Exception:
+                pass
+
+            # Compute 5-year historical PE percentile
+            pe_pct = -1.0
+            if item.pe_ttm > 0 and history_seeds:
+                pe_vals = [s.pe_ttm for s in history_seeds if s.pe_ttm > 0]
+                if pe_vals:
+                    below = sum(1 for v in pe_vals if v < item.pe_ttm)
+                    pe_pct = below / len(pe_vals)
+            item.pe_pct = pe_pct
+
+            # 计算 K线运动学特征 (基于已加载的 history_seeds 提取最近5日)
+            price_velocity = 0.0
+            price_acceleration = 0.0
+            vel_amp_divergence = 0.0
+            try:
+                if history_seeds and len(history_seeds) >= 5:
+                    import numpy as np
+                    sorted_seeds = sorted(history_seeds, key=lambda x: x.trade_date)
+                    closes = [s.close_price for s in sorted_seeds[-5:]]
+                    x = np.arange(5)
+                    
+                    # 1. 区间幅度
+                    amplitude = (closes[-1] - closes[0]) / closes[0] if closes[0] > 0 else 0.0
+                    
+                    # 2. 最小二乘法拟合斜率 (速度)
+                    slope, _ = np.polyfit(x, closes, 1)
+                    price_velocity = slope / closes[-1] if closes[-1] > 0 else 0.0
+                    
+                    # 3. 加速度 (前 4 日拟合速度)
+                    prev_slope, _ = np.polyfit(x[:-1], closes[:-1], 1)
+                    prev_velocity = prev_slope / closes[-2] if closes[-2] > 0 else 0.0
+                    price_acceleration = price_velocity - prev_velocity
+                    
+                    # 4. 背离度
+                    vel_amp_divergence = price_velocity - amplitude
+            except Exception:
+                pass
+
+            item.price_velocity = price_velocity
+            item.price_acceleration = price_acceleration
+            item.vel_amp_divergence = vel_amp_divergence
+
             scenarios = _build_stock_scenarios(item, scenario_templates)
             opinions, consensus, vetoed, veto_reason = self._agent_panel.review(
                 {
@@ -20,6 +70,11 @@ class StockScenarioEngine:
                     "news_heat": item.news_heat,
                     "volume_ratio": item.volume_ratio,
                     "pe_ttm": item.pe_ttm,
+                    "industry_pe_median": item.industry_pe_median,
+                    "pe_pct": item.pe_pct,
+                    "price_velocity": item.price_velocity,
+                    "price_acceleration": item.price_acceleration,
+                    "vel_amp_divergence": item.vel_amp_divergence,
                     "shock_adjustment": min(s.score_adjustment for s in scenarios if s.scenario == "shock"),
                 },
                 agent_options,

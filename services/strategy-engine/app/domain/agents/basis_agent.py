@@ -65,8 +65,61 @@ class BasisAgent:
             if inventory_focus_label and inventory_focus_share >= 0.4:
                 summary = f"仓单主要集中在{inventory_focus_label}，但结构信号仍需其他因子确认。"
             return AgentOpinion(agent=self.name, stance="CAUTION", confidence=58, summary=summary)
-        if 0 < pe_ttm < 30:
-            return AgentOpinion(agent=self.name, stance="POSITIVE", confidence=63, summary="估值锚相对稳定，可支持观点延续。")
-        if pe_ttm >= 45:
-            return AgentOpinion(agent=self.name, stance="NEGATIVE", confidence=64, summary="估值锚偏贵，安全边际不足。")
-        return AgentOpinion(agent=self.name, stance="CAUTION", confidence=55, summary="锚点信号中性，维持观察。")
+        if pe_ttm > 0:
+            industry_pe_median = float(context.get("industry_pe_median", 0))
+            pe_pct = float(context.get("pe_pct", -1.0))
+            
+            if industry_pe_median > 0 and pe_pct >= 0:
+                is_positive = (pe_ttm < industry_pe_median) and (pe_pct < 0.40)
+                is_negative = (pe_ttm > industry_pe_median) or (pe_pct > 0.80)
+                
+                if is_positive:
+                    return AgentOpinion(
+                        agent=self.name,
+                        stance="POSITIVE",
+                        confidence=72,
+                        summary=f"估值相对行业低估且处于历史低位：当前 PE {pe_ttm:.2f} 低于行业中位数 {industry_pe_median:.2f} 且历史分位数 {pe_pct*100:.1f}% 较低。"
+                    )
+                elif is_negative:
+                    return AgentOpinion(
+                        agent=self.name,
+                        stance="NEGATIVE",
+                        confidence=74,
+                        summary=f"估值相对行业偏高或处于历史高位：当前 PE {pe_ttm:.2f} 高于行业中位数 {industry_pe_median:.2f} 或历史分位数 {pe_pct*100:.1f}% 较高。"
+                    )
+                else:
+                    return AgentOpinion(
+                        agent=self.name,
+                        stance="CAUTION",
+                        confidence=58,
+                        summary=f"估值处于合理区间：当前 PE {pe_ttm:.2f}，行业中位数 {industry_pe_median:.2f}，历史分位数 {pe_pct*100:.1f}%。"
+                    )
+            elif industry_pe_median > 0:
+                if pe_ttm < industry_pe_median * 0.9:
+                    return AgentOpinion(
+                        agent=self.name,
+                        stance="POSITIVE",
+                        confidence=68,
+                        summary=f"估值低于行业平均水平：当前 PE {pe_ttm:.2f}，行业中位数 {industry_pe_median:.2f}。"
+                    )
+                elif pe_ttm > industry_pe_median * 1.3:
+                    return AgentOpinion(
+                        agent=self.name,
+                        stance="NEGATIVE",
+                        confidence=69,
+                        summary=f"估值高于行业平均水平：当前 PE {pe_ttm:.2f}，行业中位数 {industry_pe_median:.2f}。"
+                    )
+                else:
+                    return AgentOpinion(
+                        agent=self.name,
+                        stance="CAUTION",
+                        confidence=58,
+                        summary=f"估值处于行业中枢附近：当前 PE {pe_ttm:.2f}，行业中位数 {industry_pe_median:.2f}。"
+                    )
+            else:
+                if pe_ttm < 30:
+                    return AgentOpinion(agent=self.name, stance="POSITIVE", confidence=63, summary="估值锚相对稳定，可支持观点延续。")
+                if pe_ttm >= 45:
+                    return AgentOpinion(agent=self.name, stance="NEGATIVE", confidence=64, summary="估值锚偏贵，安全边际不足。")
+                return AgentOpinion(agent=self.name, stance="CAUTION", confidence=55, summary="锚点信号中性，维持观察。")
+        return AgentOpinion(agent=self.name, stance="CAUTION", confidence=50, summary="暂无有效估值或期限结构信号。")

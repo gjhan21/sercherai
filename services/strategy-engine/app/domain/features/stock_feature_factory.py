@@ -8,6 +8,22 @@ class StockFeatureFactory:
         if not seeds:
             return []
 
+        # Precompute industry PE medians
+        industry_pes: dict[str, list[float]] = {}
+        for item in seeds:
+            if item.industry and item.pe_ttm > 0:
+                industry_pes.setdefault(item.industry, []).append(item.pe_ttm)
+        
+        industry_pe_medians: dict[str, float] = {}
+        for ind, pes in industry_pes.items():
+            pes.sort()
+            n = len(pes)
+            if n > 0:
+                if n % 2 == 1:
+                    industry_pe_medians[ind] = pes[n // 2]
+                else:
+                    industry_pe_medians[ind] = (pes[n // 2 - 1] + pes[n // 2]) / 2.0
+
         momentum5_values = [item.momentum5 for item in seeds]
         momentum20_values = [item.momentum20 for item in seeds]
         volatility_values = [item.volatility20 for item in seeds]
@@ -29,7 +45,7 @@ class StockFeatureFactory:
             drawdown_norm = _normalize(item.drawdown20, drawdown_values, invert=True)
             trend_norm = _normalize(item.trend_strength, trend_values)
 
-            trend_score = (m5_norm * 0.25 + m20_norm * 0.30 + vol_norm * 0.15 + drawdown_norm * 0.15 + trend_norm * 0.15) * 100
+            trend_score = (m5_norm * 0.30 + m20_norm * 0.35 + vol_norm * 0.10 + drawdown_norm * 0.10 + trend_norm * 0.15) * 100
 
             net_moneyflow_norm = _normalize(item.net_mf_amount, moneyflow_values)
             flow_score = (volume_norm * 0.42 + net_moneyflow_norm * 0.58) * 100
@@ -59,7 +75,7 @@ class StockFeatureFactory:
             ) * 100
             risk_adjustment_score = _build_risk_adjustment_score(item, liquidity_risk_score)
 
-            quant_score = trend_score * 0.45 + flow_score * 0.25 + quality_score * 0.20 + news_score * 0.10
+            quant_score = trend_score * 0.55 + flow_score * 0.30 + quality_score * 0.10 + news_score * 0.05
             quant_score -= _quant_risk_penalty(item)
             quant_score = _clamp(quant_score, 0, 100)
 
@@ -100,6 +116,7 @@ class StockFeatureFactory:
                 theme_tags=list(item.theme_tags),
                 risk_flags=list(item.risk_flags),
                 risk_adjustment_score=round(risk_adjustment_score, 2),
+                industry_pe_median=round(industry_pe_medians.get(item.industry, 0.0), 2) if item.industry else 0.0,
             )
             feature.reasons = _build_quant_reasons(feature)
             feature.positive_reasons = list(feature.reasons[:4])

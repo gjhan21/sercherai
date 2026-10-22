@@ -144,6 +144,11 @@ class StockFeature:
     evidence_summary: str = ""
     portfolio_role: str = ""
     watchlist: bool = False
+    industry_pe_median: float = 0.0
+    pe_pct: float = -1.0
+    price_velocity: float = 0.0
+    price_acceleration: float = 0.0
+    vel_amp_divergence: float = 0.0
 
     def factor_breakdown(self) -> dict[str, float]:
         return {
@@ -154,6 +159,8 @@ class StockFeature:
             "resonance": round(self.resonance_score, 2),
             "risk_adjustment": round(self.risk_adjustment_score, 2),
             "intraday_score": round(self.raw_intraday_score, 2),
+            "industry_pe_median": round(self.industry_pe_median, 2),
+            "pe_pct": round(self.pe_pct, 4),
             "strategy_name": self.strategy_name,
             "total_score": round(self.score, 2),
         }
